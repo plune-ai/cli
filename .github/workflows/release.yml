@@ -33,7 +33,7 @@ jobs:
           FLAGS="--latest"
           case "$TAG" in *-*) FLAGS="--prerelease" ;; esac
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes $FLAGS
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag $FLAGS
           else
             gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes --title "$TAG" $FLAGS
           fi

@@ -62,16 +62,13 @@ jobs:
         env:
           ONNXRUNTIME_NODE_INSTALL: skip
 
-      # --- Guard (fail-fast): tag must match the version in package.json ---
-      - name: Verify package.json version matches tag
+      # --- Tag is the source of truth: set package.json version from the tag before publishing.
+      # (No manual `npm version` needed — just push a vX.Y.Z tag. The change is ephemeral to this
+      # CI run; the repo's package.json is a baseline.) ---
+      - name: Set version from tag
         run: |
-          PKG=$(node -p "require('./package.json').version")
-          WANT="${{ steps.meta.outputs.version }}"
-          if [ "$PKG" != "$WANT" ]; then
-            echo "::error::package.json version ($PKG) != release tag ($WANT). Run 'npm version' before tagging."
-            exit 1
-          fi
-          echo "Version OK: $PKG"
+          npm version "${{ steps.meta.outputs.version }}" --no-git-tag-version --allow-same-version
+          echo "package.json version set to $(node -p "require('./package.json').version")"
 
       # --- Checks (mirror of ci.yml): never publish a red build ---
       - name: Lint
