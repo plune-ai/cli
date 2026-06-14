@@ -1,7 +1,7 @@
 // Local embeddings via transformers.js (ADR-EMB02). Dirty edge: loads + runs the ONNX model.
-// No external API; weights are fetched once and cached. In CI, @xenova/transformers is mocked.
+// No external API; weights are fetched once and cached. transformers (and its onnxruntime native
+// dependency) is imported lazily on first embed, so importing this module never loads the runtime.
 
-import { pipeline } from '@huggingface/transformers';
 import type { Embedder } from '../types/embedder.js';
 
 const MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
@@ -25,9 +25,12 @@ export class XenovaEmbedder implements Embedder {
   }
 
   private load(): Promise<FeatureExtractor> {
-    // Lazy: build the pipeline once and reuse it. The cast bridges the SDK's class type to the
-    // call signature we rely on (the pipeline instance is callable at runtime).
-    this.extractor ??= pipeline('feature-extraction', MODEL_ID) as unknown as Promise<FeatureExtractor>;
+    // Lazy: import transformers (and its onnxruntime native dep) only on first use, then build the
+    // pipeline once and reuse it. Importing this module must NOT pull in the native runtime — that
+    // keeps cold start fast and lets non-embedding code paths and tests run without onnxruntime.
+    this.extractor ??= import('@huggingface/transformers').then(
+      ({ pipeline }) => pipeline('feature-extraction', MODEL_ID),
+    ) as unknown as Promise<FeatureExtractor>;
     return this.extractor;
   }
 }
