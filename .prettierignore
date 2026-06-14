@@ -1,0 +1,14 @@
+dist/
+coverage/
+node_modules/
+pnpm-lock.yaml
+*.md
+.claude/
+AiDocs/
+docs/
+documentation/
+specs/
+memory/
+scripts/
+sprint*/
+templates/
