@@ -26,7 +26,11 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
+        # Skip onnxruntime-node's large CUDA EP download — the bundled CPU build is all we need,
+        # and the GPU binding fails to load on CPU-only runners (see .npmrc).
         run: pnpm install --frozen-lockfile
+        env:
+          ONNXRUNTIME_NODE_INSTALL: skip
 
       - name: Lint
         run: pnpm lint
