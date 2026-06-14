@@ -1,6 +1,13 @@
 name: Publish to npm and GitHub Packages
 
+# Triggered directly by the version tag push (a real user event) so it actually runs — a Release
+# created by release.yml uses GITHUB_TOKEN, which does NOT trigger other workflows. `release:`
+# (manual UI releases) and `workflow_dispatch` are kept as alternative entry points.
 on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
   release:
     types: [published]
   workflow_dispatch:
@@ -31,6 +38,8 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             TAG="${{ inputs.tag }}"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            TAG="${{ github.ref_name }}"
           else
             TAG="${{ github.event.release.tag_name }}"
           fi
