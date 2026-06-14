@@ -91,7 +91,10 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "better-sqlite3",
-      "esbuild"
+      "esbuild",
+      "onnxruntime-node",
+      "protobufjs",
+      "sharp"
     ]
   }
 }
