@@ -1,0 +1,127 @@
+name: Publish to npm and GitHub Packages
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to publish (e.g. v0.2.0). Must match the version in package.json."
+        required: true
+
+permissions:
+  contents: read # read-only access to code — nothing is committed back to the repo
+  id-token: write # npm provenance (OIDC signing)
+  packages: write # publish to GitHub Packages
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.target_commitish || github.ref }}
+
+      - name: Resolve release tag
+        id: meta
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${{ github.event.release.tag_name }}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+
+      - name: Install dependencies
+        # Skip onnxruntime-node's CUDA EP download (the bundled CPU build is all we need; see .npmrc).
+        run: pnpm install --frozen-lockfile
+        env:
+          ONNXRUNTIME_NODE_INSTALL: skip
+
+      # --- Guard (fail-fast): tag must match the version in package.json ---
+      - name: Verify package.json version matches tag
+        run: |
+          PKG=$(node -p "require('./package.json').version")
+          WANT="${{ steps.meta.outputs.version }}"
+          if [ "$PKG" != "$WANT" ]; then
+            echo "::error::package.json version ($PKG) != release tag ($WANT). Run 'npm version' before tagging."
+            exit 1
+          fi
+          echo "Version OK: $PKG"
+
+      # --- Checks (mirror of ci.yml): never publish a red build ---
+      - name: Lint
+        run: pnpm lint
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Test (coverage gate)
+        run: pnpm test
+      - name: Build
+        run: pnpm build
+
+      # --- Determine npm dist-tag (alpha/beta/rc/latest) from the tag / prerelease flag ---
+      - name: Determine npm dist-tag
+        id: dist
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          if   echo "$TAG" | grep -qE "alpha|-alpha|\.a\."; then echo "tag=alpha" >> "$GITHUB_OUTPUT"
+          elif echo "$TAG" | grep -qE "beta|-beta|\.b\.";  then echo "tag=beta"  >> "$GITHUB_OUTPUT"
+          elif echo "$TAG" | grep -qE "rc|-rc|\.rc\.";     then echo "tag=rc"    >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.release.prerelease }}" = "true" ]; then echo "tag=beta" >> "$GITHUB_OUTPUT"
+          else echo "tag=latest" >> "$GITHUB_OUTPUT"
+          fi
+
+      # --- Phase 1: GitHub Packages (no provenance) — idempotent ---
+      - name: Setup Node for GitHub Packages
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@plune-ai"
+      - name: Publish to GitHub Packages
+        run: |
+          VER="${{ steps.meta.outputs.version }}"
+          if npm view "@plune-ai/cli@$VER" version --registry https://npm.pkg.github.com >/dev/null 2>&1; then
+            echo "@plune-ai/cli@$VER already in GitHub Packages — skipping (idempotent)."
+          else
+            npm pkg set publishConfig.registry=https://npm.pkg.github.com
+            npm publish --tag ${{ steps.dist.outputs.tag }}
+            npm pkg delete publishConfig.registry
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ github.token }}
+
+      # --- Phase 2: npm registry (with provenance) — idempotent ---
+      # scope MUST be re-set here: otherwise @plune-ai:registry from Phase 1 (.npmrc) still points at
+      # GitHub Packages and the scoped `npm publish` would NOT go to npmjs.
+      - name: Setup Node for npm
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+          scope: "@plune-ai"
+      - name: Publish to npm
+        run: |
+          VER="${{ steps.meta.outputs.version }}"
+          if npm view "@plune-ai/cli@$VER" version --registry https://registry.npmjs.org >/dev/null 2>&1; then
+            echo "@plune-ai/cli@$VER already on npm — skipping (idempotent)."
+          else
+            npm publish --provenance --tag ${{ steps.dist.outputs.tag }}
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
