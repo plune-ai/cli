@@ -12,6 +12,8 @@ locally, in CI, or as a regression diff between two runs. You describe the check
 token cost. Ten built-in assertion types cover plain text, JSON-schema, LLM-as-judge, and
 RAG metrics (faithfulness, answer-relevance, context-precision).
 
+**Links:** [plune.ai](https://plune.ai) | [npm](https://www.npmjs.com/package/@plune-ai/cli) | [GitHub Action on Marketplace](https://github.com/marketplace/actions/plune-eval-diff)
+
 ## Install
 
 ```bash
@@ -50,7 +52,7 @@ Each run writes its full result to `.plune/last-run.json`.
 ## Configuration
 
 Plune reads a single `plune.yaml`, discovered by walking up from the working directory (or
-passed with `-c <path>`). This is what `plune init` scaffolds:
+passed with `-c <path>`). A minimal example:
 
 ```yaml
 version: 1
