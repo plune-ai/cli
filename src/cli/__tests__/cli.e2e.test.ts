@@ -60,6 +60,24 @@ describe('plune binary — basics', () => {
     expect(r.status).toBe(2);
   });
 
+  // Regression for #7: npm/npx install the bin as a SYMLINK on Linux/macOS, so process.argv[1]
+  // is `.bin/plune` while the module's realpath is dist/cli.cjs. A plain string compare in the
+  // `isMain` guard mismatched → the CLI silently no-op'd (exit 0, no output) on Linux. Invoke
+  // through a symlink to prove the guard fires. (Windows blocks symlink creation without admin —
+  // skip there; the bug only manifests on the symlinking platforms anyway.)
+  it('runs when invoked through a symlinked bin (issue #7)', () => {
+    const linkDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plune-link-'));
+    const link = path.join(linkDir, 'plune');
+    try {
+      fs.symlinkSync(cli, link, 'file');
+    } catch {
+      return; // no symlink permission (e.g. Windows non-admin) — not the affected platform
+    }
+    const r = spawnSync(process.execPath, [link, '--version'], { encoding: 'utf8' });
+    expect(r.status).toBe(0);
+    expect((r.stdout ?? '').trim()).toMatch(/^\d+\.\d+\.\d+/);
+  });
+
   it('cold-start (`--version`) is under 300ms (warn >200ms) (NFR-1)', () => {
     let best = Infinity;
     for (let i = 0; i < 3; i++) {

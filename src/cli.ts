@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, realpathSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ReportFormat } from './reporters/index.js';
@@ -286,9 +286,22 @@ export function createProgram(): Command {
   return program;
 }
 
-// Execute only when run as the main script, not when imported by tests
-const isMain = process.argv[1] === fileURLToPath(import.meta.url);
-if (isMain) {
+// Execute only when run as the main script, not when imported by tests. argv[1] may be a symlink:
+// npm/npx install the bin as a symlink on Linux/macOS, so process.argv[1] is `.bin/plune` while
+// import.meta.url resolves to the real dist/cli.cjs. A plain string compare mismatches and silently
+// no-ops the entire CLI on Linux (exit 0, no output — issue #7). Compare realpaths so the guard
+// fires on every platform; realpath is idempotent on the already-resolved module path.
+function isMainModule(): boolean {
+  const entry = process.argv[1];
+  if (entry === undefined) return false;
+  try {
+    return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isMainModule()) {
   createProgram()
     .parseAsync(process.argv)
     .catch((err: unknown) => {
