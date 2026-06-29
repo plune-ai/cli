@@ -43,7 +43,7 @@ export interface EvalResult {
 }
 
 export interface RunResult {
-  schema: 1;
+  schemaVersion: 1;
   plune_version: string;
   started_at: string;
   finished_at: string;

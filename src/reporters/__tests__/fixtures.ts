@@ -3,7 +3,7 @@ import type { RunResult } from '../../types/results.js';
 // Shared RunResult fixtures for the reporter tests (no API — pure render input).
 
 export const mixed: RunResult = {
-  schema: 1,
+  schemaVersion: 1,
   plune_version: '0.1.0',
   started_at: '2026-06-11T09:00:00.000Z',
   finished_at: '2026-06-11T09:00:05.000Z',
@@ -56,7 +56,7 @@ export const mixed: RunResult = {
 };
 
 export const allPass: RunResult = {
-  schema: 1,
+  schemaVersion: 1,
   plune_version: '0.1.0',
   started_at: '2026-06-11T09:00:00.000Z',
   finished_at: '2026-06-11T09:00:01.000Z',
@@ -77,7 +77,7 @@ export const allPass: RunResult = {
 
 export function withLongOutput(maxLen: number): RunResult {
   return {
-    schema: 1,
+    schemaVersion: 1,
     plune_version: '0.1.0',
     started_at: 'a',
     finished_at: 'b',

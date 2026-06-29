@@ -301,7 +301,7 @@ export async function runOrchestration(
   }
 
   return {
-    schema: 1,
+    schemaVersion: 1,
     plune_version: PLUNE_VERSION,
     started_at: new Date(started).toISOString(),
     finished_at: new Date(finished).toISOString(),

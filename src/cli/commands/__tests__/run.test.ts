@@ -59,7 +59,7 @@ describe('handleRun (orchestrator wired)', () => {
 
     const result = await handleRun({ dryRun: false, configPath: cfgPath }, fakeDepsFactory());
 
-    expect(result.schema).toBe(1);
+    expect(result.schemaVersion).toBe(1);
     expect(result.summary).toMatchObject({ total: 1, passed: 1, failed: 0, errored: 0 });
     expect(result.evals[0]!.passed).toBe(true);
     expect(fs.existsSync(path.join(tmpDir, '.plune', 'last-run.json'))).toBe(true);

@@ -3,8 +3,8 @@ import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// Golden snapshot of the public surface — frozen within schema: 1 (ADR-TC01, ADR-TC02).
-// To bump: update SCHEMA_VERSION, update GOLDEN_EXPORTS, and increment RunResult.schema.
+// Golden snapshot of the public surface — frozen within schemaVersion: 1 (ADR-TC01, ADR-TC02).
+// To bump: update SCHEMA_VERSION, update GOLDEN_EXPORTS, and increment RunResult.schemaVersion.
 const SCHEMA_VERSION = 1;
 const GOLDEN_EXPORTS = new Set([
   'RunResult',
@@ -39,7 +39,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const publicTsPath = join(__dirname, '..', 'public.ts');
 
 describe('golden contract test — public surface guard (AC-07, AC-07b)', () => {
-  it('public.ts exports exactly the schema:1 golden set', () => {
+  it('public.ts exports exactly the schemaVersion:1 golden set', () => {
     const source = readFileSync(publicTsPath, 'utf-8');
     const actual = extractExportedNames(source);
 
@@ -52,7 +52,7 @@ describe('golden contract test — public surface guard (AC-07, AC-07b)', () => 
       ];
       if (added.length > 0) lines.push(`  Added:   ${added.join(', ')}`);
       if (removed.length > 0) lines.push(`  Removed: ${removed.join(', ')}`);
-      lines.push('Action: bump RunResult.schema, update SCHEMA_VERSION and GOLDEN_EXPORTS in this test.');
+      lines.push('Action: bump RunResult.schemaVersion, update SCHEMA_VERSION and GOLDEN_EXPORTS in this test.');
       throw new Error(lines.join('\n'));
     }
 
@@ -84,7 +84,7 @@ describe('golden contract test — public surface guard (AC-07, AC-07b)', () => 
 // The runtime test above pins the export-NAME set. This block pins the FIELD SHAPE of
 // every public type: a rename, an added/removed field, or a type change at ANY nesting
 // level breaks one of the `Equal<…>` assertions → tsc fails under tsconfig.check.json →
-// the build blocks until the surface is restored or RunResult.schema is bumped
+// the build blocks until the surface is restored or RunResult.schemaVersion is bumped
 // (AC-07; data-model §Aggregate 1: "type change, or rename is a breaking change").
 // vitest strips these type-only declarations; only the gate evaluates them.
 
@@ -144,7 +144,7 @@ interface GoldenEvalResult {
   passed: boolean;
 }
 interface GoldenRunResult {
-  schema: 1;
+  schemaVersion: 1;
   plune_version: string;
   started_at: string;
   finished_at: string;
@@ -162,5 +162,5 @@ type _PinRowResult = Expect<Equal<_RowResult, GoldenRowResult>>;
 type _PinEvalResult = Expect<Equal<_EvalResult, GoldenEvalResult>>;
 type _PinRunResult = Expect<Equal<_RunResult, GoldenRunResult>>;
 
-// The JS golden version marker MUST equal the RunResult.schema literal — bump them together.
-type _PinSchemaVersion = Expect<Equal<_RunResult['schema'], typeof SCHEMA_VERSION>>;
+// The JS golden version marker MUST equal the RunResult.schemaVersion literal — bump them together.
+type _PinSchemaVersion = Expect<Equal<_RunResult['schemaVersion'], typeof SCHEMA_VERSION>>;

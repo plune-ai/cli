@@ -57,7 +57,7 @@ describe('renderConsole', () => {
 
   it('renders a failing assertion with neither reason nor score, and null output', () => {
     const fixture: RunResult = {
-      schema: 1,
+      schemaVersion: 1,
       plune_version: '0',
       started_at: 'a',
       finished_at: 'b',

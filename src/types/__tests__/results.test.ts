@@ -32,7 +32,7 @@ describe('RunResult shape (AC-02)', () => {
     };
 
     const result: RunResult = {
-      schema: 1,
+      schemaVersion: 1,
       plune_version: '0.1.0',
       started_at: '2026-01-01T00:00:00.000Z',
       finished_at: '2026-01-01T00:01:00.000Z',
@@ -48,7 +48,7 @@ describe('RunResult shape (AC-02)', () => {
       evals: [evalResult],
     };
 
-    expect(result.schema).toBe(1);
+    expect(result.schemaVersion).toBe(1);
     expect(result.plune_version).toBe('0.1.0');
     expect(result.started_at).toBe('2026-01-01T00:00:00.000Z');
     expect(result.finished_at).toBe('2026-01-01T00:01:00.000Z');

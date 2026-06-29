@@ -7,7 +7,7 @@ import type { RunResult } from '../../types/results.js';
 
 // A clean all-pass RunResult so exitCodeFor() yields 0 and the run action completes normally.
 const OK_RESULT: RunResult = {
-  schema: 1,
+  schemaVersion: 1,
   plune_version: 'test',
   started_at: '2026-01-01T00:00:00.000Z',
   finished_at: '2026-01-01T00:00:00.000Z',

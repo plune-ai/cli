@@ -53,7 +53,7 @@ describe('public API barrel (src/index.ts)', () => {
       const cfg = path.join(tmp, 'plune.yaml');
       fs.writeFileSync(cfg, CONFIG);
       const result = await run({ dryRun: false, configPath: cfg }, fakeDeps());
-      expect(result.schema).toBe(1);
+      expect(result.schemaVersion).toBe(1);
       expect(result.summary).toMatchObject({ total: 1, passed: 1 });
       expect(Array.isArray(result.evals)).toBe(true);
     } finally {
