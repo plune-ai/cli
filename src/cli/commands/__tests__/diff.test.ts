@@ -26,7 +26,7 @@ function ev(id: string, passed: boolean): EvalResult {
 }
 function runResult(evals: EvalResult[]): RunResult {
   return {
-    schema: 1,
+    schemaVersion: 1,
     plune_version: '0',
     started_at: '',
     finished_at: '',

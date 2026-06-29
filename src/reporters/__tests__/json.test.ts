@@ -3,7 +3,7 @@ import { renderJson } from '../json.js';
 import type { RunResult } from '../../types/results.js';
 
 const fixture: RunResult = {
-  schema: 1,
+  schemaVersion: 1,
   plune_version: '0.1.0',
   started_at: '2026-06-11T09:00:00.000Z',
   finished_at: '2026-06-11T09:00:05.000Z',

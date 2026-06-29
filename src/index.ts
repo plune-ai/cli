@@ -11,7 +11,7 @@
 export { handleRun as run } from './cli/commands/run.js';
 export type { RunOptions } from './cli/commands/run.js';
 
-// Frozen public types (schema: 1) — re-exported from the pinned barrel (ADR-TC02).
+// Frozen public types (schemaVersion: 1) — re-exported from the pinned barrel (ADR-TC02).
 export type {
   RunResult,
   EvalResult,

@@ -20,7 +20,7 @@ function ev(id: string, passed: boolean, output: string): EvalResult {
 }
 function run(evals: EvalResult[]): RunResult {
   return {
-    schema: 1,
+    schemaVersion: 1,
     plune_version: '0',
     started_at: '',
     finished_at: '',

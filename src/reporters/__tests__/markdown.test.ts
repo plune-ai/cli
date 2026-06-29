@@ -26,7 +26,7 @@ describe('renderMarkdown (AC-4, AC-9)', () => {
 
   it('fences failure output and survives backticks inside it', () => {
     const fixture: RunResult = {
-      schema: 1,
+      schemaVersion: 1,
       plune_version: '0',
       started_at: 'a',
       finished_at: 'b',

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING (wire format):** `run --format json` output renames the RunResult version field
+  `schema` → `schemaVersion` (value unchanged, `1`), aligning the CLI with the frozen TMS data
+  contracts (plune-ai/plune#75). Consumers reading the top-level `schema` key must switch to
+  `schemaVersion`.
+
 ## [0.2.0] - 2026-06-14
 
 First public release.
