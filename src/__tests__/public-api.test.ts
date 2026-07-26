@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { run } from '../index.js';
+import { assertionConfigSchema, run } from '../index.js';
 import { loadDataset, type RunDeps } from '../orchestrator/index.js';
 import type { Config } from '../types/config.js';
 import type { Provider } from '../types/provider.js';
@@ -59,5 +59,13 @@ describe('public API barrel (src/index.ts)', () => {
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
+  });
+
+  // The Plune platform stores assertions on a TestCase and validates them with THIS schema, so a
+  // copy on its side could drift from the runner. Exporting the value is what makes that
+  // impossible; these assertions are the contract that keeps it exported.
+  it('exports assertionConfigSchema as a runtime validator', () => {
+    expect(assertionConfigSchema.safeParse({ type: 'exact-match', value: 'hi' }).success).toBe(true);
+    expect(assertionConfigSchema.safeParse({ type: 'not-a-real-assertion' }).success).toBe(false);
   });
 });

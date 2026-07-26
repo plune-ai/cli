@@ -24,3 +24,9 @@ export type {
 
 // The config shape a caller would build a `plune.yaml` against.
 export type { Config } from './types/config.js';
+
+// The runtime validator for a single assertion. Unlike everything above it is a *value*, not a
+// type: consumers that store assertions of their own (the Plune platform stores them on a
+// TestCase) need to validate them with the same schema the runner uses, so the two can never
+// drift apart. Frozen on the same terms as the rest of this barrel (ADR-TC01).
+export { assertionConfigSchema } from './config/schema.js';

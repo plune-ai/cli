@@ -98,7 +98,10 @@ const contextPrecisionAssertionSchema = z.object({
   threshold: z.number().min(0).max(1).optional(),
 });
 
-const assertionConfigSchema = z.discriminatedUnion('type', [
+// Exported: part of the public API (see src/index.ts). The Plune platform validates the
+// `assertions` array of a stored TestCase against this exact schema, so it must be the same
+// object the runner uses — not a copy that can drift.
+export const assertionConfigSchema = z.discriminatedUnion('type', [
   exactMatchAssertionSchema,
   containsAssertionSchema,
   containsAnyAssertionSchema,
