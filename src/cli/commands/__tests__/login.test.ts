@@ -51,7 +51,14 @@ describe('plune login / logout (#48)', () => {
 
     const { createProgram } = await import('../../../cli.js');
     // --verbose is a global flag → placed before the subcommand.
-    await createProgram().parseAsync(['node', 'plune', '--verbose', 'login', '--token', 'plune_SUPERSECRET']);
+    await createProgram().parseAsync([
+      'node',
+      'plune',
+      '--verbose',
+      'login',
+      '--token',
+      'plune_SUPERSECRET',
+    ]);
 
     const printed = out.join('');
     expect(printed).not.toContain('plune_SUPERSECRET'); // no leak anywhere in output

@@ -30,7 +30,9 @@ export class NotLoggedInError extends Error {
 /** The token was present but the server rejected it (401 — revoked or invalid). (exit 2) */
 export class TokenRejectedError extends Error {
   constructor() {
-    super('Your API token was rejected (revoked or invalid). Run "plune login" with a fresh token.');
+    super(
+      'Your API token was rejected (revoked or invalid). Run "plune login" with a fresh token.',
+    );
     this.name = 'TokenRejectedError';
   }
 }
@@ -46,14 +48,19 @@ export class SyncFileError extends Error {
 /** The API was unreachable (DNS / TLS / offline). Message names the host, never the token. (exit 1) */
 export class SyncNetworkError extends Error {
   constructor(apiUrl: string) {
-    super(`Could not reach the Plune API at ${apiUrl}. Check your connection (or PLUNE_API_URL) and try again.`);
+    super(
+      `Could not reach the Plune API at ${apiUrl}. Check your connection (or PLUNE_API_URL) and try again.`,
+    );
     this.name = 'SyncNetworkError';
   }
 }
 
 /** The server answered with a non-2xx that is not a 401 (e.g. 400 invalid body, 5xx). (exit 1) */
 export class SyncHttpError extends Error {
-  constructor(readonly status: number, detail: string) {
+  constructor(
+    readonly status: number,
+    detail: string,
+  ) {
     super(`Sync failed — the server returned HTTP ${status}${detail ? ` (${detail})` : ''}.`);
     this.name = 'SyncHttpError';
   }
@@ -86,7 +93,8 @@ function resolveApiUrl(explicit: string | undefined): string {
 
 /** Read + validate the run to upload, failing locally (with a clear message) before any network call. */
 function readRun(cwd: string, file: string | undefined): ParsedRunResult {
-  const target = file !== undefined ? path.resolve(cwd, file) : path.join(cwd, '.plune', 'last-run.json');
+  const target =
+    file !== undefined ? path.resolve(cwd, file) : path.join(cwd, '.plune', 'last-run.json');
   let raw: string;
   try {
     raw = fs.readFileSync(target, 'utf8');
@@ -167,7 +175,11 @@ export async function handleSync(deps: SyncDeps = {}): Promise<SyncResult> {
  * is not a known sync failure (caller then treats it as unexpected).
  */
 export function reportSyncFailure(err: unknown, write: (s: string) => void): number | null {
-  if (err instanceof NotLoggedInError || err instanceof TokenRejectedError || err instanceof SyncFileError) {
+  if (
+    err instanceof NotLoggedInError ||
+    err instanceof TokenRejectedError ||
+    err instanceof SyncFileError
+  ) {
     write(err.message + '\n');
     return 2; // user-actionable: log in, or produce/point at a valid run
   }

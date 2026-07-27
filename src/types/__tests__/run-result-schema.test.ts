@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { RunResult } from '../results.js';
-import { RUN_RESULT_SCHEMA_VERSION, parseRunResult, runResultSchema } from '../run-result-schema.js';
+import {
+  RUN_RESULT_SCHEMA_VERSION,
+  parseRunResult,
+  runResultSchema,
+} from '../run-result-schema.js';
 
 // Shape emitted by `@plune-ai/cli run --format json` (mock provider), with the version field
 // renamed `schema` → `schemaVersion`. Source of truth the RunResult contract must accept (DoD d).
@@ -98,7 +102,7 @@ describe('runResultSchema — binaryVerdicts superset (DoD e)', () => {
           { question: 'Is it 3 sentences or fewer?', passed: true },
         ],
       },
-    ] as unknown as typeof withVerdicts.evals[0]['rows'][0]['assertions'];
+    ] as unknown as (typeof withVerdicts.evals)[0]['rows'][0]['assertions'];
     const parsed = parseRunResult(withVerdicts);
     const record = parsed.evals[0]!.rows[0]!.assertions[0]!;
     expect(record.binaryVerdicts?.[0]).toEqual({ question: 'Is the answer polite?', passed: true });
@@ -112,7 +116,7 @@ describe('runResultSchema — binaryVerdicts superset (DoD e)', () => {
     const bad = structuredClone(realCliOutput);
     bad.evals[0]!.rows[0]!.assertions = [
       { type: 'llm-judge', passed: true, binaryVerdicts: [{ question: 'q' }] },
-    ] as unknown as typeof bad.evals[0]['rows'][0]['assertions'];
+    ] as unknown as (typeof bad.evals)[0]['rows'][0]['assertions'];
     expect(runResultSchema.safeParse(bad).success).toBe(false);
   });
 });

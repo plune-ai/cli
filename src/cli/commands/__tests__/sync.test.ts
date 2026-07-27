@@ -158,7 +158,10 @@ describe('handleSync (#49)', () => {
   });
 
   it('honours --file, syncing an explicit run JSON', async () => {
-    writeFileSync(join(tmp, 'my-run.json'), JSON.stringify(runResult({ config_hash: 'from-file' })));
+    writeFileSync(
+      join(tmp, 'my-run.json'),
+      JSON.stringify(runResult({ config_hash: 'from-file' })),
+    );
     const { fn, calls } = stubFetch(201, { id: 'run_file' });
     const res = await handleSync({
       cwd: tmp,
@@ -187,7 +190,12 @@ describe('handleSync (#49)', () => {
   it('normalises a trailing slash in the API URL', async () => {
     writeRun(tmp);
     const { fn, calls } = stubFetch(201, { id: 'run_1' });
-    await handleSync({ cwd: tmp, apiUrl: 'https://api.test/', loadToken: () => TOKEN, fetchImpl: fn });
+    await handleSync({
+      cwd: tmp,
+      apiUrl: 'https://api.test/',
+      loadToken: () => TOKEN,
+      fetchImpl: fn,
+    });
     expect(calls[0]?.url).toBe('https://api.test/v1/runs');
   });
 
