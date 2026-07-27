@@ -30,3 +30,17 @@ export type { Config } from './types/config.js';
 // TestCase) need to validate them with the same schema the runner uses, so the two can never
 // drift apart. Frozen on the same terms as the rest of this barrel (ADR-TC01).
 export { assertionConfigSchema } from './config/schema.js';
+
+// The runtime validator for the RunResult contract, for consumers that INGEST a run rather than
+// produce one. `plune sync` validates the local run file with it before uploading; the Plune platform
+// validates the same body on `POST /v1/runs`. One schema on both ends is what makes the two unable to
+// drift. The record schemas are exported too so a consumer's own result entity can reuse the exact
+// assertion shapes the runner emits instead of restating them.
+export {
+  parseRunResult,
+  runResultSchema,
+  RUN_RESULT_SCHEMA_VERSION,
+  assertionResultRecordSchema,
+  binaryVerdictSchema,
+} from './types/run-result-schema.js';
+export type { ParsedRunResult, BinaryVerdict } from './types/run-result-schema.js';

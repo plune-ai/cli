@@ -100,10 +100,29 @@ provider API key is read from the environment based on `provider.type`:
 | `plune report` | Re-render the most recent run. Flags: `--format`, `-o`. |
 | `plune diff <baseline> <current>` | Compare two `plune run --format json` outputs and report pass→fail regressions. Flags: `--fail-on-regression`, `--format`, `-o`. |
 | `plune init` | Scaffold `plune.yaml`, a sample dataset, and `.env.example`. Flags: `--yes` (non-interactive), `--force`. |
+| `plune login` | Save a [Plune platform](https://plune.ai/platform) API token so `sync` can reach it. Flags: `--token <token>` (omit to paste it or pipe it via stdin). |
+| `plune logout` | Remove the saved token. |
+| `plune sync` | Upload the latest local run to the platform. Flags: `--file <path>` to send a specific run JSON. |
 
 Global flags: `-c, --config <path>` · `-v, --verbose` · `--no-color`.
 
 **Exit codes:** `0` everything passed · `1` an assertion failed · `2` configuration or execution error.
+
+## Optional: keep a history
+
+Everything above works with no account, no network, and no token — that does not change. If you
+also want run history, trends, and a shared dashboard, the three cloud commands push your local
+runs to the [Plune platform](https://plune.ai/platform):
+
+```bash
+plune login          # paste the API token from your platform settings page
+plune run            # exactly as before — the run is saved locally
+plune sync           # upload .plune/last-run.json, print the read-back URL
+```
+
+The token is stored at `~/.config/plune/credentials.json` (mode `0600`, honours `XDG_CONFIG_HOME`)
+and is never printed or logged. `PLUNE_API_URL` points `sync` at a different server — useful for a
+self-hosted backend.
 
 ## Programmatic API
 

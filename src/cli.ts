@@ -51,6 +51,23 @@ function failUnexpected(err: unknown, verbose: boolean): void {
   process.exit(1);
 }
 
+// `plune login` without `--token`: read the token from the first line of stdin. Works both piped
+// (`echo tok | plune login`) and interactively — the prompt goes to stderr so a piped stdout stays
+// clean. readline is imported lazily: the cold-start path must not pay for it.
+async function readTokenFromStdin(): Promise<string> {
+  if (process.stdin.isTTY === true) {
+    process.stderr.write('Paste your API token, then press Enter:\n');
+  }
+  const { createInterface } = await import('node:readline');
+  const rl = createInterface({ input: process.stdin });
+  try {
+    for await (const line of rl) return line; // first line only
+    return ''; // EOF with nothing typed / piped
+  } finally {
+    rl.close();
+  }
+}
+
 export function createProgram(): Command {
   const program = new Command();
 
@@ -270,6 +287,78 @@ export function createProgram(): Command {
         if (err instanceof NonTtyError) {
           process.stderr.write((err as Error).message + '\n');
           process.exit(1);
+          return;
+        }
+        failUnexpected(err, verbose);
+      }
+    });
+
+  // CLOUD COMMANDS (ADR 0006) — optional, and deliberately last. They are the only commands that
+  // talk to a server; everything above runs fully local, with no account and no network, and that
+  // must stay true. Nothing here is loaded unless the user invokes one of these three.
+
+  program
+    .command('login')
+    .description('Save your Plune API token so the CLI can reach the platform')
+    .option('--token <token>', 'API token (omit to paste it / pipe it via stdin)')
+    .action(async (options: { token?: string }, command: Command) => {
+      const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
+      const { handleLogin, EmptyTokenError } = await import('./cli/commands/login.js');
+      try {
+        const token = options.token ?? (await readTokenFromStdin());
+        const { path } = handleLogin({ token });
+        // Deliberately print ONLY the path, never the token — it must not surface in a terminal or log.
+        process.stdout.write(`Logged in. Token saved to ${path}\n`);
+      } catch (err) {
+        if (err instanceof EmptyTokenError) {
+          process.stderr.write(err.message + '\n');
+          process.exit(2);
+          return;
+        }
+        failUnexpected(err, verbose);
+      }
+    });
+
+  program
+    .command('logout')
+    .description('Remove the saved Plune API token')
+    .action(async (_options: unknown, command: Command) => {
+      const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
+      const { handleLogout } = await import('./cli/commands/logout.js');
+      try {
+        const { removed, path } = handleLogout();
+        process.stdout.write(
+          removed ? `Logged out. Removed ${path}\n` : 'Not logged in — nothing to remove.\n',
+        );
+      } catch (err) {
+        failUnexpected(err, verbose);
+      }
+    });
+
+  program
+    .command('sync')
+    .description('Upload your latest local run to the Plune platform (POST /v1/runs)')
+    .option('--file <path>', 'Sync a specific run JSON instead of .plune/last-run.json')
+    .action(async (options: { file?: string }, command: Command) => {
+      const globals = command.optsWithGlobals() as { config?: string; verbose?: boolean };
+      const verbose = globals.verbose === true;
+      const { handleSync, reportSyncFailure } = await import('./cli/commands/sync.js');
+      // Mirror `report`: a global -c points sync at the run saved beside that config, else cwd.
+      const cwd = globals.config !== undefined ? dirname(resolve(globals.config)) : process.cwd();
+      try {
+        const { id, url } = await handleSync({
+          cwd,
+          ...(options.file !== undefined ? { file: options.file } : {}),
+        });
+        // Print only the id + read-back URL — never the token.
+        process.stdout.write(`Synced run ${id} → ${url}\n`);
+      } catch (err) {
+        const code = reportSyncFailure(err, (s) => process.stderr.write(s));
+        if (code !== null) {
+          maybeStack(err, verbose);
+          // exitCode (not process.exit): let the event loop drain the fetch socket first — a hard exit
+          // here races undici's async teardown and trips a libuv assertion on Windows.
+          process.exitCode = code;
           return;
         }
         failUnexpected(err, verbose);
