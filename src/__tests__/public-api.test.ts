@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { assertionConfigSchema, run } from '../index.js';
+import { assertionConfigSchema, NotLoggedInError, run, sync } from '../index.js';
 import { loadDataset, type RunDeps } from '../orchestrator/index.js';
 import type { Config } from '../types/config.js';
 import type { Provider } from '../types/provider.js';
@@ -64,6 +64,13 @@ describe('public API barrel (src/index.ts)', () => {
   // The Plune platform stores assertions on a TestCase and validates them with THIS schema, so a
   // copy on its side could drift from the runner. Exporting the value is what makes that
   // impossible; these assertions are the contract that keeps it exported.
+  // A cross-repo contract test drives THIS function against a live server, so the export and the
+  // error classes are load-bearing, not conveniences.
+  it('exports sync() and its typed failures', async () => {
+    expect(typeof sync).toBe('function');
+    await expect(sync({ loadToken: () => null })).rejects.toBeInstanceOf(NotLoggedInError);
+  });
+
   it('exports assertionConfigSchema as a runtime validator', () => {
     expect(assertionConfigSchema.safeParse({ type: 'exact-match', value: 'hi' }).success).toBe(true);
     expect(assertionConfigSchema.safeParse({ type: 'not-a-real-assertion' }).success).toBe(false);

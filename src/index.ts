@@ -11,6 +11,20 @@
 export { handleRun as run } from './cli/commands/run.js';
 export type { RunOptions } from './cli/commands/run.js';
 
+// The upload half of the same story: `run()` produces a RunResult, `sync()` pushes it to the platform.
+// Exported for the same callers `run()` serves — CI code driving Plune programmatically — and for
+// cross-repo contract tests, which need the REAL client to prove it still agrees with the server.
+// The error classes come along because a caller has to tell "log in" apart from "network is down".
+export { handleSync as sync, reportSyncFailure } from './cli/commands/sync.js';
+export type { SyncDeps, SyncResult } from './cli/commands/sync.js';
+export {
+  NotLoggedInError,
+  TokenRejectedError,
+  SyncFileError,
+  SyncNetworkError,
+  SyncHttpError,
+} from './cli/commands/sync.js';
+
 // Frozen public types (schemaVersion: 1) — re-exported from the pinned barrel (ADR-TC02).
 export type {
   RunResult,
