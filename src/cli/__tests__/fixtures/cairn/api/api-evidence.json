@@ -1,0 +1,746 @@
+[
+  {
+    "name": "updatePet",
+    "method": "PUT",
+    "url": "https://petstore3.swagger.io/api/v3/pet",
+    "request": {
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": 10,
+        "name": "doggie",
+        "category": {
+          "id": 1,
+          "name": "Dogs"
+        },
+        "photoUrls": [
+          "string"
+        ],
+        "tags": [
+          {
+            "id": 0,
+            "name": "string"
+          }
+        ],
+        "status": "available"
+      }
+    },
+    "attempts": 3,
+    "expectedStatus": "200",
+    "statusOk": false,
+    "schemaOk": false,
+    "schemaErrors": [
+      "$.name: required property missing",
+      "$.photoUrls: required property missing"
+    ],
+    "passed": false,
+    "response": {
+      "status": 500,
+      "bodyText": "{\"code\":500,\"message\":\"There was an error processing your request. It has been logged (ID: a2dba98ef833830d)\"}",
+      "json": {
+        "code": 500,
+        "message": "There was an error processing your request. It has been logged (ID: a2dba98ef833830d)"
+      }
+    }
+  },
+  {
+    "name": "addPet",
+    "method": "POST",
+    "url": "https://petstore3.swagger.io/api/v3/pet",
+    "request": {
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": 10,
+        "name": "doggie",
+        "category": {
+          "id": 1,
+          "name": "Dogs"
+        },
+        "photoUrls": [
+          "string"
+        ],
+        "tags": [
+          {
+            "id": 0,
+            "name": "string"
+          }
+        ],
+        "status": "available"
+      }
+    },
+    "attempts": 3,
+    "expectedStatus": "200",
+    "statusOk": false,
+    "schemaOk": false,
+    "schemaErrors": [
+      "$.name: required property missing",
+      "$.photoUrls: required property missing"
+    ],
+    "passed": false,
+    "response": {
+      "status": 500,
+      "bodyText": "{\"code\":500,\"message\":\"There was an error processing your request. It has been logged (ID: e55407314b21e92c)\"}",
+      "json": {
+        "code": 500,
+        "message": "There was an error processing your request. It has been logged (ID: e55407314b21e92c)"
+      }
+    }
+  },
+  {
+    "name": "findPetsByStatus",
+    "method": "GET",
+    "url": "https://petstore3.swagger.io/api/v3/pet/findByStatus?status=available",
+    "request": {
+      "headers": {}
+    },
+    "attempts": 3,
+    "expectedStatus": "200",
+    "statusOk": false,
+    "schemaOk": false,
+    "schemaErrors": [
+      "$: expected array, got object"
+    ],
+    "passed": false,
+    "response": {
+      "status": 500,
+      "bodyText": "{\"code\":500,\"message\":\"There was an error processing your request. It has been logged (ID: fdcd82dc9c646909)\"}",
+      "json": {
+        "code": 500,
+        "message": "There was an error processing your request. It has been logged (ID: fdcd82dc9c646909)"
+      }
+    }
+  },
+  {
+    "name": "findPetsByTags",
+    "method": "GET",
+    "url": "https://petstore3.swagger.io/api/v3/pet/findByTags?tags=string",
+    "request": {
+      "headers": {}
+    },
+    "attempts": 3,
+    "expectedStatus": "200",
+    "statusOk": false,
+    "schemaOk": false,
+    "schemaErrors": [
+      "$: expected array, got object"
+    ],
+    "passed": false,
+    "response": {
+      "status": 500,
+      "bodyText": "{\"code\":500,\"message\":\"There was an error processing your request. It has been logged (ID: fb8fc09063927bc0)\"}",
+      "json": {
+        "code": 500,
+        "message": "There was an error processing your request. It has been logged (ID: fb8fc09063927bc0)"
+      }
+    }
+  },
+  {
+    "name": "getPetById",
+    "method": "GET",
+    "url": "https://petstore3.swagger.io/api/v3/pet/0",
+    "request": {
+      "headers": {}
+    },
+    "attempts": 3,
+    "expectedStatus": "200",
+    "statusOk": false,
+    "schemaOk": false,
+    "schemaErrors": [
+      "$.name: required property missing",
+      "$.photoUrls: required property missing"
+    ],
+    "passed": false,
+    "response": {
+      "status": 500,
+      "bodyText": "{\"code\":500,\"message\":\"There was an error processing your request. It has been logged (ID: 6aebe5701abe441a)\"}",
+      "json": {
+        "code": 500,
+        "message": "There was an error processing your request. It has been logged (ID: 6aebe5701abe441a)"
+      }
+    }
+  },
+  {
+    "name": "updatePetWithForm",
+    "method": "POST",
+    "url": "https://petstore3.swagger.io/api/v3/pet/0",
+    "request": {
+      "headers": {}
+    },
+    "attempts": 1,
+    "expectedStatus": "200",
+    "statusOk": false,
+    "schemaOk": false,
+    "schemaErrors": [
+      "response body is not valid JSON (Unexpected token 'N', \"No Name pr\"... is not valid JSON)"
+    ],
+    "passed": false,
+    "response": {
+      "status": 400,
+      "bodyText": "No Name provided. Try again?"
+    }
+  },
+  {
+    "name": "deletePet",
+    "method": "DELETE",
+    "url": "https://petstore3.swagger.io/api/v3/pet/0",
+    "request": {
+      "headers": {}
+    },
+    "attempts": 3,
+    "expectedStatus": "200",
+    "statusOk": false,
+    "schemaOk": true,
+    "schemaErrors": [],
+    "passed": false,
+    "response": {
+      "status": 500,
+      "bodyText": "{\"code\":500,\"message\":\"There was an error processing your request. It has been logged (ID: 2aea6246d029769f)\"}",
+      "json": {
+        "code": 500,
+        "message": "There was an error processing your request. It has been logged (ID: 2aea6246d029769f)"
+      }
+    }
+  },
+  {
+    "name": "uploadFile",
+    "method": "POST",
+    "url": "https://petstore3.swagger.io/api/v3/pet/0/uploadImage",
+    "request": {
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": "<binary 30b>"
+    },
+    "attempts": 1,
+    "expectedStatus": "200",
+    "statusOk": false,
+    "schemaOk": true,
+    "schemaErrors": [],
+    "passed": false,
+    "response": {
+      "status": 415,
+      "bodyText": "{\"code\":415,\"message\":\"HTTP 415 Unsupported Media Type\"}",
+      "json": {
+        "code": 415,
+        "message": "HTTP 415 Unsupported Media Type"
+      }
+    }
+  },
+  {
+    "name": "getInventory",
+    "method": "GET",
+    "url": "https://petstore3.swagger.io/api/v3/store/inventory",
+    "request": {
+      "headers": {}
+    },
+    "attempts": 3,
+    "expectedStatus": "200",
+    "statusOk": false,
+    "schemaOk": false,
+    "schemaErrors": [
+      "$.message: expected integer, got string"
+    ],
+    "passed": false,
+    "response": {
+      "status": 500,
+      "bodyText": "{\"code\":500,\"message\":\"There was an error processing your request. It has been logged (ID: 905e6744de233d14)\"}",
+      "json": {
+        "code": 500,
+        "message": "There was an error processing your request. It has been logged (ID: 905e6744de233d14)"
+      }
+    }
+  },
+  {
+    "name": "placeOrder",
+    "method": "POST",
+    "url": "https://petstore3.swagger.io/api/v3/store/order",
+    "request": {
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": 10,
+        "petId": 198772,
+        "quantity": 7,
+        "shipDate": "2024-01-01T00:00:00Z",
+        "status": "approved",
+        "complete": true
+      }
+    },
+    "attempts": 3,
+    "expectedStatus": "200",
+    "statusOk": false,
+    "schemaOk": true,
+    "schemaErrors": [],
+    "passed": false,
+    "response": {
+      "status": 500,
+      "bodyText": "{\"code\":500,\"message\":\"There was an error processing your request. It has been logged (ID: 0dc397d6e1cbcc50)\"}",
+      "json": {
+        "code": 500,
+        "message": "There was an error processing your request. It has been logged (ID: 0dc397d6e1cbcc50)"
+      }
+    }
+  },
+  {
+    "name": "getOrderById",
+    "method": "GET",
+    "url": "https://petstore3.swagger.io/api/v3/store/order/0",
+    "request": {
+      "headers": {}
+    },
+    "attempts": 3,
+    "expectedStatus": "200",
+    "statusOk": false,
+    "schemaOk": true,
+    "schemaErrors": [],
+    "passed": false,
+    "response": {
+      "status": 500,
+      "bodyText": "{\"code\":500,\"message\":\"There was an error processing your request. It has been logged (ID: 1bc99f05e112b011)\"}",
+      "json": {
+        "code": 500,
+        "message": "There was an error processing your request. It has been logged (ID: 1bc99f05e112b011)"
+      }
+    }
+  },
+  {
+    "name": "deleteOrder",
+    "method": "DELETE",
+    "url": "https://petstore3.swagger.io/api/v3/store/order/0",
+    "request": {
+      "headers": {}
+    },
+    "attempts": 3,
+    "expectedStatus": "200",
+    "statusOk": false,
+    "schemaOk": true,
+    "schemaErrors": [],
+    "passed": false,
+    "response": {
+      "status": 500,
+      "bodyText": "{\"code\":500,\"message\":\"There was an error processing your request. It has been logged (ID: fda7434c2bd5980f)\"}",
+      "json": {
+        "code": 500,
+        "message": "There was an error processing your request. It has been logged (ID: fda7434c2bd5980f)"
+      }
+    }
+  },
+  {
+    "name": "createUser",
+    "method": "POST",
+    "url": "https://petstore3.swagger.io/api/v3/user",
+    "request": {
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": 10,
+        "username": "theUser",
+        "firstName": "John",
+        "lastName": "James",
+        "email": "john@email.com",
+        "password": "12345",
+        "phone": "12345",
+        "userStatus": 1
+      }
+    },
+    "attempts": 3,
+    "expectedStatus": "200",
+    "statusOk": false,
+    "schemaOk": true,
+    "schemaErrors": [],
+    "passed": false,
+    "response": {
+      "status": 500,
+      "bodyText": "{\"code\":500,\"message\":\"There was an error processing your request. It has been logged (ID: 4fc6430c1f757023)\"}",
+      "json": {
+        "code": 500,
+        "message": "There was an error processing your request. It has been logged (ID: 4fc6430c1f757023)"
+      }
+    }
+  },
+  {
+    "name": "createUsersWithListInput",
+    "method": "POST",
+    "url": "https://petstore3.swagger.io/api/v3/user/createWithList",
+    "request": {
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": [
+        {
+          "id": 10,
+          "username": "theUser",
+          "firstName": "John",
+          "lastName": "James",
+          "email": "john@email.com",
+          "password": "12345",
+          "phone": "12345",
+          "userStatus": 1
+        }
+      ]
+    },
+    "attempts": 3,
+    "expectedStatus": "200",
+    "statusOk": false,
+    "schemaOk": true,
+    "schemaErrors": [],
+    "passed": false,
+    "response": {
+      "status": 500,
+      "bodyText": "{\"code\":500,\"message\":\"There was an error processing your request. It has been logged (ID: 00da69973040e529)\"}",
+      "json": {
+        "code": 500,
+        "message": "There was an error processing your request. It has been logged (ID: 00da69973040e529)"
+      }
+    }
+  },
+  {
+    "name": "loginUser",
+    "method": "GET",
+    "url": "https://petstore3.swagger.io/api/v3/user/login",
+    "request": {
+      "headers": {}
+    },
+    "attempts": 1,
+    "expectedStatus": "200",
+    "statusOk": true,
+    "schemaOk": false,
+    "schemaErrors": [
+      "response body is not valid JSON (Unexpected token 'L', \"Logged in \"... is not valid JSON)"
+    ],
+    "passed": false,
+    "response": {
+      "status": 200,
+      "bodyText": "Logged in user session: 1727059015499732254"
+    }
+  },
+  {
+    "name": "logoutUser",
+    "method": "GET",
+    "url": "https://petstore3.swagger.io/api/v3/user/logout",
+    "request": {
+      "headers": {}
+    },
+    "attempts": 1,
+    "expectedStatus": "200",
+    "statusOk": true,
+    "schemaOk": true,
+    "schemaErrors": [],
+    "passed": true,
+    "response": {
+      "status": 200,
+      "bodyText": "User logged out"
+    }
+  },
+  {
+    "name": "getUserByName",
+    "method": "GET",
+    "url": "https://petstore3.swagger.io/api/v3/user/string",
+    "request": {
+      "headers": {}
+    },
+    "attempts": 3,
+    "expectedStatus": "200",
+    "statusOk": false,
+    "schemaOk": true,
+    "schemaErrors": [],
+    "passed": false,
+    "response": {
+      "status": 500,
+      "bodyText": "{\"code\":500,\"message\":\"There was an error processing your request. It has been logged (ID: c4f09f6792b271db)\"}",
+      "json": {
+        "code": 500,
+        "message": "There was an error processing your request. It has been logged (ID: c4f09f6792b271db)"
+      }
+    }
+  },
+  {
+    "name": "updateUser",
+    "method": "PUT",
+    "url": "https://petstore3.swagger.io/api/v3/user/string",
+    "request": {
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": 10,
+        "username": "theUser",
+        "firstName": "John",
+        "lastName": "James",
+        "email": "john@email.com",
+        "password": "12345",
+        "phone": "12345",
+        "userStatus": 1
+      }
+    },
+    "attempts": 3,
+    "expectedStatus": "200",
+    "statusOk": false,
+    "schemaOk": true,
+    "schemaErrors": [],
+    "passed": false,
+    "response": {
+      "status": 500,
+      "bodyText": "{\"code\":500,\"message\":\"There was an error processing your request. It has been logged (ID: 659cb0c651a837ba)\"}",
+      "json": {
+        "code": 500,
+        "message": "There was an error processing your request. It has been logged (ID: 659cb0c651a837ba)"
+      }
+    }
+  },
+  {
+    "name": "deleteUser",
+    "method": "DELETE",
+    "url": "https://petstore3.swagger.io/api/v3/user/string",
+    "request": {
+      "headers": {}
+    },
+    "attempts": 3,
+    "expectedStatus": "200",
+    "statusOk": false,
+    "schemaOk": true,
+    "schemaErrors": [],
+    "passed": false,
+    "response": {
+      "status": 500,
+      "bodyText": "{\"code\":500,\"message\":\"There was an error processing your request. It has been logged (ID: 2d14aa3431f6d2ab)\"}",
+      "json": {
+        "code": 500,
+        "message": "There was an error processing your request. It has been logged (ID: 2d14aa3431f6d2ab)"
+      }
+    }
+  },
+  {
+    "name": "updatePet (negative)",
+    "method": "PUT",
+    "url": "https://petstore3.swagger.io/api/v3/pet",
+    "request": {
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": "not-a-number",
+        "name": "doggie",
+        "category": {
+          "id": 1,
+          "name": "Dogs"
+        },
+        "photoUrls": [
+          "string"
+        ],
+        "tags": [
+          {
+            "id": 0,
+            "name": "string"
+          }
+        ],
+        "status": "available"
+      }
+    },
+    "attempts": 1,
+    "expectedStatus": "400",
+    "statusOk": true,
+    "schemaOk": true,
+    "schemaErrors": [],
+    "passed": true,
+    "response": {
+      "status": 400,
+      "bodyText": "{\"code\":400,\"message\":\"Input error: unable to convert input to io.swagger.petstore.model.Pet\"}",
+      "json": {
+        "code": 400,
+        "message": "Input error: unable to convert input to io.swagger.petstore.model.Pet"
+      }
+    }
+  },
+  {
+    "name": "addPet (negative)",
+    "method": "POST",
+    "url": "https://petstore3.swagger.io/api/v3/pet",
+    "request": {
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": "not-a-number",
+        "name": "doggie",
+        "category": {
+          "id": 1,
+          "name": "Dogs"
+        },
+        "photoUrls": [
+          "string"
+        ],
+        "tags": [
+          {
+            "id": 0,
+            "name": "string"
+          }
+        ],
+        "status": "available"
+      }
+    },
+    "attempts": 1,
+    "expectedStatus": "400",
+    "statusOk": true,
+    "schemaOk": true,
+    "schemaErrors": [],
+    "passed": true,
+    "response": {
+      "status": 400,
+      "bodyText": "{\"code\":400,\"message\":\"Input error: unable to convert input to io.swagger.petstore.model.Pet\"}",
+      "json": {
+        "code": 400,
+        "message": "Input error: unable to convert input to io.swagger.petstore.model.Pet"
+      }
+    }
+  },
+  {
+    "name": "findPetsByStatus (negative)",
+    "method": "GET",
+    "url": "https://petstore3.swagger.io/api/v3/pet/findByStatus",
+    "request": {
+      "headers": {}
+    },
+    "attempts": 1,
+    "expectedStatus": "400",
+    "statusOk": true,
+    "schemaOk": true,
+    "schemaErrors": [],
+    "passed": true,
+    "response": {
+      "status": 400,
+      "bodyText": "{\"code\":400,\"message\":\"Input error: missing required query parameter `status`\"}",
+      "json": {
+        "code": 400,
+        "message": "Input error: missing required query parameter `status`"
+      }
+    }
+  },
+  {
+    "name": "findPetsByTags (negative)",
+    "method": "GET",
+    "url": "https://petstore3.swagger.io/api/v3/pet/findByTags",
+    "request": {
+      "headers": {}
+    },
+    "attempts": 1,
+    "expectedStatus": "400",
+    "statusOk": true,
+    "schemaOk": true,
+    "schemaErrors": [],
+    "passed": true,
+    "response": {
+      "status": 400,
+      "bodyText": "{\"code\":400,\"message\":\"Input error: missing required query parameter `tags`\"}",
+      "json": {
+        "code": 400,
+        "message": "Input error: missing required query parameter `tags`"
+      }
+    }
+  },
+  {
+    "name": "placeOrder (negative)",
+    "method": "POST",
+    "url": "https://petstore3.swagger.io/api/v3/store/order",
+    "request": {
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": "not-a-number",
+        "petId": 198772,
+        "quantity": 7,
+        "shipDate": "2024-01-01T00:00:00Z",
+        "status": "approved",
+        "complete": true
+      }
+    },
+    "attempts": 1,
+    "expectedStatus": "400",
+    "statusOk": true,
+    "schemaOk": true,
+    "schemaErrors": [],
+    "passed": true,
+    "response": {
+      "status": 400,
+      "bodyText": "{\"code\":400,\"message\":\"Input error: unable to convert input to io.swagger.petstore.model.Order\"}",
+      "json": {
+        "code": 400,
+        "message": "Input error: unable to convert input to io.swagger.petstore.model.Order"
+      }
+    }
+  },
+  {
+    "name": "createUser (negative)",
+    "method": "POST",
+    "url": "https://petstore3.swagger.io/api/v3/user",
+    "request": {
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": "not-a-number",
+        "username": "theUser",
+        "firstName": "John",
+        "lastName": "James",
+        "email": "john@email.com",
+        "password": "12345",
+        "phone": "12345",
+        "userStatus": 1
+      }
+    },
+    "attempts": 1,
+    "expectedStatus": "4XX",
+    "statusOk": true,
+    "schemaOk": true,
+    "schemaErrors": [],
+    "passed": true,
+    "response": {
+      "status": 400,
+      "bodyText": "{\"code\":400,\"message\":\"Input error: unable to convert input to io.swagger.petstore.model.User\"}",
+      "json": {
+        "code": 400,
+        "message": "Input error: unable to convert input to io.swagger.petstore.model.User"
+      }
+    }
+  },
+  {
+    "name": "updateUser (negative)",
+    "method": "PUT",
+    "url": "https://petstore3.swagger.io/api/v3/user/string",
+    "request": {
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "id": "not-a-number",
+        "username": "theUser",
+        "firstName": "John",
+        "lastName": "James",
+        "email": "john@email.com",
+        "password": "12345",
+        "phone": "12345",
+        "userStatus": 1
+      }
+    },
+    "attempts": 1,
+    "expectedStatus": "400",
+    "statusOk": true,
+    "schemaOk": true,
+    "schemaErrors": [],
+    "passed": true,
+    "response": {
+      "status": 400,
+      "bodyText": "{\"code\":400,\"message\":\"Input error: unable to convert input to io.swagger.petstore.model.User\"}",
+      "json": {
+        "code": 400,
+        "message": "Input error: unable to convert input to io.swagger.petstore.model.User"
+      }
+    }
+  }
+]

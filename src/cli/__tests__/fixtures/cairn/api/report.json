@@ -1,0 +1,955 @@
+{
+  "schemaVersion": 1,
+  "runId": "api-9aaca625-80b7-45dc-a72d-eaff9605a784",
+  "url": "https://petstore3.swagger.io/api/v3",
+  "mode": "api",
+  "api": {
+    "passed": 8,
+    "total": 26,
+    "endpointCount": 19
+  },
+  "cases": [
+    {
+      "name": "updatePet",
+      "method": "PUT",
+      "path": "/pet",
+      "operationId": "updatePet",
+      "params": {
+        "path": {},
+        "query": {},
+        "header": {},
+        "cookie": {}
+      },
+      "body": {
+        "id": 10,
+        "name": "doggie",
+        "category": {
+          "id": 1,
+          "name": "Dogs"
+        },
+        "photoUrls": [
+          "string"
+        ],
+        "tags": [
+          {
+            "id": 0,
+            "name": "string"
+          }
+        ],
+        "status": "available"
+      },
+      "expectedStatus": "200",
+      "bodyMediaType": "application/json",
+      "type": "Positive",
+      "technique": "equivalence-partitioning",
+      "rationale": "Happy-path case in the valid equivalence class for PUT /pet: exercises the required parameters/body with schema-valid values and asserts the declared success response (200).",
+      "stableId": "c1a0db25348a"
+    },
+    {
+      "name": "addPet",
+      "method": "POST",
+      "path": "/pet",
+      "operationId": "addPet",
+      "params": {
+        "path": {},
+        "query": {},
+        "header": {},
+        "cookie": {}
+      },
+      "body": {
+        "id": 10,
+        "name": "doggie",
+        "category": {
+          "id": 1,
+          "name": "Dogs"
+        },
+        "photoUrls": [
+          "string"
+        ],
+        "tags": [
+          {
+            "id": 0,
+            "name": "string"
+          }
+        ],
+        "status": "available"
+      },
+      "expectedStatus": "200",
+      "bodyMediaType": "application/json",
+      "type": "Positive",
+      "technique": "equivalence-partitioning",
+      "rationale": "Happy-path case in the valid equivalence class for POST /pet: exercises the required parameters/body with schema-valid values and asserts the declared success response (200).",
+      "stableId": "a4681a3db82b"
+    },
+    {
+      "name": "findPetsByStatus",
+      "method": "GET",
+      "path": "/pet/findByStatus",
+      "operationId": "findPetsByStatus",
+      "params": {
+        "path": {},
+        "query": {
+          "status": "available"
+        },
+        "header": {},
+        "cookie": {}
+      },
+      "expectedStatus": "200",
+      "type": "Positive",
+      "technique": "equivalence-partitioning",
+      "rationale": "Happy-path case in the valid equivalence class for GET /pet/findByStatus: exercises the required parameters/body with schema-valid values and asserts the declared success response (200).",
+      "stableId": "3769d897605b"
+    },
+    {
+      "name": "findPetsByTags",
+      "method": "GET",
+      "path": "/pet/findByTags",
+      "operationId": "findPetsByTags",
+      "params": {
+        "path": {},
+        "query": {
+          "tags": [
+            "string"
+          ]
+        },
+        "header": {},
+        "cookie": {}
+      },
+      "expectedStatus": "200",
+      "type": "Positive",
+      "technique": "equivalence-partitioning",
+      "rationale": "Happy-path case in the valid equivalence class for GET /pet/findByTags: exercises the required parameters/body with schema-valid values and asserts the declared success response (200).",
+      "stableId": "cbb32bc90cc8"
+    },
+    {
+      "name": "getPetById",
+      "method": "GET",
+      "path": "/pet/{petId}",
+      "operationId": "getPetById",
+      "params": {
+        "path": {
+          "petId": 0
+        },
+        "query": {},
+        "header": {},
+        "cookie": {}
+      },
+      "expectedStatus": "200",
+      "type": "Positive",
+      "technique": "equivalence-partitioning",
+      "rationale": "Happy-path case in the valid equivalence class for GET /pet/{petId}: exercises the required parameters/body with schema-valid values and asserts the declared success response (200).",
+      "stableId": "b72b57d4e75a"
+    },
+    {
+      "name": "updatePetWithForm",
+      "method": "POST",
+      "path": "/pet/{petId}",
+      "operationId": "updatePetWithForm",
+      "params": {
+        "path": {
+          "petId": 0
+        },
+        "query": {},
+        "header": {},
+        "cookie": {}
+      },
+      "expectedStatus": "200",
+      "type": "Positive",
+      "technique": "equivalence-partitioning",
+      "rationale": "Happy-path case in the valid equivalence class for POST /pet/{petId}: exercises the required parameters/body with schema-valid values and asserts the declared success response (200).",
+      "stableId": "8d55f5f2ddda"
+    },
+    {
+      "name": "deletePet",
+      "method": "DELETE",
+      "path": "/pet/{petId}",
+      "operationId": "deletePet",
+      "params": {
+        "path": {
+          "petId": 0
+        },
+        "query": {},
+        "header": {},
+        "cookie": {}
+      },
+      "expectedStatus": "200",
+      "type": "Positive",
+      "technique": "equivalence-partitioning",
+      "rationale": "Happy-path case in the valid equivalence class for DELETE /pet/{petId}: exercises the required parameters/body with schema-valid values and asserts the declared success response (200).",
+      "stableId": "a1c9239bf9c5"
+    },
+    {
+      "name": "uploadFile",
+      "method": "POST",
+      "path": "/pet/{petId}/uploadImage",
+      "operationId": "uploadFile",
+      "params": {
+        "path": {
+          "petId": 0
+        },
+        "query": {},
+        "header": {},
+        "cookie": {}
+      },
+      "body": "<binary 30b>",
+      "expectedStatus": "200",
+      "bodyMediaType": "application/octet-stream",
+      "type": "Positive",
+      "technique": "equivalence-partitioning",
+      "rationale": "Happy-path case in the valid equivalence class for POST /pet/{petId}/uploadImage: exercises the required parameters/body with schema-valid values and asserts the declared success response (200).",
+      "stableId": "48774bc8d34a"
+    },
+    {
+      "name": "getInventory",
+      "method": "GET",
+      "path": "/store/inventory",
+      "operationId": "getInventory",
+      "params": {
+        "path": {},
+        "query": {},
+        "header": {},
+        "cookie": {}
+      },
+      "expectedStatus": "200",
+      "type": "Positive",
+      "technique": "equivalence-partitioning",
+      "rationale": "Happy-path case in the valid equivalence class for GET /store/inventory: exercises the required parameters/body with schema-valid values and asserts the declared success response (200).",
+      "stableId": "20d854b8779c"
+    },
+    {
+      "name": "placeOrder",
+      "method": "POST",
+      "path": "/store/order",
+      "operationId": "placeOrder",
+      "params": {
+        "path": {},
+        "query": {},
+        "header": {},
+        "cookie": {}
+      },
+      "body": {
+        "id": 10,
+        "petId": 198772,
+        "quantity": 7,
+        "shipDate": "2024-01-01T00:00:00Z",
+        "status": "approved",
+        "complete": true
+      },
+      "expectedStatus": "200",
+      "bodyMediaType": "application/json",
+      "type": "Positive",
+      "technique": "equivalence-partitioning",
+      "rationale": "Happy-path case in the valid equivalence class for POST /store/order: exercises the required parameters/body with schema-valid values and asserts the declared success response (200).",
+      "stableId": "78393553d2c3"
+    },
+    {
+      "name": "getOrderById",
+      "method": "GET",
+      "path": "/store/order/{orderId}",
+      "operationId": "getOrderById",
+      "params": {
+        "path": {
+          "orderId": 0
+        },
+        "query": {},
+        "header": {},
+        "cookie": {}
+      },
+      "expectedStatus": "200",
+      "type": "Positive",
+      "technique": "equivalence-partitioning",
+      "rationale": "Happy-path case in the valid equivalence class for GET /store/order/{orderId}: exercises the required parameters/body with schema-valid values and asserts the declared success response (200).",
+      "stableId": "b0ce63199c5d"
+    },
+    {
+      "name": "deleteOrder",
+      "method": "DELETE",
+      "path": "/store/order/{orderId}",
+      "operationId": "deleteOrder",
+      "params": {
+        "path": {
+          "orderId": 0
+        },
+        "query": {},
+        "header": {},
+        "cookie": {}
+      },
+      "expectedStatus": "200",
+      "type": "Positive",
+      "technique": "equivalence-partitioning",
+      "rationale": "Happy-path case in the valid equivalence class for DELETE /store/order/{orderId}: exercises the required parameters/body with schema-valid values and asserts the declared success response (200).",
+      "stableId": "ca4d8d0d4809"
+    },
+    {
+      "name": "createUser",
+      "method": "POST",
+      "path": "/user",
+      "operationId": "createUser",
+      "params": {
+        "path": {},
+        "query": {},
+        "header": {},
+        "cookie": {}
+      },
+      "body": {
+        "id": 10,
+        "username": "theUser",
+        "firstName": "John",
+        "lastName": "James",
+        "email": "john@email.com",
+        "password": "12345",
+        "phone": "12345",
+        "userStatus": 1
+      },
+      "expectedStatus": "200",
+      "bodyMediaType": "application/json",
+      "type": "Positive",
+      "technique": "equivalence-partitioning",
+      "rationale": "Happy-path case in the valid equivalence class for POST /user: exercises the required parameters/body with schema-valid values and asserts the declared success response (200).",
+      "stableId": "411da0d0b54a"
+    },
+    {
+      "name": "createUsersWithListInput",
+      "method": "POST",
+      "path": "/user/createWithList",
+      "operationId": "createUsersWithListInput",
+      "params": {
+        "path": {},
+        "query": {},
+        "header": {},
+        "cookie": {}
+      },
+      "body": [
+        {
+          "id": 10,
+          "username": "theUser",
+          "firstName": "John",
+          "lastName": "James",
+          "email": "john@email.com",
+          "password": "12345",
+          "phone": "12345",
+          "userStatus": 1
+        }
+      ],
+      "expectedStatus": "200",
+      "bodyMediaType": "application/json",
+      "type": "Positive",
+      "technique": "equivalence-partitioning",
+      "rationale": "Happy-path case in the valid equivalence class for POST /user/createWithList: exercises the required parameters/body with schema-valid values and asserts the declared success response (200).",
+      "stableId": "18c5861ab866"
+    },
+    {
+      "name": "loginUser",
+      "method": "GET",
+      "path": "/user/login",
+      "operationId": "loginUser",
+      "params": {
+        "path": {},
+        "query": {},
+        "header": {},
+        "cookie": {}
+      },
+      "expectedStatus": "200",
+      "type": "Positive",
+      "technique": "equivalence-partitioning",
+      "rationale": "Happy-path case in the valid equivalence class for GET /user/login: exercises the required parameters/body with schema-valid values and asserts the declared success response (200).",
+      "stableId": "174617e0c917"
+    },
+    {
+      "name": "logoutUser",
+      "method": "GET",
+      "path": "/user/logout",
+      "operationId": "logoutUser",
+      "params": {
+        "path": {},
+        "query": {},
+        "header": {},
+        "cookie": {}
+      },
+      "expectedStatus": "200",
+      "type": "Positive",
+      "technique": "equivalence-partitioning",
+      "rationale": "Happy-path case in the valid equivalence class for GET /user/logout: exercises the required parameters/body with schema-valid values and asserts the declared success response (200).",
+      "stableId": "1729ef0f73b0"
+    },
+    {
+      "name": "getUserByName",
+      "method": "GET",
+      "path": "/user/{username}",
+      "operationId": "getUserByName",
+      "params": {
+        "path": {
+          "username": "string"
+        },
+        "query": {},
+        "header": {},
+        "cookie": {}
+      },
+      "expectedStatus": "200",
+      "type": "Positive",
+      "technique": "equivalence-partitioning",
+      "rationale": "Happy-path case in the valid equivalence class for GET /user/{username}: exercises the required parameters/body with schema-valid values and asserts the declared success response (200).",
+      "stableId": "f44bcfbd3137"
+    },
+    {
+      "name": "updateUser",
+      "method": "PUT",
+      "path": "/user/{username}",
+      "operationId": "updateUser",
+      "params": {
+        "path": {
+          "username": "string"
+        },
+        "query": {},
+        "header": {},
+        "cookie": {}
+      },
+      "body": {
+        "id": 10,
+        "username": "theUser",
+        "firstName": "John",
+        "lastName": "James",
+        "email": "john@email.com",
+        "password": "12345",
+        "phone": "12345",
+        "userStatus": 1
+      },
+      "expectedStatus": "200",
+      "bodyMediaType": "application/json",
+      "type": "Positive",
+      "technique": "equivalence-partitioning",
+      "rationale": "Happy-path case in the valid equivalence class for PUT /user/{username}: exercises the required parameters/body with schema-valid values and asserts the declared success response (200).",
+      "stableId": "924783d5b5d0"
+    },
+    {
+      "name": "deleteUser",
+      "method": "DELETE",
+      "path": "/user/{username}",
+      "operationId": "deleteUser",
+      "params": {
+        "path": {
+          "username": "string"
+        },
+        "query": {},
+        "header": {},
+        "cookie": {}
+      },
+      "expectedStatus": "200",
+      "type": "Positive",
+      "technique": "equivalence-partitioning",
+      "rationale": "Happy-path case in the valid equivalence class for DELETE /user/{username}: exercises the required parameters/body with schema-valid values and asserts the declared success response (200).",
+      "stableId": "6d770795d32d"
+    },
+    {
+      "name": "updatePet (negative)",
+      "method": "PUT",
+      "path": "/pet",
+      "operationId": "updatePet",
+      "params": {
+        "path": {},
+        "query": {},
+        "header": {},
+        "cookie": {}
+      },
+      "body": {
+        "id": "not-a-number",
+        "name": "doggie",
+        "category": {
+          "id": 1,
+          "name": "Dogs"
+        },
+        "photoUrls": [
+          "string"
+        ],
+        "tags": [
+          {
+            "id": 0,
+            "name": "string"
+          }
+        ],
+        "status": "available"
+      },
+      "expectedStatus": "400",
+      "type": "Negative",
+      "technique": "error-guessing",
+      "rationale": "Negative-schema case for PUT /pet: sends \"id\" as the wrong type in the request body (expected integer), expecting the API to reject the request (400) rather than accept it.",
+      "stableId": "7d36edafe740"
+    },
+    {
+      "name": "addPet (negative)",
+      "method": "POST",
+      "path": "/pet",
+      "operationId": "addPet",
+      "params": {
+        "path": {},
+        "query": {},
+        "header": {},
+        "cookie": {}
+      },
+      "body": {
+        "id": "not-a-number",
+        "name": "doggie",
+        "category": {
+          "id": 1,
+          "name": "Dogs"
+        },
+        "photoUrls": [
+          "string"
+        ],
+        "tags": [
+          {
+            "id": 0,
+            "name": "string"
+          }
+        ],
+        "status": "available"
+      },
+      "expectedStatus": "400",
+      "type": "Negative",
+      "technique": "error-guessing",
+      "rationale": "Negative-schema case for POST /pet: sends \"id\" as the wrong type in the request body (expected integer), expecting the API to reject the request (400) rather than accept it.",
+      "stableId": "0780e3522ce3"
+    },
+    {
+      "name": "findPetsByStatus (negative)",
+      "method": "GET",
+      "path": "/pet/findByStatus",
+      "operationId": "findPetsByStatus",
+      "params": {
+        "path": {},
+        "query": {},
+        "header": {},
+        "cookie": {}
+      },
+      "expectedStatus": "400",
+      "type": "Negative",
+      "technique": "error-guessing",
+      "rationale": "Negative-schema case for GET /pet/findByStatus: omits the required query param \"status\", expecting the API to reject the request (400) rather than accept it.",
+      "stableId": "8b2ced442e45"
+    },
+    {
+      "name": "findPetsByTags (negative)",
+      "method": "GET",
+      "path": "/pet/findByTags",
+      "operationId": "findPetsByTags",
+      "params": {
+        "path": {},
+        "query": {},
+        "header": {},
+        "cookie": {}
+      },
+      "expectedStatus": "400",
+      "type": "Negative",
+      "technique": "error-guessing",
+      "rationale": "Negative-schema case for GET /pet/findByTags: omits the required query param \"tags\", expecting the API to reject the request (400) rather than accept it.",
+      "stableId": "23a944fb4be5"
+    },
+    {
+      "name": "placeOrder (negative)",
+      "method": "POST",
+      "path": "/store/order",
+      "operationId": "placeOrder",
+      "params": {
+        "path": {},
+        "query": {},
+        "header": {},
+        "cookie": {}
+      },
+      "body": {
+        "id": "not-a-number",
+        "petId": 198772,
+        "quantity": 7,
+        "shipDate": "2024-01-01T00:00:00Z",
+        "status": "approved",
+        "complete": true
+      },
+      "expectedStatus": "400",
+      "type": "Negative",
+      "technique": "error-guessing",
+      "rationale": "Negative-schema case for POST /store/order: sends \"id\" as the wrong type in the request body (expected integer), expecting the API to reject the request (400) rather than accept it.",
+      "stableId": "ad8d9af9bd27"
+    },
+    {
+      "name": "createUser (negative)",
+      "method": "POST",
+      "path": "/user",
+      "operationId": "createUser",
+      "params": {
+        "path": {},
+        "query": {},
+        "header": {},
+        "cookie": {}
+      },
+      "body": {
+        "id": "not-a-number",
+        "username": "theUser",
+        "firstName": "John",
+        "lastName": "James",
+        "email": "john@email.com",
+        "password": "12345",
+        "phone": "12345",
+        "userStatus": 1
+      },
+      "expectedStatus": "4XX",
+      "type": "Negative",
+      "technique": "error-guessing",
+      "rationale": "Negative-schema case for POST /user: sends \"id\" as the wrong type in the request body (expected integer), expecting the API to reject the request (4XX) rather than accept it.",
+      "stableId": "8c0c6d28e94f"
+    },
+    {
+      "name": "updateUser (negative)",
+      "method": "PUT",
+      "path": "/user/{username}",
+      "operationId": "updateUser",
+      "params": {
+        "path": {
+          "username": "string"
+        },
+        "query": {},
+        "header": {},
+        "cookie": {}
+      },
+      "body": {
+        "id": "not-a-number",
+        "username": "theUser",
+        "firstName": "John",
+        "lastName": "James",
+        "email": "john@email.com",
+        "password": "12345",
+        "phone": "12345",
+        "userStatus": 1
+      },
+      "expectedStatus": "400",
+      "type": "Negative",
+      "technique": "error-guessing",
+      "rationale": "Negative-schema case for PUT /user/{username}: sends \"id\" as the wrong type in the request body (expected integer), expecting the API to reject the request (400) rather than accept it.",
+      "stableId": "bafab0698d87"
+    }
+  ],
+  "coverage": {
+    "endpointCount": 19,
+    "coveredCount": 0,
+    "partialCount": 19,
+    "uncoveredCount": 0,
+    "ratio": 0,
+    "endpoints": [
+      {
+        "method": "PUT",
+        "path": "/pet",
+        "operationId": "updatePet",
+        "deprecated": false,
+        "status": "partial",
+        "declaredStatuses": [
+          "200",
+          "400",
+          "404",
+          "422",
+          "default"
+        ],
+        "testedStatuses": [
+          "200",
+          "400"
+        ],
+        "passed": false
+      },
+      {
+        "method": "POST",
+        "path": "/pet",
+        "operationId": "addPet",
+        "deprecated": false,
+        "status": "partial",
+        "declaredStatuses": [
+          "200",
+          "400",
+          "422",
+          "default"
+        ],
+        "testedStatuses": [
+          "200",
+          "400"
+        ],
+        "passed": false
+      },
+      {
+        "method": "GET",
+        "path": "/pet/findByStatus",
+        "operationId": "findPetsByStatus",
+        "deprecated": false,
+        "status": "partial",
+        "declaredStatuses": [
+          "200",
+          "400",
+          "default"
+        ],
+        "testedStatuses": [
+          "200",
+          "400"
+        ],
+        "passed": false
+      },
+      {
+        "method": "GET",
+        "path": "/pet/findByTags",
+        "operationId": "findPetsByTags",
+        "deprecated": false,
+        "status": "partial",
+        "declaredStatuses": [
+          "200",
+          "400",
+          "default"
+        ],
+        "testedStatuses": [
+          "200",
+          "400"
+        ],
+        "passed": false
+      },
+      {
+        "method": "GET",
+        "path": "/pet/{petId}",
+        "operationId": "getPetById",
+        "deprecated": false,
+        "status": "partial",
+        "declaredStatuses": [
+          "200",
+          "400",
+          "404",
+          "default"
+        ],
+        "testedStatuses": [
+          "200"
+        ],
+        "passed": false
+      },
+      {
+        "method": "POST",
+        "path": "/pet/{petId}",
+        "operationId": "updatePetWithForm",
+        "deprecated": false,
+        "status": "partial",
+        "declaredStatuses": [
+          "200",
+          "400",
+          "default"
+        ],
+        "testedStatuses": [
+          "200"
+        ],
+        "passed": false
+      },
+      {
+        "method": "DELETE",
+        "path": "/pet/{petId}",
+        "operationId": "deletePet",
+        "deprecated": false,
+        "status": "partial",
+        "declaredStatuses": [
+          "200",
+          "400",
+          "default"
+        ],
+        "testedStatuses": [
+          "200"
+        ],
+        "passed": false
+      },
+      {
+        "method": "POST",
+        "path": "/pet/{petId}/uploadImage",
+        "operationId": "uploadFile",
+        "deprecated": false,
+        "status": "partial",
+        "declaredStatuses": [
+          "200",
+          "400",
+          "404",
+          "default"
+        ],
+        "testedStatuses": [
+          "200"
+        ],
+        "passed": false
+      },
+      {
+        "method": "GET",
+        "path": "/store/inventory",
+        "operationId": "getInventory",
+        "deprecated": false,
+        "status": "partial",
+        "declaredStatuses": [
+          "200",
+          "default"
+        ],
+        "testedStatuses": [
+          "200"
+        ],
+        "passed": false
+      },
+      {
+        "method": "POST",
+        "path": "/store/order",
+        "operationId": "placeOrder",
+        "deprecated": false,
+        "status": "partial",
+        "declaredStatuses": [
+          "200",
+          "400",
+          "422",
+          "default"
+        ],
+        "testedStatuses": [
+          "200",
+          "400"
+        ],
+        "passed": false
+      },
+      {
+        "method": "GET",
+        "path": "/store/order/{orderId}",
+        "operationId": "getOrderById",
+        "deprecated": false,
+        "status": "partial",
+        "declaredStatuses": [
+          "200",
+          "400",
+          "404",
+          "default"
+        ],
+        "testedStatuses": [
+          "200"
+        ],
+        "passed": false
+      },
+      {
+        "method": "DELETE",
+        "path": "/store/order/{orderId}",
+        "operationId": "deleteOrder",
+        "deprecated": false,
+        "status": "partial",
+        "declaredStatuses": [
+          "200",
+          "400",
+          "404",
+          "default"
+        ],
+        "testedStatuses": [
+          "200"
+        ],
+        "passed": false
+      },
+      {
+        "method": "POST",
+        "path": "/user",
+        "operationId": "createUser",
+        "deprecated": false,
+        "status": "partial",
+        "declaredStatuses": [
+          "200",
+          "default"
+        ],
+        "testedStatuses": [
+          "200"
+        ],
+        "passed": false
+      },
+      {
+        "method": "POST",
+        "path": "/user/createWithList",
+        "operationId": "createUsersWithListInput",
+        "deprecated": false,
+        "status": "partial",
+        "declaredStatuses": [
+          "200",
+          "default"
+        ],
+        "testedStatuses": [
+          "200"
+        ],
+        "passed": false
+      },
+      {
+        "method": "GET",
+        "path": "/user/login",
+        "operationId": "loginUser",
+        "deprecated": false,
+        "status": "partial",
+        "declaredStatuses": [
+          "200",
+          "400",
+          "default"
+        ],
+        "testedStatuses": [
+          "200"
+        ],
+        "passed": false
+      },
+      {
+        "method": "GET",
+        "path": "/user/logout",
+        "operationId": "logoutUser",
+        "deprecated": false,
+        "status": "partial",
+        "declaredStatuses": [
+          "200",
+          "default"
+        ],
+        "testedStatuses": [
+          "200"
+        ],
+        "passed": true
+      },
+      {
+        "method": "GET",
+        "path": "/user/{username}",
+        "operationId": "getUserByName",
+        "deprecated": false,
+        "status": "partial",
+        "declaredStatuses": [
+          "200",
+          "400",
+          "404",
+          "default"
+        ],
+        "testedStatuses": [
+          "200"
+        ],
+        "passed": false
+      },
+      {
+        "method": "PUT",
+        "path": "/user/{username}",
+        "operationId": "updateUser",
+        "deprecated": false,
+        "status": "partial",
+        "declaredStatuses": [
+          "200",
+          "400",
+          "404",
+          "default"
+        ],
+        "testedStatuses": [
+          "200",
+          "400"
+        ],
+        "passed": false
+      },
+      {
+        "method": "DELETE",
+        "path": "/user/{username}",
+        "operationId": "deleteUser",
+        "deprecated": false,
+        "status": "partial",
+        "declaredStatuses": [
+          "200",
+          "400",
+          "404",
+          "default"
+        ],
+        "testedStatuses": [
+          "200"
+        ],
+        "passed": false
+      }
+    ]
+  }
+}

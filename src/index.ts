@@ -58,3 +58,14 @@ export {
   binaryVerdictSchema,
 } from './types/run-result-schema.js';
 export type { ParsedRunResult, BinaryVerdict } from './types/run-result-schema.js';
+
+// Cairn ingest (Plune #10 / #86): read a Cairn run directory and record it in Plune. Exposed on the
+// public API for the same reason `sync` is — embedding hosts drive it without shelling out.
+export {
+  handleIngest as ingest,
+  reportIngestFailure,
+  formatIngestResult,
+} from './cli/commands/ingest.js';
+export type { IngestDeps, IngestResult } from './cli/commands/ingest.js';
+export { readCairnRun } from './cli/commands/cairn-artifact.js';
+export type { CairnIngestPayload, CairnIngestCase } from './cli/commands/cairn-artifact.js';
