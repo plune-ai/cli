@@ -1,0 +1,736 @@
+{
+  "schemaVersion": 1,
+  "runId": "65392ce5-bc90-42f3-b1e2-992226561ce2",
+  "url": "https://plune.ai",
+  "mode": "design",
+  "suite": "PAGE-UI",
+  "pageSemantics": "This screen is the homepage of Plune, an open-source evaluation platform for teams building with Large Language Models (LLMs). Its main purpose is to introduce users to Plune's features, including its CLI and GitHub Action, and encourage them to explore the platform and documentation.",
+  "testCases": [
+    {
+      "title": "Skip to main content link is visible",
+      "technique": "exploratory",
+      "kind": "static",
+      "type": "Positive",
+      "execution": "auto",
+      "preconditions": [
+        "Plune homepage is open"
+      ],
+      "steps": [
+        "Observe the page for the accessibility skip link",
+        "Locate the \"Skip to main content\" link"
+      ],
+      "expected": "The \"Skip to main content\" link is present in the DOM",
+      "priority": "low",
+      "elementRefs": [
+        "e1"
+      ],
+      "id": "tc-1",
+      "stableId": "b94c281595ac"
+    },
+    {
+      "title": "Plune logo link is visible",
+      "technique": "exploratory",
+      "kind": "static",
+      "type": "Positive",
+      "execution": "auto",
+      "preconditions": [
+        "Plune homepage is open"
+      ],
+      "steps": [
+        "Observe the top-left of the header",
+        "Locate the \"Plune\" logo link"
+      ],
+      "expected": "The \"Plune\" logo link is visible",
+      "priority": "medium",
+      "elementRefs": [
+        "e3"
+      ],
+      "id": "tc-2",
+      "stableId": "cc5eb42f9568"
+    },
+    {
+      "title": "Primary navigation links are visible in the header",
+      "technique": "equivalence-partitioning",
+      "kind": "static",
+      "type": "Positive",
+      "execution": "auto",
+      "preconditions": [
+        "Plune homepage is open"
+      ],
+      "steps": [
+        "Observe the header navigation area",
+        "Locate the \"Platform\", \"Docs\", \"Blog\", \"Cairn\" and \"GitHub\" links"
+      ],
+      "expected": "The header navigation links \"Platform\", \"Docs\", \"Blog\", \"Cairn\" and \"GitHub\" are visible",
+      "priority": "high",
+      "elementRefs": [
+        "e4",
+        "e5",
+        "e6",
+        "e7",
+        "e8"
+      ],
+      "id": "tc-3",
+      "stableId": "ba312863c50b"
+    },
+    {
+      "title": "Get started link is visible in header",
+      "technique": "exploratory",
+      "kind": "static",
+      "type": "Positive",
+      "execution": "auto",
+      "preconditions": [
+        "Plune homepage is open"
+      ],
+      "steps": [
+        "Observe the header",
+        "Locate the \"Get started\" link"
+      ],
+      "expected": "The \"Get started\" link is visible",
+      "priority": "high",
+      "elementRefs": [
+        "e9"
+      ],
+      "id": "tc-4",
+      "stableId": "432fe4e96ec3"
+    },
+    {
+      "title": "Hero call-to-action links are visible",
+      "technique": "exploratory",
+      "kind": "static",
+      "type": "Positive",
+      "execution": "auto",
+      "preconditions": [
+        "Plune homepage is open"
+      ],
+      "steps": [
+        "Observe the hero section",
+        "Locate the \"Explore the platform\" and \"Read the docs\" links"
+      ],
+      "expected": "The \"Explore the platform\" and \"Read the docs\" links are visible",
+      "priority": "high",
+      "elementRefs": [
+        "e13",
+        "e14"
+      ],
+      "id": "tc-5",
+      "stableId": "880cf1bd5021"
+    },
+    {
+      "title": "Navigate to platform via Explore the platform",
+      "technique": "state-transition",
+      "kind": "active",
+      "type": "Positive",
+      "execution": "auto",
+      "preconditions": [
+        "Plune homepage is open"
+      ],
+      "steps": [
+        "Click the \"Explore the platform\" link"
+      ],
+      "expected": "The user is navigated away from the homepage to the platform destination",
+      "priority": "high",
+      "elementRefs": [
+        "e13"
+      ],
+      "id": "tc-6",
+      "stableId": "db5f8e8a80a3"
+    },
+    {
+      "title": "Navigate to docs via Read the docs",
+      "technique": "state-transition",
+      "kind": "active",
+      "type": "Positive",
+      "execution": "auto",
+      "preconditions": [
+        "Plune homepage is open"
+      ],
+      "steps": [
+        "Click the \"Read the docs\" link"
+      ],
+      "expected": "The user is navigated to the documentation destination",
+      "priority": "high",
+      "elementRefs": [
+        "e14"
+      ],
+      "id": "tc-7",
+      "stableId": "ef5f35cad973"
+    },
+    {
+      "title": "CLI section links are visible",
+      "technique": "exploratory",
+      "kind": "static",
+      "type": "Positive",
+      "execution": "auto",
+      "preconditions": [
+        "Plune homepage is open"
+      ],
+      "steps": [
+        "Scroll to the CLI feature section",
+        "Locate the \"See the platform\" and \"CLI docs\" links"
+      ],
+      "expected": "The \"See the platform\" and \"CLI docs\" links are visible",
+      "priority": "medium",
+      "elementRefs": [
+        "e23",
+        "e24"
+      ],
+      "id": "tc-8",
+      "stableId": "7929a062f140"
+    },
+    {
+      "title": "GitHub Action section links are visible",
+      "technique": "exploratory",
+      "kind": "static",
+      "type": "Positive",
+      "execution": "auto",
+      "preconditions": [
+        "Plune homepage is open"
+      ],
+      "steps": [
+        "Scroll to the GitHub Action feature section",
+        "Locate the \"See the platform\" and \"Action docs\" links"
+      ],
+      "expected": "The \"See the platform\" and \"Action docs\" links are visible",
+      "priority": "medium",
+      "elementRefs": [
+        "e30",
+        "e31"
+      ],
+      "id": "tc-9",
+      "stableId": "a78cae423b83"
+    },
+    {
+      "title": "Explore Cairn link is visible",
+      "technique": "exploratory",
+      "kind": "static",
+      "type": "Positive",
+      "execution": "auto",
+      "preconditions": [
+        "Plune homepage is open"
+      ],
+      "steps": [
+        "Scroll to the Cairn section",
+        "Locate the \"Explore Cairn\" link"
+      ],
+      "expected": "The \"Explore Cairn\" link is visible",
+      "priority": "medium",
+      "elementRefs": [
+        "e36"
+      ],
+      "id": "tc-10",
+      "stableId": "3afa20920eaf"
+    },
+    {
+      "title": "All posts link is visible in blog section",
+      "technique": "exploratory",
+      "kind": "static",
+      "type": "Positive",
+      "execution": "auto",
+      "preconditions": [
+        "Plune homepage is open"
+      ],
+      "steps": [
+        "Scroll to the blog section",
+        "Locate the \"All posts\" link"
+      ],
+      "expected": "The \"All posts\" link is visible",
+      "priority": "low",
+      "elementRefs": [
+        "e38"
+      ],
+      "id": "tc-11",
+      "stableId": "faa1332b2c6a"
+    },
+    {
+      "title": "Blog post preview links are visible",
+      "technique": "equivalence-partitioning",
+      "kind": "static",
+      "type": "Positive",
+      "execution": "auto",
+      "preconditions": [
+        "Plune homepage is open"
+      ],
+      "steps": [
+        "Scroll to the blog posts section",
+        "Locate the three blog post preview links"
+      ],
+      "expected": "The three blog post preview links (Jul 2, Jun 20, Jun 15) are visible",
+      "priority": "medium",
+      "elementRefs": [
+        "e41",
+        "e46",
+        "e51"
+      ],
+      "id": "tc-12",
+      "stableId": "1c85b3457ac1"
+    },
+    {
+      "title": "Navigate to a blog post from preview",
+      "technique": "state-transition",
+      "kind": "active",
+      "type": "Positive",
+      "execution": "auto",
+      "preconditions": [
+        "Plune homepage is open"
+      ],
+      "steps": [
+        "Click the blog post preview link \"Jul 2, 2026 Generating code isn't the hard part. Verifying it is.\""
+      ],
+      "expected": "The user is navigated to the corresponding blog post page",
+      "priority": "medium",
+      "elementRefs": [
+        "e41"
+      ],
+      "id": "tc-13",
+      "stableId": "7d8922d334b9"
+    },
+    {
+      "title": "Footer navigation links are visible",
+      "technique": "equivalence-partitioning",
+      "kind": "static",
+      "type": "Positive",
+      "execution": "auto",
+      "preconditions": [
+        "Plune homepage is open"
+      ],
+      "steps": [
+        "Scroll to the footer",
+        "Locate the \"Platform\", \"Cairn\", \"Blog\", \"Documentation\", \"Plune CLI\", \"eval-action\", \"GitHub\" and \"Contact\" links"
+      ],
+      "expected": "All footer navigation links are visible",
+      "priority": "medium",
+      "elementRefs": [
+        "e56",
+        "e57",
+        "e58",
+        "e59",
+        "e60",
+        "e61",
+        "e62",
+        "e63",
+        "e64"
+      ],
+      "id": "tc-14",
+      "stableId": "0265171733f7"
+    },
+    {
+      "title": "Email address field is visible and enabled",
+      "technique": "exploratory",
+      "kind": "static",
+      "type": "Positive",
+      "execution": "auto",
+      "preconditions": [
+        "Plune homepage is open"
+      ],
+      "steps": [
+        "Scroll to the newsletter subscription section",
+        "Locate the \"Email address\" textbox"
+      ],
+      "expected": "The \"Email address\" textbox is visible and enabled",
+      "priority": "high",
+      "elementRefs": [
+        "e67"
+      ],
+      "id": "tc-15",
+      "stableId": "94d399806bcc"
+    },
+    {
+      "title": "Subscribe button is visible",
+      "technique": "exploratory",
+      "kind": "static",
+      "type": "Positive",
+      "execution": "auto",
+      "preconditions": [
+        "Plune homepage is open"
+      ],
+      "steps": [
+        "Scroll to the newsletter subscription section",
+        "Locate the \"Subscribe\" button"
+      ],
+      "expected": "The \"Subscribe\" button is visible",
+      "priority": "high",
+      "elementRefs": [
+        "e68"
+      ],
+      "id": "tc-16",
+      "stableId": "2bcab527d04c"
+    },
+    {
+      "title": "Enter a valid email address into the subscription field",
+      "technique": "equivalence-partitioning",
+      "kind": "active",
+      "type": "Positive",
+      "execution": "auto",
+      "preconditions": [
+        "Plune homepage is open"
+      ],
+      "steps": [
+        "Click the \"Email address\" textbox",
+        "Enter \"user@example.com\" into the \"Email address\" textbox"
+      ],
+      "expected": "The \"Email address\" textbox contains the value \"user@example.com\"",
+      "priority": "high",
+      "elementRefs": [
+        "e67"
+      ],
+      "id": "tc-17",
+      "stableId": "d4e7a8ae0960"
+    },
+    {
+      "title": "Submit subscription with a valid email",
+      "technique": "decision-table",
+      "kind": "active",
+      "type": "Positive",
+      "execution": "manual",
+      "preconditions": [
+        "Plune homepage is open"
+      ],
+      "steps": [
+        "Enter \"user@example.com\" into the \"Email address\" textbox",
+        "Click the \"Subscribe\" button"
+      ],
+      "expected": "The subscription is accepted and a success confirmation is shown",
+      "priority": "high",
+      "elementRefs": [
+        "e67",
+        "e68"
+      ],
+      "id": "tc-18",
+      "stableId": "00b92c2bcb0f"
+    },
+    {
+      "title": "Submit subscription with empty email",
+      "technique": "boundary-value",
+      "kind": "active",
+      "type": "Negative",
+      "execution": "manual",
+      "preconditions": [
+        "Plune homepage is open"
+      ],
+      "steps": [
+        "Leave the \"Email address\" textbox empty",
+        "Click the \"Subscribe\" button"
+      ],
+      "expected": "A validation error is shown and no subscription is created",
+      "priority": "high",
+      "elementRefs": [
+        "e67",
+        "e68"
+      ],
+      "id": "tc-19",
+      "stableId": "b18c3e2577bd"
+    },
+    {
+      "title": "Submit subscription with malformed email",
+      "technique": "equivalence-partitioning",
+      "kind": "active",
+      "type": "Negative",
+      "execution": "manual",
+      "preconditions": [
+        "Plune homepage is open"
+      ],
+      "steps": [
+        "Enter \"plainaddress\" into the \"Email address\" textbox",
+        "Click the \"Subscribe\" button"
+      ],
+      "expected": "A validation error is shown and no subscription is created",
+      "priority": "high",
+      "elementRefs": [
+        "e67",
+        "e68"
+      ],
+      "id": "tc-20",
+      "stableId": "12d6825b8804"
+    },
+    {
+      "title": "Submit subscription with email missing domain",
+      "technique": "boundary-value",
+      "kind": "active",
+      "type": "Negative",
+      "execution": "manual",
+      "preconditions": [
+        "Plune homepage is open"
+      ],
+      "steps": [
+        "Enter \"user@\" into the \"Email address\" textbox",
+        "Click the \"Subscribe\" button"
+      ],
+      "expected": "A validation error is shown and no subscription is created",
+      "priority": "medium",
+      "elementRefs": [
+        "e67",
+        "e68"
+      ],
+      "id": "tc-21",
+      "stableId": "cf7cc6996c3c"
+    },
+    {
+      "title": "Subscription field rejects script injection input",
+      "technique": "error-guessing",
+      "kind": "active",
+      "type": "Negative",
+      "execution": "manual",
+      "preconditions": [
+        "Plune homepage is open"
+      ],
+      "steps": [
+        "Enter \"<script>alert('x')</script>@test.com\" into the \"Email address\" textbox",
+        "Click the \"Subscribe\" button"
+      ],
+      "expected": "The input is safely handled, no script executes, and a validation error is shown",
+      "priority": "medium",
+      "elementRefs": [
+        "e67",
+        "e68"
+      ],
+      "id": "tc-22",
+      "stableId": "0a1601754912"
+    },
+    {
+      "title": "Theme toggle button is visible",
+      "technique": "exploratory",
+      "kind": "static",
+      "type": "Positive",
+      "execution": "auto",
+      "preconditions": [
+        "Plune homepage is open"
+      ],
+      "steps": [
+        "Observe the header",
+        "Locate the \"☾ Theme\" button"
+      ],
+      "expected": "The \"☾ Theme\" button is visible",
+      "priority": "medium",
+      "elementRefs": [
+        "e69"
+      ],
+      "id": "tc-23",
+      "stableId": "266880967771"
+    },
+    {
+      "title": "Toggle theme using Theme button",
+      "technique": "state-transition",
+      "kind": "active",
+      "type": "Positive",
+      "execution": "manual",
+      "preconditions": [
+        "Plune homepage is open"
+      ],
+      "steps": [
+        "Click the \"☾ Theme\" button",
+        "Observe the page color scheme"
+      ],
+      "expected": "The page theme switches between light and dark mode",
+      "priority": "medium",
+      "elementRefs": [
+        "e69"
+      ],
+      "id": "tc-24",
+      "stableId": "1c03e7f1e9c9"
+    },
+    {
+      "title": "Navigate to Docs from header",
+      "technique": "state-transition",
+      "kind": "active",
+      "type": "Positive",
+      "execution": "auto",
+      "preconditions": [
+        "Plune homepage is open"
+      ],
+      "steps": [
+        "Click the header \"Docs\" link"
+      ],
+      "expected": "The user is navigated to the documentation page",
+      "priority": "medium",
+      "elementRefs": [
+        "e5"
+      ],
+      "id": "tc-25",
+      "stableId": "be5a5e1f818e"
+    },
+    {
+      "title": "Navigate to Cairn from Explore Cairn",
+      "technique": "state-transition",
+      "kind": "active",
+      "type": "Positive",
+      "execution": "auto",
+      "preconditions": [
+        "Plune homepage is open"
+      ],
+      "steps": [
+        "Click the \"Explore Cairn\" link"
+      ],
+      "expected": "The user is navigated to the Cairn destination",
+      "priority": "medium",
+      "elementRefs": [
+        "e36"
+      ],
+      "id": "tc-26",
+      "stableId": "0c22b1164b5c"
+    },
+    {
+      "title": "Navigate to CLI docs",
+      "technique": "state-transition",
+      "kind": "active",
+      "type": "Positive",
+      "execution": "auto",
+      "preconditions": [
+        "Plune homepage is open"
+      ],
+      "steps": [
+        "Click the \"CLI docs\" link"
+      ],
+      "expected": "The user is navigated to the CLI documentation page",
+      "priority": "medium",
+      "elementRefs": [
+        "e24"
+      ],
+      "id": "tc-27",
+      "stableId": "292fe9e60af9"
+    },
+    {
+      "title": "Navigate to Action docs",
+      "technique": "state-transition",
+      "kind": "active",
+      "type": "Positive",
+      "execution": "auto",
+      "preconditions": [
+        "Plune homepage is open"
+      ],
+      "steps": [
+        "Click the \"Action docs\" link"
+      ],
+      "expected": "The user is navigated to the GitHub Action documentation page",
+      "priority": "medium",
+      "elementRefs": [
+        "e31"
+      ],
+      "id": "tc-28",
+      "stableId": "bbaf43cd0af1"
+    },
+    {
+      "title": "Homepage responsiveness on mobile viewport",
+      "technique": "exploratory",
+      "kind": "active",
+      "type": "Positive",
+      "execution": "manual",
+      "preconditions": [
+        "Plune homepage is open"
+      ],
+      "steps": [
+        "Resize the browser to a mobile viewport (e.g. 375x667)",
+        "Observe the header, hero, feature sections, blog and footer"
+      ],
+      "expected": "The layout adapts to the mobile viewport without overlap, cut-off content or horizontal scrolling",
+      "priority": "medium",
+      "elementRefs": [
+        "e3",
+        "e67",
+        "e68"
+      ],
+      "id": "tc-29",
+      "stableId": "555dd8f33e74"
+    }
+  ],
+  "testCaseFiles": [
+    "D:\\QA_A\\Plune-git\\cairn\\runs\\65392ce5-bc90-42f3-b1e2-992226561ce2\\testcases\\ATC-PAGE-UI-001.md",
+    "D:\\QA_A\\Plune-git\\cairn\\runs\\65392ce5-bc90-42f3-b1e2-992226561ce2\\testcases\\ATC-PAGE-UI-002.md",
+    "D:\\QA_A\\Plune-git\\cairn\\runs\\65392ce5-bc90-42f3-b1e2-992226561ce2\\testcases\\ATC-PAGE-UI-003.md",
+    "D:\\QA_A\\Plune-git\\cairn\\runs\\65392ce5-bc90-42f3-b1e2-992226561ce2\\testcases\\ATC-PAGE-UI-004.md",
+    "D:\\QA_A\\Plune-git\\cairn\\runs\\65392ce5-bc90-42f3-b1e2-992226561ce2\\testcases\\ATC-PAGE-UI-005.md",
+    "D:\\QA_A\\Plune-git\\cairn\\runs\\65392ce5-bc90-42f3-b1e2-992226561ce2\\testcases\\ATC-PAGE-UI-006.md",
+    "D:\\QA_A\\Plune-git\\cairn\\runs\\65392ce5-bc90-42f3-b1e2-992226561ce2\\testcases\\ATC-PAGE-UI-007.md",
+    "D:\\QA_A\\Plune-git\\cairn\\runs\\65392ce5-bc90-42f3-b1e2-992226561ce2\\testcases\\ATC-PAGE-UI-008.md",
+    "D:\\QA_A\\Plune-git\\cairn\\runs\\65392ce5-bc90-42f3-b1e2-992226561ce2\\testcases\\ATC-PAGE-UI-009.md",
+    "D:\\QA_A\\Plune-git\\cairn\\runs\\65392ce5-bc90-42f3-b1e2-992226561ce2\\testcases\\ATC-PAGE-UI-010.md",
+    "D:\\QA_A\\Plune-git\\cairn\\runs\\65392ce5-bc90-42f3-b1e2-992226561ce2\\testcases\\ATC-PAGE-UI-011.md",
+    "D:\\QA_A\\Plune-git\\cairn\\runs\\65392ce5-bc90-42f3-b1e2-992226561ce2\\testcases\\ATC-PAGE-UI-012.md",
+    "D:\\QA_A\\Plune-git\\cairn\\runs\\65392ce5-bc90-42f3-b1e2-992226561ce2\\testcases\\ATC-PAGE-UI-013.md",
+    "D:\\QA_A\\Plune-git\\cairn\\runs\\65392ce5-bc90-42f3-b1e2-992226561ce2\\testcases\\ATC-PAGE-UI-014.md",
+    "D:\\QA_A\\Plune-git\\cairn\\runs\\65392ce5-bc90-42f3-b1e2-992226561ce2\\testcases\\ATC-PAGE-UI-015.md",
+    "D:\\QA_A\\Plune-git\\cairn\\runs\\65392ce5-bc90-42f3-b1e2-992226561ce2\\testcases\\ATC-PAGE-UI-016.md",
+    "D:\\QA_A\\Plune-git\\cairn\\runs\\65392ce5-bc90-42f3-b1e2-992226561ce2\\testcases\\ATC-PAGE-UI-017.md",
+    "D:\\QA_A\\Plune-git\\cairn\\runs\\65392ce5-bc90-42f3-b1e2-992226561ce2\\testcases\\MTC-PAGE-UI-001.md",
+    "D:\\QA_A\\Plune-git\\cairn\\runs\\65392ce5-bc90-42f3-b1e2-992226561ce2\\testcases\\MTC-PAGE-UI-002.md",
+    "D:\\QA_A\\Plune-git\\cairn\\runs\\65392ce5-bc90-42f3-b1e2-992226561ce2\\testcases\\MTC-PAGE-UI-003.md",
+    "D:\\QA_A\\Plune-git\\cairn\\runs\\65392ce5-bc90-42f3-b1e2-992226561ce2\\testcases\\MTC-PAGE-UI-004.md",
+    "D:\\QA_A\\Plune-git\\cairn\\runs\\65392ce5-bc90-42f3-b1e2-992226561ce2\\testcases\\MTC-PAGE-UI-005.md",
+    "D:\\QA_A\\Plune-git\\cairn\\runs\\65392ce5-bc90-42f3-b1e2-992226561ce2\\testcases\\ATC-PAGE-UI-018.md",
+    "D:\\QA_A\\Plune-git\\cairn\\runs\\65392ce5-bc90-42f3-b1e2-992226561ce2\\testcases\\MTC-PAGE-UI-006.md",
+    "D:\\QA_A\\Plune-git\\cairn\\runs\\65392ce5-bc90-42f3-b1e2-992226561ce2\\testcases\\ATC-PAGE-UI-019.md",
+    "D:\\QA_A\\Plune-git\\cairn\\runs\\65392ce5-bc90-42f3-b1e2-992226561ce2\\testcases\\ATC-PAGE-UI-020.md",
+    "D:\\QA_A\\Plune-git\\cairn\\runs\\65392ce5-bc90-42f3-b1e2-992226561ce2\\testcases\\ATC-PAGE-UI-021.md",
+    "D:\\QA_A\\Plune-git\\cairn\\runs\\65392ce5-bc90-42f3-b1e2-992226561ce2\\testcases\\ATC-PAGE-UI-022.md",
+    "D:\\QA_A\\Plune-git\\cairn\\runs\\65392ce5-bc90-42f3-b1e2-992226561ce2\\testcases\\MTC-PAGE-UI-007.md"
+  ],
+  "scores": [
+    {
+      "name": "verified_ratio",
+      "value": 0.5072463768115942
+    },
+    {
+      "name": "grounding",
+      "value": 1
+    },
+    {
+      "name": "technique_coverage",
+      "value": 1
+    },
+    {
+      "name": "case_redundancy",
+      "value": 0.13793103448275862
+    },
+    {
+      "name": "test_case_quality",
+      "value": 0.82,
+      "comment": "Strong test suite with good coverage of homepage functionality. Strengths: Well-balanced mix of exploratory, state-transition, and equivalence-partitioning cases covering navigation, subscription flow, and responsiveness. Good negative/boundary testing on email validation (empty, malformed, missing domain, script injection). Cases are clear, verifiable, and include explicit expected results. Weaknesses: Limited edge cases beyond email validation; no test cases for form state persistence, network errors, or accessibility beyond skip link; newsletter subscription success path uses \"decision-table\" label but lacks explicit decision logic; no cases for error recovery or repeated interactions; responsiveness case could include landscape orientation or tablet breakpoints. Overall: Methodologically sound with 85% adherence to testing techniques, good practical coverage for a homepage evaluation, though some edge cases and accessibility scenarios are underexplored."
+    },
+    {
+      "name": "methodology_adherence",
+      "value": 0.85
+    }
+  ],
+  "cost": {
+    "perRole": [
+      {
+        "role": "reasoner",
+        "models": [
+          "claude-opus-4-8"
+        ],
+        "calls": 1,
+        "inputTokens": 3083,
+        "outputTokens": 4267,
+        "totalTokens": 7350,
+        "costUsd": 0.12209
+      },
+      {
+        "role": "judge",
+        "models": [
+          "claude-haiku-4-5"
+        ],
+        "calls": 1,
+        "inputTokens": 2381,
+        "outputTokens": 256,
+        "totalTokens": 2637,
+        "costUsd": 0.003661
+      }
+    ],
+    "totalTokens": 9987,
+    "totalCostUsd": 0.125751
+  },
+  "coverage": {
+    "observed": 31,
+    "covered": 31,
+    "ratio": 1,
+    "byPage": [
+      {
+        "url": "https://plune.ai",
+        "observed": 31,
+        "covered": 31,
+        "gaps": []
+      }
+    ],
+    "untestedEdges": []
+  }
+}

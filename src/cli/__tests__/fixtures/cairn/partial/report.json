@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "runId": "bbec4049-49cb-4865-800a-ad8dc53942b4",
+  "url": "https://this-host-does-not-exist.invalid",
+  "mode": "design",
+  "partial": true,
+  "error": "Could not reach https://this-host-does-not-exist.invalid: navigation failed (DNS/connection). Check the URL is correct and reachable.",
+  "cost": {
+    "perRole": [],
+    "totalTokens": 0,
+    "totalCostUsd": 0
+  },
+  "budget": {
+    "used": 0,
+    "max": 80
+  }
+}

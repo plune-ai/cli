@@ -365,6 +365,30 @@ export function createProgram(): Command {
       }
     });
 
+  program
+    .command('ingest')
+    .argument('<dir>', 'A Cairn run directory (the one holding report.json)')
+    .description('Record a Cairn run in Plune — generated cases arrive as review proposals')
+    .action(async (dir: string, _options: unknown, command: Command) => {
+      const globals = command.optsWithGlobals() as { verbose?: boolean };
+      const verbose = globals.verbose === true;
+      const { handleIngest, reportIngestFailure, formatIngestResult } = await import(
+        './cli/commands/ingest.js'
+      );
+      try {
+        process.stdout.write(formatIngestResult(await handleIngest({ dir })));
+      } catch (err) {
+        const code = reportIngestFailure(err, (s) => process.stderr.write(s));
+        if (code !== null) {
+          maybeStack(err, verbose);
+          // exitCode, not process.exit — the same undici/libuv teardown race `sync` documents.
+          process.exitCode = code;
+          return;
+        }
+        failUnexpected(err, verbose);
+      }
+    });
+
   // Unknown command → exit 2 (CLI_SPEC §4.2). Registering a `command:*` listener makes commander
   // emit this event instead of its default "unknown command" error (which would exit 1).
   program.on('command:*', (operands: string[]) => {

@@ -1,0 +1,27 @@
+{
+  "runId": "4f64793e-9abd-4c5c-9258-bae75f3e3abe",
+  "url": "https://plune.ai",
+  "partial": true,
+  "error": "400 Provider returned error",
+  "cost": {
+    "perRole": [
+      {
+        "role": "worker",
+        "models": [
+          "qwen/qwen-2-vl-72b-instruct"
+        ],
+        "calls": 1,
+        "inputTokens": 3844,
+        "outputTokens": 135,
+        "totalTokens": 3979,
+        "costUsd": 0.001592
+      }
+    ],
+    "totalTokens": 3979,
+    "totalCostUsd": 0.001592
+  },
+  "budget": {
+    "used": 2,
+    "max": 80
+  }
+}
