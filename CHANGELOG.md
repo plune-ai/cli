@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Local embeddings ship separately now.** `@huggingface/transformers` moved from a hard dependency
+  to an **optional peer**, so installing `@plune-ai/cli` no longer drags in the native embedding stack
+  (`onnxruntime` → `sharp`, `adm-zip`, `protobufjs`) unless you actually want it.
+
+  It powers exactly two things — the `semantic-similarity` assertion and the RAG suite. Everything else
+  works untouched, and the import was already lazy, so nothing about the happy path changes. What
+  changes is the failure: without the package those assertions now say which package to install instead
+  of throwing `MODULE_NOT_FOUND`.
+
+  **To keep them:** `npm i @huggingface/transformers` (or `pnpm add`) alongside the CLI.
+
+  The reason is not tidiness. That tree carried **four HIGH advisories**, and it was being installed
+  into every consumer — including a server that depends on this package purely for its zod contracts
+  and never executes a line of it.
+
+- `ajv` bumped to `^8.17.1`, which clears the `fast-uri` advisories.
+
+
 ### Added
 
 - **`plune ingest <dir>` — record a Cairn run in Plune.** Reads a Cairn run directory (Cairn 0.7.0 or
