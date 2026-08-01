@@ -28,9 +28,21 @@ export class XenovaEmbedder implements Embedder {
     // Lazy: import transformers (and its onnxruntime native dep) only on first use, then build the
     // pipeline once and reuse it. Importing this module must NOT pull in the native runtime — that
     // keeps cold start fast and lets non-embedding code paths and tests run without onnxruntime.
-    this.extractor ??= import('@huggingface/transformers').then(
-      ({ pipeline }) => pipeline('feature-extraction', MODEL_ID),
-    ) as unknown as Promise<FeatureExtractor>;
+    // Optional peer since 0.6: the local-embedding stack (transformers -> onnxruntime -> sharp,
+    // adm-zip, protobufjs) is a large native tree that only the semantic assertions need, and it was
+    // being installed into every consumer — including a server that imports this package purely for
+    // its zod contracts, where it contributed four HIGH advisories and never ran a line.
+    //
+    // The import was already lazy, so nothing about the happy path changes. What changes is the
+    // failure: a missing package now says which one and how to get it, instead of MODULE_NOT_FOUND.
+    this.extractor ??= import('@huggingface/transformers')
+      .catch(() => {
+        throw new Error(
+          'The `semantic-similarity` and RAG assertions need local embeddings, which ship separately: ' +
+            'install @huggingface/transformers to enable them. Every other assertion works without it.',
+        );
+      })
+      .then(({ pipeline }) => pipeline('feature-extraction', MODEL_ID)) as unknown as Promise<FeatureExtractor>;
     return this.extractor;
   }
 }
