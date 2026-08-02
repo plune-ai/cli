@@ -1,3 +1,0 @@
-{"vars":{"question":"What are your support hours?","context":"Acme support is available Monday to Friday, 9am to 6pm CET. Weekend support is email-only."},"expected":"Monday"}
-{"vars":{"question":"Do you offer refunds?","context":"Acme offers a full refund within 30 days of purchase, no questions asked."},"expected":"30 days"}
-{"vars":{"question":"Where is my data stored?","context":"All Acme customer data is stored in EU data centers (Frankfurt) and encrypted at rest."},"expected":"Frankfurt"}
