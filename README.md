@@ -103,6 +103,7 @@ provider API key is read from the environment based on `provider.type`:
 | `plune login` | Save a [Plune platform](https://plune.ai/platform) API token so `sync` can reach it. Flags: `--token <token>` (omit to paste it or pipe it via stdin). |
 | `plune logout` | Remove the saved token. |
 | `plune sync` | Upload the latest local run to the platform. Flags: `--file <path>` to send a specific run JSON. |
+| `plune ingest <dir>` | Record a [Cairn](https://github.com/plune-ai/cairn) run in Plune. `<dir>` is the run directory holding `report.json`. Generated cases arrive as **review proposals** — nothing is created until a person approves it. |
 
 Global flags: `-c, --config <path>` · `-v, --verbose` · `--no-color`.
 
