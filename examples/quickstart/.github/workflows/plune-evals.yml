@@ -1,0 +1,38 @@
+# Example workflow — copy to your repo ROOT at .github/workflows/ to activate.
+# (A workflow nested under examples/quickstart/ is NOT run by GitHub; only root .github/workflows/ is.)
+#
+# Inputs verified against plune-ai/eval-action@v1.2.0 action.yml. The action itself checks out the
+# base ref in a detached worktree, re-runs the SAME config there, and diffs PR-head vs base.
+name: Plune evals
+
+on: pull_request
+
+permissions:
+  contents: read          # read the checkout + base ref
+  pull-requests: write     # post/update the sticky comment
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # the action needs base-branch history to recompute the baseline
+
+      - uses: plune-ai/eval-action@v1.2.0
+        with:
+          working-directory: examples/quickstart
+          config: plune.ci.yaml              # offline core only → green & deterministic under mock
+          plune-version: "0.3.0"             # emits the renamed schemaVersion field (plune-ai/cli#9)
+          base-ref: ${{ github.base_ref }}   # the PR's target branch (main, master, …)
+          fail-on-regression: true            # block merge on a pass→fail regression
+          comment: true                       # sticky PR comment with the diff
+          # use-mock defaults to "true": runs plune.ci.yaml with the mock provider — no key,
+          # zero cost, deterministic.
+          #
+          # To run the real evals instead, point config at plune.yaml, flip use-mock, and pass a key
+          # (the CLI reads it from env — the action has no api-key input):
+          #   config: plune.yaml
+          #   use-mock: false
+          # env:
+          #   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

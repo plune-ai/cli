@@ -1,0 +1,2 @@
+{"vars":{"text":"Maria Silva is 34 years old and lives in Porto."},"expected":"{\"name\":\"Maria Silva\",\"age\":34}"}
+{"vars":{"text":"Customer record: John Doe, age 41, premium tier."},"expected":"{\"name\":\"John Doe\",\"age\":41}"}

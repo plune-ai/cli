@@ -1,0 +1,43 @@
+# CI config — the offline core only, so the default mock run (use-mock: true) is green and
+# deterministic with no key. The eval-action runs `plune run` with no --only selector, so a config
+# that also held the online evals would ERROR under the mock judge and break the action's run step.
+# The full config (offline + online) is plune.yaml; use it locally with --only=tag:online + a key.
+version: 1
+provider:
+  type: anthropic
+  model: claude-sonnet-4-6
+
+evals:
+  - id: smoke-exact
+    description: "Deterministic smoke test (exact-match) against the mock provider output."
+    tags: [offline]
+    prompt: "{{q}}"
+    dataset:
+      examples:
+        - vars: { q: "ping" }
+    assertions:
+      - type: exact-match
+        value: "mock response"
+
+  - id: smoke-contains
+    description: "Deterministic smoke test (contains-all)."
+    tags: [offline]
+    prompt: "{{q}}"
+    dataset:
+      examples:
+        - vars: { q: "ping" }
+    assertions:
+      - type: contains-all
+        values: ["mock", "response"]
+
+  - id: smoke-similarity
+    description: "Local-embedding similarity (no API key; downloads a small embedding model once)."
+    tags: [offline]
+    prompt: "{{q}}"
+    dataset:
+      examples:
+        - vars: { q: "ping" }
+    assertions:
+      - type: semantic-similarity
+        reference: "mock response"
+        threshold: 0.5
