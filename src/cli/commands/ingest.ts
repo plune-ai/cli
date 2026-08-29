@@ -13,11 +13,13 @@
 
 import { loadToken } from '../credentials.js';
 import {
+  findLatestCairnRun,
   readCairnRun,
   CairnEvidenceAmbiguousError,
   CairnRunNotFoundError,
   CairnRunPartialError,
   CairnRunVersionError,
+  NoCairnRunsError,
   type CairnIngestPayload,
 } from './cairn-artifact.js';
 
@@ -59,8 +61,10 @@ export class IngestHttpError extends Error {
 }
 
 export interface IngestDeps {
-  /** The Cairn run directory to read. */
-  dir: string;
+  /** The Cairn run directory to read. Omit it and the newest run under `runsDir` is used. */
+  dir?: string;
+  /** Where to look when `dir` is omitted; relative paths resolve against the process's cwd. */
+  runsDir?: string;
   apiUrl?: string;
   loadToken?: () => string | null;
   fetchImpl?: typeof fetch;
@@ -97,9 +101,13 @@ export async function handleIngest(deps: IngestDeps): Promise<IngestResult> {
   const token = (deps.loadToken ?? loadToken)();
   if (token === null) throw new IngestNotLoggedInError();
 
+  // With no directory named, pick the newest run under ./runs. Cairn writes there by default, and
+  // the id it names the run with is not something anyone types from memory.
+  const dir = deps.dir ?? (await findLatestCairnRun(deps.runsDir));
+
   // Throws a typed error for an unknown format, an unfinished run, or evidence that cannot be joined
   // safely — all before anything leaves the machine, so a refusal uploads nothing.
-  const payload: CairnIngestPayload = await readCairnRun(deps.dir);
+  const payload: CairnIngestPayload = await readCairnRun(dir);
 
   const doFetch = deps.fetchImpl ?? fetch;
   const endpoint = `${apiUrl}/v1/ingest/cairn`;
@@ -141,6 +149,7 @@ export function reportIngestFailure(err: unknown, write: (s: string) => void): n
     err instanceof IngestNotLoggedInError ||
     err instanceof IngestTokenRejectedError ||
     err instanceof CairnRunNotFoundError ||
+    err instanceof NoCairnRunsError ||
     err instanceof CairnRunVersionError ||
     err instanceof CairnRunPartialError ||
     err instanceof CairnEvidenceAmbiguousError

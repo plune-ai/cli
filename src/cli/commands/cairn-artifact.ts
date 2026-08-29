@@ -39,10 +39,63 @@ export interface CairnIngestPayload {
   cases: CairnIngestCase[];
 }
 
+/**
+ * Nothing to auto-discover under `./runs`. Separate from `CairnRunNotFoundError` because the fix is
+ * different: that one means "you pointed at the wrong directory", this one means "you pointed at
+ * nothing and there was nothing to guess". (exit 2)
+ */
+export class NoCairnRunsError extends Error {
+  constructor(runsDir: string) {
+    super(`No Cairn run found under ${runsDir} — name the directory instead: plune ingest <dir>.`);
+    this.name = 'NoCairnRunsError';
+  }
+}
+
+/**
+ * The most recently finished run under `runsDir`, judged by the mtime of its own `report.json`.
+ *
+ * mtime, NOT the names sorted: Cairn's run ids do not order lexicographically by time, so `sort()`
+ * would confidently return whichever id happens to sort last. And the report's own timestamp rather
+ * than the directory's, because a directory's mtime moves whenever anything is written inside it —
+ * for an `api` run that is `api-evidence.json`, written after the report.
+ *
+ * The search is deliberately narrow, because this is the one place the command reads a path nobody
+ * typed. It looks at the direct children of `runsDir` and nowhere else — never upward — and follows
+ * no symlink: `isDirectory()` on a Dirent answers for the link itself, so a symlinked entry is
+ * skipped, and the report has to be a real file. An explicit `plune ingest <dir>` is unaffected; the
+ * caller named that path, so it is theirs to point wherever they like.
+ */
+export async function findLatestCairnRun(runsDir = 'runs'): Promise<string> {
+  // Inferred, not annotated: `fs.readdir` is overloaded, and `ReturnType<typeof fs.readdir>` picks
+  // the Buffer overload, which makes every `entry.name` a Buffer three lines later.
+  const entries = await fs.readdir(runsDir, { withFileTypes: true }).catch(() => null);
+  if (entries === null) throw new NoCairnRunsError(runsDir);
+
+  let newest: { dir: string; at: number } | undefined;
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const dir = path.join(runsDir, entry.name);
+    try {
+      const report = await fs.lstat(path.join(dir, 'report.json'));
+      if (!report.isFile()) continue;
+      if (newest === undefined || report.mtimeMs > newest.at) {
+        newest = { dir, at: report.mtimeMs };
+      }
+    } catch {
+      // Not a run directory. A `./runs` holding notes, logs or an unfinished checkout is ordinary.
+    }
+  }
+
+  if (newest === undefined) throw new NoCairnRunsError(runsDir);
+  return newest.dir;
+}
+
 /** The directory holds no `report.json` — usually a mistyped path. (exit 2) */
 export class CairnRunNotFoundError extends Error {
   constructor(dir: string) {
-    super(`No Cairn run found in ${dir} — expected a report.json written by "cairn design|explore|api".`);
+    super(
+      `No Cairn run found in ${dir} — expected a report.json written by "cairn design|explore|api".`,
+    );
     this.name = 'CairnRunNotFoundError';
   }
 }
@@ -91,7 +144,8 @@ export interface ReadCairnRunDeps {
 const asRecord = (v: unknown): Record<string, unknown> =>
   typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : {};
 
-const str = (v: unknown, fallback = ''): string => (typeof v === 'string' && v !== '' ? v : fallback);
+const str = (v: unknown, fallback = ''): string =>
+  typeof v === 'string' && v !== '' ? v : fallback;
 
 async function readJson(file: string): Promise<unknown | undefined> {
   try {
@@ -119,7 +173,9 @@ function casesFromDesign(report: Record<string, unknown>): CairnIngestCase[] {
   const list = Array.isArray(report['testCases']) ? report['testCases'] : [];
   return list.map((raw) => {
     const c = asRecord(raw);
-    const steps = (Array.isArray(c['steps']) ? c['steps'] : []).map((s) => str(s)).filter((s) => s !== '');
+    const steps = (Array.isArray(c['steps']) ? c['steps'] : [])
+      .map((s) => str(s))
+      .filter((s) => s !== '');
     return {
       stableId: str(c['stableId']),
       title: str(c['title'], 'untitled case'),
@@ -138,7 +194,10 @@ function casesFromDesign(report: Record<string, unknown>): CairnIngestCase[] {
  * declared status becomes the expectation. That is a translation of what the case already says, not an
  * invention of detail it does not carry.
  */
-function casesFromApi(report: Record<string, unknown>, verdicts: Map<string, CairnVerdict>): CairnIngestCase[] {
+function casesFromApi(
+  report: Record<string, unknown>,
+  verdicts: Map<string, CairnVerdict>,
+): CairnIngestCase[] {
   const list = Array.isArray(report['cases']) ? report['cases'] : [];
   return list.map((raw) => {
     const c = asRecord(raw);
@@ -163,7 +222,10 @@ function casesFromApi(report: Record<string, unknown>, verdicts: Map<string, Cai
  * Pure apart from the two file reads, which are injectable, so the mapping rules can be exercised
  * against real artifacts without a filesystem dance.
  */
-export async function readCairnRun(dir: string, deps: ReadCairnRunDeps = {}): Promise<CairnIngestPayload> {
+export async function readCairnRun(
+  dir: string,
+  deps: ReadCairnRunDeps = {},
+): Promise<CairnIngestPayload> {
   const raw = await readJson(path.join(dir, 'report.json'));
   if (raw === undefined) throw new CairnRunNotFoundError(dir);
 
@@ -179,7 +241,9 @@ export async function readCairnRun(dir: string, deps: ReadCairnRunDeps = {}): Pr
   if (mode !== 'design' && mode !== 'explore' && mode !== 'api') {
     // Every artifact states its kind from 0.7.0 on, so reaching here means a kind newer than this
     // reader. Inferring it from which keys happen to be present is exactly the guess FR-1a forbids.
-    throw new CairnRunVersionError(`${SUPPORTED_ARTIFACT_VERSION} (unknown run mode ${String(mode)})`);
+    throw new CairnRunVersionError(
+      `${SUPPORTED_ARTIFACT_VERSION} (unknown run mode ${String(mode)})`,
+    );
   }
 
   let cases: CairnIngestCase[];

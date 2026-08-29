@@ -367,16 +367,19 @@ export function createProgram(): Command {
 
   program
     .command('ingest')
-    .argument('<dir>', 'A Cairn run directory (the one holding report.json)')
+    .argument('[dir]', 'A Cairn run directory; omit it for the newest run under ./runs')
     .description('Record a Cairn run in Plune — generated cases arrive as review proposals')
-    .action(async (dir: string, _options: unknown, command: Command) => {
+    .action(async (dir: string | undefined, _options: unknown, command: Command) => {
       const globals = command.optsWithGlobals() as { verbose?: boolean };
       const verbose = globals.verbose === true;
-      const { handleIngest, reportIngestFailure, formatIngestResult } = await import(
-        './cli/commands/ingest.js'
-      );
+      const { handleIngest, reportIngestFailure, formatIngestResult } =
+        await import('./cli/commands/ingest.js');
       try {
-        process.stdout.write(formatIngestResult(await handleIngest({ dir })));
+        // Spread rather than `{ dir }`: under `exactOptionalPropertyTypes` an explicit `undefined`
+        // is not the same as an absent key, and absent is what "look it up yourself" means here.
+        process.stdout.write(
+          formatIngestResult(await handleIngest({ ...(dir !== undefined ? { dir } : {}) })),
+        );
       } catch (err) {
         const code = reportIngestFailure(err, (s) => process.stderr.write(s));
         if (code !== null) {
