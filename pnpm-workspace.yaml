@@ -1,0 +1,19 @@
+# Dependency build-script approval (pnpm v11+).
+#
+# `allowBuilds` (a package -> boolean map) is v11's home for this setting. It replaced v10's
+# `onlyBuiltDependencies` list AND the `pnpm.onlyBuiltDependencies` field in package.json, which v11
+# reads not at all. Leaving a package undecided makes pnpm fail `runDepsStatusCheck`
+# (ERR_PNPM_IGNORED_BUILDS), and that check runs before every `pnpm run` — so `pnpm test` never
+# reached vitest on a v11 machine, while CI, pinned to v10, stayed green.
+#
+# The map is the v10 list transcribed, not a new decision: all five are built today and this repo's
+# CI has never run without them. Trimming it — the platform repo builds only two, on the grounds that
+# transformers.js runs on its WASM backend — is a separate change, with measurements behind it.
+#
+# `pnpm.onlyBuiltDependencies` stays in package.json so v10 keeps behaving exactly as it does now.
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true
+  onnxruntime-node: true
+  protobufjs: true
+  sharp: true
