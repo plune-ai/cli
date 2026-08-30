@@ -1,3 +1,4 @@
+import { FEEDBACK_URL } from './cli/api-url.js';
 import { Command } from 'commander';
 import { readFileSync, writeFileSync, realpathSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
@@ -48,6 +49,12 @@ function failUnexpected(err: unknown, verbose: boolean): void {
   } else {
     process.stderr.write(String(err) + '\n');
   }
+  // The one branch with no advice of its own: every classified failure above ends in an
+  // instruction, and this is where somebody lands holding an error nobody wrote a sentence for
+  // (#334). `--verbose` is named too, because the stack is what makes the report useful.
+  process.stderr.write(
+    `This one is on us. Run again with --verbose and send the output: ${FEEDBACK_URL}\n`,
+  );
   process.exit(1);
 }
 
