@@ -6,6 +6,18 @@
  * `login` was about to be the third.
  */
 
+/**
+ * Where to go when the CLI cannot explain itself (#334).
+ *
+ * Public, and that is the whole point: the feedback template lived in a private repository until
+ * #333, so the only people who could open it were the ones who did not need it.
+ *
+ * Printed only on an UNEXPECTED failure. Every classified one already says what to do, and adding
+ * "or complain about it" to a message that ends in an instruction teaches people to skip the
+ * instruction.
+ */
+export const FEEDBACK_URL = 'https://github.com/plune-ai/feedback/issues/new?template=feedback.yml';
+
 /** Beta, because that is the only deployment there is. Prod arrives with P7, not before. */
 const DEFAULT_API_URL = 'https://beta-api.plune.ai';
 
