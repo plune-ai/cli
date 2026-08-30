@@ -100,7 +100,7 @@ provider API key is read from the environment based on `provider.type`:
 | `plune report` | Re-render the most recent run. Flags: `--format`, `-o`. |
 | `plune diff <baseline> <current>` | Compare two `plune run --format json` outputs and report pass→fail regressions. Flags: `--fail-on-regression`, `--format`, `-o`. |
 | `plune init` | Scaffold `plune.yaml`, a sample dataset, and `.env.example`. Flags: `--yes` (non-interactive), `--force`. |
-| `plune login` | Save a [Plune platform](https://plune.ai/platform) API token so `sync` can reach it. Flags: `--token <token>` (omit to paste it or pipe it via stdin). |
+| `plune login` | Save a [Plune platform](https://plune.ai/platform) API token so `sync` and `ingest` can reach it. The token is **checked against the API before it is saved**, so a wrong one fails here rather than two commands later. Get one at `https://beta.plune.ai` → Settings → API tokens. Flags: `--token <token>` (omit to paste it or pipe it via stdin), `--skip-verify` (save without checking, for offline setup). |
 | `plune logout` | Remove the saved token. |
 | `plune sync` | Upload the latest local run to the platform. Flags: `--file <path>` to send a specific run JSON. |
 | `plune ingest [dir]` | Record a [Cairn](https://github.com/plune-ai/cairn) run in Plune. Omit `[dir]` for the newest run under `./runs`, or name the directory holding `report.json`. Generated cases arrive as **review proposals** — nothing is created until a person approves it. |

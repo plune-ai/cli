@@ -100,5 +100,7 @@ export async function runInitWizard(cwd: string): Promise<void> {
   fs.writeFileSync(outputPath, header + '\n' + stringify(config), 'utf8');
   spin.stop('plune.yaml created!');
 
-  clack.outro('Done! Run `plune run` to execute your evaluations.');
+  // Just the file. What to do next is printed by initCommand once the dataset and .env.example
+  // exist too, so the three steps are not split across two places (#331).
+  clack.outro('plune.yaml is ready.');
 }

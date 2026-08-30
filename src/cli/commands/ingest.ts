@@ -11,6 +11,7 @@
 // Reading the artifact is `cairn-artifact.ts`; this file is the network edge. Same failure discipline
 // as `sync`: typed errors, actionable messages, never a stack trace, never the token.
 
+import { resolveApiUrl } from '../api-url.js';
 import { loadToken } from '../credentials.js';
 import {
   findLatestCairnRun,
@@ -22,8 +23,6 @@ import {
   NoCairnRunsError,
   type CairnIngestPayload,
 } from './cairn-artifact.js';
-
-const DEFAULT_API_URL = 'https://beta-api.plune.ai';
 
 /** No saved token — the user must `plune login` first. (exit 2) */
 export class IngestNotLoggedInError extends Error {
@@ -76,11 +75,6 @@ export interface IngestResult {
   linked: number;
   proposed: number;
   skipped: number;
-}
-
-function resolveApiUrl(explicit: string | undefined): string {
-  const raw = explicit ?? process.env['PLUNE_API_URL'] ?? DEFAULT_API_URL;
-  return raw.replace(/\/+$/, '');
 }
 
 /** Read a non-2xx body for its message, always draining it — an unread body leaves the socket open. */

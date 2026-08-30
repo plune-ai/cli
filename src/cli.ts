@@ -56,6 +56,11 @@ function failUnexpected(err: unknown, verbose: boolean): void {
 // clean. readline is imported lazily: the cold-start path must not pay for it.
 async function readTokenFromStdin(): Promise<string> {
   if (process.stdin.isTTY === true) {
+    // Where the token comes from, said at the moment someone is looking for one — not only in the
+    // error they get for guessing wrong (#330). Derived, so a self-hosted deployment is not sent to
+    // our beta.
+    const { resolveApiUrl, whereToGetAToken } = await import('./cli/api-url.js');
+    process.stderr.write(`${whereToGetAToken(resolveApiUrl())}\n`);
     process.stderr.write('Paste your API token, then press Enter:\n');
   }
   const { createInterface } = await import('node:readline');
@@ -299,20 +304,31 @@ export function createProgram(): Command {
 
   program
     .command('login')
-    .description('Save your Plune API token so the CLI can reach the platform')
+    .description('Save your Plune API token (get one in the dashboard: Settings → API tokens)')
     .option('--token <token>', 'API token (omit to paste it / pipe it via stdin)')
-    .action(async (options: { token?: string }, command: Command) => {
+    .option(
+      '--skip-verify',
+      'Save without checking the token against the API (offline setup)',
+      false,
+    )
+    .action(async (options: { token?: string; skipVerify: boolean }, command: Command) => {
       const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
-      const { handleLogin, EmptyTokenError } = await import('./cli/commands/login.js');
+      const { handleLogin, reportLoginFailure } = await import('./cli/commands/login.js');
       try {
         const token = options.token ?? (await readTokenFromStdin());
-        const { path } = handleLogin({ token });
+        const { path, verified } = await handleLogin({ token, skipVerify: options.skipVerify });
         // Deliberately print ONLY the path, never the token — it must not surface in a terminal or log.
-        process.stdout.write(`Logged in. Token saved to ${path}\n`);
+        process.stdout.write(
+          verified
+            ? `Logged in. Token checked against the API and saved to ${path}\n`
+            : `Token saved to ${path} WITHOUT being checked (--skip-verify).\n`,
+        );
       } catch (err) {
-        if (err instanceof EmptyTokenError) {
-          process.stderr.write(err.message + '\n');
-          process.exit(2);
+        const code = reportLoginFailure(err, (s) => process.stderr.write(s));
+        if (code !== null) {
+          maybeStack(err, verbose);
+          // exitCode, not process.exit — the same undici/libuv teardown race `sync` documents.
+          process.exitCode = code;
           return;
         }
         failUnexpected(err, verbose);
