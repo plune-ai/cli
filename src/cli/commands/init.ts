@@ -35,6 +35,25 @@ function reportWrite(cwd: string, rel: string, content: string, force: boolean):
 }
 
 /**
+ * What to do with the files that were just written (#331).
+ *
+ * `init` used to end at "Created .env.example." and stop — technically complete, and a dead
+ * end for anyone who does not already know the next command. Three steps, in the order they happen.
+ *
+ * The FIRST line is the important one, and it is a boundary rather than a nicety: `plune run`
+ * needs no account, no token and no network beyond the model provider (ADR 0006). Leading with the
+ * platform would make the product look like it requires a sign-up it does not.
+ */
+export const NEXT_STEPS = [
+  '',
+  'Next:',
+  '  1. plune run     — runs locally. No account, no token needed.',
+  '  2. plune login   — only if you want history and trends: paste a token from the dashboard.',
+  '  3. plune sync    — sends the last run to the platform.',
+  '',
+].join('\n');
+
+/**
  * Run the init flow. With `yes`, scaffold a default `plune.yaml` non-interactively (no prompts,
  * no TTY needed); otherwise run the interactive wizard (which throws `NonTtyError` in a non-TTY,
  * mapped by the CLI to exit 1, AC-T03.6). Either way, scaffold the example dataset and
@@ -49,4 +68,7 @@ export async function initCommand({ cwd, force, yes = false }: InitOptions): Pro
   for (const [rel, content] of TEMPLATES) {
     reportWrite(cwd, rel, content, force);
   }
+  // After the file lines, in both flows: the wizard's own outro is about plune.yaml and fires
+  // before these two files exist.
+  process.stdout.write(NEXT_STEPS);
 }

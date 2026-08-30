@@ -19,13 +19,19 @@ function wizardWritesYaml(cwd: string): void {
 }
 
 let tmp: string;
+/** Everything the command wrote, so the closing lines can be read rather than guessed at. */
+let printed: string[];
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plune-init-'));
   vi.clearAllMocks();
   vi.mocked(wizardModule.runInitWizard).mockImplementation(async (cwd: string) => {
     wizardWritesYaml(cwd);
   });
-  vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+  printed = [];
+  vi.spyOn(process.stdout, 'write').mockImplementation((c: string | Uint8Array) => {
+    printed.push(typeof c === 'string' ? c : Buffer.from(c).toString());
+    return true;
+  });
 });
 afterEach(() => {
   fs.rmSync(tmp, { recursive: true, force: true });
@@ -33,6 +39,35 @@ afterEach(() => {
 });
 
 describe('initCommand', () => {
+  it('ends by naming the next three commands, in order (#331)', async () => {
+    // It used to end at "Created .env.example." — complete, and a dead end for anyone who does not
+    // already know what comes next.
+    await initCommand({ cwd: tmp, force: false, yes: true });
+
+    const out = printed.join('');
+    const run = out.indexOf('plune run');
+    const login = out.indexOf('plune login');
+    const sync = out.indexOf('plune sync');
+    expect(run).toBeGreaterThan(-1);
+    expect(login).toBeGreaterThan(run);
+    expect(sync).toBeGreaterThan(login);
+  });
+
+  it('says the first step needs no account, because that is the product boundary', async () => {
+    // ADR 0006: everything before the cloud commands runs locally, with no account and no network
+    // beyond the model provider. Leading with the platform would make the product look like it
+    // requires a sign-up it does not.
+    await initCommand({ cwd: tmp, force: false, yes: true });
+    expect(printed.join('')).toMatch(/No account, no token needed/);
+  });
+
+  it('prints the steps after the files, not before them', async () => {
+    // The order a person reads it in: what was created, then what to do with it.
+    await initCommand({ cwd: tmp, force: false, yes: true });
+    const out = printed.join('');
+    expect(out.indexOf('.env.example')).toBeLessThan(out.indexOf('Next:'));
+  });
+
   it('runs the wizard then scaffolds the example dataset and .env.example (AC-T03.1)', async () => {
     await initCommand({ cwd: tmp, force: false });
     expect(vi.mocked(wizardModule.runInitWizard)).toHaveBeenCalledWith(tmp);
@@ -53,7 +88,9 @@ describe('initCommand', () => {
     fs.mkdirSync(path.join(tmp, 'datasets'), { recursive: true });
     fs.writeFileSync(path.join(tmp, 'datasets', 'example.jsonl'), 'PRE-EXISTING');
     await initCommand({ cwd: tmp, force: false });
-    expect(fs.readFileSync(path.join(tmp, 'datasets', 'example.jsonl'), 'utf8')).toBe('PRE-EXISTING');
+    expect(fs.readFileSync(path.join(tmp, 'datasets', 'example.jsonl'), 'utf8')).toBe(
+      'PRE-EXISTING',
+    );
   });
 
   it('overwrites existing template files with --force (AC-T03.3)', async () => {
@@ -77,9 +114,17 @@ describe('initCommand --yes (non-interactive, T009b)', () => {
   });
 
   it('works without a TTY (the whole point of --yes)', async () => {
-    Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true, writable: true });
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: false,
+      configurable: true,
+      writable: true,
+    });
     await expect(initCommand({ cwd: tmp, force: false, yes: true })).resolves.toBeUndefined();
-    Object.defineProperty(process.stdin, 'isTTY', { value: undefined, configurable: true, writable: true });
+    Object.defineProperty(process.stdin, 'isTTY', {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
   });
 });
 

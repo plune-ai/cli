@@ -12,12 +12,12 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { parseRunResult, type ParsedRunResult } from '../../types/run-result-schema.js';
+import { resolveApiUrl } from '../api-url.js';
 import { loadToken } from '../credentials.js';
 
 // ponytail: alpha points at beta — the only live, token-issuing surface today. Flip to
 // https://api.plune.ai once prod is deployed and the alpha graduates. `PLUNE_API_URL` overrides
 // it for testers / self-hosters, so the default is a convenience, not a lock-in.
-const DEFAULT_API_URL = 'https://beta-api.plune.ai';
 
 /** No saved token — the user must `plune login` before syncing. (exit 2) */
 export class NotLoggedInError extends Error {
@@ -84,11 +84,6 @@ export interface SyncResult {
   id: string;
   /** The `GET /v1/runs/:id` URL where the uploaded run can be read back. */
   url: string;
-}
-
-function resolveApiUrl(explicit: string | undefined): string {
-  const raw = explicit ?? process.env['PLUNE_API_URL'] ?? DEFAULT_API_URL;
-  return raw.replace(/\/+$/, ''); // tolerate a trailing slash so `${base}/v1/runs` never doubles up
 }
 
 /** Read + validate the run to upload, failing locally (with a clear message) before any network call. */

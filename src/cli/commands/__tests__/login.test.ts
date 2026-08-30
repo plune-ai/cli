@@ -21,19 +21,19 @@ afterEach(() => {
 });
 
 describe('plune login / logout (#48)', () => {
-  it('handleLogin stores the token and returns its path', () => {
-    const { path } = handleLogin({ token: 'plune_tok' });
+  it('handleLogin stores the token and returns its path', async () => {
+    const { path } = await handleLogin({ token: 'plune_tok', skipVerify: true });
     expect(loadToken()).toBe('plune_tok');
     expect(path.startsWith(tmp)).toBe(true);
   });
 
-  it('handleLogin trims and rejects a blank token', () => {
-    expect(() => handleLogin({ token: '   ' })).toThrow(EmptyTokenError);
+  it('handleLogin trims and rejects a blank token', async () => {
+    await expect(handleLogin({ token: '   ', skipVerify: true })).rejects.toThrow(EmptyTokenError);
     expect(loadToken()).toBeNull();
   });
 
-  it('handleLogout removes a stored token; a second call is a no-op', () => {
-    handleLogin({ token: 'plune_bye' });
+  it('handleLogout removes a stored token; a second call is a no-op', async () => {
+    await handleLogin({ token: 'plune_bye', skipVerify: true });
     expect(handleLogout().removed).toBe(true);
     expect(loadToken()).toBeNull();
     expect(handleLogout().removed).toBe(false);
@@ -56,6 +56,7 @@ describe('plune login / logout (#48)', () => {
       'plune',
       '--verbose',
       'login',
+      '--skip-verify',
       '--token',
       'plune_SUPERSECRET',
     ]);
@@ -72,20 +73,22 @@ describe('plune login / logout (#48)', () => {
       err.push(typeof c === 'string' ? c : Buffer.from(c).toString());
       return true;
     });
-    const exitSpy = vi
-      .spyOn(process, 'exit')
-      .mockImplementation((() => undefined) as (code?: string | number | null) => never);
+    // `process.exitCode`, not `process.exit` — login joined sync and ingest on that (#329). Calling
+    // `exit` outright races undici's async teardown and trips a libuv assertion on Windows, which is
+    // exactly the failure `sync.ts` documents; the code now sets the exit code and returns.
+    const before = process.exitCode;
 
     const { createProgram } = await import('../../../cli.js');
-    await createProgram().parseAsync(['node', 'plune', 'login', '--token', '']);
+    await createProgram().parseAsync(['node', 'plune', 'login', '--skip-verify', '--token', '']);
 
-    expect(exitSpy).toHaveBeenCalledWith(2);
+    expect(process.exitCode).toBe(2);
+    process.exitCode = before;
     expect(err.join('')).toContain('No API token');
     expect(loadToken()).toBeNull();
   });
 
   it('the logout command removes a stored token and reports it', async () => {
-    handleLogin({ token: 'plune_wired' });
+    await handleLogin({ token: 'plune_wired', skipVerify: true });
     const out: string[] = [];
     vi.spyOn(process.stdout, 'write').mockImplementation((c: string | Uint8Array) => {
       out.push(typeof c === 'string' ? c : Buffer.from(c).toString());
