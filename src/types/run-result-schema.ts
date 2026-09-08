@@ -50,7 +50,7 @@ const runErrorSchema = z.object({
 });
 
 const rowResultSchema = z.object({
-  vars: z.record(z.unknown()),
+  vars: z.record(z.string(), z.unknown()),
   output: z.string().nullable(),
   cached: z.boolean(),
   usage: usageSchema.optional(),

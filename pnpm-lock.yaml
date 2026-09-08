@@ -10,7 +10,7 @@ importers:
     dependencies:
       '@anthropic-ai/sdk':
         specifier: ^0.102.0
-        version: 0.102.0(zod@3.25.76)
+        version: 0.102.0(zod@4.5.4)
       '@clack/prompts':
         specifier: ^1.5.1
         version: 1.5.1
@@ -28,13 +28,13 @@ importers:
         version: 16.6.1
       openai:
         specifier: ^6.42.0
-        version: 6.42.0(zod@3.25.76)
+        version: 6.42.0(zod@4.5.4)
       yaml:
         specifier: ^2.9.0
         version: 2.9.0
       zod:
-        specifier: ^3.23.0
-        version: 3.25.76
+        specifier: ^4.5.4
+        version: 4.5.4
     devDependencies:
       '@huggingface/transformers':
         specifier: 4.2.0
@@ -1312,6 +1312,7 @@ packages:
   eslint@9.39.4:
     resolution: {integrity: sha512-XoMjdBOwe/esVgEvLmNsD3IRHkm7fbKIUGvrleloJXUZgDHig2IPWNniv+GwjyJXzuNqVjlr5+4yVUZjycJwfQ==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+    deprecated: This version is no longer supported. Please see https://eslint.org/version-support for other options.
     hasBin: true
     peerDependencies:
       jiti: '*'
@@ -2141,8 +2142,8 @@ packages:
     resolution: {integrity: sha512-4LCcse/U2MHZ63HAJVE+v71o7yOdIe4cZ70Wpf8D/IyjDKYQLV5GD46B+hSTjJsvV5PztjvHoU580EftxjDZFQ==}
     engines: {node: '>=12.20'}
 
-  zod@3.25.76:
-    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
+  zod@4.5.4:
+    resolution: {integrity: sha512-sC95tT5iHHH9gtpj6A81kh+NEaRAUFN+qlUPDUbRfOMvNf5QCBqsb3WgvnpVtK5Y+4UfA6KqufotuTvMGiTlsA==}
 
 snapshots:
 
@@ -2151,12 +2152,12 @@ snapshots:
       '@jridgewell/gen-mapping': 0.3.13
       '@jridgewell/trace-mapping': 0.3.31
 
-  '@anthropic-ai/sdk@0.102.0(zod@3.25.76)':
+  '@anthropic-ai/sdk@0.102.0(zod@4.5.4)':
     dependencies:
       json-schema-to-ts: 3.1.1
       standardwebhooks: 1.0.0
     optionalDependencies:
-      zod: 3.25.76
+      zod: 4.5.4
 
   '@babel/helper-string-parser@7.29.7': {}
 
@@ -3516,9 +3517,9 @@ snapshots:
       platform: 1.3.6
       protobufjs: 7.6.4
 
-  openai@6.42.0(zod@3.25.76):
+  openai@6.42.0(zod@4.5.4):
     optionalDependencies:
-      zod: 3.25.76
+      zod: 4.5.4
 
   optionator@0.9.4:
     dependencies:
@@ -3993,4 +3994,4 @@ snapshots:
 
   yocto-queue@1.2.2: {}
 
-  zod@3.25.76: {}
+  zod@4.5.4: {}
