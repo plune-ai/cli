@@ -103,11 +103,40 @@ provider API key is read from the environment based on `provider.type`:
 | `plune login` | Save a [Plune platform](https://plune.ai/platform) API token so `sync` and `ingest` can reach it. The token is **checked against the API before it is saved**, so a wrong one fails here rather than two commands later. Get one at `https://beta.plune.ai` → Settings → API tokens. Flags: `--token <token>` (omit to paste it or pipe it via stdin), `--skip-verify` (save without checking, for offline setup). |
 | `plune logout` | Remove the saved token. |
 | `plune sync` | Upload the latest local run to the platform. Flags: `--file <path>` to send a specific run JSON. |
+| `plune run import <file>` | Turn a **JUnit XML** or **Playwright JSON** report into a run in Plune. Needs no provider key — nothing is generated. Flags: `--format junit\|playwright-json` (detected from the file when omitted), `--key <externalKey>` to land several reports in one run, `--create` to offer unmatched tests to the review queue. |
 | `plune ingest [dir]` | Record a [Cairn](https://github.com/plune-ai/cairn) run in Plune. Omit `[dir]` for the newest run under `./runs`, or name the directory holding `report.json`. Generated cases arrive as **review proposals** — nothing is created until a person approves it. |
 
 Global flags: `-c, --config <path>` · `-v, --verbose` · `--no-color`.
 
 **Exit codes:** `0` everything passed · `1` an assertion failed · `2` configuration or execution error.
+
+## Already running tests? Bring the results in
+
+Everything above generates checks, which is why it needs a provider key. If you already have a
+suite, there is nothing to generate — the results exist and only have to arrive, and that route
+costs nothing beyond a Plune token.
+
+```bash
+plune login
+plune run import ./junit.xml          # Jest, Vitest, pytest, PHPUnit, Surefire, Cypress, …
+plune run import ./playwright.json    # or Playwright's own JSON report
+```
+
+The format is read from the file, not from its name. Statuses go over as the report wrote them and
+Plune maps them per project, so `error` can mean something different to your team than to ours.
+A test Plune has no case for is counted, and `--create` offers it to the review queue instead —
+nothing becomes a test case until a person approves it.
+
+For a Playwright suite there is also [`@plune-ai/playwright`](https://www.npmjs.com/package/@plune-ai/playwright),
+which reports as the run happens and needs no second step:
+
+```js
+// playwright.config.ts
+reporter: [['list'], ['@plune-ai/playwright']],
+```
+
+Sharded CI? Give every job the same `--key` (or `PLUNE_RUN`), and close the run with
+`plune run finish <id>` once they are all done.
 
 ## Optional: keep a history
 

@@ -86,6 +86,15 @@ async function run(
 }
 
 describe('what the adapter tells the core about a test', () => {
+  /**
+   * These four strings are pinned twice.
+   *
+   * `plune run import` derives the same identity for the same test out of a Playwright JSON report
+   * (`src/importers/__tests__/playwright-json.test.ts`, which fakes THIS test). Two derivations
+   * that disagree by a character give one test two cases in Plune — quietly, and forever. A
+   * package boundary stops one test from running both, so each side pins the literal instead:
+   * change a derivation here and this file goes red with the string the other side expects.
+   */
   it('offers the stable id first and the readable path second', async () => {
     await run(new PluneReporter(), [fakeTest()], [fakeResult()]);
 

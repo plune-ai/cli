@@ -290,6 +290,54 @@ export function createProgram(): Command {
       }
     });
 
+  runCommand
+    .command('import')
+    .argument('<file>', 'A JUnit XML or Playwright JSON report')
+    .description('Turn a report another runner wrote into a run in Plune — no provider key needed')
+    .option('--format <fmt>', 'junit | playwright-json; detected from the file when omitted')
+    .option('--key <externalKey>', 'The key several jobs share so their reports land in one run')
+    .option('--create', 'Offer tests nothing matched to the review queue', false)
+    .action(
+      async (
+        file: string,
+        options: { format?: string; key?: string; create: boolean },
+        command: Command,
+      ) => {
+        const [{ handleRunImport }, { IMPORT_FORMATS, UnknownFormatError, XmlParseError, JsonReportError }] =
+          await Promise.all([
+            import('./cli/commands/run-import.js'),
+            import('./importers/index.js'),
+          ]);
+        const format = options.format;
+        if (format !== undefined && !(IMPORT_FORMATS as readonly string[]).includes(format)) {
+          process.stderr.write(`Unknown --format "${format}". Use ${IMPORT_FORMATS.join(' or ')}.\n`);
+          process.exit(2);
+          return;
+        }
+        try {
+          await handleRunImport({
+            file,
+            ...(format !== undefined ? { format: format as (typeof IMPORT_FORMATS)[number] } : {}),
+            ...(options.key !== undefined ? { key: options.key } : {}),
+            ...(options.create ? { create: true } : {}),
+          });
+        } catch (err) {
+          // A report we could not read is the user's to fix, and the message already names the file
+          // and the line — exit 2, not the generic failure path.
+          if (
+            err instanceof UnknownFormatError ||
+            err instanceof XmlParseError ||
+            err instanceof JsonReportError
+          ) {
+            process.stderr.write(err.message + '\n');
+            process.exit(2);
+            return;
+          }
+          await failRunCommand(err, verboseOf(command));
+        }
+      },
+    );
+
   program
     .command('report')
     .description('Render the most recent run in a chosen format')
