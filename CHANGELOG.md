@@ -11,6 +11,15 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Changed
+
+- **zod 3 → 4.** The platform this CLI reports to has been on zod 4 since its own contract work
+  landed, so anything depending on both pulled two copies of zod into one tree — 3.25.76 beside
+  4.5.4 — for schemas that describe the same wire. The migration itself is four `z.record()` calls,
+  which v4 requires to name their key type explicitly; nothing else here used an API v4 removed.
+  Done now rather than later because the reporter core lands next, and every schema it adds would
+  otherwise be written once on 3 and again on 4.
+
 ### Added
 
 - The user guide (`docs/guide/`) and a runnable `examples/quickstart/` project — an end-to-end

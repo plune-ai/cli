@@ -19,12 +19,12 @@ const modelPriceSchema = z.object({
   output_per_1k_usd: z.number().nonnegative(),
 });
 
-const pricingSchema = z.record(modelPriceSchema);
+const pricingSchema = z.record(z.string(), modelPriceSchema);
 
 // --- Dataset ---
 
 const datasetRowSchema = z.object({
-  vars: z.record(z.union([z.string(), z.number(), z.boolean()])),
+  vars: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
   expected: z.string().optional(),
 });
 
@@ -62,7 +62,7 @@ const containsAllAssertionSchema = z.object({
 
 const jsonSchemaAssertionSchema = z.object({
   type: z.literal('json-schema'),
-  schema: z.record(z.unknown()),
+  schema: z.record(z.string(), z.unknown()),
   extract: z.enum(['auto', 'strict']).optional(),
 });
 
