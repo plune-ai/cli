@@ -22,7 +22,10 @@ export default defineConfig({
       '../../dist/index.js',
       {
         apiUrl,
-        token: 'stub-token',
+        // Never `undefined`: leaving it out would make the core fall back to whatever token
+        // `plune login` saved on this machine, and a fixture must not be one unset variable
+        // away from posting a fake run with someone's real credentials.
+        token: process.env['PLUNE_TOKEN'] ?? 'stub-token',
         fallbackPath: process.env['PLUNE_FALLBACK'] ?? '.plune/pending-results.jsonl',
         externalKey: process.env['PLUNE_RUN'] ?? 'e2e-fixture',
       },
