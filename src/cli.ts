@@ -95,7 +95,7 @@ export function createProgram(): Command {
     .option('-v, --verbose', 'Verbose output, including stack traces on unexpected errors', false)
     .option('--no-color', 'Disable colored output regardless of TTY');
 
-  program
+  const runCommand = program
     .command('run')
     .description('Run assertions against a dataset')
     .option('--dry-run', 'Estimate cost/tokens; do not call the model', false)
@@ -206,6 +206,89 @@ export function createProgram(): Command {
         }
       },
     );
+
+  // Platform-run lifecycle, hung off `run` because that is what the reporter's own message tells
+  // people to type. `run` itself takes no positional arguments, so nothing that works today changes
+  // meaning; `plune run` on its own still runs the eval suite above.
+  //
+  // Every handler is imported inside its action — the cold-start rule at the top of this file.
+  const failRunCommand = async (err: unknown, verbose: boolean): Promise<never> => {
+    const { NoTokenError, RunCommandError } = await import('./cli/commands/run-lifecycle.js');
+    if (err instanceof NoTokenError) {
+      process.stderr.write(err.message + '\n');
+      process.exit(2);
+    }
+    if (err instanceof RunCommandError) {
+      process.stderr.write(err.message + '\n');
+      process.exit(1);
+    }
+    failUnexpected(err, verbose);
+    process.exit(1);
+  };
+  const verboseOf = (command: Command): boolean =>
+    (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
+
+  runCommand
+    .command('start')
+    .description('Open a platform run (or join one already carrying the key) and print its id')
+    .option('--key <externalKey>', 'The key several processes share; generated when absent')
+    .option('--json', 'Print one machine-readable line instead of prose', false)
+    .action(async (options: { key?: string; json: boolean }, command: Command) => {
+      try {
+        const { handleRunStart } = await import('./cli/commands/run-lifecycle.js');
+        await handleRunStart({ ...(options.key !== undefined ? { key: options.key } : {}), json: options.json });
+      } catch (err) {
+        await failRunCommand(err, verboseOf(command));
+      }
+    });
+
+  runCommand
+    .command('finish')
+    .argument('<id>', 'The run to close')
+    .description('Close a platform run — what the reporter tells you to do for a run left open')
+    .option('--terminate', 'Record the run as cut short rather than finished', false)
+    .option('--reason <text>', 'Why, for a terminated run')
+    .action(async (id: string, options: { terminate: boolean; reason?: string }, command: Command) => {
+      try {
+        const { handleRunFinish } = await import('./cli/commands/run-lifecycle.js');
+        await handleRunFinish(id, {
+          terminate: options.terminate,
+          ...(options.reason !== undefined ? { reason: options.reason } : {}),
+        });
+      } catch (err) {
+        await failRunCommand(err, verboseOf(command));
+      }
+    });
+
+  runCommand
+    .command('exec')
+    .argument('<command...>', 'The command to run inside the run, after `--`')
+    .description('Open a run, run a command inside it, close the run — whatever the command returns')
+    .option('--key <externalKey>', 'The key several processes share; generated when absent')
+    .action(async (argv: string[], options: { key?: string }, command: Command) => {
+      try {
+        const { handleRunExec } = await import('./cli/commands/run-lifecycle.js');
+        process.exitCode = await handleRunExec({
+          argv,
+          ...(options.key !== undefined ? { key: options.key } : {}),
+        });
+      } catch (err) {
+        await failRunCommand(err, verboseOf(command));
+      }
+    });
+
+  runCommand
+    .command('report')
+    .description('Send what the reporter could not — replays .plune/pending-results.jsonl')
+    .option('--file <path>', 'The fallback file to replay')
+    .action(async (options: { file?: string }, command: Command) => {
+      try {
+        const { handleRunReport } = await import('./cli/commands/run-lifecycle.js');
+        await handleRunReport({ ...(options.file !== undefined ? { file: options.file } : {}) });
+      } catch (err) {
+        await failRunCommand(err, verboseOf(command));
+      }
+    });
 
   program
     .command('report')
