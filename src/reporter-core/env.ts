@@ -75,6 +75,9 @@ export function readEnv(env: NodeJS.ProcessEnv = process.env): EnvSettings {
   const title = value(env, 'PLUNE_RUN_TITLE');
   const environment = value(env, 'PLUNE_ENV');
   const labels = list(env, 'PLUNE_LABELS');
+  // Rung 6 of the C2 ladder, unblocked by D14. Read as a flag rather than by presence for the same
+  // reason as the others: `PLUNE_CREATE=0` in one matrix cell must mean off.
+  const offerDiscovered = flag(env, 'PLUNE_CREATE');
 
   return {
     config: {
@@ -86,6 +89,9 @@ export function readEnv(env: NodeJS.ProcessEnv = process.env): EnvSettings {
       ...(title !== undefined ? { title } : {}),
       ...(environment !== undefined ? { environment } : {}),
       ...(labels !== undefined ? { labels } : {}),
+      // Only when set: `false` here would outrank a config file that asked for it, and an unset
+      // variable is not an instruction.
+      ...(offerDiscovered ? { offerDiscovered } : {}),
     },
     // Two names for two situations that end the same way. `SHARED_RUN` says other processes are
     // reporting into this run; `PROCEED` says the job will close it on its own schedule. Either

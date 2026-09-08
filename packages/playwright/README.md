@@ -55,12 +55,19 @@ fills in what you left out. Anything set in the config file wins.
 | `PLUNE_RUN_TITLE` | what to call the run in the list |
 | `PLUNE_ENV` | where it ran — `staging`, `prod`, a preview name |
 | `PLUNE_LABELS` | comma-separated marks: `smoke,nightly` |
+| `PLUNE_CREATE` | offer tests Plune has no case for to the review queue |
 
 Flags are read by value, not by presence: `PLUNE_PROCEED=0` in a matrix cell means off.
 
 The first shard to set a title owns it; a shard arriving later fills a field the first one left
 empty rather than overwriting it. Blank entries in `PLUNE_LABELS` are dropped — `a,,b` is a template
 that had nothing for the middle slot, not a request for an empty label.
+
+`PLUNE_CREATE=1` sends every test that resolved to no case to the review queue — the keys it was
+looked up by, its title, its file and line, and how it went. Never steps and never an expected
+result: a reporter sees a test's result, not its source, and a body nobody wrote is exactly what the
+queue exists to keep out. A person decides whether the project tracks the test; approving attaches
+the keys, so the next run resolves instead of offering it again.
 
 `PLUNE_GROUP` is **not supported yet** — a group of runs is a Plune feature that does not exist, and
 a group of one run means nothing. Setting it prints a line saying it was ignored, rather than

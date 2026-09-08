@@ -108,3 +108,16 @@ describe('the variables that have nowhere to go yet', () => {
     expect(readEnv(env({ PLUNE_RUN_TITLE: 't', PLUNE_ENV: 'e', PLUNE_LABELS: 'l' })).ignored).toEqual([]);
   });
 });
+
+describe('PLUNE_CREATE — offering tests the platform has no case for (D14)', () => {
+  it('is read by value, so one matrix cell can turn it off', () => {
+    expect(readEnv(env({ PLUNE_CREATE: '1' })).config.offerDiscovered).toBe(true);
+    expect(readEnv(env({ PLUNE_CREATE: '0' })).config.offerDiscovered).toBeUndefined();
+  });
+
+  it('says nothing when unset, rather than saying no', () => {
+    // The difference matters: `false` here would outrank a committed config that asked for it, and
+    // an unset variable is not an instruction.
+    expect('offerDiscovered' in readEnv(env({})).config).toBe(false);
+  });
+});

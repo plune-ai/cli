@@ -4,6 +4,8 @@ import { createClient, type PlatformClient } from './client.js';
 import { readEnv } from './env.js';
 import { appendBatch, DEFAULT_FALLBACK_PATH, type DeferredResult } from './fallback.js';
 import type {
+  DiscoveredTest,
+  DiscoveryOutcome,
   ExpectedEntry,
   KeyRef,
   PendingResult,
@@ -16,6 +18,9 @@ import type {
 const RESOLVE_CHUNK = 500;
 /** The platform's ceiling on one results batch. */
 const BATCH_MAX = 500;
+/** The platform's ceiling on one batch of offered tests — the same number, stated separately
+ * because it is a different endpoint's promise and they are free to diverge. */
+const DISCOVER_MAX = 500;
 const BATCH_DEFAULT = 100;
 /** What `configuration.expected` may hold before the contract refuses the whole start. */
 const EXPECTED_MAX = 10_000;
@@ -107,6 +112,7 @@ export async function startRun(
   const fallbackPath = cfg.fallbackPath ?? DEFAULT_FALLBACK_PATH;
   const externalKey = cfg.externalKey ?? null;
   const batchSize = Math.min(cfg.batchSize ?? BATCH_DEFAULT, BATCH_MAX);
+  const offerDiscovered = cfg.offerDiscovered ?? false;
 
   const token = cfg.token ?? loadToken() ?? '';
   const client: PlatformClient = createClient({
@@ -121,12 +127,21 @@ export async function startRun(
     conflict: 0,
     rejected: 0,
     unresolved: 0,
+    offered: 0,
     deferred: 0,
   };
   /** `null` records a key we already asked about and the platform did not know — asking twice
    * would cost a request to learn the same thing. */
   const resolved = new Map<string, string | null>();
   let buffer: PendingResult[] = [];
+  /**
+   * Tests that resolved to nothing, held until the run ends (D14).
+   *
+   * Accumulated rather than offered per batch for one reason: a retried test appears several times,
+   * and a queue that grew a row per attempt would be unusable by the second flaky suite. Keyed by
+   * the identity the platform would use, so a repeat replaces rather than adds.
+   */
+  const discoveries = new Map<string, DiscoveredTest>();
   let runId: string | null = null;
   let joined = false;
   /** Set once the platform has told us it will not accept anything more from this process. */
@@ -250,6 +265,52 @@ export async function startRun(
     return unanswered ? { kind: 'unanswered' } : { kind: 'unmatched' };
   }
 
+  /**
+   * Hold on to a test nothing resolved, if it said enough to be judged.
+   *
+   * A result missing either half is skipped in silence rather than sent with a guess: the platform
+   * requires both and would refuse the whole batch, so one thin adapter would cost every other
+   * test's offer. `unresolved` still counts it, which is the honest report — the test had no case,
+   * and this reporter had nothing to offer about it.
+   */
+  function remember(result: PendingResult): void {
+    if (!offerDiscovered) return;
+    if (result.title === undefined || result.specRef === undefined) return;
+    if (result.keys.length === 0) return;
+    discoveries.set(result.keys[0]!.value, {
+      keys: result.keys,
+      title: result.title,
+      source: result.source,
+      specRef: result.specRef,
+      rawStatus: result.rawStatus,
+    });
+  }
+
+  /**
+   * Offer everything this run found no case for, once, as the run closes.
+   *
+   * Failure here is reported and dropped, never deferred: the fallback file replays RESULTS, and an
+   * offer is not a result — it is a question about a test the next run will ask again anyway. Writing
+   * it there would mean a replay silently posts to a different endpoint than the file promises.
+   */
+  async function offer(): Promise<void> {
+    if (discoveries.size === 0 || offline || runId === null) return;
+    for (const batch of chunk([...discoveries.values()], DISCOVER_MAX)) {
+      const out = await client.post<{ results: DiscoveryOutcome[] }>('/v1/review-items/discovered', {
+        discovered: batch,
+        runId,
+      });
+      if (!out.ok) {
+        log(`plune: could not offer ${batch.length} unknown tests for review (${out.detail || out.kind}).`);
+        return;
+      }
+      // Only what a person now has to look at. `duplicate`, `refused` and `known` are the platform
+      // saying "already handled" — reporting them as offers would make a repeat run look like new
+      // work every time, which is how a queue stops being read.
+      stats.offered += out.body.results.filter((r) => r.outcome === 'queued').length;
+    }
+  }
+
   async function flush(): Promise<void> {
     if (buffer.length === 0) return;
     const pending = buffer;
@@ -271,6 +332,7 @@ export async function startRun(
         submissions.push({ ...rest, testCaseId: match.testCaseId });
       } else if (match.kind === 'unmatched') {
         stats.unresolved += 1;
+        remember(result);
       } else {
         unanswered.push(result);
       }
@@ -309,6 +371,7 @@ export async function startRun(
     if (stats.conflict > 0) parts.push(`${stats.conflict} conflicting`);
     if (stats.rejected > 0) parts.push(`${stats.rejected} rejected`);
     if (stats.unresolved > 0) parts.push(`${stats.unresolved} with no matching test case`);
+    if (stats.offered > 0) parts.push(`${stats.offered} offered for review`);
     if (stats.deferred > 0) parts.push(`${stats.deferred} written to ${fallbackPath}`);
     log(`plune: ${parts.join(' · ')}`);
   }
@@ -332,6 +395,9 @@ export async function startRun(
       if (done) return;
       done = true;
       await flush();
+      // Before the close, not after: the entries name the run that found them, and a closed run is
+      // still the right answer to "where did this come from".
+      await offer();
       if (runId !== null && !offline) {
         const out = await client.post(`/v1/runs/${runId}/events`, {
           event: 'finish',
@@ -346,6 +412,10 @@ export async function startRun(
       if (done) return;
       done = true;
       await flush();
+      // A shard offers what IT found. The platform deduplicates by key, so the other shards'
+      // repeats come back `duplicate` — whereas offering only from the closing process would mean
+      // a sharded run never offers anything, since no process closes it.
+      await offer();
       if (runId !== null) {
         // Deliberately open: this process is one shard and cannot know the others are done.
         // Whoever does know closes it, and until then the run reads as still running — which is

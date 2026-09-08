@@ -20,6 +20,7 @@ interface Seen {
   resolves: { keys: KeyRef[] }[];
   results: { runId: string; results: Record<string, unknown>[] }[];
   events: { runId: string; body: Record<string, unknown> }[];
+  discovered: { body: Record<string, unknown> }[];
 }
 
 interface PlatformOptions {
@@ -34,10 +35,14 @@ interface PlatformOptions {
    * the body, keeps what it knows, answers 201 — and nothing about that reads as a loss.
    */
   storesDescription?: boolean;
+  /** Force a reply on `/v1/review-items/discovered`. */
+  discoverFailure?: { status: number; error: string };
+  /** What the platform answers per offered test. Defaults to `queued` for each. */
+  discoverOutcomes?: string[];
 }
 
 function platform(opts: PlatformOptions = {}) {
-  const seen: Seen = { starts: [], resolves: [], results: [], events: [] };
+  const seen: Seen = { starts: [], resolves: [], results: [], events: [], discovered: [] };
   const known = opts.known ?? {};
 
   const json = (body: unknown, status = 200): Response =>
@@ -78,6 +83,19 @@ function platform(opts: PlatformOptions = {}) {
       return json({
         items: [],
         counts: { accepted: list.length, duplicate: 0, conflict: 0, rejected: 0 },
+      });
+    }
+    if (target.endsWith('/v1/review-items/discovered')) {
+      if (opts.discoverFailure !== undefined) {
+        return json({ error: opts.discoverFailure.error }, opts.discoverFailure.status);
+      }
+      seen.discovered.push({ body });
+      const offered = body['discovered'] as { keys: KeyRef[] }[];
+      return json({
+        results: offered.map((d, i) => ({
+          key: d.keys[0],
+          outcome: opts.discoverOutcomes?.[i] ?? 'queued',
+        })),
       });
     }
     const events = /\/v1\/runs\/([^/]+)\/events$/.exec(target);
@@ -554,5 +572,147 @@ describe('what the run is called, where it ran, how it is marked (D13)', () => {
     await startRun(cfg);
 
     expect(logOf(cfg).join('\n')).not.toMatch(/older than the fields/);
+  });
+});
+
+/**
+ * D14 — rung 6 of the C2 ladder: `PLUNE_CREATE=1`.
+ *
+ * It stayed blocked until the platform had a shape for it, and the shape is the whole argument: a
+ * proposal carries steps and an expected result, and a reporter has neither. What this sends is a
+ * TESTIMONY — this test exists, here is where it lives, here is what it did — and every assertion
+ * below is about not sending more than that, and not sending it more than once.
+ */
+describe('offering tests the platform has no case for (D14)', () => {
+  const found = (id: string, over: Partial<PendingResult> = {}): PendingResult =>
+    result(id, {
+      title: 'cart › adds an item',
+      specRef: 'e2e/checkout.spec.ts:12',
+      ...over,
+    });
+
+  it('offers nothing unless somebody asked for it', async () => {
+    // Off by default is a product decision, not caution: a reporter that filled a stranger's review
+    // queue on first run would teach the team to stop reading the queue.
+    const { seen, fetchImpl } = platform();
+    const run = await startRun(config(fetchImpl));
+    await run.add(found('pw-1'));
+    await run.finish();
+
+    expect(seen.discovered).toEqual([]);
+  });
+
+  it('offers the test it could not resolve, with the run that found it', async () => {
+    const { seen, fetchImpl } = platform();
+    const run = await startRun(config(fetchImpl, { offerDiscovered: true }));
+    await run.add(found('pw-1'));
+    await run.finish();
+
+    expect(seen.discovered).toHaveLength(1);
+    expect(seen.discovered[0]?.body).toMatchObject({
+      runId: 'r-1',
+      discovered: [
+        {
+          keys: [{ kind: 'playwright-id', value: 'pw-1' }],
+          title: 'cart › adds an item',
+          source: 'playwright',
+          specRef: 'e2e/checkout.spec.ts:12',
+          rawStatus: 'passed',
+        },
+      ],
+    });
+  });
+
+  /**
+   * The refusal this whole entry kind exists for. A reporter sees a `TestResult`, never the test's
+   * source — so there is nothing here that could describe what the test does, and the platform
+   * refuses steps by name rather than dropping them.
+   */
+  it('sends nothing that describes what the test does', async () => {
+    const { seen, fetchImpl } = platform();
+    const run = await startRun(config(fetchImpl, { offerDiscovered: true }));
+    await run.add(found('pw-1'));
+    await run.finish();
+
+    const sent = Object.keys((seen.discovered[0]?.body['discovered'] as object[])[0] as object);
+    expect(sent.sort()).toEqual(['keys', 'rawStatus', 'source', 'specRef', 'title']);
+  });
+
+  it('never offers a test that found its case', async () => {
+    const { seen, fetchImpl } = platform({ known: { 'pw-1': 'tc-1' } });
+    const run = await startRun(config(fetchImpl, { offerDiscovered: true }));
+    await run.add(found('pw-1'));
+    await run.finish();
+
+    expect(seen.discovered).toEqual([]);
+  });
+
+  // A flaky test runs three times and is ONE missing case. Offering per attempt would fill the queue
+  // with rows about a single test, which is how a reviewer learns to ignore it.
+  it('offers a retried test once', async () => {
+    const { seen, fetchImpl } = platform();
+    const run = await startRun(config(fetchImpl, { offerDiscovered: true }));
+    await run.add(found('pw-1', { resultKey: 'pw-1#0', rawStatus: 'failed' }));
+    await run.add(found('pw-1', { resultKey: 'pw-1#1' }));
+    await run.finish();
+
+    expect((seen.discovered[0]?.body['discovered'] as unknown[]).length).toBe(1);
+  });
+
+  /**
+   * The platform requires both halves and would refuse the whole batch over one thin adapter. Skipped
+   * in silence rather than guessed: a file path invented for a test nobody can name is exactly the
+   * fabrication D14 was raised to prevent.
+   */
+  it('skips a test that cannot say what it is called or where it lives', async () => {
+    const { seen, fetchImpl } = platform();
+    const run = await startRun(config(fetchImpl, { offerDiscovered: true }));
+    await run.add(result('pw-thin'));
+    await run.add(found('pw-1'));
+    await run.finish();
+
+    expect(seen.discovered[0]?.body['discovered']).toHaveLength(1);
+  });
+
+  it('counts only what a reviewer now has to look at', async () => {
+    // `duplicate`, `refused` and `known` are the platform saying "already handled". Counting them
+    // would make every repeat run report new work and the number would stop meaning anything.
+    const { fetchImpl } = platform({ discoverOutcomes: ['queued', 'refused'] });
+    const cfg = config(fetchImpl, { offerDiscovered: true });
+    const run = await startRun(cfg);
+    await run.add(found('pw-1'));
+    await run.add(found('pw-2', { specRef: 'e2e/checkout.spec.ts:40' }));
+    await run.finish();
+
+    expect(run.stats.offered).toBe(1);
+    expect(run.stats.unresolved).toBe(2);
+    expect(logOf(cfg).at(-1)).toContain('1 offered for review');
+  });
+
+  /**
+   * A refused offer is reported and dropped, never deferred. The fallback file replays RESULTS; an
+   * offer is a question the next run asks again on its own, and writing it there would mean a replay
+   * posts to an endpoint the file never promised.
+   */
+  it('says an offer failed instead of writing it to the fallback file', async () => {
+    const { fetchImpl } = platform({ discoverFailure: { status: 500, error: 'nope' } });
+    const cfg = config(fetchImpl, { offerDiscovered: true });
+    const run = await startRun(cfg);
+    await run.add(found('pw-1'));
+    await run.finish();
+
+    expect(logOf(cfg).join('\n')).toContain('could not offer 1 unknown tests for review');
+    expect(fs.existsSync(path.join(dir, 'pending.jsonl'))).toBe(false);
+  });
+
+  // Whoever closes the run is not whoever found the test. A shard that only ever leaves the run open
+  // would otherwise offer nothing, and a sharded suite is the normal case in CI.
+  it('offers from a shard that leaves the run open', async () => {
+    const { seen, fetchImpl } = platform();
+    const run = await startRun(config(fetchImpl, { offerDiscovered: true }));
+    await run.add(found('pw-1'));
+    await run.leaveOpen();
+
+    expect(seen.discovered).toHaveLength(1);
   });
 });

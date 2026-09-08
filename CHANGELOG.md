@@ -13,6 +13,21 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ### Added
 
+- **`PLUNE_CREATE=1` offers the tests Plune has no case for.** The last rung of the identification
+  ladder, blocked since C2 and unblocked by the platform's third kind of review-queue entry: one that
+  testifies a case is MISSING rather than describing one. A reporter sees a `TestResult`, never the
+  test's source, so what it offers is what it saw — the keys it was looked up by, the test's title,
+  the file and line, and the runner's own word for how it went. There are no steps and no expected
+  result in this shape at all, which is the point: the alternative was to invent them.
+
+  Off unless asked for. A reporter that filled a stranger's review queue on first run would teach the
+  team to stop reading the queue.
+
+  One offer per test, not per attempt — a flaky test that ran three times is one missing case. A test
+  whose adapter cannot name it or say where it lives is skipped in silence rather than sent with a
+  guessed path. A failed offer is reported and dropped rather than written to the fallback file: that
+  file replays results, and an offer is a question the next run asks again on its own.
+
 - **A run can be named, placed and marked.** `PLUNE_RUN_TITLE`, `PLUNE_ENV` and `PLUNE_LABELS` were
   recognised and refused in 0.7.0 because a Plune run had nowhere to put them; the platform has the
   fields now, so they work. Labels are comma-separated, and a blank entry is dropped — `a,,b` is a
