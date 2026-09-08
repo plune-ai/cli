@@ -11,6 +11,25 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **A run can be named, placed and marked.** `PLUNE_RUN_TITLE`, `PLUNE_ENV` and `PLUNE_LABELS` were
+  recognised and refused in 0.7.0 because a Plune run had nowhere to put them; the platform has the
+  fields now, so they work. Labels are comma-separated, and a blank entry is dropped — `a,,b` is a
+  CI template that had nothing for the middle slot, not a request for an empty label.
+
+  Lengths are not trimmed here. The platform states its limits and names the one you exceeded, and
+  its refusal costs no results: the run fails to open, the reporter says why, and everything lands
+  in the fallback file. A second copy of the caps in this package would only be a second place for
+  them to drift.
+
+  The reporter also says when a deployment kept none of it — an older one validates the body,
+  stores what it knows and answers 201, which is indistinguishable from success. That was the whole
+  reason these variables were refused out loud rather than sent and forgotten.
+
+  `PLUNE_GROUP` is still refused: a group of runs is a feature that does not exist, and a group of
+  one run means nothing.
+
 ## [0.7.0] - 2026-09-08
 
 ### Changed

@@ -9,19 +9,17 @@ import type { ReporterConfig } from './types.js';
  */
 
 /**
- * Names the reporter promises but the platform cannot yet store (feature D13).
+ * Names the reporter promises but the platform cannot yet store.
  *
  * They are listed rather than ignored because of how they would fail otherwise: a run's `meta`
- * strips keys it does not know, so sending `PLUNE_ENV` there would be accepted, dropped, and look
- * exactly like success. A client believing it saved something the server discarded is the most
- * expensive kind of quiet — cheaper to say "not yet" out loud.
+ * strips keys it does not know, so sending one there would be accepted, dropped, and look exactly
+ * like success. A client believing it saved something the server discarded is the most expensive
+ * kind of quiet — cheaper to say "not yet" out loud.
+ *
+ * `PLUNE_RUN_TITLE`, `PLUNE_ENV` and `PLUNE_LABELS` left this list when D13 gave a run somewhere to
+ * put them. `PLUNE_GROUP` stays: a run group is D6's, and a group of one run means nothing.
  */
-export const UNSUPPORTED_VARS = [
-  'PLUNE_RUN_TITLE',
-  'PLUNE_ENV',
-  'PLUNE_LABELS',
-  'PLUNE_GROUP',
-] as const;
+export const UNSUPPORTED_VARS = ['PLUNE_GROUP'] as const;
 
 export interface EnvSettings {
   /** Config fields the environment supplied. Anything passed explicitly outranks these. */
@@ -51,12 +49,32 @@ function count(env: NodeJS.ProcessEnv, name: string): number | undefined {
   return Number.isInteger(n) && n > 0 ? n : undefined;
 }
 
+/**
+ * `PLUNE_LABELS=smoke,nightly` — the separator every CI templating language can produce without
+ * quoting rules. Blanks are dropped rather than sent: `a,,b` is a template that had nothing for the
+ * middle slot, not a request for an empty label.
+ *
+ * Nothing is capped or truncated here on purpose. The platform states the limits and refuses what
+ * exceeds them by name (ADR 0012 — one side owns the contract), and a refusal is loud and costs no
+ * results: the run fails to start, the reporter says why, and every result goes to the fallback
+ * file. A client-side copy of the caps would be a second place for them to drift.
+ */
+function list(env: NodeJS.ProcessEnv, name: string): string[] | undefined {
+  const raw = value(env, name);
+  if (raw === undefined) return undefined;
+  const items = raw.split(',').map((s) => s.trim()).filter((s) => s !== '');
+  return items.length === 0 ? undefined : items;
+}
+
 export function readEnv(env: NodeJS.ProcessEnv = process.env): EnvSettings {
   const externalKey = value(env, 'PLUNE_RUN');
   const token = value(env, 'PLUNE_TOKEN');
   const apiUrl = value(env, 'PLUNE_API_URL');
   const fallbackPath = value(env, 'PLUNE_FALLBACK');
   const batchSize = count(env, 'PLUNE_BATCH_SIZE');
+  const title = value(env, 'PLUNE_RUN_TITLE');
+  const environment = value(env, 'PLUNE_ENV');
+  const labels = list(env, 'PLUNE_LABELS');
 
   return {
     config: {
@@ -65,6 +83,9 @@ export function readEnv(env: NodeJS.ProcessEnv = process.env): EnvSettings {
       ...(apiUrl !== undefined ? { apiUrl } : {}),
       ...(fallbackPath !== undefined ? { fallbackPath } : {}),
       ...(batchSize !== undefined ? { batchSize } : {}),
+      ...(title !== undefined ? { title } : {}),
+      ...(environment !== undefined ? { environment } : {}),
+      ...(labels !== undefined ? { labels } : {}),
     },
     // Two names for two situations that end the same way. `SHARED_RUN` says other processes are
     // reporting into this run; `PROCEED` says the job will close it on its own schedule. Either

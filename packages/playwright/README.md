@@ -52,12 +52,20 @@ fills in what you left out. Anything set in the config file wins.
 | `PLUNE_PROCEED` | the job closes the run itself, later |
 | `PLUNE_BATCH_SIZE` | results per request (default 100, max 500) |
 | `PLUNE_FALLBACK` | where unsent batches are written |
+| `PLUNE_RUN_TITLE` | what to call the run in the list |
+| `PLUNE_ENV` | where it ran — `staging`, `prod`, a preview name |
+| `PLUNE_LABELS` | comma-separated marks: `smoke,nightly` |
 
 Flags are read by value, not by presence: `PLUNE_PROCEED=0` in a matrix cell means off.
 
-`PLUNE_RUN_TITLE`, `PLUNE_ENV`, `PLUNE_LABELS` and `PLUNE_GROUP` are **not supported yet** — a Plune
-run has nowhere to store them. Setting one prints a line saying it was ignored, rather than
-accepting it and quietly dropping it.
+The first shard to set a title owns it; a shard arriving later fills a field the first one left
+empty rather than overwriting it. Blank entries in `PLUNE_LABELS` are dropped — `a,,b` is a template
+that had nothing for the middle slot, not a request for an empty label.
+
+`PLUNE_GROUP` is **not supported yet** — a group of runs is a Plune feature that does not exist, and
+a group of one run means nothing. Setting it prints a line saying it was ignored, rather than
+accepting it and quietly dropping it. If you report to a deployment older than run titles, the
+reporter says that too: the run is recorded in full, the description is not.
 
 ## Sharding
 
