@@ -28,6 +28,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./reporter-core": {
+      "types": "./dist/reporter-core.d.ts",
+      "import": "./dist/reporter-core.js",
+      "require": "./dist/reporter-core.cjs"
     }
   },
   "files": [
