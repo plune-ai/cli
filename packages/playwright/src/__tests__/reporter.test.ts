@@ -12,8 +12,9 @@ vi.mock('@plune-ai/cli/reporter-core', async () => {
     '@plune-ai/cli/reporter-core',
   );
   return {
-    // `resultKey` is pure and its determinism is the point — stubbing it would test the stub.
+    // `resultKey` and `readEnv` are pure; stubbing them would test the stub.
     resultKey: actual.resultKey,
+    readEnv: actual.readEnv,
     startRun: vi.fn(async (_cfg: unknown, expected: unknown) => {
       if (startThrows) throw new Error('platform exploded');
       expectedLists.push(expected);
@@ -190,6 +191,19 @@ describe('who closes the run (AC-03)', () => {
   // quarters of it was still running — the exact reading AC-08 exists to prevent.
   it('leaves it open when this process is one shard of several', async () => {
     await run(new PluneReporter(), [fakeTest()], [fakeResult()], { current: 2, total: 4 });
+
+    expect(calls).toEqual(['leaveOpen']);
+  });
+
+  // Playwright cannot see a `merge-reports` step or a second suite reporting into the same run, so
+  // the job says so instead.
+  it('leaves it open when the job says another process will close it', async () => {
+    process.env['PLUNE_PROCEED'] = '1';
+    try {
+      await run(new PluneReporter(), [fakeTest()], [fakeResult()], null);
+    } finally {
+      delete process.env['PLUNE_PROCEED'];
+    }
 
     expect(calls).toEqual(['leaveOpen']);
   });

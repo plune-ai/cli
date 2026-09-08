@@ -1,6 +1,7 @@
 import { resolveApiUrl } from '../cli/api-url.js';
 import { loadToken } from '../cli/credentials.js';
 import { createClient, type PlatformClient } from './client.js';
+import { readEnv } from './env.js';
 import { appendBatch, DEFAULT_FALLBACK_PATH, type DeferredResult } from './fallback.js';
 import type {
   ExpectedEntry,
@@ -57,9 +58,16 @@ function chunk<T>(items: readonly T[], size: number): T[][] {
  * nothing and resolves lazily on the first flush — same function, later moment.
  */
 export async function startRun(
-  cfg: ReporterConfig,
+  passed: ReporterConfig,
   expected?: readonly (readonly KeyRef[])[],
 ): Promise<RunSession> {
+  // A committed config cannot know the run key of a job that does not exist yet, so the environment
+  // fills what the caller left open. Explicitly PASSED wins — but an explicit `undefined` does not:
+  // that is a caller spreading an optional field, not a decision to unset one.
+  const env = readEnv();
+  const stated = Object.fromEntries(Object.entries(passed).filter(([, v]) => v !== undefined));
+  const cfg: ReporterConfig = { ...env.config, ...stated };
+
   const log = cfg.log ?? ((line: string) => void process.stderr.write(`${line}\n`));
   const fallbackPath = cfg.fallbackPath ?? DEFAULT_FALLBACK_PATH;
   const externalKey = cfg.externalKey ?? null;
@@ -92,6 +100,11 @@ export async function startRun(
 
   if (offline) {
     log('plune: no API token — run "plune login" first. Results will be written to the fallback file.');
+  }
+  if (env.ignored.length > 0) {
+    // Said out loud rather than dropped: a run has nowhere to store these yet, and a caller who
+    // set them would otherwise have every reason to believe they arrived.
+    log(`plune: ignoring ${env.ignored.join(', ')} — a run has nowhere to store them yet.`);
   }
 
   function defer(results: DeferredResult[]): void {
