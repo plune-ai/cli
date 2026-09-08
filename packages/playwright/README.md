@@ -78,8 +78,12 @@ still running, which is the truth.
 In order, first match wins:
 
 1. a `PluneId` annotation on the test — names the case outright;
-2. the Playwright test id (`playwright-id`), stable across shards and merges;
-3. the file and title path (`path-title`) — the spec file relative to your `testDir`, then each
+2. a `@P<id>` token in the title — the same statement, where you can see it in the report. The id
+   follows `@P` with **no space**: `@Ptc-1a2b`;
+3. an `application/plune.metadata+json` attachment — for a fixture or helper that knows the id, or
+   a key from another tool: `{"id": "tc-1a2b"}` or `{"keys": [{"kind": "qase", "value": "Q-9"}]}`;
+4. the Playwright test id (`playwright-id`), stable across shards and merges;
+5. the file and title path (`path-title`) — the spec file relative to your `testDir`, then each
    `describe` and the test title, e.g. `cart.spec.ts#cart#rejects a negative quantity`.
 
 ```ts

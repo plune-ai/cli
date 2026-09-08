@@ -62,6 +62,7 @@ function fakeResult(over: Partial<Record<string, unknown>> = {}): TestResult {
     startTime: new Date('2026-09-08T10:00:00.000Z'),
     workerIndex: 3,
     errors: [],
+    attachments: [],
     ...over,
   } as unknown as TestResult;
 }
@@ -142,6 +143,73 @@ describe('identity and timing', () => {
     await run(new PluneReporter(), [test], [fakeResult()]);
 
     expect(added[0]?.testCaseId).toBe('tc-99');
+  });
+
+  // The id follows `@P` immediately. A space means the author wrote something else, and guessing
+  // that the next word is a case id would attach results to whatever happened to be there.
+  it('does not treat a word after a space as an id', async () => {
+    await run(new PluneReporter(), [fakeTest({ title: 'adds an item @P tc-77' })], [fakeResult()]);
+
+    expect(added[0]?.testCaseId).toBeUndefined();
+  });
+
+  it('reads a token in the title', async () => {
+    await run(new PluneReporter(), [fakeTest({ title: 'adds an item @Ptc-77' })], [fakeResult()]);
+
+    expect(added[0]?.testCaseId).toBe('tc-77');
+  });
+
+  it('reads a case id a fixture attached', async () => {
+    const attached = fakeResult({
+      attachments: [
+        { name: 'plune', contentType: 'application/plune.metadata+json', body: Buffer.from('{"id":"tc-42"}') },
+      ],
+    });
+    await run(new PluneReporter(), [fakeTest()], [attached]);
+
+    expect(added[0]?.testCaseId).toBe('tc-42');
+  });
+
+  // A person editing a title should not be overruled by something generated.
+  it('lets the annotation win over an attachment', async () => {
+    const test = fakeTest({ annotations: [{ type: 'PluneId', description: 'tc-annotated' }] });
+    const attached = fakeResult({
+      attachments: [
+        { name: 'plune', contentType: 'application/plune.metadata+json', body: Buffer.from('{"id":"tc-attached"}') },
+      ],
+    });
+    await run(new PluneReporter(), [test], [attached]);
+
+    expect(added[0]?.testCaseId).toBe('tc-annotated');
+  });
+
+  it('puts keys a fixture supplied ahead of the ones we guessed', async () => {
+    const attached = fakeResult({
+      attachments: [
+        {
+          name: 'plune',
+          contentType: 'application/plune.metadata+json',
+          body: Buffer.from('{"keys":[{"kind":"qase","value":"Q-9"}]}'),
+        },
+      ],
+    });
+    await run(new PluneReporter(), [fakeTest()], [attached]);
+
+    expect(added[0]?.keys[0]).toEqual({ kind: 'qase', value: 'Q-9' });
+    expect(added[0]?.keys).toHaveLength(3);
+  });
+
+  // A rung that cannot be read says nothing; it does not break the run.
+  it('ignores an attachment it cannot parse', async () => {
+    const attached = fakeResult({
+      attachments: [
+        { name: 'plune', contentType: 'application/plune.metadata+json', body: Buffer.from('not json') },
+      ],
+    });
+    await run(new PluneReporter(), [fakeTest()], [attached]);
+
+    expect(added[0]?.testCaseId).toBeUndefined();
+    expect(added[0]?.keys).toHaveLength(2);
   });
 
   it('gives each retry of one test its own key', async () => {
