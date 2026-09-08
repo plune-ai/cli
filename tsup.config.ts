@@ -25,7 +25,11 @@ export default defineConfig([
     skipNodeModulesBundle: true,
   },
   {
-    entry: { index: 'src/index.ts' },
+    // Two library entries, and `reporter-core` is separate from `index` for the reason `exports`
+    // lists it separately: an adapter bundles what it imports, and importing the package root
+    // would pull the CLI's dependency graph into a project that only wanted to report results
+    // (feature ADR C1/0001). Nothing in `src/index.ts` re-exports it, so the two never merge.
+    entry: { index: 'src/index.ts', 'reporter-core': 'src/reporter-core/index.ts' },
     format: ['esm', 'cjs'],
     target: 'node20',
     // No banner: this is a library entry, imported/required — not an executable.

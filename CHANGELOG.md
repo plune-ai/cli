@@ -22,6 +22,18 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ### Added
 
+- **`@plune-ai/cli/reporter-core` — a new entry point that speaks the platform's run lifecycle.**
+  Joins or creates a run by shared key, looks every test up once, sends results in batches, and
+  closes the run explicitly. It has no runtime dependencies at all: the platform owns and validates
+  the contract, so a client-side copy of the schema would only be a second place to drift. A
+  framework adapter builds on this; the first, `@plune-ai/playwright`, follows.
+
+  Two behaviours are deliberate and worth knowing. Nothing it fails to send is lost — an
+  unreachable platform, a refused token and a closed run all append the batch to
+  `.plune/pending-results.jsonl` while the test run carries on. And it never closes a run it did
+  not finish watching: a crashed process leaves the run open, because a run that is silently marked
+  finished reads as green when a third of it never ran.
+
 - The user guide (`docs/guide/`) and a runnable `examples/quickstart/` project — an end-to-end
   `plune.yaml`, two datasets and a GitHub Actions workflow — now ship in this repo instead of the
   private platform repo, so the documentation sits beside the code it documents.

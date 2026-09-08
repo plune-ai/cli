@@ -1,0 +1,104 @@
+{
+  "slug": "C1-reporter-core",
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "Mirror the wire in types and mint a deterministic result key",
+      "layer": "domain",
+      "deps": [],
+      "acs": ["AC-04"],
+      "dod": "The same (testId, retry) yields the same key across two independent calls; a key over 200 chars falls back to a deterministic hash.",
+      "files_hint": ["src/reporter-core/types.ts", "src/reporter-core/result-key.ts"]
+    },
+    {
+      "id": "T2",
+      "title": "HTTP client: classify every response, retry only what retrying can fix",
+      "layer": "infra",
+      "deps": [],
+      "acs": ["AC-05", "AC-06", "AC-07", "AC-12"],
+      "dod": "Network, 429, 5xx, 401, 409 and 400 each have a test; a 429 waits exactly its Retry-After; the token appears in no log line.",
+      "files_hint": ["src/reporter-core/client.ts"]
+    },
+    {
+      "id": "T3",
+      "title": "Append unsent batches to a JSONL fallback",
+      "layer": "infra",
+      "deps": [],
+      "acs": ["AC-05", "AC-12"],
+      "dod": "A process killed mid-write leaves the earlier lines valid; the token is never in the file.",
+      "files_hint": ["src/reporter-core/fallback.ts"]
+    },
+    {
+      "id": "T4",
+      "title": "Run session: start or join, resolve once, buffer, flush, finish",
+      "layer": "app",
+      "deps": ["T1", "T2", "T3"],
+      "acs": ["AC-02", "AC-03", "AC-08", "AC-09", "AC-10", "AC-11"],
+      "dod": "Four sessions sharing an externalKey use one runId; resolve is called once per run, never per test; an unresolved result is not sent; no process exit handler is registered.",
+      "files_hint": ["src/reporter-core/session.ts", "src/reporter-core/index.ts"]
+    },
+    {
+      "id": "T5",
+      "title": "Publish the core as the ./reporter-core subpath, built separately",
+      "layer": "wiring",
+      "deps": ["T4"],
+      "acs": ["AC-13"],
+      "dod": "require('@plune-ai/cli') does not pull the core in; import '@plune-ai/cli/reporter-core' resolves against dist.",
+      "files_hint": ["package.json", "tsup.config.ts"]
+    },
+    {
+      "id": "T6",
+      "title": "Add the workspace and the @plune-ai/playwright package skeleton",
+      "layer": "wiring",
+      "deps": ["T5"],
+      "acs": ["AC-13"],
+      "dod": "pnpm -r build builds both packages in order; the adapter's package.json declares no dependencies and one peer.",
+      "files_hint": ["pnpm-workspace.yaml", "packages/playwright/package.json", "packages/playwright/tsup.config.ts"]
+    },
+    {
+      "id": "T7",
+      "title": "The ReporterV2 adapter, thin by construction",
+      "layer": "app",
+      "deps": ["T6"],
+      "acs": ["AC-01", "AC-03", "AC-04"],
+      "dod": "A sharded run sends no finish; rawStatus is passed through verbatim and status is never set.",
+      "files_hint": ["packages/playwright/src/index.ts"]
+    },
+    {
+      "id": "T8",
+      "title": "Guard the adapter boundary and the packaging promise",
+      "layer": "tests",
+      "deps": ["T7"],
+      "acs": ["AC-13"],
+      "dod": "The scan fails if fetch(, Bearer or /v1/ appears in the adapter; the built dist mentions neither @plune-ai/cli nor better-sqlite3.",
+      "files_hint": ["packages/playwright/src/__tests__/boundary.test.ts"]
+    },
+    {
+      "id": "T9",
+      "title": "End-to-end: a real Playwright project against a stub platform",
+      "layer": "tests",
+      "deps": ["T7"],
+      "acs": ["AC-01"],
+      "dod": "A real playwright test run produces one finished run and one result per test.",
+      "files_hint": ["packages/playwright/e2e/"]
+    },
+    {
+      "id": "T10",
+      "title": "Document turning the reporter on",
+      "layer": "docs",
+      "deps": ["T7"],
+      "acs": [],
+      "dod": "A foreign project enables the reporter in three steps without reading the source.",
+      "files_hint": ["docs/guide/", "packages/playwright/README.md"]
+    },
+    {
+      "id": "T11",
+      "title": "Platform contract test against @plune-ai/cli (separate PR in plune-ai/plune)",
+      "layer": "tests",
+      "deps": ["T5"],
+      "acs": [],
+      "dod": "PendingResult shapes are validated by the platform's resultSubmissionSchema and batchSchema; drift turns the test red.",
+      "files_hint": ["../plune/src/server/__tests__/cli-reporter-contract.test.ts"]
+    }
+  ]
+}
