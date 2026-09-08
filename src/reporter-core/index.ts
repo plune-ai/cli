@@ -16,6 +16,10 @@ export type { RunSession } from './session.js';
 
 export { resultKey, RESULT_KEY_MAX } from './result-key.js';
 
+/** What a CI job may set without editing a committed config. */
+export { readEnv, UNSUPPORTED_VARS } from './env.js';
+export type { EnvSettings } from './env.js';
+
 export { appendBatch, DEFAULT_FALLBACK_PATH } from './fallback.js';
 export type { DeferredBatch, DeferredResult } from './fallback.js';
 

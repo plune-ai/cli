@@ -34,6 +34,15 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   not finish watching: a crashed process leaves the run open, because a run that is silently marked
   finished reads as green when a third of it never ran.
 
+- **The reporter reads its settings from the environment.** `PLUNE_TOKEN`, `PLUNE_RUN`,
+  `PLUNE_API_URL`, `PLUNE_SHARED_RUN`, `PLUNE_PROCEED`, `PLUNE_BATCH_SIZE` and `PLUNE_FALLBACK` fill
+  in whatever a committed config left out — a config file cannot know the run key of a job that does
+  not exist yet. Anything passed explicitly still wins.
+
+  `PLUNE_RUN_TITLE`, `PLUNE_ENV`, `PLUNE_LABELS` and `PLUNE_GROUP` are recognised and **refused out
+  loud**: a run has nowhere to store them yet, and a run's `meta` silently strips keys it does not
+  know — so accepting them would look exactly like saving them.
+
 - **`@plune-ai/playwright` — report an existing Playwright suite to Plune.** One line in
   `playwright.config.ts` and runs, results and failures appear in the platform, with no change
   to any test. Shards sharing a key land in one run, and `merge-reports` does not duplicate

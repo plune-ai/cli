@@ -1,5 +1,6 @@
 import type { FullConfig, FullResult, Suite, TestCase, TestResult } from '@playwright/test/reporter';
 import {
+  readEnv,
   resultKey,
   startRun,
   type KeyRef,
@@ -32,7 +33,7 @@ export interface PluneReporterOptions {
   token?: string;
   /**
    * The key that makes several processes land in one run — shards, or a `merge-reports` step.
-   * Defaults to `PLUNE_RUN`; without either, this run is its own.
+   * Falls back to `PLUNE_RUN`, which the core reads; without either, this run is its own.
    */
   externalKey?: string;
   /** Results per request. The platform's ceiling is 500. */
@@ -121,7 +122,7 @@ export default class PluneReporter {
   private session: Promise<RunSession> | null = null;
   /** Results arrive from a sync callback; this serialises them into the async core. */
   private chain: Promise<void> = Promise.resolve();
-  private sharded = false;
+  private keepOpen = false;
   private complained = false;
 
   constructor(options: PluneReporterOptions = {}) {
@@ -140,7 +141,9 @@ export default class PluneReporter {
 
   onConfigure(config: FullConfig): void {
     // A shard cannot know the others are done, so it must not close the run — see `onEnd`.
-    this.sharded = config.shard !== null && config.shard !== undefined;
+    // `PLUNE_SHARED_RUN` / `PLUNE_PROCEED` say the same thing for a job Playwright cannot see:
+    // a `merge-reports` step, or several suites reporting into one run.
+    this.keepOpen = (config.shard !== null && config.shard !== undefined) || readEnv().keepOpen;
   }
 
   onBegin(suite: Suite): void {
@@ -149,7 +152,9 @@ export default class PluneReporter {
       {
         ...(this.options.apiUrl !== undefined ? { apiUrl: this.options.apiUrl } : {}),
         ...(this.options.token !== undefined ? { token: this.options.token } : {}),
-        ...(this.externalKey() !== undefined ? { externalKey: this.externalKey() as string } : {}),
+        ...(this.options.externalKey !== undefined
+          ? { externalKey: this.options.externalKey }
+          : {}),
         ...(this.options.batchSize !== undefined ? { batchSize: this.options.batchSize } : {}),
         ...(this.options.fallbackPath !== undefined
           ? { fallbackPath: this.options.fallbackPath }
@@ -179,7 +184,7 @@ export default class PluneReporter {
       // A sharded process leaves the run open on purpose: whoever knows every shard is done — the
       // `merge-reports` step, or `plune run finish` — closes it. Closing it here would mark a run
       // finished while three quarters of it was still going.
-      if (this.sharded) await run.leaveOpen();
+      if (this.keepOpen) await run.leaveOpen();
       else await run.finish();
     } catch (err) {
       this.giveUp(err);
@@ -194,7 +199,4 @@ export default class PluneReporter {
     process.stderr.write(`plune: reporting stopped — ${reason}\n`);
   }
 
-  private externalKey(): string | undefined {
-    return this.options.externalKey ?? process.env['PLUNE_RUN'] ?? undefined;
-  }
 }

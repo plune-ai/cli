@@ -38,6 +38,27 @@ That is the whole setup. Options, if you want them:
 }]
 ```
 
+## From CI, without editing the config
+
+A committed config cannot know the run key of a job that does not exist yet, so the environment
+fills in what you left out. Anything set in the config file wins.
+
+| Variable | What it does |
+|---|---|
+| `PLUNE_TOKEN` | the API token — so a CI job need not run `plune login` |
+| `PLUNE_RUN` | the shared run key: every process with the same value lands in one run |
+| `PLUNE_API_URL` | the deployment to report to |
+| `PLUNE_SHARED_RUN` | this process is one of several — do not close the run |
+| `PLUNE_PROCEED` | the job closes the run itself, later |
+| `PLUNE_BATCH_SIZE` | results per request (default 100, max 500) |
+| `PLUNE_FALLBACK` | where unsent batches are written |
+
+Flags are read by value, not by presence: `PLUNE_PROCEED=0` in a matrix cell means off.
+
+`PLUNE_RUN_TITLE`, `PLUNE_ENV`, `PLUNE_LABELS` and `PLUNE_GROUP` are **not supported yet** — a Plune
+run has nowhere to store them. Setting one prints a line saying it was ignored, rather than
+accepting it and quietly dropping it.
+
 ## Sharding
 
 Give every shard the same `externalKey` (or set `PLUNE_RUN`) and they land in one Plune run
