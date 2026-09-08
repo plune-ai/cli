@@ -11,6 +11,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-08
+
 ### Changed
 
 - **zod 3 → 4.** The platform this CLI reports to has been on zod 4 since its own contract work
@@ -222,7 +224,8 @@ First public release. Released from commit `ba43100`; no `v0.2.0` tag exists.
   `json-schema`, `llm-judge`, `semantic-similarity`, `faithfulness`, `answer-relevance`,
   `context-precision`.
 
-[Unreleased]: https://github.com/plune-ai/cli/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/plune-ai/cli/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/plune-ai/cli/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/plune-ai/cli/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/plune-ai/cli/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/plune-ai/cli/compare/v0.3.0...v0.4.0
