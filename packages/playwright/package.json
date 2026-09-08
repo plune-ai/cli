@@ -1,0 +1,43 @@
+{
+  "name": "@plune-ai/playwright",
+  "version": "0.1.0",
+  "description": "Report Playwright results to Plune — a reporter and, later, a test importer.",
+  "keywords": ["playwright", "reporter", "plune", "test-management", "tms", "qa"],
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "engines": { "node": ">=20.0.0" },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "tsup && vitest run",
+    "test:e2e": "tsup && vitest run -c vitest.e2e.config.ts"
+  },
+  "peerDependencies": {
+    "@playwright/test": ">=1.44.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.44.0",
+    "@plune-ai/cli": "workspace:*",
+    "@types/node": "^25.9.1",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/plune-ai/cli.git",
+    "directory": "packages/playwright"
+  },
+  "license": "MIT",
+  "publishConfig": { "access": "public" }
+}

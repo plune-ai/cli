@@ -9,11 +9,11 @@
 | T3 | fallback | done | PR 1 |
 | T4 | session | done | PR 1 |
 | T5 | subpath export | done | PR 1 |
-| T6 | workspace + пакет адаптера | todo | |
-| T7 | ReporterV2 | todo | |
-| T8 | тести межі й пакування | todo | |
-| T9 | e2e фікстура | todo | |
-| T10 | документація | todo | |
+| T6 | workspace + пакет адаптера | done | PR 2 |
+| T7 | ReporterV2 | done | PR 2 |
+| T8 | тести межі й пакування | done | PR 2 |
+| T9 | e2e фікстура | done | PR 2 |
+| T10 | документація | done | PR 2 |
 | T11 | контрактний тест платформи (`plune-ai/plune`) | todo | |
 
 ## Порізано на PR

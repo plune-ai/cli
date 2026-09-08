@@ -3,10 +3,20 @@ import tsParser from '@typescript-eslint/parser';
 
 export default [
   {
-    ignores: ['dist/', 'coverage/', 'node_modules/', '*.config.ts', '*.config.js'],
+    ignores: [
+      'dist/',
+      'coverage/',
+      'node_modules/',
+      '*.config.ts',
+      '*.config.js',
+      'packages/*/dist/',
+      'packages/*/*.config.ts',
+    ],
   },
   {
-    files: ['src/**/*.ts'],
+    // The adapter packages are linted by the same rules as the root: they are the same
+    // codebase, published separately.
+    files: ['src/**/*.ts', 'packages/*/src/**/*.ts'],
     plugins: {
       '@typescript-eslint': tsPlugin,
     },

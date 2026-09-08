@@ -52,3 +52,19 @@ describe('resultKey (AC-04)', () => {
     expect(resultKey(a, 0)).not.toBe(resultKey(b, 0));
   });
 });
+
+// The barrel is the package's published surface, and a typo in it breaks an import with no test
+// failing anywhere — every other test here imports the modules directly. Reaching through it once
+// is what makes it a surface rather than a file.
+describe('the public entry exports what the adapters import', () => {
+  it('offers the lifecycle, the key and the fallback', async () => {
+    const entry = await import('../index.js');
+
+    expect(typeof entry.startRun).toBe('function');
+    expect(typeof entry.resultKey).toBe('function');
+    expect(typeof entry.createClient).toBe('function');
+    expect(typeof entry.appendBatch).toBe('function');
+    expect(entry.DEFAULT_FALLBACK_PATH.length).toBeGreaterThan(0);
+    expect(entry.RESULT_KEY_MAX).toBe(200);
+  });
+});
