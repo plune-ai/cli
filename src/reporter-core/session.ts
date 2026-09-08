@@ -99,14 +99,51 @@ export async function startRun(
     stats.deferred += results.length;
   }
 
+  /** Ask the platform about every key we have not asked about yet. */
+  async function resolveKeys(values: readonly KeyRef[]): Promise<void> {
+    const unknown = values.filter((k) => !resolved.has(k.value));
+    // Deliberately not gated on a run: `/v1/test-cases/resolve` is about cases, not runs, and
+    // needing the run first is what made the run's own configuration unusable (see below).
+    if (unknown.length === 0 || offline) return;
+
+    for (const part of chunk(unknown, RESOLVE_CHUNK)) {
+      const out = await client.post<{ results: { key: KeyRef; testCaseId: string | null }[] }>(
+        '/v1/test-cases/resolve',
+        { keys: part },
+      );
+      if (!out.ok) {
+        // Not fatal: an unresolved key defers its result rather than losing it.
+        log(`plune: could not look up test cases (${out.detail || out.kind}).`);
+        return;
+      }
+      for (const row of out.body.results) resolved.set(row.key.value, row.testCaseId);
+    }
+  }
+
+  /**
+   * Look every test up FIRST, then start the run — and that order is the whole point.
+   *
+   * `configuration.expected` is what the platform derives `notRun` from, and it can only match an
+   * entry it can identify. Built before the lookup, it could carry nothing but a raw external key,
+   * and a project whose cases are keyed some other way got an empty `notRun` while its results
+   * landed perfectly — a crashed shard would have looked exactly like a green run. Resolving first
+   * costs nothing (the lookup is about cases, not runs) and lets each entry name its actual case.
+   */
   if (!offline) {
+    if (expected !== undefined) await resolveKeys(expected.flat());
+
+    const declared = expected?.slice(0, EXPECTED_MAX) ?? [];
     const configuration =
-      expected === undefined || expected.length === 0
+      declared.length === 0
         ? undefined
         : {
-            expected: expected
-              .slice(0, EXPECTED_MAX)
-              .flatMap<ExpectedEntry>((keys) => (keys[0] === undefined ? [] : [{ externalKey: keys[0] }])),
+            expected: declared.flatMap<ExpectedEntry>((keys) => {
+              const hit = keys.map((k) => resolved.get(k.value)).find((v) => typeof v === 'string');
+              if (typeof hit === 'string') return [{ testCaseId: hit }];
+              // Unresolved: say what we know rather than dropping the entry. The platform cannot
+              // count it, but the run still declares how many tests it meant to run.
+              return keys[0] === undefined ? [] : [{ externalKey: keys[0] }];
+            }),
           };
     if (expected !== undefined && expected.length > EXPECTED_MAX) {
       log(`plune: ${expected.length} tests is more than the run configuration holds — reporting the first ${EXPECTED_MAX}.`);
@@ -126,29 +163,6 @@ export async function startRun(
     } else {
       log(`plune: could not start the run (${start.detail || start.kind}). Results will be written to ${fallbackPath}.`);
     }
-  }
-
-  /** Ask the platform about every key we have not asked about yet. */
-  async function resolveKeys(values: readonly KeyRef[]): Promise<void> {
-    const unknown = values.filter((k) => !resolved.has(k.value));
-    if (unknown.length === 0 || offline || runId === null) return;
-
-    for (const part of chunk(unknown, RESOLVE_CHUNK)) {
-      const out = await client.post<{ results: { key: KeyRef; testCaseId: string | null }[] }>(
-        '/v1/test-cases/resolve',
-        { keys: part },
-      );
-      if (!out.ok) {
-        // Not fatal: an unresolved key defers its result rather than losing it.
-        log(`plune: could not look up test cases (${out.detail || out.kind}).`);
-        return;
-      }
-      for (const row of out.body.results) resolved.set(row.key.value, row.testCaseId);
-    }
-  }
-
-  if (runId !== null && expected !== undefined) {
-    await resolveKeys(expected.flat());
   }
 
   /**

@@ -58,7 +58,8 @@ In order, first match wins:
 
 1. a `PluneId` annotation on the test — names the case outright;
 2. the Playwright test id (`playwright-id`), stable across shards and merges;
-3. the file and title path (`path-title`), e.g. `tests/cart.spec.ts#cart#rejects a negative quantity`.
+3. the file and title path (`path-title`) — the spec file relative to your `testDir`, then each
+   `describe` and the test title, e.g. `cart.spec.ts#cart#rejects a negative quantity`.
 
 ```ts
 test('rejects a negative quantity', { annotation: { type: 'PluneId', description: 'tc-1a2b' } },

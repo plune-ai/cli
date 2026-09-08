@@ -140,17 +140,46 @@ describe('startRun — joining one run (AC-02)', () => {
 });
 
 describe('startRun — what the run intended to run (AC-09)', () => {
-  it('sends the expected list so the platform can name what never ran', async () => {
-    const { seen, fetchImpl } = platform();
+  // Found on beta, not in a unit test: the platform can only count an entry it can identify, so an
+  // expected list of raw keys produced an empty `notRun` while every result landed correctly — a
+  // crashed shard would have read exactly like a green run.
+  it('names the case each test resolved to, so the platform can count what never ran', async () => {
+    const { seen, fetchImpl } = platform({ known: { a: 'tc-a', b: 'tc-b' } });
     await startRun(config(fetchImpl), [
       [{ kind: 'playwright-id', value: 'a' }],
       [{ kind: 'playwright-id', value: 'b' }],
     ]);
 
     const configuration = seen.starts[0]?.body['configuration'] as {
-      expected: { externalKey: KeyRef }[];
+      expected: { testCaseId?: string }[];
     };
-    expect(configuration.expected.map((e) => e.externalKey.value)).toEqual(['a', 'b']);
+    expect(configuration.expected.map((e) => e.testCaseId)).toEqual(['tc-a', 'tc-b']);
+  });
+
+  it('looks the tests up before it starts the run, not after', async () => {
+    const order: string[] = [];
+    const { fetchImpl } = platform({ known: { a: 'tc-a' } });
+    const spy = (async (url: string | URL | Request, init?: RequestInit) => {
+      order.push(String(url).replace('https://api.test', ''));
+      return fetchImpl(url as string, init);
+    }) as unknown as typeof fetch;
+    await startRun(config(spy), [[{ kind: 'playwright-id', value: 'a' }]]);
+
+    expect(order).toEqual(['/v1/test-cases/resolve', '/v1/runs']);
+  });
+
+  it('still declares a test it could not identify, rather than dropping it', async () => {
+    const { seen, fetchImpl } = platform({ known: { a: 'tc-a' } });
+    await startRun(config(fetchImpl), [
+      [{ kind: 'playwright-id', value: 'a' }],
+      [{ kind: 'playwright-id', value: 'orphan' }],
+    ]);
+
+    const configuration = seen.starts[0]?.body['configuration'] as {
+      expected: { testCaseId?: string; externalKey?: KeyRef }[];
+    };
+    expect(configuration.expected).toHaveLength(2);
+    expect(configuration.expected[1]?.externalKey?.value).toBe('orphan');
   });
 
   it('omits the configuration entirely when the runner does not know its tests', async () => {
