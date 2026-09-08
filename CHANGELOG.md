@@ -11,6 +11,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-08
+
 ### Added
 
 - **`PLUNE_CREATE=1` offers the tests Plune has no case for.** The last rung of the identification
@@ -27,6 +29,14 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   whose adapter cannot name it or say where it lives is skipped in silence rather than sent with a
   guessed path. A failed offer is reported and dropped rather than written to the fallback file: that
   file replays results, and an offer is a question the next run asks again on its own.
+
+- **`@plune-ai/playwright` 0.2.0 — the adapter names the test and says where it lives.** The two
+  fields the core needs to offer an unresolved test, and the only two it cannot derive: the full
+  `describe › title` path, because two suites in one file routinely share a title, and `file:line`,
+  because a reviewer's first move on an unknown test is to open it. Read only on that path — a test
+  that found its case has a case with a title of its own.
+
+  The adapter bundles the core, so its version moves with any core behaviour it carries.
 
 - **A run can be named, placed and marked.** `PLUNE_RUN_TITLE`, `PLUNE_ENV` and `PLUNE_LABELS` were
   recognised and refused in 0.7.0 because a Plune run had nowhere to put them; the platform has the
@@ -258,7 +268,8 @@ First public release. Released from commit `ba43100`; no `v0.2.0` tag exists.
   `json-schema`, `llm-judge`, `semantic-similarity`, `faithfulness`, `answer-relevance`,
   `context-precision`.
 
-[Unreleased]: https://github.com/plune-ai/cli/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/plune-ai/cli/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/plune-ai/cli/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/plune-ai/cli/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/plune-ai/cli/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/plune-ai/cli/compare/v0.4.0...v0.5.0
