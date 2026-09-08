@@ -11,6 +11,47 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-09-09
+
+### Added
+
+- **`plune run import <file>` reads a report this CLI did not write.** JUnit XML and Playwright's own
+  JSON, detected from the file rather than from its name. This is the door into Plune that costs
+  nothing: an LLM provider key is what GENERATING checks needs, and a suite that already runs has
+  nothing to generate — the results exist and only have to arrive.
+
+  Until now that door was one runner wide. `@plune-ai/playwright` was the only way to hand results
+  over, so a team on Jest, Vitest, pytest, PHPUnit, Surefire or Cypress had to write their own
+  request against the API — for a product whose entire subject is somebody else's tests. JUnit XML is
+  the format nearly all of them already print.
+
+  Everything after parsing is the reporter core, unchanged: the same run lifecycle, the same
+  identification ladder, the same fallback file when the platform is down, the same review-queue
+  offer under `--create`. An importer with a connection of its own would be a second reporter to keep
+  correct, and the two would drift the day one of them was fixed.
+
+  Statuses are carried, not decided. JUnit's four words go over as `pass` / `failure` / `error` /
+  `skipped` — the vocabulary the platform's own default map already spells for this format — so a
+  team that reads `error` differently changes their map instead of waiting for a release here.
+
+  Time is read from the report or left out. A case carries its duration and a suite carries a
+  timestamp; there is no per-case start anywhere in the format, so a report without a suite timestamp
+  records no execution at all. The file's mtime would have looked exactly like a fact.
+
+  A Playwright JSON import derives the SAME identity as the reporter, to the character: `playwright-id`
+  plus the `#`-joined path. Two derivations that disagreed would give one test two cases in Plune,
+  quietly and forever, so the fixture in each suite describes the same test and both pin the literal.
+
+  Verified against beta with the built binary before release: four cases in, four offered to the
+  queue, one approved, the same file re-imported — one accepted, `unmapped: 0`.
+
+### Changed
+
+- The README describes the second route. It presented Plune as an eval runner and never mentioned
+  that a suite you already have can be accounted for without a provider key, which is the half of
+  the product most readers arrive for.
+
+
 ## [0.8.0] - 2026-09-08
 
 ### Added
