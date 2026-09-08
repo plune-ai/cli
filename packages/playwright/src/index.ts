@@ -146,6 +146,13 @@ function pendingFrom(test: TestCase, result: TestResult): PendingResult {
     // Anything the test named itself comes before what we derived from its location: a Qase or
     // TestRail id written by a fixture is a deliberate statement, and a file path is a guess.
     keys: [...(metadata?.keys ?? []), ...keysFor(test)],
+    // Read only if nothing resolves this test, and then it is what the review queue shows (D14).
+    // The full `describe > title` path rather than `test.title` alone: two suites in one file
+    // routinely share a title, and "adds an item" on its own is not something a person can judge.
+    title: titlesOf(test).join(' › '),
+    // The line as well as the file. A reviewer's first move on an unknown test is to open it, and
+    // `specRef` is the only thing the entry carries that can take them there.
+    specRef: `${fileOf(test)}:${test.location.line}`,
     source: SOURCE,
     // The runner's own word, untouched. Mapping it is the platform's job and a project's setting.
     rawStatus: result.status,

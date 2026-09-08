@@ -104,6 +104,19 @@ export interface PendingResult {
   rawStatus: string;
   /** What the author expected — `test.fail()` and friends. Absent means a pass was expected. */
   expectedStatus?: ResultStatus;
+  /**
+   * What to call this test, and where it lives — read ONLY when nothing resolved it (D14).
+   *
+   * A result that found its case needs neither: the case already has a title and a spec. These are
+   * for the other path, where the reporter offers the test to the review queue and the queue needs a
+   * name a person can judge and a spec a case can point at.
+   *
+   * Optional because an adapter that cannot say both simply does not participate. Deriving them from
+   * a key's internal spelling was the alternative and it is worse: it makes the core parse a string
+   * the adapter formatted, which is a contract nothing checks.
+   */
+  title?: string;
+  specRef?: string;
   execution?: Execution;
   errorContext?: string;
   params?: Record<string, unknown>;
@@ -114,6 +127,32 @@ export interface PendingResult {
 /** What a run submission looks like once a key has resolved. Built by the core, never by a caller. */
 export interface ResultSubmission extends Omit<PendingResult, 'keys' | 'testCaseId'> {
   testCaseId: string;
+}
+
+/**
+ * A test this project runs and the platform has no case for (D14, platform ADR 0029).
+ *
+ * Deliberately NOT a proposed case. A proposal carries steps and an expected result, and a reporter
+ * has neither — it sees a `TestResult`, never the test's source. This says the test exists and where
+ * it lives, and stops; the platform refuses steps here by name rather than dropping them, so the
+ * shape cannot quietly grow into the thing it was written to avoid.
+ */
+export interface DiscoveredTest {
+  keys: KeyRef[];
+  title: string;
+  source: string;
+  specRef: string;
+  rawStatus?: string;
+}
+
+/**
+ * What became of ONE offered test. Read per test, not off the status line: most of a repeated batch
+ * is already known or already refused, and only `queued` is new work for a reviewer.
+ */
+export interface DiscoveryOutcome {
+  key: KeyRef;
+  outcome: 'queued' | 'duplicate' | 'refused' | 'known';
+  id?: string;
 }
 
 /** One entry of the "what this run intended to execute" list, from which the platform derives
@@ -142,8 +181,11 @@ export interface SubmitCounts {
 /** What the session accumulated, for the one summary line a reporter prints. */
 export interface RunStats extends SubmitCounts {
   /** Results whose keys matched no case — never sent, because inventing an id would write into
-   * somebody else's history. What to do about them is C2's ladder. */
+   * somebody else's history. Rung 6 of C2's ladder is what to do about them: see `offered`. */
   unresolved: number;
+  /** Unresolved tests offered to the review queue under `PLUNE_CREATE=1` (D14). Counted separately
+   * from `unresolved` because they are the same tests seen twice, not a second population. */
+  offered: number;
   /** Results written to the fallback file instead of the platform. */
   deferred: number;
 }
@@ -168,6 +210,14 @@ export interface ReporterConfig {
   batchSize?: number;
   /** Where unsent batches go. Defaults beside the run file the CLI already writes. */
   fallbackPath?: string;
+  /**
+   * Offer tests that resolved to nothing to the platform's review queue (`PLUNE_CREATE=1`, D14).
+   *
+   * Off by default, and that is the product decision rather than caution: a reporter that filled a
+   * stranger's review queue on first run would teach the team to ignore the queue. Turning it on is
+   * how somebody says "yes, tell me what we are running that you do not know about".
+   */
+  offerDiscovered?: boolean;
   /** Transport seam — the same one `sync.ts` uses so tests need no server. */
   fetchImpl?: typeof fetch;
   /** Where a line for the operator goes. Defaults to stderr. */

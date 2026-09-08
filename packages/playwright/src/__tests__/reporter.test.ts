@@ -49,6 +49,9 @@ function fakeTest(over: Partial<Record<string, unknown>> = {}): TestCase {
     title: 'rejects a negative quantity',
     annotations: [],
     expectedStatus: 'passed',
+    // Playwright always sets it; the adapter reads the line for `specRef` (D14), so a fake without
+    // one is a fake of a `TestCase` that cannot exist.
+    location: { file: 'tests/cart.spec.ts', line: 12, column: 3 },
     parent: describeSuite,
     ...over,
   } as unknown as TestCase;
@@ -103,6 +106,21 @@ describe('what the adapter tells the core about a test', () => {
     expect(added[0]?.keys[1]?.value).toBe(
       'tests/cart.spec.ts#cart#when empty#rejects a negative quantity',
     );
+  });
+
+  /**
+   * The adapter's half of D14. The core offers an unresolved test to the review queue and needs two
+   * things it cannot derive: a name a person can judge, and somewhere to open. Both are read ONLY on
+   * that path — a test that found its case has a case with a title of its own.
+   */
+  it('names the test and where it lives, for the queue it might end up in', async () => {
+    await run(new PluneReporter(), [fakeTest()], [fakeResult()]);
+
+    // The `describe` path, not the bare title: two suites in one file routinely share a title, and
+    // "rejects a negative quantity" alone is not something a reviewer can act on.
+    expect(added[0]?.title).toBe('cart › rejects a negative quantity');
+    // With the line. A reviewer's first move on an unknown test is to open it.
+    expect(added[0]?.specRef).toBe('tests/cart.spec.ts:12');
   });
 
   it('hands the whole test list over at the start, so the lookup is one request', async () => {
