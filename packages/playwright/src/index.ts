@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import type { FullConfig, FullResult, Suite, TestCase, TestResult } from '@playwright/test/reporter';
 import {
   readEnv,
@@ -77,10 +78,52 @@ function keysFor(test: TestCase): KeyRef[] {
   ];
 }
 
-/** A `PluneId` annotation names the case outright — no lookup needed for that result. */
-function pluneIdOf(test: TestCase): string | undefined {
-  const found = test.annotations.find((a) => a.type === 'PluneId')?.description;
-  return found !== undefined && found !== '' ? found : undefined;
+/** The content type a test uses to hand the reporter structured metadata (ADR 0023). */
+const METADATA_TYPE = 'application/plune.metadata+json';
+
+/** `@P<id>` anywhere in a title. Deliberately not stripped from the title afterwards: the token IS
+ * the identity, so the readable path-title key is never consulted for that test anyway. */
+const TOKEN = /@P([A-Za-z0-9_-]+)/;
+
+interface PluneMetadata {
+  id?: string;
+  keys?: KeyRef[];
+}
+
+/** What an attachment of ours carries, if the test wrote one. Unreadable or malformed is not an
+ * error: it means this rung of the ladder said nothing, and the next one is asked instead. */
+function metadataOf(result: TestResult): PluneMetadata | undefined {
+  const found = result.attachments.find((a) => a.contentType === METADATA_TYPE);
+  if (found === undefined) return undefined;
+  try {
+    const raw =
+      found.body !== undefined
+        ? found.body.toString('utf8')
+        : found.path !== undefined
+          ? readFileSync(found.path, 'utf8')
+          : undefined;
+    return raw === undefined ? undefined : (JSON.parse(raw) as PluneMetadata);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The case this test says it is, in the order ADR 0023 fixed.
+ *
+ * An annotation is the most deliberate thing an author can write, so it wins. The `@P` token is the
+ * same statement made where it is visible in the report. An attachment is what a fixture or a
+ * helper writes on the test's behalf — later than both, because a person editing a title should not
+ * be overruled by something generated.
+ */
+function statedIdOf(test: TestCase, metadata: PluneMetadata | undefined): string | undefined {
+  const annotation = test.annotations.find((a) => a.type === 'PluneId')?.description;
+  if (annotation !== undefined && annotation !== '') return annotation;
+
+  const token = TOKEN.exec(test.title)?.[1];
+  if (token !== undefined) return token;
+
+  return metadata?.id !== undefined && metadata.id !== '' ? metadata.id : undefined;
 }
 
 function errorTextOf(result: TestResult): string {
@@ -91,7 +134,8 @@ function errorTextOf(result: TestResult): string {
 }
 
 function pendingFrom(test: TestCase, result: TestResult): PendingResult {
-  const pluneId = pluneIdOf(test);
+  const metadata = metadataOf(result);
+  const pluneId = statedIdOf(test, metadata);
   const expected = test.expectedStatus;
   const errorContext = errorTextOf(result);
   const startedAt = result.startTime;
@@ -99,7 +143,9 @@ function pendingFrom(test: TestCase, result: TestResult): PendingResult {
   return {
     resultKey: resultKey(test.id, result.retry),
     ...(pluneId !== undefined ? { testCaseId: pluneId } : {}),
-    keys: keysFor(test),
+    // Anything the test named itself comes before what we derived from its location: a Qase or
+    // TestRail id written by a fixture is a deliberate statement, and a file path is a guess.
+    keys: [...(metadata?.keys ?? []), ...keysFor(test)],
     source: SOURCE,
     // The runner's own word, untouched. Mapping it is the platform's job and a project's setting.
     rawStatus: result.status,

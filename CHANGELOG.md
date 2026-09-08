@@ -34,6 +34,13 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   not finish watching: a crashed process leaves the run open, because a run that is silently marked
   finished reads as green when a third of it never ran.
 
+- **A test can say which case it is, three ways.** A `PluneId` annotation, a `@P<id>` token in the
+  title, or an `application/plune.metadata+json` attachment — in that order, because the deliberate
+  thing an author typed should not be overruled by something a fixture generated. The attachment can
+  also carry keys from another tool (`{"keys": [{"kind": "qase", "value": "Q-9"}]}`), and those come
+  before the identifiers derived from the file path: a key from another system is a statement, a
+  path is a guess. An attachment that cannot be parsed says nothing rather than failing the run.
+
 - **`plune run start · finish · exec · report` — drive a platform run from a shell.** For the case
   a reporter cannot see: shards that are separate CI steps, a `merge-reports` stage, a suite split
   across two runners. `exec` does the whole thing in one line — opens the run, hands the command
