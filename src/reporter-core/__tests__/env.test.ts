@@ -56,26 +56,55 @@ describe('who closes the run', () => {
   });
 });
 
+describe('what the run is called, where it ran, how it is marked', () => {
+  it('takes all three from the environment', () => {
+    const { config } = readEnv(
+      env({ PLUNE_RUN_TITLE: 'nightly regression', PLUNE_ENV: 'staging', PLUNE_LABELS: 'smoke,slow' }),
+    );
+
+    expect(config).toMatchObject({
+      title: 'nightly regression',
+      environment: 'staging',
+      labels: ['smoke', 'slow'],
+    });
+  });
+
+  // `a,,b` is a CI template that had nothing for the middle slot, not a request for an empty label.
+  it('drops the gaps a template leaves in a list', () => {
+    expect(readEnv(env({ PLUNE_LABELS: ' smoke , , slow ' })).config.labels).toEqual(['smoke', 'slow']);
+  });
+
+  it('treats a list of nothing as unset', () => {
+    expect(readEnv(env({ PLUNE_LABELS: ' , ' })).config.labels).toBeUndefined();
+  });
+
+  // Deliberately NOT capped here. The platform states the limits and refuses what exceeds them by
+  // name; a second copy of the caps in the client would only be a second place for them to drift.
+  it('passes a list on whatever its length', () => {
+    const many = Array.from({ length: 40 }, (_, i) => `l${String(i)}`);
+
+    expect(readEnv(env({ PLUNE_LABELS: many.join(',') })).config.labels).toHaveLength(40);
+  });
+});
+
 describe('the variables that have nowhere to go yet', () => {
   // The failure this prevents is the expensive one: a client that believes it stored something the
-  // server silently dropped. `runMetaSchema` strips unknown keys, so sending `PLUNE_ENV` there would
-  // look exactly like success. Saying so is the only honest option until the run grows the fields.
+  // server silently dropped. `runMetaSchema` strips unknown keys, so sending a group there would
+  // look exactly like success. Saying so is the only honest option until the run grows the field.
   it('names each one it was given rather than dropping it quietly', () => {
-    const { ignored } = readEnv(env({ PLUNE_ENV: 'staging', PLUNE_LABELS: 'smoke,slow' }));
+    const { ignored } = readEnv(env({ PLUNE_GROUP: 'checkout' }));
 
-    expect(ignored.sort()).toEqual(['PLUNE_ENV', 'PLUNE_LABELS']);
+    expect(ignored).toEqual(['PLUNE_GROUP']);
   });
 
   it('says nothing when none of them are set', () => {
     expect(readEnv(env({ PLUNE_RUN: 'x' })).ignored).toEqual([]);
   });
 
-  it('knows about every name the reporter promises but cannot honour', () => {
-    expect([...UNSUPPORTED_VARS].sort()).toEqual([
-      'PLUNE_ENV',
-      'PLUNE_GROUP',
-      'PLUNE_LABELS',
-      'PLUNE_RUN_TITLE',
-    ]);
+  // The three that left this list did so because D13 gave a run somewhere to put them. A name that
+  // is both accepted and listed here would print a refusal for a setting that did arrive.
+  it('no longer refuses what the platform now stores', () => {
+    expect([...UNSUPPORTED_VARS]).toEqual(['PLUNE_GROUP']);
+    expect(readEnv(env({ PLUNE_RUN_TITLE: 't', PLUNE_ENV: 'e', PLUNE_LABELS: 'l' })).ignored).toEqual([]);
   });
 });

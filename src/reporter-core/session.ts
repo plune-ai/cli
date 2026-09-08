@@ -57,6 +57,41 @@ function chunk<T>(items: readonly T[], size: number): T[][] {
  * a map lookup rather than a request (AC-10). A runner that cannot enumerate its tests passes
  * nothing and resolves lazily on the first flush — same function, later moment.
  */
+/** As much of the run as the reporter reads back — enough to tell a stored field from a dropped one. */
+interface RunEcho {
+  id: string;
+  title?: string | null;
+  environment?: string | null;
+  labels?: string[] | null;
+}
+
+/**
+ * Say so when a deployment took the run's description and kept none of it.
+ *
+ * This is the failure D13 exists to end, and it is the one the client can see and the server cannot:
+ * a deployment older than those columns validates the body, stores what it knows, and answers 201.
+ * Nothing about that is distinguishable from success — which is exactly why the reporter refused
+ * these variables out loud before there was anywhere to put them.
+ *
+ * Only when EVERY field we sent came back empty. A joiner is told a title it did not set, and the
+ * platform keeps the first shard's — so one field disagreeing is the rule working, not a gap.
+ */
+function warnIfDropped(
+  sent: { title?: string; environment?: string; labels?: string[] },
+  run: RunEcho,
+  log: (line: string) => void,
+): void {
+  const names = Object.keys(sent) as (keyof typeof sent)[];
+  if (names.length === 0) return;
+  if (names.some((name) => run[name] != null)) return;
+
+
+  log(
+    `plune: this deployment stored none of ${names.join(', ')} — it is older than the fields. ` +
+      'The run is otherwise reported in full.',
+  );
+}
+
 export async function startRun(
   passed: ReporterConfig,
   expected?: readonly (readonly KeyRef[])[],
@@ -162,17 +197,28 @@ export async function startRun(
       log(`plune: ${expected.length} tests is more than the run configuration holds — reporting the first ${EXPECTED_MAX}.`);
     }
 
-    const start = await client.post<{ run: { id: string }; joined: boolean }>('/v1/runs', {
+    // D13. Sent as they are — the platform states the limits and refuses what exceeds them by
+    // name, and its refusal costs no results: the run fails to start, this says why, and every
+    // result goes to the fallback file. A second copy of the caps here would only drift.
+    const described = {
+      ...(cfg.title !== undefined ? { title: cfg.title } : {}),
+      ...(cfg.environment !== undefined ? { environment: cfg.environment } : {}),
+      ...(cfg.labels !== undefined ? { labels: cfg.labels } : {}),
+    };
+
+    const start = await client.post<{ run: RunEcho; joined: boolean }>('/v1/runs', {
       schemaVersion: 2,
       kind: cfg.kind ?? 'automated',
       ...(externalKey !== null ? { externalKey } : {}),
       ...(cfg.meta !== undefined ? { meta: cfg.meta } : {}),
       ...(configuration !== undefined ? { configuration } : {}),
+      ...described,
     });
 
     if (start.ok) {
       runId = start.body.run.id;
       joined = start.status === 200;
+      warnIfDropped(described, start.body.run, log);
     } else {
       log(`plune: could not start the run (${start.detail || start.kind}). Results will be written to ${fallbackPath}.`);
     }

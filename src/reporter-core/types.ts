@@ -158,6 +158,12 @@ export interface ReporterConfig {
   externalKey?: string;
   kind?: RunKind;
   meta?: RunMeta;
+  /** What to call this run in a list. The first shard to declare one wins. */
+  title?: string;
+  /** Where it ran — staging, prod, a preview. What keeps two CI matrices from reading as one. */
+  environment?: string;
+  /** How the run is marked — smoke, nightly, a team. */
+  labels?: string[];
   /** Results per request. The platform's ceiling is 500. */
   batchSize?: number;
   /** Where unsent batches go. Defaults beside the run file the CLI already writes. */

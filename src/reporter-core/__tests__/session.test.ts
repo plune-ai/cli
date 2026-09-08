@@ -29,6 +29,11 @@ interface PlatformOptions {
   startStatus?: number;
   /** Force a reply on `…/results`: a status + error message, or a thrown network failure. */
   resultsFailure?: { status: number; error: string } | 'network';
+  /**
+   * Whether this deployment has the D13 columns. `false` models one older than them: it validates
+   * the body, keeps what it knows, answers 201 — and nothing about that reads as a loss.
+   */
+  storesDescription?: boolean;
 }
 
 function platform(opts: PlatformOptions = {}) {
@@ -52,7 +57,15 @@ function platform(opts: PlatformOptions = {}) {
     if (target.endsWith('/v1/runs')) {
       seen.starts.push({ body });
       const status = opts.startStatus ?? 201;
-      return json({ run: { id: 'r-1' }, joined: status === 200 }, status);
+      const described =
+        opts.storesDescription === false
+          ? {}
+          : {
+              title: body['title'] ?? null,
+              environment: body['environment'] ?? null,
+              labels: body['labels'] ?? null,
+            };
+      return json({ run: { id: 'r-1', ...described }, joined: status === 200 }, status);
     }
     const results = /\/v1\/runs\/([^/]+)\/results$/.exec(target);
     if (results) {
@@ -480,5 +493,66 @@ describe('the token stays out of everything a person can read (AC-12)', () => {
       : '';
     expect(logOf(cfg).join('\n')).not.toContain(TOKEN);
     expect(written).not.toContain(TOKEN);
+  });
+});
+
+describe('what the run is called, where it ran, how it is marked (D13)', () => {
+  const described = { title: 'nightly regression', environment: 'staging', labels: ['smoke'] };
+
+  it('sends all three when the run opens', async () => {
+    const { seen, fetchImpl } = platform();
+    await startRun(config(fetchImpl, described));
+
+    expect(seen.starts[0]?.body).toMatchObject(described);
+  });
+
+  it('sends nothing it was not given', async () => {
+    const { seen, fetchImpl } = platform();
+    await startRun(config(fetchImpl));
+
+    expect(Object.keys(seen.starts[0]?.body ?? {})).not.toContain('title');
+  });
+
+  /**
+   * The one gap the client can see and the server cannot. A deployment older than these columns
+   * validates the body, stores what it knows and answers 201 — indistinguishable from success,
+   * which is the exact failure the reporter refused these variables to avoid.
+   */
+  it('says so when the deployment kept none of it', async () => {
+    const { fetchImpl } = platform({ storesDescription: false });
+    const cfg = config(fetchImpl, described);
+
+    await startRun(cfg);
+
+    expect(logOf(cfg).join('\n')).toMatch(/older than the fields/);
+  });
+
+  it('stays quiet when the deployment stored it', async () => {
+    const { fetchImpl } = platform();
+    const cfg = config(fetchImpl, described);
+
+    await startRun(cfg);
+
+    expect(logOf(cfg).join('\n')).not.toMatch(/older than the fields/);
+  });
+
+  // A joiner is told a title it did not set, and the platform keeps the first shard's. One field
+  // coming back different is the rule working; only ALL of them coming back empty is a gap.
+  it('stays quiet when the run it joined was already named by somebody else', async () => {
+    const { fetchImpl } = platform({ startStatus: 200 });
+    const cfg = config(fetchImpl, { title: 'shard 2', environment: 'staging' });
+
+    await startRun(cfg);
+
+    expect(logOf(cfg).join('\n')).not.toMatch(/older than the fields/);
+  });
+
+  it('stays quiet when it described nothing at all', async () => {
+    const { fetchImpl } = platform({ storesDescription: false });
+    const cfg = config(fetchImpl);
+
+    await startRun(cfg);
+
+    expect(logOf(cfg).join('\n')).not.toMatch(/older than the fields/);
   });
 });
