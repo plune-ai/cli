@@ -103,6 +103,39 @@ esac
 
 ---
 
+## `plune run start · finish · exec · report`
+
+These drive a **platform** run — the thing the Plune reporter reports into. They exist for the
+case a reporter cannot see: shards that are separate CI steps, a `merge-reports` stage, a suite
+split across two runners. Something has to open the run before any of them start and close it
+after all of them finish.
+
+```bash
+plune run start --key "$GITHUB_RUN_ID"     # opens (or joins) and prints the id
+plune run finish <id>                      # closes it
+plune run finish <id> --terminate --reason "CI cancelled"
+plune run exec --key "$GITHUB_RUN_ID" -- npx playwright test
+plune run report                           # sends what the reporter could not
+```
+
+`plune run` on its own still runs your assertion suite — these are subcommands, and it takes no
+positional arguments of its own.
+
+**`exec`** is the whole thing in one line: it opens a run, gives the command `PLUNE_RUN` and
+`PLUNE_PROCEED` so any reporter inside joins without closing it, waits, then closes the run and
+exits with the **command's** code. The run is closed even when the command failed — a failed test
+run is still a finished one, and leaving it open would say "we never found out".
+
+**`report`** replays `.plune/pending-results.jsonl`, which the reporter writes when the platform
+was unreachable, the token was refused, or the run was already closed. Without it "nothing is
+lost" would only mean the results are on disk in a shape nothing reads. The file is **not deleted**
+after a replay: a partly failed send must not be the reason the rest disappears.
+
+`--json` on `start` prints one machine-readable line, for a CI step that needs the id.
+
+Exit codes follow the rest of the CLI: **2** when you can fix it (no token), **1** when the
+platform refused or could not be reached.
+
 ## `plune report`
 
 Re-renders the **most recent run** (from `.plune/last-run.json`) without re-running the evals — handy

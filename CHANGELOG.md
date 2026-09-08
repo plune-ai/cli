@@ -34,6 +34,22 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   not finish watching: a crashed process leaves the run open, because a run that is silently marked
   finished reads as green when a third of it never ran.
 
+- **`plune run start · finish · exec · report` — drive a platform run from a shell.** For the case
+  a reporter cannot see: shards that are separate CI steps, a `merge-reports` stage, a suite split
+  across two runners. `exec` does the whole thing in one line — opens the run, hands the command
+  `PLUNE_RUN` and `PLUNE_PROCEED` so a reporter inside joins without closing it, then closes the run
+  and exits with the command's own code.
+
+  `plune run finish` was owed: the reporter already tells people to run it when a run is left open,
+  and a message pointing at a command that does not exist is worse than no message.
+
+  `plune run report` replays the fallback file. Until now "nothing is lost" meant the results were
+  on disk in a shape nothing read, which is not the same thing. The file survives the replay — a
+  partly failed send must not be the reason the rest disappears.
+
+  These are subcommands of `run`, which takes no positional arguments; `plune run` on its own still
+  runs your assertion suite exactly as before.
+
 - **The reporter reads its settings from the environment.** `PLUNE_TOKEN`, `PLUNE_RUN`,
   `PLUNE_API_URL`, `PLUNE_SHARED_RUN`, `PLUNE_PROCEED`, `PLUNE_BATCH_SIZE` and `PLUNE_FALLBACK` fill
   in whatever a committed config left out — a config file cannot know the run key of a job that does
