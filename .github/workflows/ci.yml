@@ -44,6 +44,15 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # After Build: the adapter typechecks against the root's emitted .d.ts and bundles the
+      # reporter core out of the root's dist. Its own `test` script builds it first, which is
+      # what lets the packaging guard assert against a real artifact instead of an intention.
+      - name: Adapter — typecheck, build, test
+        run: |
+          pnpm typecheck:playwright
+          pnpm test:playwright
+          pnpm test:e2e:playwright
+
       - name: Smoke — built binary + library entry
         run: |
           node dist/cli.cjs --version

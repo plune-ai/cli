@@ -17,3 +17,10 @@ allowBuilds:
   onnxruntime-node: true
   protobufjs: true
   sharp: true
+
+# The adapter packages. `@plune-ai/playwright` links the root package as a devDependency and
+# compiles `reporter-core` into its own bundle, so what it publishes has no runtime dependencies
+# at all (feature ADR C1/0001). One lockfile for both — the alternative was a second one nobody
+# audits.
+packages:
+  - 'packages/*'

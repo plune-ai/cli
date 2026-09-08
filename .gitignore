@@ -33,3 +33,6 @@ Thumbs.db
 *.log
 npm-debug.log*
 pnpm-debug.log*
+
+# Playwright writes its run output here when the reporter e2e drives the fixture project.
+test-results/

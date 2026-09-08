@@ -10,6 +10,11 @@ the first time, or jump to what you need.
 5. **[CLI reference](./cli.md)** — commands, flags, and what the exit codes mean.
 6. **[How it works](./concepts.md)** — caching, cost, errored-vs-failed, providers, the run pipeline.
 
+Reporting an existing test suite to the Plune platform is a different job with a different
+audience, and it has its own package: **[@plune-ai/playwright](../../packages/playwright/README.md)**
+— add one line to `playwright.config.ts` and your runs show up in Plune. Documented there
+rather than summarised here, so there is one description of it rather than two.
+
 > **Looking for *contributor* / internal docs?** See the platform repository — its `.claude/docs/` holds the SDLC-Kit docs, and
 > the ADRs under `docs/adr/`. The normative specs live in `AiDocs/`. This guide is for
 > people *using* the `plune` CLI.

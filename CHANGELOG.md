@@ -34,6 +34,16 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   not finish watching: a crashed process leaves the run open, because a run that is silently marked
   finished reads as green when a third of it never ran.
 
+- **`@plune-ai/playwright` — report an existing Playwright suite to Plune.** One line in
+  `playwright.config.ts` and runs, results and failures appear in the platform, with no change
+  to any test. Shards sharing a key land in one run, and `merge-reports` does not duplicate
+  anything — a result's key is derived from the test id and its retry, so sending it twice is
+  recognised rather than recorded twice.
+
+  The published package has **no runtime dependencies**: the reporter core is compiled into it
+  rather than depended on, so installing it does not drag a native SQLite build and two
+  provider SDKs into a project that only wanted to report results.
+
 - The user guide (`docs/guide/`) and a runnable `examples/quickstart/` project — an end-to-end
   `plune.yaml`, two datasets and a GitHub Actions workflow — now ship in this repo instead of the
   private platform repo, so the documentation sits beside the code it documents.

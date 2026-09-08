@@ -49,10 +49,14 @@
     "test": "vitest run --coverage",
     "test:watch": "vitest",
     "test:e2e": "tsup && vitest run -c vitest.e2e.config.ts",
-    "lint": "eslint \"src/**/*.ts\" --no-error-on-unmatched-pattern",
+    "lint": "eslint \"src/**/*.ts\" \"packages/*/src/**/*.ts\" --no-error-on-unmatched-pattern",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
+    "typecheck:playwright": "pnpm --filter @plune-ai/playwright typecheck",
+    "test:playwright": "pnpm --filter @plune-ai/playwright test",
+    "test:e2e:playwright": "pnpm --filter @plune-ai/playwright test:e2e",
+    "build:playwright": "pnpm --filter @plune-ai/playwright build",
     "prepublishOnly": "tsup"
   },
   "dependencies": {
