@@ -79,6 +79,13 @@ jobs:
         run: pnpm test
       - name: Build
         run: pnpm build
+      # The adapter typechecks against the root's emitted .d.ts and bundles the reporter core out
+      # of the root's dist, so it can only run after Build. Mirrors ci.yml — never publish a red build.
+      - name: Adapter - typecheck, build, test
+        run: |
+          pnpm typecheck:playwright
+          pnpm test:playwright
+          pnpm test:e2e:playwright
 
       # --- Determine npm dist-tag (alpha/beta/rc/latest) from the tag / prerelease flag ---
       - name: Determine npm dist-tag
@@ -112,6 +119,26 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ github.token }}
 
+      # The adapter has its own version line: the tag governs @plune-ai/cli, and bumping the adapter
+      # is an ordinary commit. So its version comes from its own package.json, not from the tag.
+      #
+      # `pnpm publish`, not `npm publish`: the adapter depends on the CLI through `workspace:*`, and
+      # npm ships package.json verbatim — that range would reach the registry as an unresolvable
+      # dependency. pnpm rewrites it to the real version while packing.
+      - name: Publish adapter to GitHub Packages
+        working-directory: packages/playwright
+        run: |
+          VER="$(node -p "require('./package.json').version")"
+          if npm view "@plune-ai/playwright@$VER" version --registry https://npm.pkg.github.com >/dev/null 2>&1; then
+            echo "@plune-ai/playwright@$VER already in GitHub Packages - skipping (idempotent)."
+          else
+            npm pkg set publishConfig.registry=https://npm.pkg.github.com
+            pnpm publish --no-git-checks --tag ${{ steps.dist.outputs.tag }}
+            npm pkg delete publishConfig.registry
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ github.token }}
+
       # --- Phase 2: npm registry (with provenance) — idempotent ---
       # scope MUST be re-set here: otherwise @plune-ai:registry from Phase 1 (.npmrc) still points at
       # GitHub Packages and the scoped `npm publish` would NOT go to npmjs.
@@ -128,6 +155,18 @@ jobs:
             echo "@plune-ai/cli@$VER already on npm — skipping (idempotent)."
           else
             npm publish --provenance --tag ${{ steps.dist.outputs.tag }}
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish adapter to npm
+        working-directory: packages/playwright
+        run: |
+          VER="$(node -p "require('./package.json').version")"
+          if npm view "@plune-ai/playwright@$VER" version --registry https://registry.npmjs.org >/dev/null 2>&1; then
+            echo "@plune-ai/playwright@$VER already on npm - skipping (idempotent)."
+          else
+            pnpm publish --no-git-checks --provenance --tag ${{ steps.dist.outputs.tag }}
           fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

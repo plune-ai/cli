@@ -79,6 +79,48 @@ describe('what installing this package costs', () => {
   });
 });
 
+/**
+ * What the tarball says, as opposed to what the manifest meant.
+ *
+ * `npm pack --dry-run` lists filenames and nothing else, so both of these shipped once before
+ * anything noticed: a `files` entry pointing at a LICENSE that was never copied into the package,
+ * and — because npm publishes package.json verbatim — a `workspace:*` range reaching the registry
+ * as a dependency no client can resolve. pnpm rewrites that range while packing; npm does not,
+ * which is why the publish route is part of the contract and not an implementation detail.
+ */
+describe('what the published tarball would carry', () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')) as {
+    files?: string[];
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+    peerDependencies?: Record<string, string>;
+  };
+
+  it('promises no file it does not have', () => {
+    const missing = (manifest.files ?? []).filter((f) => !fs.existsSync(path.join(root, f)));
+
+    expect(missing).toEqual([]);
+  });
+
+  it('is published by whatever resolves its workspace ranges', () => {
+    const ranges = Object.values({
+      ...manifest.dependencies,
+      ...manifest.devDependencies,
+      ...manifest.peerDependencies,
+    });
+    if (!ranges.some((r) => r.startsWith('workspace:'))) return;
+
+    const workflow = fs.readFileSync(
+      path.join(root, '..', '..', '.github', 'workflows', 'publish.yml'),
+      'utf8',
+    );
+    const steps = workflow.split(/^ {6}- name: /m).filter((s) => s.includes('packages/playwright'));
+
+    expect(steps.length).toBeGreaterThan(0);
+    expect(steps.filter((s) => !/pnpm publish/.test(s))).toEqual([]);
+  });
+});
+
 /** The builtins this bundle actually reaches for. Named rather than derived from `module.builtinModules`
  * so that adding a new one is a visible change, not a silent one. */
 function isNodeBuiltin(specifier: string): boolean {
