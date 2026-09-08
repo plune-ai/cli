@@ -88,6 +88,15 @@ export interface AssertionRecord {
  */
 export interface PendingResult {
   resultKey: string;
+  /**
+   * The case this result IS, when the test says so outright — a `PluneId` annotation, or the
+   * `@P<id>` token C2 also reads out of a title.
+   *
+   * Separate from `keys` because it is a different claim, and the platform draws the same line:
+   * `plune-id` is deliberately absent from its external-key kinds, since it is the thing external
+   * keys resolve TO. Present means no lookup is needed for this result at all.
+   */
+  testCaseId?: string;
   keys: KeyRef[];
   /** Which runner produced this — the key into the project's status map. */
   source: string;
@@ -103,7 +112,7 @@ export interface PendingResult {
 }
 
 /** What a run submission looks like once a key has resolved. Built by the core, never by a caller. */
-export interface ResultSubmission extends Omit<PendingResult, 'keys'> {
+export interface ResultSubmission extends Omit<PendingResult, 'keys' | 'testCaseId'> {
   testCaseId: string;
 }
 

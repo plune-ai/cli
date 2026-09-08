@@ -213,6 +213,19 @@ describe('a result with no case is not invented (AC-11)', () => {
     expect(logOf(cfg).filter((l) => l.includes('1')).length).toBeGreaterThan(0);
   });
 
+  // The top rung of C2's ladder, and the one C1 already needs: a test that names its case outright
+  // is not asking to be looked up. The platform makes the same distinction — `plune-id` is not one
+  // of its external-key kinds, because it is what those kinds resolve to.
+  it('asks nothing about a test that named its case', async () => {
+    const { seen, fetchImpl } = platform();
+    const run = await startRun(config(fetchImpl));
+    await run.add(result('a', { testCaseId: 'tc-named', keys: [] }));
+    await run.flush();
+
+    expect(seen.resolves).toHaveLength(0);
+    expect(seen.results[0]?.results[0]?.['testCaseId']).toBe('tc-named');
+  });
+
   it('takes the first candidate that resolves, not the first candidate', async () => {
     const { seen, fetchImpl } = platform({ known: { 'tests/a.spec.ts#adds': 'tc-a' } });
     const run = await startRun(config(fetchImpl));
@@ -397,7 +410,7 @@ describe('nobody logged in', () => {
 describe('the lookup itself fails', () => {
   it('keeps the results rather than treating them as unmatched', async () => {
     let asked = false;
-    const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
+    const fetchImpl = (async (url: string | URL | Request) => {
       const target = String(url);
       if (target.endsWith('/v1/test-cases/resolve')) {
         asked = true;

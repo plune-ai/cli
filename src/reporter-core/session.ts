@@ -166,6 +166,8 @@ export async function startRun(
     | { kind: 'unanswered' };
 
   function matchFor(result: PendingResult): Match {
+    // The test named its case outright. Nothing to look up, and nothing to rank against.
+    if (result.testCaseId !== undefined) return { kind: 'found', testCaseId: result.testCaseId };
     let unanswered = false;
     for (const key of result.keys) {
       const hit = resolved.get(key.value);
