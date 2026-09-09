@@ -11,6 +11,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-09-09
+
 ### Fixed
 
 - **`--key` now actually gives several jobs one run.** The option has always said it does — *"the key
@@ -48,6 +50,19 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   (`plune: 400 of 2029 results sent`). A mature suite is a dozen or more silent round trips, and
   nothing distinguished a slow import from a hung one until the summary arrived at the end. Reports
   that fit in a single batch stay silent — there is nothing to watch.
+
+### Documentation
+
+- **The README said "the three cloud commands", and listed one that opens no socket.** The count
+  was true at 0.2.0 and has been wrong since 0.7.0; the line sat next to the privacy promise, which
+  is the sentence a reader is deciding whether to believe. It now names the four commands that never
+  touch a network — `run`, `report`, `diff`, `init` — which is the half the promise is about and the
+  half that does not grow with every release. The same claim was retracted from `docs.plune.ai` on
+  09.09; it had a second home here, on the page npm renders.
+
+- **How several jobs report into one run is now written down.** `--key` was documented as enough on
+  its own. It never was, and since this release it is half of the answer: the key says where results
+  go, `PLUNE_SHARED_RUN=1` says who does not end the run.
 
 ## [0.9.0] - 2026-09-09
 
@@ -347,7 +362,9 @@ First public release. Released from commit `ba43100`; no `v0.2.0` tag exists.
   `json-schema`, `llm-judge`, `semantic-similarity`, `faithfulness`, `answer-relevance`,
   `context-precision`.
 
-[Unreleased]: https://github.com/plune-ai/cli/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/plune-ai/cli/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/plune-ai/cli/compare/v0.9.0...v0.9.1
+[0.9.0]: https://github.com/plune-ai/cli/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/plune-ai/cli/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/plune-ai/cli/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/plune-ai/cli/compare/v0.5.0...v0.6.0

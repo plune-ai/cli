@@ -121,6 +121,11 @@ plune run report                           # sends what the reporter could not
 `plune run` on its own still runs your assertion suite — these are subcommands, and it takes no
 positional arguments of its own.
 
+**`import` takes part in this.** Given `PLUNE_SHARED_RUN=1` (or `PLUNE_PROCEED`, which `exec`
+sets), it leaves the run open for the next job instead of closing it — so two suites that cannot
+produce one report still produce one run. Without either variable it closes the run it finished,
+which is right for the single-job case and was wrong for every other one until 0.9.1.
+
 **`exec`** is the whole thing in one line: it opens a run, gives the command `PLUNE_RUN` and
 `PLUNE_PROCEED` so any reporter inside joins without closing it, waits, then closes the run and
 exits with the **command's** code. The run is closed even when the command failed — a failed test
