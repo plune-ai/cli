@@ -1,6 +1,6 @@
 {
   "name": "@plune-ai/playwright",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Report Playwright results to Plune — a reporter and, later, a test importer.",
   "keywords": ["playwright", "reporter", "plune", "test-management", "tms", "qa"],
   "type": "module",

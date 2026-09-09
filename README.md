@@ -103,7 +103,7 @@ provider API key is read from the environment based on `provider.type`:
 | `plune login` | Save a [Plune platform](https://plune.ai/platform) API token so `sync` and `ingest` can reach it. The token is **checked against the API before it is saved**, so a wrong one fails here rather than two commands later. Get one at `https://beta.plune.ai` → Settings → API tokens. Flags: `--token <token>` (omit to paste it or pipe it via stdin), `--skip-verify` (save without checking, for offline setup). |
 | `plune logout` | Remove the saved token. |
 | `plune sync` | Upload the latest local run to the platform. Flags: `--file <path>` to send a specific run JSON. |
-| `plune run import <file>` | Turn a **JUnit XML** or **Playwright JSON** report into a run in Plune. Needs no provider key — nothing is generated. Flags: `--format junit\|playwright-json` (detected from the file when omitted), `--key <externalKey>` to land several reports in one run, `--create` to offer unmatched tests to the review queue. |
+| `plune run import <file>` | Turn a **JUnit XML** or **Playwright JSON** report into a run in Plune. Needs no provider key — nothing is generated. Flags: `--format junit\|playwright-json` (detected from the file when omitted), `--key <externalKey>` to land several reports in one run (with `PLUNE_SHARED_RUN=1` — see below), `--create` to offer unmatched tests to the review queue. |
 | `plune ingest [dir]` | Record a [Cairn](https://github.com/plune-ai/cairn) run in Plune. Omit `[dir]` for the newest run under `./runs`, or name the directory holding `report.json`. Generated cases arrive as **review proposals** — nothing is created until a person approves it. |
 
 Global flags: `-c, --config <path>` · `-v, --verbose` · `--no-color`.
@@ -135,14 +135,30 @@ which reports as the run happens and needs no second step:
 reporter: [['list'], ['@plune-ai/playwright']],
 ```
 
-Sharded CI? Give every job the same `--key` (or `PLUNE_RUN`), and close the run with
-`plune run finish <id>` once they are all done.
+### Several jobs, one run
+
+Two suites, or a sharded matrix, report into a single run when every job shares a key **and** knows
+it is not the last one:
+
+```bash
+PLUNE_SHARED_RUN=1 plune run import ./junit.xml     --key "$GITHUB_RUN_ID"
+PLUNE_SHARED_RUN=1 plune run import ./app/junit.xml --key "$GITHUB_RUN_ID"
+plune run finish "$RUN_ID"                          # once, when they are all done
+```
+
+`PLUNE_SHARED_RUN=1` is what stops a job closing a run its siblings are still reporting into; the
+key alone says where the results go, not who ends the run. Leave it unset in the last job and that
+job closes the run instead of the explicit `finish`.
+
+`plune run exec` sets it for you — anything reporting inside it, this command included, joins
+without closing.
 
 ## Optional: keep a history
 
-Everything above works with no account, no network, and no token — that does not change. If you
-also want run history, trends, and a shared dashboard, the three cloud commands push your local
-runs to the [Plune platform](https://plune.ai/platform):
+Everything above works with no account, no network, and no token — that does not change. `run`,
+`report`, `diff` and `init` never open a socket, and that is the half this promise is about. If you
+also want run history, trends, and a shared dashboard, the commands below push your local runs to
+the [Plune platform](https://plune.ai/platform):
 
 ```bash
 plune login          # paste the API token from your platform settings page
