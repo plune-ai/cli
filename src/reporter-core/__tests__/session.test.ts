@@ -701,8 +701,11 @@ describe('offering tests the platform has no case for (D14)', () => {
     await run.add(found('pw-1'));
     await run.finish();
 
-    expect(logOf(cfg).join('\n')).toContain('could not offer 1 unknown tests for review');
+    expect(logOf(cfg).join('\n')).toContain('could not offer 1 unknown test(s) for review');
     expect(fs.existsSync(path.join(dir, 'pending.jsonl'))).toBe(false);
+    // The count is also kept, not only printed: the command turns it into the sentence that says
+    // another import is needed, and a number that lives only inside a log line cannot do that.
+    expect(run.stats.unoffered).toBe(1);
   });
 
   // Whoever closes the run is not whoever found the test. A shard that only ever leaves the run open

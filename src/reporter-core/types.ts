@@ -186,6 +186,14 @@ export interface RunStats extends SubmitCounts {
   /** Unresolved tests offered to the review queue under `PLUNE_CREATE=1` (D14). Counted separately
    * from `unresolved` because they are the same tests seen twice, not a second population. */
   offered: number;
+  /**
+   * Unmatched tests that were NOT offered, because the queue would not take them (#627).
+   *
+   * Separate from `offered` rather than a shortfall computed against `unresolved`: the reason a
+   * test went unoffered is the caller's next action, and a subtraction cannot carry a reason. A
+   * queue at capacity means "empty it and import again"; nothing else here means that.
+   */
+  unoffered: number;
   /** Results written to the fallback file instead of the platform. */
   deferred: number;
 }

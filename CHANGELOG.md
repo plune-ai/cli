@@ -11,6 +11,39 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Fixed
+
+- **`--key` now actually gives several jobs one run.** The option has always said it does — *"the key
+  several jobs share so their reports land in one run"* — and `run import` closed the run the moment
+  it finished its own file. The second job was answered `409 run is closed to new results`, wrote
+  everything to the fallback file and exited zero. Green step, green CI, a quarter of a suite
+  missing.
+
+  It never worked. It only looked as though it did during onboarding: while a project has no cases
+  yet, the second report has nothing to submit, so an empty result is indistinguishable from a
+  successful one. The loss appears the day the project is set up — the state it lives in from then on.
+
+  The mechanism to prevent this was already here. `PLUNE_SHARED_RUN` and `PLUNE_PROCEED` have been
+  read into `keepOpen` since the Playwright reporter needed it, and the reporter honours it; import
+  parsed the same variables and ignored the answer. Now import chooses the same way the reporter
+  does, and the run is closed by whoever knows the jobs are done — `plune run finish <id>`, as the
+  message says.
+
+- **A report bigger than the review queue says what is left, and what to do about it.** The queue
+  holds a bounded number of waiting items, so the first import of a mature suite stops partway.
+  Two things were wrong at that moment: the refusal named the batch it was carrying rather than
+  everything still unoffered — every batch behind it was abandoned without a word — and the summary
+  then said the unmatched tests were *"already in the review queue"*, which was untrue of every one
+  of them. Both are now one line that names the real number and says the rest need a second import
+  after the queue is emptied.
+
+### Added
+
+- **Progress while a long import runs.** A report larger than one batch now reports as it goes
+  (`plune: 400 of 2029 results sent`). A mature suite is a dozen or more silent round trips, and
+  nothing distinguished a slow import from a hung one until the summary arrived at the end. Reports
+  that fit in a single batch stay silent — there is nothing to watch.
+
 ## [0.9.0] - 2026-09-09
 
 ### Added
