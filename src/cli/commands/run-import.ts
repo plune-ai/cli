@@ -137,7 +137,11 @@ function runUrl(apiUrl: string, id: string): string {
  */
 function describe(result: ImportResult, apiUrl: string): string[] {
   const lines = [
-    `Imported ${result.parsed} result(s) from a ${result.format} report: ` +
+    // `Read`, not `Imported`: the verb describes the FILE, which was read whatever happened next.
+    // «Imported 555 result(s): 0 accepted, 0 already there, 0 unmatched» was a sentence whose two
+    // halves disagreed, and readers stop at the verb — a run that reached nobody read as one that
+    // worked (#622).
+    `Read ${result.parsed} result(s) from a ${result.format} report: ` +
       `${result.accepted} accepted, ${result.duplicate} already there, ${result.unresolved} unmatched.`,
   ];
   if (result.conflict > 0 || result.rejected > 0) {

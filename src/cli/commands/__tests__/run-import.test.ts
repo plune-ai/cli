@@ -102,7 +102,7 @@ describe('plune run import', () => {
     expect(out.accepted).toBe(2);
     expect(seen.map((s) => s.path)).toContain('/v1/runs');
     expect(seen.some((s) => s.path === '/v1/runs/r-9/results')).toBe(true);
-    expect(lines.join('\n')).toContain('Imported 2 result(s) from a junit report');
+    expect(lines.join('\n')).toContain('Read 2 result(s) from a junit report');
   });
 
   it('tells the platform which tests the report accounts for', async () => {
@@ -227,6 +227,24 @@ describe('plune run import', () => {
         handleRunImport({ ...deps(fetchImpl), file: path.join(dir, 'nope.xml') }),
       ).rejects.toThrow(/Cannot read/);
     });
+  });
+
+  /**
+   * The verb has to survive a run where nothing landed (#622).
+   *
+   * When the platform is unreachable the line read «Imported 555 result(s) … 0 accepted, 0 already
+   * there, 0 unmatched» — the first half announcing success, the second half three zeros. A reader
+   * stops at the verb and takes the rest for detail, which is how a run that reached nobody gets
+   * read as a run that worked.
+   *
+   * `Read` is true of every outcome, because it describes the FILE, and the file was read.
+   */
+  it('says what it read, not what it landed, when nothing landed', async () => {
+    const { fetchImpl } = platform(() => null);
+    await handleRunImport({ ...deps(fetchImpl), file: write('results.xml', REPORT) });
+
+    expect(lines.some((l) => l.includes('Imported'))).toBe(false);
+    expect(lines.some((l) => l.includes('Read 2 result(s)'))).toBe(true);
   });
 
   /**

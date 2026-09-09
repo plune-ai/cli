@@ -37,6 +37,11 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   of them. Both are now one line that names the real number and says the rest need a second import
   after the queue is emptied.
 
+- **An import that landed nothing no longer opens by saying it imported.** The summary read
+  `Imported 555 result(s) from a junit report: 0 accepted, 0 already there, 0 unmatched` — a
+  sentence whose halves disagree, and readers stop at the verb. It now says `Read 555 result(s)`,
+  which describes the file and is true of every outcome; the counts after it say what became of them.
+
 ### Added
 
 - **Progress while a long import runs.** A report larger than one batch now reports as it goes
