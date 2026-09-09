@@ -170,3 +170,28 @@ jobs:
           fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # --- Phase 3: tell the site the version moved ---
+      # docs.plune.ai prints the current CLI version from a file refreshed at BUILD time, so until
+      # the site is rebuilt it keeps showing whatever was current at its last deploy. That file sat
+      # on 0.6.0 for a month while npm went through three releases, and nothing was wrong with it —
+      # nobody had deployed the site.
+      #
+      # `latest` only: the refresh script reads the `latest` dist-tag, so an alpha or rc would
+      # redeploy the site to show the same number it already shows.
+      #
+      # Never fails the release. By this point the package is published and unpublishing is not a
+      # thing; a stale version number on a page is not worth a red release. Without the token the
+      # step says so out loud — a step that skips quietly is how the gap survived the first time.
+      - name: Refresh the version shown on docs.plune.ai
+        if: steps.dist.outputs.tag == 'latest'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.WEB_SITE_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::warning::No WEB_SITE_DISPATCH_TOKEN: docs.plune.ai keeps showing the previous version until its next deploy. To arm this, add a fine-grained PAT with Actions:write on plune-ai/web-site as this repo's WEB_SITE_DISPATCH_TOKEN."
+            exit 0
+          fi
+          gh workflow run deploy.yml --repo plune-ai/web-site --ref main
+          echo "Dispatched plune-ai/web-site deploy.yml - the site will pick up ${{ steps.meta.outputs.version }} on that build."
