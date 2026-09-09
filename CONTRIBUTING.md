@@ -51,6 +51,25 @@ docs(readme): document the json-schema assertion
 3. Make sure `pnpm lint`, `pnpm typecheck`, and `pnpm test` pass.
 4. Open the PR with a clear description of **what** changed and **why**.
 
+## Releasing
+
+A release is a pushed tag; CI does the rest.
+
+```bash
+npm version 0.9.2 && git push --follow-tags
+```
+
+The tag is the authority for the version - `publish.yml` sets `package.json` from it, runs the
+same checks as CI, and publishes to npm and GitHub Packages. Nothing is published from a laptop.
+
+**Before the tag, answer one question: what does this release make untrue?** A release moves the
+product; public text does not move with it. Four separate paragraphs went stale that way, and no
+gate caught any of them, because a sentence that *was* true does not look broken:
+
+- `README.md` - it is also the npm package page, so it is public the moment you publish.
+- The pages under `docs.plune.ai` - the guides, and the commands table in *Getting started*.
+- A brand-new command needs a page, not just a `--help` line.
+
 ## Security
 
 Please report vulnerabilities privately — see [SECURITY.md](./SECURITY.md). Do not open a
