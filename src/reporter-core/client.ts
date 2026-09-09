@@ -40,6 +40,13 @@ export interface ClientOptions {
 
 export interface PlatformClient {
   post<T>(path: string, body: unknown): Promise<ClientOutcome<T>>;
+  /**
+   * A DELETE, through the same retries, the same classification and the same token scrubbing as a
+   * POST. It is here rather than as a bare `fetch` in the one command that needs it because all
+   * three of those matter at least as much for a delete: an unclassified 404 reads as an outage, and
+   * a proxy error page that echoes the request would put a token in a CI log.
+   */
+  del<T>(path: string): Promise<ClientOutcome<T>>;
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -91,7 +98,11 @@ export function createClient(opts: ClientOptions): PlatformClient {
   const scrub = (text: string): string =>
     opts.token === '' ? text : text.split(opts.token).join('***');
 
-  async function post<T>(path: string, body: unknown): Promise<ClientOutcome<T>> {
+  async function send<T>(
+    method: 'POST' | 'DELETE',
+    path: string,
+    body?: unknown,
+  ): Promise<ClientOutcome<T>> {
     let last: { kind: ClientFailureKind; status: number | null; detail: string } = {
       kind: 'unavailable',
       status: null,
@@ -102,9 +113,12 @@ export function createClient(opts: ClientOptions): PlatformClient {
       let res: Response;
       try {
         res = await doFetch(`${base}${path}`, {
-          method: 'POST',
+          method,
           headers: { 'content-type': 'application/json', authorization: `Bearer ${opts.token}` },
-          body: JSON.stringify(body),
+          // A DELETE carries none. Sending `"undefined"` as a body is what a naive
+          // `JSON.stringify(body)` would do, and some proxies answer that with a 400 nobody can
+          // explain.
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         });
       } catch (err) {
         last = { kind: 'unavailable', status: null, detail: scrub(String(err)) };
@@ -112,7 +126,13 @@ export function createClient(opts: ClientOptions): PlatformClient {
         continue;
       }
 
-      if (res.ok) return { ok: true, status: res.status, body: (await res.json()) as T };
+      if (res.ok) {
+        // 204 is the success shape of a delete, and it has no body — `res.json()` on it throws, and
+        // the throw would land in the retry loop as "unavailable". The success has to be read as a
+        // success by the code that expects a JSON answer everywhere else.
+        if (res.status === 204) return { ok: true, status: res.status, body: undefined as T };
+        return { ok: true, status: res.status, body: (await res.json()) as T };
+      }
 
       const detail = scrub(await detailOf(res));
       const kind = classify(res.status);
@@ -127,5 +147,8 @@ export function createClient(opts: ClientOptions): PlatformClient {
     return { ok: false, ...last };
   }
 
-  return { post };
+  return {
+    post: <T>(path: string, body: unknown) => send<T>('POST', path, body),
+    del: <T>(path: string) => send<T>('DELETE', path),
+  };
 }

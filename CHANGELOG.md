@@ -11,6 +11,22 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **`plune run delete <id>`** — undo an import from the surface the import happened on. Deletes the
+  run and everything it produced (its results, and the review-queue entries it raised); approved test
+  cases and the audit log stay. Recoverable for six months, then gone for good.
+
+  It exists because the CLI is where the mistake is made: onboarding a suite is a loop of `plune run
+  import`, and the first time somebody does it they will point it at the wrong file, the wrong `--key`
+  or the wrong directory. Until now nothing could take that back, in any tool — a run was the one
+  thing Plune could create and could not remove.
+
+  No confirmation prompt, for two reasons rather than one: it is your own data, and this command's
+  natural home is a script or a loop over ids, where a prompt is not caution but a hang.
+
+  Needs a platform that serves `DELETE /v1/runs/{id}` — beta since 09.09.2026.
+
 ## [0.9.1] - 2026-09-09
 
 ### Fixed

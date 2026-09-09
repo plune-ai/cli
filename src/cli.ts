@@ -278,6 +278,19 @@ export function createProgram(): Command {
     });
 
   runCommand
+    .command('delete')
+    .argument('<id>', 'The run id — the one `plune run import` printed, or the one in the dashboard URL')
+    .description('Delete a run and everything it produced — recoverable for six months')
+    .action(async (id: string, _options: unknown, command: Command) => {
+      try {
+        const { handleRunDelete } = await import('./cli/commands/run-lifecycle.js');
+        await handleRunDelete(id);
+      } catch (err) {
+        await failRunCommand(err, verboseOf(command));
+      }
+    });
+
+  runCommand
     .command('report')
     .description('Send what the reporter could not — replays .plune/pending-results.jsonl')
     .option('--file <path>', 'The fallback file to replay')

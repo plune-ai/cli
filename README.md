@@ -107,6 +107,7 @@ provider API key is read from the environment based on `provider.type`:
 | `plune run start` | Open a platform run — or join the one already carrying `--key` — and print its id. Flags: `--key <externalKey>` (generated when absent), `--json` for one machine-readable line. |
 | `plune run finish <id>` | Close a platform run. This is what the reporter tells you to do for a run it had to leave open. Flags: `--terminate` to record it as cut short, `--reason <text>`. |
 | `plune run exec -- <command>` | Open a run, run the command inside it, close the run — and exit with whatever the command returned. Sets `PLUNE_SHARED_RUN` for you, so anything reporting inside joins that run. Flags: `--key <externalKey>`. |
+| `plune run delete <id>` | Delete a run and everything it produced — its results and the review-queue entries it raised. Approved test cases and the audit log stay. **Recoverable for six months** (ask Plune to put it back), then gone for good. No prompt: it is your data, and this command belongs in scripts. |
 | `plune run report` | Replay `.plune/pending-results.jsonl` — send what the reporter could not. Flags: `--file <path>`. |
 | `plune ingest [dir]` | Record a [Cairn](https://github.com/plune-ai/cairn) run in Plune. Omit `[dir]` for the newest run under `./runs`, or name the directory holding `report.json`. Generated cases arrive as **review proposals** — nothing is created until a person approves it. |
 
