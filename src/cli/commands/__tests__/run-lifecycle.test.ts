@@ -4,6 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  handleRunDelete,
   handleRunExec,
   handleRunFinish,
   handleRunReport,
@@ -244,5 +245,72 @@ describe('plune run report', () => {
 
     expect(out).toMatchObject({ sent: 0, failed: 1 });
     expect(lines.join('\n')).toContain('closed');
+  });
+});
+
+/**
+ * `plune run delete` (D17).
+ *
+ * Its own fetch fake rather than the shared `platform()` above, because the two things worth
+ * asserting are exactly the two that helper hides: the METHOD, which it never records, and a 204,
+ * which it never returns. A delete that arrived as a POST and a 204 read as a parse failure would
+ * both pass a test written against the shared one.
+ */
+describe('plune run delete', () => {
+  function server(status: number, body?: unknown) {
+    const seen: { method: string; path: string }[] = [];
+    const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
+      seen.push({
+        method: String(init?.method),
+        path: String(url).replace('https://api.test', ''),
+      });
+      return status === 204
+        ? new Response(null, { status: 204 })
+        : new Response(JSON.stringify(body ?? {}), {
+            status,
+            headers: { 'content-type': 'application/json' },
+          });
+    }) as unknown as typeof fetch;
+    return { seen, fetchImpl };
+  }
+
+  it('sends a DELETE and reads the 204 as success, not as an empty body', async () => {
+    const { seen, fetchImpl } = server(204);
+
+    await handleRunDelete('r-42', deps(fetchImpl));
+
+    expect(seen).toEqual([{ method: 'DELETE', path: '/v1/runs/r-42' }]);
+    // The whole reason the command can be run without asking first, said where the person is
+    // looking. Reassurance after the fact is the only kind this command can offer.
+    expect(lines.join(' ')).toMatch(/six months/i);
+  });
+
+  it('names all three causes of a 404, because the platform names none', async () => {
+    const { fetchImpl } = server(404, { error: "run 'r-42' not found" });
+
+    await expect(handleRunDelete('r-42', deps(fetchImpl))).rejects.toThrow(RunCommandError);
+    await expect(handleRunDelete('r-42', deps(fetchImpl))).rejects.toThrow(
+      /check the id.*same project.*already deleted/s,
+    );
+  });
+
+  it('does not retry a refusal', async () => {
+    // A 404 is classified, not transient. Retrying it would turn a typo into four requests and a
+    // several-second wait before the message that was ready immediately.
+    const { seen, fetchImpl } = server(404, { error: 'nope' });
+
+    await expect(handleRunDelete('r-42', deps(fetchImpl))).rejects.toThrow(RunCommandError);
+
+    expect(seen).toHaveLength(1);
+  });
+
+  it('refuses without a token rather than reporting a delete nobody made', async () => {
+    const { seen, fetchImpl } = server(204);
+
+    await expect(
+      handleRunDelete('r-42', { apiUrl: 'https://api.test', token: '', fetchImpl }),
+    ).rejects.toThrow(NoTokenError);
+
+    expect(seen, 'a request went out with no credential').toEqual([]);
   });
 });

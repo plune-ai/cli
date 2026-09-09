@@ -1,4 +1,4 @@
-// `plune run start · finish · exec · report` — driving a platform run from a shell.
+// `plune run start · finish · exec · report · delete` — driving a platform run from a shell.
 //
 // The reporter handles the ordinary case, where one process runs the tests and knows when they are
 // done. These commands are for the case it cannot see: a CI job whose shards are separate steps,
@@ -146,6 +146,41 @@ export async function handleRunFinish(id: string, options: FinishOptions = {}): 
     );
   }
   write(`Run ${id} ${event === 'finish' ? 'finished' : 'terminated'}.`);
+}
+
+/**
+ * `plune run delete <id>` — undo an import from the surface the import happened on (D17).
+ *
+ * The command exists because the CLI is where the mistake is made. Onboarding a suite is a loop of
+ * `plune run import`, and the person doing it for the first time will point it at the wrong file,
+ * the wrong `--key` or the wrong directory with probability near one. Sending them to a dashboard to
+ * undo what a terminal did is asking them to change tools mid-mistake.
+ *
+ * No confirmation prompt, deliberately, and for two reasons rather than one. The platform's rule is
+ * that deleting your own data needs no permission from us (spec AC-1), and a prompt would be us
+ * asking for it back. And this command's natural home is a CI script or a `for` loop over ids, where
+ * a prompt is not caution — it is a hang.
+ *
+ * What makes that safe is the six months on the server, which is why the second line of output says
+ * so. Reassurance after the fact is the only kind this command can offer.
+ */
+export async function handleRunDelete(id: string, options: RunCommandDeps = {}): Promise<void> {
+  const { client, write } = connect(options);
+
+  const out = await client.del(`/v1/runs/${encodeURIComponent(id)}`);
+  if (!out.ok) {
+    throw new RunCommandError(
+      out.status === 404
+        ? // Three causes, one answer, and the message names all three because the platform will not:
+          // a 404 that distinguished "not yours" from "not there" would tell a stranger which ids
+          // exist. The person holding the terminal is better served by the list than by a guess.
+          `No run '${id}' — check the id, whether the token belongs to the same project, ` +
+          `or whether it is already deleted.`
+        : `Could not delete run ${id} — ${out.detail || out.kind}.`,
+    );
+  }
+  write(`Run ${id} deleted, with its results and the review-queue entries it produced.`);
+  write('Recoverable for six months — ask Plune to put it back.');
 }
 
 export interface ExecOptions extends StartOptions {
