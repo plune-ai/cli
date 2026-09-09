@@ -38,6 +38,8 @@ export interface ImportResult {
   rejected: number;
   unresolved: number;
   offered: number;
+  /** Unmatched tests the queue had no room for — the work a second import still has to do. */
+  unoffered: number;
   deferred: number;
   /** Tests the report gives no location for, so the queue could never show a reviewer where to look. */
   unlocatable: number;
@@ -92,7 +94,14 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
   );
 
   for (const result of results) await session.add(result);
-  await session.finish();
+  // Whether THIS process is the one that ends the run. `--key` says several reports belong to one
+  // run; it does not say this is the last of them, and only the caller knows that — so the choice
+  // stays with the same two variables the Playwright reporter honours, and the answer is the same
+  // here as there. Closing regardless is what made `--key` a promise the import could not keep: the
+  // first job finished the run and the second was answered 409, its results going to a fallback
+  // file while the step stayed green.
+  if (env.keepOpen) await session.leaveOpen();
+  else await session.finish();
 
   const stats = session.stats;
   const result: ImportResult = {
@@ -105,6 +114,7 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
     rejected: stats.rejected,
     unresolved: stats.unresolved,
     offered: stats.offered,
+    unoffered: stats.unoffered,
     deferred: stats.deferred,
     unlocatable: results.filter((r) => r.specRef === undefined).length,
     offering: options.create === true,
@@ -127,7 +137,11 @@ function runUrl(apiUrl: string, id: string): string {
  */
 function describe(result: ImportResult, apiUrl: string): string[] {
   const lines = [
-    `Imported ${result.parsed} result(s) from a ${result.format} report: ` +
+    // `Read`, not `Imported`: the verb describes the FILE, which was read whatever happened next.
+    // «Imported 555 result(s): 0 accepted, 0 already there, 0 unmatched» was a sentence whose two
+    // halves disagreed, and readers stop at the verb — a run that reached nobody read as one that
+    // worked (#622).
+    `Read ${result.parsed} result(s) from a ${result.format} report: ` +
       `${result.accepted} accepted, ${result.duplicate} already there, ${result.unresolved} unmatched.`,
   ];
   if (result.conflict > 0 || result.rejected > 0) {
@@ -142,11 +156,22 @@ function describe(result: ImportResult, apiUrl: string): string[] {
     lines.push(`${result.offered} unknown test(s) offered to the review queue.`);
   } else if (result.unresolved > 0 && !result.offering) {
     lines.push('Nothing was offered to the review queue — pass --create to propose the unmatched tests.');
-  } else if (result.unresolved > 0) {
+  } else if (result.unresolved > 0 && result.unoffered === 0) {
     // Offering WAS asked for and nothing was queued, which means these tests are already in the
     // queue or were refused there. Telling someone to pass the flag they just passed reads as the
     // command not having heard them.
     lines.push('Nothing new to offer — the unmatched tests are already in the review queue.');
+  }
+  // Said last, and said whatever else happened above: this is the only line that describes work
+  // still to do. A first import of a mature suite is bigger than the queue holds, so it stops
+  // partway — and the number alone is not the message. Without the second sentence a person reads
+  // "some did not fit", empties the queue, and never learns that the rest are waiting on a second
+  // import they were never asked for (#627).
+  if (result.unoffered > 0) {
+    lines.push(
+      `${result.unoffered} more could not be offered — the review queue is full. Approve or reject ` +
+        'what is waiting, then import this report again to offer the rest.',
+    );
   }
   if (result.unlocatable > 0) {
     lines.push(

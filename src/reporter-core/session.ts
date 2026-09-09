@@ -128,6 +128,7 @@ export async function startRun(
     rejected: 0,
     unresolved: 0,
     offered: 0,
+    unoffered: 0,
     deferred: 0,
   };
   /** `null` records a key we already asked about and the platform did not know — asking twice
@@ -295,13 +296,22 @@ export async function startRun(
    */
   async function offer(): Promise<void> {
     if (discoveries.size === 0 || offline || runId === null) return;
-    for (const batch of chunk([...discoveries.values()], DISCOVER_MAX)) {
+    const batches = chunk([...discoveries.values()], DISCOVER_MAX);
+    for (const [index, batch] of batches.entries()) {
       const out = await client.post<{ results: DiscoveryOutcome[] }>('/v1/review-items/discovered', {
         discovered: batch,
         runId,
       });
       if (!out.ok) {
-        log(`plune: could not offer ${batch.length} unknown tests for review (${out.detail || out.kind}).`);
+        // The number that matters is not the batch that was refused — it is everything still
+        // unoffered, which is that batch plus every one behind it, because this loop stops here.
+        // Naming only the batch understates the work left by however many batches remain, and the
+        // reader has no way to see the difference: the rest were never mentioned at all (#627).
+        stats.unoffered = batches.slice(index).reduce((n, rest) => n + rest.length, 0);
+        log(
+          `plune: could not offer ${stats.unoffered} unknown test(s) for review ` +
+            `(${out.detail || out.kind}).`,
+        );
         return;
       }
       // Only what a person now has to look at. `duplicate`, `refused` and `known` are the platform
@@ -338,7 +348,13 @@ export async function startRun(
       }
     }
     if (unanswered.length > 0) defer(unanswered);
-    if (submissions.length === 0) return;
+    if (submissions.length === 0) {
+      // Still a batch of the report handled, and on a FIRST import it is the only kind there is:
+      // nothing resolves, so nothing is posted, and progress reported only on posts would go
+      // silent for exactly the import that takes longest.
+      progress();
+      return;
+    }
 
     const out = await client.post<{ counts: Record<keyof RunStats, number> }>(
       `/v1/runs/${runId}/results`,
@@ -349,6 +365,7 @@ export async function startRun(
       stats.duplicate += out.body.counts.duplicate ?? 0;
       stats.conflict += out.body.counts.conflict ?? 0;
       stats.rejected += out.body.counts.rejected ?? 0;
+      progress();
       return;
     }
 
@@ -363,6 +380,24 @@ export async function startRun(
       log(`plune: could not send results (${out.detail || out.kind}).`);
     }
     defer(submissions);
+  }
+
+  /**
+   * Movement, but only where its absence would be ambiguous (#627).
+   *
+   * A suite that fits in one batch reports once and is done; a line about it would be noise. A
+   * mature suite is a dozen or more silent round trips, and a person watching a first import has
+   * nothing to tell a slow one from a hung one — the summary only arrives after everything.
+   *
+   * Counted against `expected`, the list of what the runner said ran, so the denominator is the
+   * whole report rather than the part reached so far. Deliberately the unsliced list: a report
+   * larger than the run configuration holds is exactly the one whose progress is worth watching.
+   */
+  function progress(): void {
+    const total = expected?.length ?? 0;
+    if (total <= batchSize) return;
+    const done = stats.accepted + stats.duplicate + stats.conflict + stats.rejected + stats.unresolved;
+    log(`plune: ${Math.min(done, total)} of ${total} results sent`);
   }
 
   function summarise(): void {

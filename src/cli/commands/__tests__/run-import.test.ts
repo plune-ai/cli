@@ -102,7 +102,7 @@ describe('plune run import', () => {
     expect(out.accepted).toBe(2);
     expect(seen.map((s) => s.path)).toContain('/v1/runs');
     expect(seen.some((s) => s.path === '/v1/runs/r-9/results')).toBe(true);
-    expect(lines.join('\n')).toContain('Imported 2 result(s) from a junit report');
+    expect(lines.join('\n')).toContain('Read 2 result(s) from a junit report');
   });
 
   it('tells the platform which tests the report accounts for', async () => {
@@ -226,6 +226,161 @@ describe('plune run import', () => {
       await expect(
         handleRunImport({ ...deps(fetchImpl), file: path.join(dir, 'nope.xml') }),
       ).rejects.toThrow(/Cannot read/);
+    });
+  });
+
+  /**
+   * The verb has to survive a run where nothing landed (#622).
+   *
+   * When the platform is unreachable the line read «Imported 555 result(s) … 0 accepted, 0 already
+   * there, 0 unmatched» — the first half announcing success, the second half three zeros. A reader
+   * stops at the verb and takes the rest for detail, which is how a run that reached nobody gets
+   * read as a run that worked.
+   *
+   * `Read` is true of every outcome, because it describes the FILE, and the file was read.
+   */
+  it('says what it read, not what it landed, when nothing landed', async () => {
+    const { fetchImpl } = platform(() => null);
+    await handleRunImport({ ...deps(fetchImpl), file: write('results.xml', REPORT) });
+
+    expect(lines.some((l) => l.includes('Imported'))).toBe(false);
+    expect(lines.some((l) => l.includes('Read 2 result(s)'))).toBe(true);
+  });
+
+  /**
+   * A queue that fills up mid-import (#627).
+   *
+   * The review queue holds at most 1000 waiting items. A mature suite arriving for the first time
+   * is bigger than that — this repository's own is 2029 — so the offer stops partway, and what the
+   * person is told at that moment decides whether the import ever finishes.
+   *
+   * Offers go out in batches of 500. The count that matters is not the batch that was refused, it
+   * is everything still unoffered after it: the batch AND every batch behind it, which the loop
+   * abandons.
+   */
+  describe('more unmatched tests than the review queue can hold', () => {
+    const REPORT_OF = (n: number): string => {
+      const cases = Array.from(
+        { length: n },
+        (_, i) => `<testcase classname="big" name="case ${i}" time="0.1"/>`,
+      ).join('');
+      return `<testsuites><testsuite name="big" timestamp="2026-09-09T10:00:00.000Z" file="tests/big.spec.ts">${cases}</testsuite></testsuites>`;
+    };
+
+    /** Nothing resolves, and the queue accepts one batch of offers before it is full. */
+    function fullQueue(acceptBatches: number) {
+      const seen: Seen[] = [];
+      let offers = 0;
+      const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
+        const target = String(url).replace('https://api.test', '');
+        const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+        seen.push({ path: target, body });
+
+        if (target === '/v1/runs') return json(201, { run: { id: 'r-9' }, joined: false });
+        if (target === '/v1/test-cases/resolve') {
+          const keys = (body['keys'] ?? []) as { kind?: string; value: string }[];
+          return json(200, { results: keys.map((key) => ({ key, testCaseId: null })) });
+        }
+        if (target === '/v1/review-items/discovered') {
+          offers += 1;
+          if (offers > acceptBatches) {
+            return json(429, {
+              error: 'review queue quota reached — at most 1000 items waiting.',
+            });
+          }
+          const discovered = (body['discovered'] ?? []) as { keys: { value: string }[] }[];
+          return json(200, {
+            results: discovered.map((d) => ({ key: d.keys[0], outcome: 'queued', id: 'ri-1' })),
+          });
+        }
+        if (target.endsWith('/results')) {
+          return json(200, { items: [], counts: { accepted: 0, duplicate: 0, conflict: 0, rejected: 0 } });
+        }
+        return json(200, { run: { id: 'r-9' }, changed: true });
+      }) as unknown as typeof fetch;
+      return { seen, fetchImpl };
+    }
+
+    it('counts everything left unoffered, not the one batch that was refused', async () => {
+      // 1200 unmatched in batches of 500: 500 queued, 500 refused, 200 never attempted.
+      const { fetchImpl } = fullQueue(1);
+      const out = await handleRunImport({
+        ...deps(fetchImpl),
+        file: write('big.xml', REPORT_OF(1200)),
+        create: true,
+      });
+
+      expect(out.offered).toBe(500);
+      // Naming 500 here would be naming the refused batch and forgetting the 200 behind it.
+      expect(out.unoffered).toBe(700);
+    });
+
+    it('says another round is needed, rather than that the queue already has them', async () => {
+      const { fetchImpl } = fullQueue(1);
+      await handleRunImport({
+        ...deps(fetchImpl),
+        file: write('big.xml', REPORT_OF(1200)),
+        create: true,
+      });
+
+      const text = lines.join(' ');
+      // The old line said the unmatched tests were "already in the review queue". 700 of them were
+      // not in it, had never been in it, and would not be until somebody emptied it and ran again.
+      expect(text).not.toContain('already in the review queue');
+      expect(text).toContain('700');
+      expect(text).toMatch(/import .* again|run .* again|again/i);
+    });
+
+    it('shows the suite moving while a long import is under way', async () => {
+      // 1200 results at 100 per batch is twelve silent round trips. A person watching a first
+      // import of a mature suite has no way to tell a slow import from a hung one.
+      const { fetchImpl } = fullQueue(99);
+      await handleRunImport({
+        ...deps(fetchImpl),
+        file: write('big.xml', REPORT_OF(1200)),
+        create: true,
+      });
+
+      expect(lines.some((l) => l.includes('of 1200') && l.includes('sent'))).toBe(true);
+    });
+  });
+
+  /**
+   * A shared run is the whole reason `--key` exists, and it is the one thing import could not do.
+   *
+   * `PLUNE_SHARED_RUN` has been read into `keepOpen` since the reporter needed it, and `env.test.ts`
+   * checks all four ways of setting it. Nothing checked that anything ACTS on it: import called
+   * `finish()` unconditionally, so the first of two jobs closed the run and the second was answered
+   * 409 and wrote its results to a fallback file. Green step, green CI, quarter of a suite missing.
+   *
+   * That is why these assert on the REQUEST rather than on a return value. The loss happened on the
+   * wire, in a call nobody made a claim about.
+   */
+  describe('a run several jobs report into', () => {
+    const finishes = (seen: Seen[]): Seen[] =>
+      seen.filter((s) => s.path.endsWith('/events') && s.body['event'] === 'finish');
+
+    afterEach(() => {
+      delete process.env['PLUNE_SHARED_RUN'];
+      delete process.env['PLUNE_PROCEED'];
+    });
+
+    it.each(['PLUNE_SHARED_RUN', 'PLUNE_PROCEED'])('leaves the run open when %s is set', async (name) => {
+      process.env[name] = '1';
+      const { seen, fetchImpl } = platform();
+      await handleRunImport({ ...deps(fetchImpl), file: write('results.xml', REPORT) });
+
+      expect(finishes(seen)).toEqual([]);
+      // The results still go — leaving the run open is about who closes it, not about withholding.
+      expect(seen.some((s) => s.path === '/v1/runs/r-9/results')).toBe(true);
+      expect(lines.some((l) => l.includes('plune run finish r-9'))).toBe(true);
+    });
+
+    it('closes the run when nothing says another job is coming', async () => {
+      const { seen, fetchImpl } = platform();
+      await handleRunImport({ ...deps(fetchImpl), file: write('results.xml', REPORT) });
+
+      expect(finishes(seen)).toHaveLength(1);
     });
   });
 });
