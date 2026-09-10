@@ -21,7 +21,7 @@ interface Seen {
 
 function platform(
   resolveTo: (key: string) => string | null = () => 'tc-1',
-  discoveryOutcome: 'queued' | 'known' = 'queued',
+  discoveryOutcome: 'queued' | 'known' | 'created' = 'queued',
 ) {
   const seen: Seen[] = [];
   const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
@@ -170,6 +170,29 @@ describe('plune run import', () => {
       expect(out.offered).toBe(0);
       expect(lines.join('\n')).not.toContain('pass --create');
       expect(lines.join('\n')).toContain('already in the review queue');
+    });
+
+    /**
+     * A trusted source (platform ADR 0030) answers the offer instead of queueing it — and the
+     * reporter counted only `queued`, so a run that filled a project with cases printed nothing at
+     * all about them. That is the same shape as every silence that has cost a day here: the work
+     * happened, the accounting did not, and there is nobody to complain to.
+     */
+    it('says what a trusted source created, instead of reporting that nothing happened', async () => {
+      const { fetchImpl } = platform(() => null, 'created');
+      const out = await handleRunImport({
+        ...deps(fetchImpl),
+        file: write('r.xml', REPORT),
+        create: true,
+      });
+
+      expect(out.created).toBe(2);
+      expect(out.offered).toBe(0);
+      expect(lines.join('\n')).toContain('2 unknown test(s) became cases without review');
+      // And NOT the queue advice. These tests never entered a queue, so a line pointing at one
+      // sends the reader to an empty screen to look for work that was already done.
+      expect(lines.join('\n')).not.toContain('already in the review queue');
+      expect(lines.join('\n')).not.toContain('pass --create');
     });
 
     it('says how many the report locates nowhere, instead of dropping them in silence', async () => {

@@ -13,6 +13,18 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ### Added
 
+- **The reporter counts what a trusted source created.** A project can now tell the platform that a
+  runner's discovered tests become cases without waiting in the review queue. When it does, the
+  offer comes back `created` instead of `queued` — and this client counted only `queued`, so a run
+  that filled a project with two thousand cases printed `0 offered for review` and read as a run
+  where nothing happened.
+
+  `plune run import` now says how many became cases and where to change that setting, and it stops
+  pointing at the review queue in that case: those tests never entered one, so the old line sent a
+  reader to an empty screen to look for work that was already done.
+
+  Nothing changes for a project that trusts no source, which is every project by default.
+
 - **`plune run delete <id>`** — undo an import from the surface the import happened on. Deletes the
   run and everything it produced (its results, and the review-queue entries it raised); approved test
   cases and the audit log stay. Recoverable for six months, then gone for good.

@@ -38,6 +38,8 @@ export interface ImportResult {
   rejected: number;
   unresolved: number;
   offered: number;
+  /** Offered tests the platform made cases of outright, because the project trusts this source. */
+  created: number;
   /** Unmatched tests the queue had no room for — the work a second import still has to do. */
   unoffered: number;
   deferred: number;
@@ -114,6 +116,7 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
     rejected: stats.rejected,
     unresolved: stats.unresolved,
     offered: stats.offered,
+    created: stats.created,
     unoffered: stats.unoffered,
     deferred: stats.deferred,
     unlocatable: results.filter((r) => r.specRef === undefined).length,
@@ -152,11 +155,22 @@ function describe(result: ImportResult, apiUrl: string): string[] {
       `${result.deferred} could not be sent and are in the fallback file — "plune run report" retries them.`,
     );
   }
+  // Before the queue lines, and on its own: a trusted source answers the offer instead of queueing
+  // it, so a run where everything was created would otherwise fall through to «nothing new to
+  // offer — they are already in the review queue», which names a queue these tests never entered.
+  if (result.created > 0) {
+    lines.push(
+      `${result.created} unknown test(s) became cases without review — this project trusts the ` +
+        `source. Change that under Settings → Trusted sources.`,
+    );
+  }
   if (result.offered > 0) {
     lines.push(`${result.offered} unknown test(s) offered to the review queue.`);
-  } else if (result.unresolved > 0 && !result.offering) {
+    // Both queue lines below carry `created === 0`: with a trusted source the unmatched tests were
+    // dealt with, and advice about a queue they never entered sends a reader to an empty screen.
+  } else if (result.unresolved > 0 && result.created === 0 && !result.offering) {
     lines.push('Nothing was offered to the review queue — pass --create to propose the unmatched tests.');
-  } else if (result.unresolved > 0 && result.unoffered === 0) {
+  } else if (result.unresolved > 0 && result.created === 0 && result.unoffered === 0) {
     // Offering WAS asked for and nothing was queued, which means these tests are already in the
     // queue or were refused there. Telling someone to pass the flag they just passed reads as the
     // command not having heard them.
