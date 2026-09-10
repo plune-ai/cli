@@ -128,6 +128,7 @@ export async function startRun(
     rejected: 0,
     unresolved: 0,
     offered: 0,
+    created: 0,
     unoffered: 0,
     deferred: 0,
   };
@@ -318,6 +319,11 @@ export async function startRun(
       // saying "already handled" — reporting them as offers would make a repeat run look like new
       // work every time, which is how a queue stops being read.
       stats.offered += out.body.results.filter((r) => r.outcome === 'queued').length;
+      // `created` is the opposite of work to do, and it is counted for exactly that reason: the
+      // project trusts this source, so the case exists already. Left out, a run that filled a
+      // project with two thousand cases would print "0 offered for review" and read as a run where
+      // nothing happened.
+      stats.created += out.body.results.filter((r) => r.outcome === 'created').length;
     }
   }
 
@@ -407,6 +413,7 @@ export async function startRun(
     if (stats.rejected > 0) parts.push(`${stats.rejected} rejected`);
     if (stats.unresolved > 0) parts.push(`${stats.unresolved} with no matching test case`);
     if (stats.offered > 0) parts.push(`${stats.offered} offered for review`);
+    if (stats.created > 0) parts.push(`${stats.created} added as cases (trusted source)`);
     if (stats.deferred > 0) parts.push(`${stats.deferred} written to ${fallbackPath}`);
     log(`plune: ${parts.join(' · ')}`);
   }

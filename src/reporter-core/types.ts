@@ -148,11 +148,17 @@ export interface DiscoveredTest {
 /**
  * What became of ONE offered test. Read per test, not off the status line: most of a repeated batch
  * is already known or already refused, and only `queued` is new work for a reviewer.
+ *
+ * `created` is the fifth, and the one a client must not treat as noise: the project trusts this
+ * source (platform ADR 0030), so the case was made without asking. Counting only `queued` would
+ * report "0 offered for review" over two thousand new cases — the offer was answered, not ignored.
  */
 export interface DiscoveryOutcome {
   key: KeyRef;
-  outcome: 'queued' | 'duplicate' | 'refused' | 'known';
+  outcome: 'queued' | 'duplicate' | 'refused' | 'known' | 'created';
   id?: string;
+  /** The case a trusted source's discovery became. Only on `created`. */
+  testCaseId?: string;
 }
 
 /** One entry of the "what this run intended to execute" list, from which the platform derives
@@ -186,6 +192,16 @@ export interface RunStats extends SubmitCounts {
   /** Unresolved tests offered to the review queue under `PLUNE_CREATE=1` (D14). Counted separately
    * from `unresolved` because they are the same tests seen twice, not a second population. */
   offered: number;
+  /**
+   * Offered tests the platform turned into cases outright, because the project trusts this source
+   * (platform ADR 0030).
+   *
+   * Its own number rather than part of `offered`: these are the opposite of work to do. `offered`
+   * means "somebody has to look at this"; `created` means "nobody has to, and here is what appeared
+   * in your project". Folding them together would hide the larger of the two facts under a word
+   * that asks for attention nobody owes.
+   */
+  created: number;
   /**
    * Unmatched tests that were NOT offered, because the queue would not take them (#627).
    *
