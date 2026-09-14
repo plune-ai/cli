@@ -11,6 +11,11 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-09-14
+
+Also `@plune-ai/playwright` **0.2.2** - the same core, rebuilt. The adapter embeds `reporter-core`
+rather than depending on it, so the fix below reaches Playwright projects only through its own release.
+
 ### Added
 
 - **The reporter counts what a trusted source created.** A project can now tell the platform that a
@@ -404,7 +409,8 @@ First public release. Released from commit `ba43100`; no `v0.2.0` tag exists.
   `json-schema`, `llm-judge`, `semantic-similarity`, `faithfulness`, `answer-relevance`,
   `context-precision`.
 
-[Unreleased]: https://github.com/plune-ai/cli/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/plune-ai/cli/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/plune-ai/cli/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/plune-ai/cli/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/plune-ai/cli/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/plune-ai/cli/compare/v0.7.0...v0.8.0
