@@ -39,6 +39,20 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
   Needs a platform that serves `DELETE /v1/runs/{id}` — beta since 09.09.2026.
 
+### Fixed
+
+- **One over-long test name no longer loses the whole run.** A test name is a key to the platform,
+  and the platform accepts a key of at most 1024 characters. A runner will happily print a
+  16 384-character parameter into a title, and until now the reporter sent it as it was: the platform
+  refused the run before it started, every result went to the fallback file — and in CI that file is
+  deleted with the job. Four such titles cost a project every run for two days, with a green build.
+
+  A name longer than a key is now shortened before it becomes one — the head of the name plus a
+  digest of the whole, so two long names still get two keys and the same name gets the same key on
+  every run. A queue entry's title is cut to what the platform shows. The reporter says so once,
+  naming the first such test, and counts them in the summary: give the test a shorter name; until
+  then, this is its identity.
+
 ## [0.9.1] - 2026-09-09
 
 ### Fixed
