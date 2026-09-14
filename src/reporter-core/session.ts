@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { resolveApiUrl } from '../cli/api-url.js';
 import { loadToken } from '../cli/credentials.js';
 import { createClient, type PlatformClient } from './client.js';
@@ -24,6 +25,34 @@ const DISCOVER_MAX = 500;
 const BATCH_DEFAULT = 100;
 /** What `configuration.expected` may hold before the contract refuses the whole start. */
 const EXPECTED_MAX = 10_000;
+/** The platform's ceiling on one external key's value, and on the title of a queue entry. */
+const KEY_MAX = 1024;
+const TITLE_MAX = 300;
+
+/**
+ * A foreign test name is not a key until it fits one.
+ *
+ * Names come from files this CLI did not write — a JUnit `classname#name`, a runner's title path —
+ * and a runner will happily print a 16 384-character parameter into a title. C4 AC-12 leaves lengths
+ * to the platform for the run's DESCRIPTION, where a refusal costs the description and nothing
+ * else. A key is identity: refused, it takes the whole start with it, and in CI the fallback file
+ * that "costs no results" is deleted with the job (1 861 results a run, every run, 12–14.09).
+ *
+ * So the key is bounded here, once, for every adapter: the head of the name plus a digest of the
+ * whole — two long names still get two keys, and the same name gets the same key on every run.
+ */
+function boundKey(key: KeyRef): KeyRef {
+  if (key.value.length <= KEY_MAX) return key;
+  const digest = createHash('sha256').update(key.value).digest('hex').slice(0, 16);
+  let head = key.value.slice(0, KEY_MAX - digest.length - 1);
+  if (/[\uD800-\uDBFF]$/.test(head)) head = head.slice(0, -1); // never half a surrogate pair
+  return { ...key, value: `${head}#${digest}` };
+}
+
+/** A title is a label, not an identity — the head is enough for a reviewer to judge the entry. */
+function boundTitle(title: string): string {
+  return title.length <= TITLE_MAX ? title : `${title.slice(0, TITLE_MAX - 1)}…`;
+}
 
 /**
  * A run in progress.
@@ -99,7 +128,7 @@ function warnIfDropped(
 
 export async function startRun(
   passed: ReporterConfig,
-  expected?: readonly (readonly KeyRef[])[],
+  declared?: readonly (readonly KeyRef[])[],
 ): Promise<RunSession> {
   // A committed config cannot know the run key of a job that does not exist yet, so the environment
   // fills what the caller left open. Explicitly PASSED wins — but an explicit `undefined` does not:
@@ -149,6 +178,25 @@ export async function startRun(
   /** Set once the platform has told us it will not accept anything more from this process. */
   let offline = token === '';
   let done = false;
+  /** Names shortened to fit a key or a title, by original value — said once, counted once. */
+  const shortened = new Set<string>();
+
+  function bound(keys: readonly KeyRef[]): KeyRef[] {
+    return keys.map((key) => {
+      const fit = boundKey(key);
+      if (fit !== key && !shortened.has(key.value)) {
+        shortened.add(key.value);
+        if (shortened.size === 1) {
+          log(
+            `plune: a test name longer than ${KEY_MAX} characters was shortened to fit its key — ` +
+              `"${key.value.slice(0, 80)}…". Give the test a shorter name; until then this is its identity.`,
+          );
+        }
+      }
+      return fit;
+    });
+  }
+  const expected = declared?.map(bound);
 
   if (offline) {
     log('plune: no API token — run "plune login" first. Results will be written to the fallback file.');
@@ -197,12 +245,12 @@ export async function startRun(
   if (!offline) {
     if (expected !== undefined) await resolveKeys(expected.flat());
 
-    const declared = expected?.slice(0, EXPECTED_MAX) ?? [];
+    const stated = expected?.slice(0, EXPECTED_MAX) ?? [];
     const configuration =
-      declared.length === 0
+      stated.length === 0
         ? undefined
         : {
-            expected: declared.flatMap<ExpectedEntry>((keys) => {
+            expected: stated.flatMap<ExpectedEntry>((keys) => {
               const hit = keys.map((k) => resolved.get(k.value)).find((v) => typeof v === 'string');
               if (typeof hit === 'string') return [{ testCaseId: hit }];
               // Unresolved: say what we know rather than dropping the entry. The platform cannot
@@ -279,9 +327,11 @@ export async function startRun(
     if (!offerDiscovered) return;
     if (result.title === undefined || result.specRef === undefined) return;
     if (result.keys.length === 0) return;
+    const title = boundTitle(result.title);
+    if (title !== result.title) shortened.add(result.title);
     discoveries.set(result.keys[0]!.value, {
       keys: result.keys,
-      title: result.title,
+      title,
       source: result.source,
       specRef: result.specRef,
       rawStatus: result.rawStatus,
@@ -415,6 +465,7 @@ export async function startRun(
     if (stats.offered > 0) parts.push(`${stats.offered} offered for review`);
     if (stats.created > 0) parts.push(`${stats.created} added as cases (trusted source)`);
     if (stats.deferred > 0) parts.push(`${stats.deferred} written to ${fallbackPath}`);
+    if (shortened.size > 0) parts.push(`${shortened.size} test name(s) shortened to fit a key`);
     log(`plune: ${parts.join(' · ')}`);
   }
 
@@ -429,7 +480,7 @@ export async function startRun(
       return stats;
     },
     async add(result) {
-      buffer.push(result);
+      buffer.push({ ...result, keys: bound(result.keys) });
       if (buffer.length >= batchSize) await flush();
     },
     flush,

@@ -719,3 +719,64 @@ describe('offering tests the platform has no case for (D14)', () => {
     expect(seen.discovered).toHaveLength(1);
   });
 });
+
+describe('a test name longer than a key (AC-13)', () => {
+  // Found on beta 14.09, not in a unit test: four vitest titles carried a 16 384-character
+  // parameter into `classname#name`, the platform refused the whole start
+  // (`configuration.expected.349.externalKey.value: Too big`), and every CI run of the platform
+  // since 12.09 wrote 1 861 results to a fallback file the runner deleted with the job.
+  const LONG = `tests/a.spec.ts#${'x'.repeat(2000)}`;
+  const long = (value = LONG): KeyRef => ({ kind: 'path-title', value });
+  const expectedOf = (seen: Seen) =>
+    (seen.starts[0]?.body['configuration'] as { expected: { externalKey?: KeyRef }[] }).expected;
+  const lengths = (seen: Seen): number[] => [
+    ...seen.resolves.flatMap((r) => r.keys.map((k) => k.value.length)),
+    ...expectedOf(seen).map((e) => e.externalKey?.value.length ?? 0),
+    ...seen.discovered.flatMap((d) =>
+      (d.body['discovered'] as { keys: KeyRef[] }[]).flatMap((t) => t.keys.map((k) => k.value.length)),
+    ),
+  ];
+
+  it('is shortened before it reaches the platform — the lookup, the start and the offer alike', async () => {
+    const { seen, fetchImpl } = platform();
+    const run = await startRun(config(fetchImpl, { offerDiscovered: true }), [[long()]]);
+    await run.add(result('t', { keys: [long()], title: LONG, specRef: 'tests/a.spec.ts' }));
+    await run.finish();
+
+    const sent = lengths(seen);
+    expect(sent).toHaveLength(3);
+    expect(sent.every((n) => n > 0 && n <= 1024)).toBe(true);
+    const offered = seen.discovered[0]?.body['discovered'] as { title: string }[];
+    expect(offered[0]?.title.length).toBeLessThanOrEqual(300);
+  });
+
+  it('gives the same name the same key on every run, and two names two keys', async () => {
+    const first = platform();
+    await startRun(config(first.fetchImpl), [[long()]]);
+    const second = platform();
+    await startRun(config(second.fetchImpl), [[long()], [long(`${LONG}y`)]]);
+
+    expect(expectedOf(second.seen)[0]?.externalKey?.value).toBe(expectedOf(first.seen)[0]?.externalKey?.value);
+    expect(expectedOf(second.seen)[1]?.externalKey?.value).not.toBe(expectedOf(second.seen)[0]?.externalKey?.value);
+  });
+
+  it('leaves a name that fits alone', async () => {
+    const exact = `tests/a.spec.ts#${'x'.repeat(1024 - 'tests/a.spec.ts#'.length)}`;
+    const { seen, fetchImpl } = platform();
+    await startRun(config(fetchImpl), [[long(exact)]]);
+
+    expect(seen.resolves[0]?.keys[0]?.value).toBe(exact);
+  });
+
+  it('says so, naming the test, and counts it once in the summary', async () => {
+    const { fetchImpl } = platform();
+    const cfg = config(fetchImpl);
+    const run = await startRun(cfg, [[long()]]);
+    await run.add(result('t', { keys: [long()] }));
+    await run.finish();
+
+    const said = logOf(cfg).filter((l) => l.includes('shortened'));
+    expect(said[0]).toContain('tests/a.spec.ts#xxxx');
+    expect(said.at(-1)).toContain('1 test name(s) shortened');
+  });
+});
