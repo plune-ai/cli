@@ -11,6 +11,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-09-15
+
 Also `@plune-ai/playwright` **0.2.4** - the reporter fixes below live in the adapter.
 
 ### Fixed
@@ -447,7 +449,8 @@ First public release. Released from commit `ba43100`; no `v0.2.0` tag exists.
   `json-schema`, `llm-judge`, `semantic-similarity`, `faithfulness`, `answer-relevance`,
   `context-precision`.
 
-[Unreleased]: https://github.com/plune-ai/cli/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/plune-ai/cli/compare/v0.11.1...HEAD
+[0.11.1]: https://github.com/plune-ai/cli/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/plune-ai/cli/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/plune-ai/cli/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/plune-ai/cli/compare/v0.9.0...v0.9.1
