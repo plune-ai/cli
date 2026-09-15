@@ -43,10 +43,18 @@ export interface PluneReporterOptions {
   fallbackPath?: string;
 }
 
-/** The file suite's title is the path relative to `rootDir` — walk up to it rather than guessing. */
+/**
+ * The file suite's title is the path relative to `rootDir` — walk up to it rather than guessing.
+ *
+ * Forward slashes on every OS. Playwright titles the file suite with `path.relative`, which uses
+ * backslashes on Windows, while its JSON report writes the same path posix-style — so the
+ * `path-title` key this reporter wrote on a Windows machine never equalled the one
+ * `plune run import` derived from the report of the same run, and the two met only through
+ * `playwright-id`. One spelling, the one a person would type.
+ */
 function fileOf(test: TestCase): string {
   for (let suite: Suite | undefined = test.parent; suite !== undefined; suite = suite.parent) {
-    if (suite.type === 'file') return suite.title;
+    if (suite.type === 'file') return suite.title.replace(/\\/g, '/');
   }
   return '';
 }

@@ -104,6 +104,20 @@ describe('what the adapter tells the core about a test', () => {
     ]);
   });
 
+  it('spells the file with forward slashes whatever the OS titled it with', async () => {
+    // Playwright titles the file suite with `path.relative` — backslashes on Windows — and writes
+    // the JSON report posix-style; a key that differed by the OS met its import only by id.
+    const windowsFile = { type: 'file', title: 'tests\\cart.spec.ts', parent: undefined };
+    const test = fakeTest({ parent: { type: 'describe', title: 'cart', parent: windowsFile } });
+    await run(new PluneReporter(), [test], [fakeResult()]);
+
+    expect(added[0]?.keys).toContainEqual({
+      kind: 'path-title',
+      value: 'tests/cart.spec.ts#cart#rejects a negative quantity',
+    });
+    expect(added[0]?.specRef).toBe('tests/cart.spec.ts:12');
+  });
+
   it('builds the path from the suite tree, not from a guess at the title path', async () => {
     const nested = {
       type: 'describe',
