@@ -242,6 +242,16 @@ export interface ReporterConfig {
    * how somebody says "yes, tell me what we are running that you do not know about".
    */
   offerDiscovered?: boolean;
+  /**
+   * This run is the whole suite (`PLUNE_FULL_RUN=1`, D20).
+   *
+   * Sent as `configuration.full` beside `expected`. When such a run finishes having reported
+   * everything it expected, the platform moves the cases this source used to report and did not
+   * this time to `detached` — a test that vanished from the code stops looking alive. Off by
+   * default because nothing here can tell a suite that shrank from `-g smoke` or a single file:
+   * only whoever typed the command knows, so the CI job that runs everything is the one to set it.
+   */
+  full?: boolean;
   /** Transport seam — the same one `sync.ts` uses so tests need no server. */
   fetchImpl?: typeof fetch;
   /** Where a line for the operator goes. Defaults to stderr. */

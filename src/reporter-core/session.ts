@@ -257,6 +257,10 @@ export async function startRun(
               // count it, but the run still declares how many tests it meant to run.
               return keys[0] === undefined ? [] : [{ externalKey: keys[0] }];
             }),
+            // The claim travels with the list it is about (D20). A runner that could not enumerate
+            // its tests has no list, and a claim without one is nothing the platform can check —
+            // so it is not sent, rather than sent and silently meaningless.
+            ...(cfg.full === true ? { full: true } : {}),
           };
     if (expected !== undefined && expected.length > EXPECTED_MAX) {
       log(`plune: ${expected.length} tests is more than the run configuration holds — reporting the first ${EXPECTED_MAX}.`);
@@ -496,12 +500,17 @@ export async function startRun(
       // still the right answer to "where did this come from".
       await offer();
       if (runId !== null && !offline) {
-        const out = await client.post(`/v1/runs/${runId}/events`, {
+        const out = await client.post<{ detached?: number }>(`/v1/runs/${runId}/events`, {
           event: 'finish',
           ...(reason !== undefined ? { reason } : {}),
         });
         // A refusal here leaves the run open, which is a truthful state — see `leaveOpen`.
         if (!out.ok) log(`plune: could not close run ${runId} (${out.detail || out.kind}).`);
+        // The one thing a full run does outside itself (D20). Said when it happened and only then:
+        // a `0 detached` on every ordinary run would teach people to stop reading the line.
+        else if (typeof out.body.detached === 'number' && out.body.detached > 0) {
+          log(`plune: ${out.body.detached} test case(s) marked detached — this full run no longer reports them.`);
+        }
       }
       summarise();
     },

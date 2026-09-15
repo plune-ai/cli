@@ -158,6 +158,23 @@ job closes the run instead of the explicit `finish`.
 `plune run exec` sets it for you — anything reporting inside it, this command included, joins
 without closing.
 
+### When a test is deleted
+
+A test that vanishes from the code stays in Plune as an active case until something says otherwise.
+The run that covers the whole suite is what says it:
+
+```bash
+PLUNE_FULL_RUN=1 plune run import ./junit.xml      # or the same variable on the Playwright reporter's job
+```
+
+When that run finishes having reported everything it expected, every case its source used to
+report and did not this time is marked **detached** — not deleted, not retired: it keeps its history
+and its place, and the dashboard shows it with the run as the reason. The next result on it brings
+it back by itself. Set the variable only on the job that runs everything: a run of one file or a
+`--grep` also reports everything it expected, and with the flag it would detach the rest. A run that
+lost a shard (`notRun` is not empty) never detaches anything. `plune run start` has no list of
+tests to compare against, so the flag means nothing there.
+
 ### What the run is called
 
 A run nobody named is called after the directory, the minute it started and where it ran —

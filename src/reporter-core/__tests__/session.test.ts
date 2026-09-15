@@ -39,6 +39,8 @@ interface PlatformOptions {
   discoverFailure?: { status: number; error: string };
   /** What the platform answers per offered test. Defaults to `queued` for each. */
   discoverOutcomes?: string[];
+  /** How many cases the platform says a `finish` detached (D20). Absent models a platform older than that. */
+  detached?: number;
 }
 
 function platform(opts: PlatformOptions = {}) {
@@ -101,7 +103,11 @@ function platform(opts: PlatformOptions = {}) {
     const events = /\/v1\/runs\/([^/]+)\/events$/.exec(target);
     if (events) {
       seen.events.push({ runId: events[1] as string, body });
-      return json({ run: { id: events[1] }, changed: true });
+      return json({
+        run: { id: events[1] },
+        changed: true,
+        ...(opts.detached !== undefined ? { detached: opts.detached } : {}),
+      });
     }
     return json({ error: `unexpected ${target}` }, 500);
   }) as unknown as typeof fetch;
@@ -218,6 +224,45 @@ describe('startRun — what the run intended to run (AC-09)', () => {
     await startRun(config(fetchImpl));
 
     expect(seen.starts[0]?.body['configuration']).toBeUndefined();
+  });
+});
+
+describe('a full run says so beside what it expects (D20)', () => {
+  const declared = [[{ kind: 'playwright-id' as const, value: 'a' }]];
+
+  it('sends `configuration.full` when the config claims it, and not otherwise', async () => {
+    const claimed = platform({ known: { a: 'tc-a' } });
+    await startRun(config(claimed.fetchImpl, { full: true }), declared);
+    expect(claimed.seen.starts[0]?.body['configuration']).toMatchObject({ full: true });
+
+    const plain = platform({ known: { a: 'tc-a' } });
+    await startRun(config(plain.fetchImpl), declared);
+    expect(plain.seen.starts[0]?.body['configuration']).not.toHaveProperty('full');
+  });
+
+  it('drops the claim when there is no list for it to be about', async () => {
+    // A claim the platform cannot check against `expected` would be accepted and mean nothing —
+    // not sending it is the honest shape, and the README says which commands the flag reaches.
+    const { seen, fetchImpl } = platform();
+    await startRun(config(fetchImpl, { full: true }));
+
+    expect(seen.starts[0]?.body['configuration']).toBeUndefined();
+  });
+
+  it('tells the operator how many cases the finish detached, and stays quiet at zero', async () => {
+    const some = platform({ known: { a: 'tc-a' }, detached: 3 });
+    const loud = config(some.fetchImpl, { full: true });
+    const session = await startRun(loud, declared);
+    await session.add(result('a'));
+    await session.finish();
+    expect(logOf(loud)).toContain('plune: 3 test case(s) marked detached — this full run no longer reports them.');
+
+    const none = platform({ known: { a: 'tc-a' }, detached: 0 });
+    const quiet = config(none.fetchImpl, { full: true });
+    const other = await startRun(quiet, declared);
+    await other.add(result('a'));
+    await other.finish();
+    expect(logOf(quiet).some((line) => line.includes('detached'))).toBe(false);
   });
 });
 
