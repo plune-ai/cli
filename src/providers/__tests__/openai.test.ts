@@ -41,6 +41,21 @@ describe('OpenAIProvider (ADR-PRV01)', () => {
     expect(res.usage).toEqual({ input_tokens: 9, output_tokens: 4 });
   });
 
+  it('sends a temperature only when asked for one', async () => {
+    mockCreate.mockResolvedValue({
+      choices: [{ message: { content: 'x' } }],
+      usage: { prompt_tokens: 1, completion_tokens: 1 },
+    });
+    const provider = makeOpenAiProvider(config, { OPENAI_API_KEY: 'sk-test' });
+
+    const { temperature: _dropped, ...withoutTemperature } = req;
+    await provider.complete(withoutTemperature);
+    expect(mockCreate.mock.calls[0]?.[0]).not.toHaveProperty('temperature');
+
+    await provider.complete(req);
+    expect(mockCreate.mock.calls[1]?.[0]).toMatchObject({ temperature: 0 });
+  });
+
   it('does NOT request usage cost and leaves cost_usd undefined (direct OpenAI, ADR-PRC02)', async () => {
     mockCreate.mockResolvedValue({
       choices: [{ message: { content: 'x' } }],

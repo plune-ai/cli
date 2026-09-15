@@ -11,6 +11,15 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Fixed
+
+- **Evals on a current Claude model no longer fail with a 400 before the first row.** `plune run`
+  sent `temperature: 0` on every request unless the config said otherwise, and the judge sent it
+  always; models released after Claude Opus 4.6 refuse the parameter (only `1.0` is still
+  accepted). The parameter now goes only when the config sets it — for the rows and for the judge
+  alike — so a config without one works on any model, and a config with one keeps what it asked
+  for. Cache keys are unchanged: a cache written before this still answers.
+
 ## [0.11.0] - 2026-09-15
 
 Also `@plune-ai/playwright` **0.2.3** - the same core, rebuilt. The adapter embeds `reporter-core`
