@@ -11,6 +11,14 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Changed
+
+- **A run nobody named is called after when and where it ran.** `<directory> · 2026-09-15 15:26 · ci`
+  instead of no title at all — the reporter, `plune run import` and `plune run start` alike. A row
+  in the list now says whose, when and from where without being opened; `PLUNE_RUN_TITLE` replaces
+  the whole name as before. `plune run start` also honours `PLUNE_RUN_TITLE` now — it sent no title
+  under any circumstances.
+
 ## [0.10.0] - 2026-09-14
 
 Also `@plune-ai/playwright` **0.2.2** - the same core, rebuilt. The adapter embeds `reporter-core`

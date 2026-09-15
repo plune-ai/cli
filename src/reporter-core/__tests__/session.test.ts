@@ -524,11 +524,16 @@ describe('what the run is called, where it ran, how it is marked (D13)', () => {
     expect(seen.starts[0]?.body).toMatchObject(described);
   });
 
-  it('sends nothing it was not given', async () => {
+  it('names the run itself when nobody did, and describes nothing else', async () => {
+    // `<dir> · 2026-09-15 15:26 · local` — the list has to read without opening a row. Environment
+    // and labels have no honest default, so they stay absent rather than invented.
     const { seen, fetchImpl } = platform();
     await startRun(config(fetchImpl));
 
-    expect(Object.keys(seen.starts[0]?.body ?? {})).not.toContain('title');
+    const body = seen.starts[0]?.body ?? {};
+    expect(body['title']).toMatch(/^\S.* · \d{4}-\d{2}-\d{2} \d{2}:\d{2} · (ci|local)$/);
+    expect(Object.keys(body)).not.toContain('environment');
+    expect(Object.keys(body)).not.toContain('labels');
   });
 
   /**
