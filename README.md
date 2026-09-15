@@ -158,6 +158,14 @@ job closes the run instead of the explicit `finish`.
 `plune run exec` sets it for you — anything reporting inside it, this command included, joins
 without closing.
 
+### What the run is called
+
+A run nobody named is called after the directory, the minute it started and where it ran —
+`plune · 2026-09-15 15:26 · ci` — so a row in the list reads without being opened. The clock is the
+reporting machine's own; `ci` comes from the `CI` variable every hosted runner sets. To call it
+something else, set `PLUNE_RUN_TITLE`; `PLUNE_ENV` and `PLUNE_LABELS` mark where it ran and how, and
+those stay marks rather than becoming part of the name.
+
 ## Optional: keep a history
 
 Everything above works with no account, no network, and no token — that does not change. `run`,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readEnv, UNSUPPORTED_VARS } from '../env.js';
+import { defaultRunTitle, readEnv, UNSUPPORTED_VARS } from '../env.js';
 
 const env = (vars: Record<string, string>): NodeJS.ProcessEnv => vars;
 
@@ -119,5 +119,28 @@ describe('PLUNE_CREATE — offering tests the platform has no case for (D14)', (
     // The difference matters: `false` here would outrank a committed config that asked for it, and
     // an unset variable is not an instruction.
     expect('offerDiscovered' in readEnv(env({})).config).toBe(false);
+  });
+});
+
+describe('what a run is called when nobody named it', () => {
+  // A row in the list has to say whose, when and from where without being opened. The job id and
+  // the epoch the old names ended in said none of that — and two runs of one day were told apart
+  // by nothing. The clock is the reporting machine's own, to the minute.
+  const at = new Date(2026, 8, 15, 15, 26, 41);
+
+  it('is the directory, the local minute and where it ran', () => {
+    expect(defaultRunTitle(env({}), at, '/home/me/plune')).toBe('plune · 2026-09-15 15:26 · local');
+    expect(defaultRunTitle(env({ CI: 'true' }), at, '/home/runner/work/plune/plune')).toBe(
+      'plune · 2026-09-15 15:26 · ci',
+    );
+  });
+
+  it('pads the clock, so January the 5th at nine sorts beside December the 15th at ten', () => {
+    expect(defaultRunTitle(env({}), new Date(2026, 0, 5, 9, 7), '/x/cli')).toBe('cli · 2026-01-05 09:07 · local');
+  });
+
+  it('reads CI by value — a matrix cell that sets it to 0 is not a runner', () => {
+    expect(defaultRunTitle(env({ CI: '0' }), at, '/x/cli')).toMatch(/· local$/);
+    expect(defaultRunTitle(env({ GITHUB_ACTIONS: 'true' }), at, '/x/cli')).toMatch(/· ci$/);
   });
 });

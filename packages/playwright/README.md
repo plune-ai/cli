@@ -52,7 +52,7 @@ fills in what you left out. Anything set in the config file wins.
 | `PLUNE_PROCEED` | the job closes the run itself, later |
 | `PLUNE_BATCH_SIZE` | results per request (default 100, max 500) |
 | `PLUNE_FALLBACK` | where unsent batches are written |
-| `PLUNE_RUN_TITLE` | what to call the run in the list |
+| `PLUNE_RUN_TITLE` | what to call the run in the list (default: `<directory> · 2026-09-15 15:26 · ci`) |
 | `PLUNE_ENV` | where it ran — `staging`, `prod`, a preview name |
 | `PLUNE_LABELS` | comma-separated marks: `smoke,nightly` |
 | `PLUNE_CREATE` | offer tests Plune has no case for to the review queue |

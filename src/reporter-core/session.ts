@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { resolveApiUrl } from '../cli/api-url.js';
 import { loadToken } from '../cli/credentials.js';
 import { createClient, type PlatformClient } from './client.js';
-import { readEnv } from './env.js';
+import { defaultRunTitle, readEnv } from './env.js';
 import { appendBatch, DEFAULT_FALLBACK_PATH, type DeferredResult } from './fallback.js';
 import type {
   DiscoveredTest,
@@ -277,6 +277,10 @@ export async function startRun(
       ...(externalKey !== null ? { externalKey } : {}),
       ...(cfg.meta !== undefined ? { meta: cfg.meta } : {}),
       ...(configuration !== undefined ? { configuration } : {}),
+      // Named even when nobody named it — the list has to read without opening a row. Only what
+      // the caller DESCRIBED goes to `warnIfDropped` below: a title this side invented is not one
+      // a person will miss, and a deployment older than the field must not be nagged on every run.
+      title: defaultRunTitle(),
       ...described,
     });
 

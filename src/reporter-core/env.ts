@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import type { ReporterConfig } from './types.js';
 
 /**
@@ -99,4 +100,30 @@ export function readEnv(env: NodeJS.ProcessEnv = process.env): EnvSettings {
     keepOpen: flag(env, 'PLUNE_SHARED_RUN') || flag(env, 'PLUNE_PROCEED'),
     ignored: UNSUPPORTED_VARS.filter((name) => value(env, name) !== undefined),
   };
+}
+
+/**
+ * What a run is called when nobody named it: `plune · 2026-09-15 15:26 · ci`.
+ *
+ * The three things a row in the list has to say without being opened — whose, when, from where. The
+ * job id and the epoch the names used to end in are identifiers for machines: `plune — 34968238614`
+ * tells a person nothing about when it ran, and two runs of one day were told apart by nothing. The
+ * id keeps living in the external key and the meta, where it is looked up, not read.
+ *
+ * The clock is the reporting machine's own, to the minute — the one the person who started the run
+ * is looking at. The prefix is the directory, which is what they call the project at the prompt;
+ * `PLUNE_RUN_TITLE` (or `title` in the config) replaces the whole thing. `ci` / `local` comes from
+ * `CI`, which every hosted runner sets, and `GITHUB_ACTIONS` for the one that matters here.
+ */
+export function defaultRunTitle(
+  env: NodeJS.ProcessEnv = process.env,
+  now: Date = new Date(),
+  cwd: string = process.cwd(),
+): string {
+  const two = (n: number) => String(n).padStart(2, '0');
+  const stamp =
+    `${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())} ` +
+    `${two(now.getHours())}:${two(now.getMinutes())}`;
+  const where = flag(env, 'CI') || flag(env, 'GITHUB_ACTIONS') ? 'ci' : 'local';
+  return `${path.basename(cwd)} · ${stamp} · ${where}`;
 }

@@ -14,7 +14,7 @@ import * as fs from 'node:fs';
 import { resolveApiUrl, dashboardUrl } from '../api-url.js';
 import { loadToken } from '../credentials.js';
 import { createClient } from '../../reporter-core/client.js';
-import { readEnv } from '../../reporter-core/env.js';
+import { defaultRunTitle, readEnv } from '../../reporter-core/env.js';
 import { DEFAULT_FALLBACK_PATH } from '../../reporter-core/fallback.js';
 import { startRun } from '../../reporter-core/session.js';
 import type { PendingResult, ResultSubmission } from '../../reporter-core/types.js';
@@ -99,6 +99,8 @@ export async function handleRunStart(options: StartOptions = {}): Promise<StartR
     schemaVersion: 2,
     kind: options.kind ?? 'automated',
     externalKey,
+    // The same name the reporter would give it; `PLUNE_RUN_TITLE` replaces it, as everywhere.
+    title: env.config.title ?? defaultRunTitle(),
   });
   if (!out.ok) throw new RunCommandError(`Could not start the run — ${out.detail || out.kind}.`);
 
