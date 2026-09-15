@@ -3,7 +3,12 @@ import type { ProviderConfig } from './config.js';
 export interface CompletionRequest {
   provider: string;
   model: string;
-  temperature: number;
+  /**
+   * Only when the config asked for one. Models released after Claude Opus 4.6 do not take a
+   * temperature at all — any value but 1.0 is a 400 — so a default here would be a default that
+   * breaks every eval on a current model. Absent means "the model's own".
+   */
+  temperature?: number;
   max_tokens: number;
   prompt_resolved: string;
 }
