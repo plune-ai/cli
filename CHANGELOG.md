@@ -11,6 +11,15 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **`PLUNE_FULL_RUN=1` — a run that is the whole suite says so, and the platform detaches what it
+  stopped reporting.** The reporter and `plune run import` send it as `configuration.full` beside the
+  list of expected tests; when the run finishes with every expected test reported, the platform moves
+  the active cases this source used to report and did not this time to `detached` and the finish line
+  says how many. Off by default: only whoever typed the command knows a run was not `-g smoke` or one
+  file. `plune run start` sends no list to compare against, so the flag has no effect there.
+
 ## [0.11.1] - 2026-09-15
 
 Also `@plune-ai/playwright` **0.2.4** - the reporter fixes below live in the adapter.

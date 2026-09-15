@@ -122,6 +122,16 @@ describe('PLUNE_CREATE — offering tests the platform has no case for (D14)', (
   });
 });
 
+describe('PLUNE_FULL_RUN — the claim that this run is the whole suite (D20)', () => {
+  it('is read by value, and says nothing when unset', () => {
+    expect(readEnv(env({ PLUNE_FULL_RUN: '1' })).config.full).toBe(true);
+    expect(readEnv(env({ PLUNE_FULL_RUN: 'true' })).config.full).toBe(true);
+    // `0` in a matrix cell means off — and off is absent, so a committed `full: true` still wins.
+    expect('full' in readEnv(env({ PLUNE_FULL_RUN: '0' })).config).toBe(false);
+    expect('full' in readEnv(env({})).config).toBe(false);
+  });
+});
+
 describe('what a run is called when nobody named it', () => {
   // A row in the list has to say whose, when and from where without being opened. The job id and
   // the epoch the old names ended in said none of that — and two runs of one day were told apart

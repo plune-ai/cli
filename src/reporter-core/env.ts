@@ -79,6 +79,9 @@ export function readEnv(env: NodeJS.ProcessEnv = process.env): EnvSettings {
   // Rung 6 of the C2 ladder, unblocked by D14. Read as a flag rather than by presence for the same
   // reason as the others: `PLUNE_CREATE=0` in one matrix cell must mean off.
   const offerDiscovered = flag(env, 'PLUNE_CREATE');
+  // The claim that this run is the whole suite (D20). Same rule: only `1`/`true` means it, and only
+  // the job that runs everything should say so — a filtered run with this set detaches the rest.
+  const full = flag(env, 'PLUNE_FULL_RUN');
 
   return {
     config: {
@@ -93,6 +96,7 @@ export function readEnv(env: NodeJS.ProcessEnv = process.env): EnvSettings {
       // Only when set: `false` here would outrank a config file that asked for it, and an unset
       // variable is not an instruction.
       ...(offerDiscovered ? { offerDiscovered } : {}),
+      ...(full ? { full } : {}),
     },
     // Two names for two situations that end the same way. `SHARED_RUN` says other processes are
     // reporting into this run; `PROCEED` says the job will close it on its own schedule. Either

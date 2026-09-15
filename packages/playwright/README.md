@@ -56,6 +56,7 @@ fills in what you left out. Anything set in the config file wins.
 | `PLUNE_ENV` | where it ran — `staging`, `prod`, a preview name |
 | `PLUNE_LABELS` | comma-separated marks: `smoke,nightly` |
 | `PLUNE_CREATE` | offer tests Plune has no case for to the review queue |
+| `PLUNE_FULL_RUN` | this run is the whole suite: a case it used to report and did not is marked detached |
 
 Flags are read by value, not by presence: `PLUNE_PROCEED=0` in a matrix cell means off.
 
@@ -68,6 +69,13 @@ looked up by, its title, its file and line, and how it went. Never steps and nev
 result: a reporter sees a test's result, not its source, and a body nobody wrote is exactly what the
 queue exists to keep out. A person decides whether the project tracks the test; approving attaches
 the keys, so the next run resolves instead of offering it again.
+
+`PLUNE_FULL_RUN=1` is the reporter's word that nothing was filtered out — not `-g`, not a file
+argument, not `--only-changed`. When such a run finishes with every expected test reported, the
+platform marks the active cases this reporter used to report and did not this time as **detached**
+(kept, with their history; the run is named as the reason), and prints how many. A later result on
+a detached case makes it active again on its own. Set it on the CI job that runs everything and
+nowhere else; a run that lost a shard never detaches anything.
 
 `PLUNE_GROUP` is **not supported yet** — a group of runs is a Plune feature that does not exist, and
 a group of one run means nothing. Setting it prints a line saying it was ignored, rather than
