@@ -326,6 +326,42 @@ describe('the reporter never fails the run', () => {
   });
 });
 
+describe('a run exists only once a result does', () => {
+  // `onBegin` fires for `--list`, for a `--grep` that matches nothing and for a suite of zero
+  // tests. Opening the run there put an empty run on the platform every time a person listed
+  // their tests with a token set — and with a rejected token, the one request left pending at
+  // exit tripped a libuv assertion on Windows. The list is still taken at the start; the run
+  // opens on the first result.
+  it('opens no run when nothing reports a result — --list, an empty filter, zero tests', async () => {
+    const { startRun } = await import('@plune-ai/cli/reporter-core');
+    vi.mocked(startRun).mockClear();
+
+    // `--list` and an empty filter: the runner announces the tests and ends; `onTestEnd` never fires.
+    for (const tests of [[fakeTest({ id: 'a' }), fakeTest({ id: 'b' })], []]) {
+      const reporter = new PluneReporter();
+      reporter.onConfigure(configWith(null));
+      reporter.onBegin(suiteOf(...tests));
+      await reporter.onEnd({} as FullResult);
+    }
+
+    expect(startRun).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
+  });
+
+  it('still hands the whole declared list over, once, on the first result', async () => {
+    const { startRun } = await import('@plune-ai/cli/reporter-core');
+    vi.mocked(startRun).mockClear();
+    const tests = [fakeTest({ id: 'a' }), fakeTest({ id: 'b' }), fakeTest({ id: 'c' })];
+
+    await run(new PluneReporter(), tests, [fakeResult(), fakeResult(), fakeResult()]);
+
+    expect(startRun).toHaveBeenCalledTimes(1);
+    expect(expectedLists[0] as unknown[]).toHaveLength(3);
+    expect(added).toHaveLength(3);
+    expect(calls).toEqual(['finish']);
+  });
+});
+
 describe('it stays out of the terminal', () => {
   it('leaves stdio to the runner reporter', () => {
     expect(new PluneReporter().printsToStdio()).toBe(false);

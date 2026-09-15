@@ -173,6 +173,8 @@ function pendingFrom(test: TestCase, result: TestResult): PendingResult {
 export default class PluneReporter {
   private readonly options: PluneReporterOptions;
   private session: Promise<RunSession> | null = null;
+  /** Every test the runner means to run, captured at the start for the one up-front lookup. */
+  private declared: KeyRef[][] = [];
   /** Results arrive from a sync callback; this serialises them into the async core. */
   private chain: Promise<void> = Promise.resolve();
   private keepOpen = false;
@@ -199,28 +201,40 @@ export default class PluneReporter {
     this.keepOpen = (config.shard !== null && config.shard !== undefined) || readEnv().keepOpen;
   }
 
+  /**
+   * Only the list is taken here; the run opens on the first result. `onBegin` also fires for
+   * `--list`, for a `--grep` that matches nothing and for a suite of zero tests — and a run opened
+   * there was an empty run on the platform every time, and with a rejected token the request it
+   * made was the one thing left pending when Node exited (a libuv assertion on Windows). No
+   * result, no run.
+   */
   onBegin(suite: Suite): void {
-    const tests = suite.allTests();
-    this.session = startRun(
-      {
-        ...(this.options.apiUrl !== undefined ? { apiUrl: this.options.apiUrl } : {}),
-        ...(this.options.token !== undefined ? { token: this.options.token } : {}),
-        ...(this.options.externalKey !== undefined
-          ? { externalKey: this.options.externalKey }
-          : {}),
-        ...(this.options.batchSize !== undefined ? { batchSize: this.options.batchSize } : {}),
-        ...(this.options.fallbackPath !== undefined
-          ? { fallbackPath: this.options.fallbackPath }
-          : {}),
-        meta: { runner: SOURCE },
-      },
-      tests.map(keysFor),
-    );
+    this.declared = suite.allTests().map(keysFor);
+  }
+
+  private open(): Promise<RunSession> {
+    if (this.session === null) {
+      this.session = startRun(
+        {
+          ...(this.options.apiUrl !== undefined ? { apiUrl: this.options.apiUrl } : {}),
+          ...(this.options.token !== undefined ? { token: this.options.token } : {}),
+          ...(this.options.externalKey !== undefined
+            ? { externalKey: this.options.externalKey }
+            : {}),
+          ...(this.options.batchSize !== undefined ? { batchSize: this.options.batchSize } : {}),
+          ...(this.options.fallbackPath !== undefined
+            ? { fallbackPath: this.options.fallbackPath }
+            : {}),
+          meta: { runner: SOURCE },
+        },
+        this.declared,
+      );
+    }
+    return this.session;
   }
 
   onTestEnd(test: TestCase, result: TestResult): void {
-    const session = this.session;
-    if (session === null) return;
+    const session = this.open();
     this.chain = this.chain
       .then(async () => {
         (await session).add(pendingFrom(test, result));
@@ -229,6 +243,8 @@ export default class PluneReporter {
   }
 
   async onEnd(_result: FullResult): Promise<void> {
+    // Nothing reported a result — `--list`, an empty filter, zero tests: no run was opened, so
+    // there is none to close.
     const session = this.session;
     if (session === null) return;
     try {
