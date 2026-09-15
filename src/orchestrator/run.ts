@@ -85,7 +85,9 @@ function estimateUsage(
 export async function runRow(p: RowParams): Promise<RowResult> {
   const t0 = p.now();
   const prompt = resolvePrompt(p.template, p.row.vars);
-  const temperature = p.providerConfig.temperature ?? 0;
+  // No default. `?? 0` used to stand here, and it turned every eval on a model newer than Opus 4.6
+  // into a 400 before the first row ran (the parameter is deprecated there; only 1.0 is accepted).
+  const temperature = p.providerConfig.temperature;
   const maxTokens = p.providerConfig.max_tokens ?? DEFAULT_MAX_TOKENS;
 
   // --dry-run: estimate cost only; never touch the network or cache (FR-8).
@@ -95,10 +97,11 @@ export async function runRow(p: RowParams): Promise<RowResult> {
     return { vars: p.row.vars, output: null, cached: false, usage, assertions: [] };
   }
 
+  // The key keeps the old default so a cache written before the change still answers.
   const key = cacheKey({
     provider: p.providerConfig.type,
     model: p.providerConfig.model,
-    temperature,
+    temperature: temperature ?? 0,
     max_tokens: maxTokens,
     prompt_resolved: prompt,
   });
@@ -121,7 +124,7 @@ export async function runRow(p: RowParams): Promise<RowResult> {
       const res = await p.provider.complete({
         provider: p.providerConfig.type,
         model: p.providerConfig.model,
-        temperature,
+        ...(temperature !== undefined ? { temperature } : {}),
         max_tokens: maxTokens,
         prompt_resolved: prompt,
       });

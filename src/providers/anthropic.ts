@@ -44,7 +44,7 @@ export function makeAnthropicProvider(
             client.messages.create({
               model: req.model,
               max_tokens: req.max_tokens,
-              temperature: req.temperature,
+              ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
               messages: [{ role: 'user', content: req.prompt_resolved }],
             }),
           { max_retries: maxRetries },

@@ -60,7 +60,7 @@ export function makeOpenAiCompatibleProvider(opts: OpenAiCompatibleOptions): Pro
           () =>
             client.chat.completions.create({
               model: req.model,
-              temperature: req.temperature,
+              ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
               max_tokens: req.max_tokens,
               messages: [{ role: 'user', content: req.prompt_resolved }],
               // OpenRouter extension: ask it to include the call's actual cost in `usage` (ADR-PRC02).

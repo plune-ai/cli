@@ -11,7 +11,23 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+Also `@plune-ai/playwright` **0.2.4** - the reporter fixes below live in the adapter.
+
 ### Fixed
+
+- **Evals on a current Claude model no longer fail with a 400 before the first row.** `plune run`
+  sent `temperature: 0` on every request unless the config said otherwise, and the judge sent it
+  always; models released after Claude Opus 4.6 refuse the parameter (only `1.0` is still
+  accepted). The parameter now goes only when the config sets it — for the rows and for the judge
+  alike — so a config without one works on any model, and a config with one keeps what it asked
+  for. Cache keys are unchanged: a cache written before this still answers.
+
+- **The reporter opens a run only once a test has reported a result.** It opened one in
+  `onBegin`, which Playwright also fires for `--list`, for a `--grep` that matches nothing and for
+  a suite of zero tests — so listing tests with a token set left an empty run on the platform
+  every time, and with a rejected token the one request left pending at exit tripped a libuv
+  assertion on Windows (`!(handle->flags & UV_HANDLE_CLOSING)`). The declared test list is still
+  taken at the start and handed over whole; the run itself waits for the first result.
 
 - **The reporter's `path-title` key spells the file with forward slashes on Windows too.** Playwright
   titles the file suite with `path.relative` (backslashes on Windows) and writes its JSON report

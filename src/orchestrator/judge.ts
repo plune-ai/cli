@@ -1,5 +1,6 @@
-// Build a Judge (ADR-SR01/OR02) from a provider: ask() runs a completion at temperature 0 and
-// reports its token usage to a sink so judge-call cost is accounted to the row that triggered it.
+// Build a Judge (ADR-SR01/OR02) from a provider: ask() runs a completion at the config's temperature
+// (none unless set — current models refuse the parameter) and reports its token usage to a sink so
+// judge-call cost is accounted to the row that triggered it.
 
 import type { Provider, CompletionResponse } from '../types/provider.js';
 import type { ProviderConfig } from '../types/config.js';
@@ -17,7 +18,7 @@ export function buildJudge(
       const res = await provider.complete({
         provider: cfg.type,
         model: cfg.model,
-        temperature: 0,
+        ...(cfg.temperature !== undefined ? { temperature: cfg.temperature } : {}),
         max_tokens: cfg.max_tokens ?? DEFAULT_MAX_TOKENS,
         prompt_resolved: prompt,
       });

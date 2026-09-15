@@ -41,6 +41,18 @@ describe('AnthropicProvider (ADR-PRV01)', () => {
     expect(res.usage).toEqual({ input_tokens: 12, output_tokens: 5 });
   });
 
+  it('sends a temperature only when asked for one — current models refuse the parameter', async () => {
+    mockCreate.mockResolvedValue({ content: [{ type: 'text', text: 'x' }], usage: { input_tokens: 1, output_tokens: 1 } });
+    const provider = makeAnthropicProvider(config, { ANTHROPIC_API_KEY: 'sk-test' });
+
+    const { temperature: _dropped, ...withoutTemperature } = req;
+    await provider.complete(withoutTemperature);
+    expect(mockCreate.mock.calls[0]?.[0]).not.toHaveProperty('temperature');
+
+    await provider.complete(req);
+    expect(mockCreate.mock.calls[1]?.[0]).toMatchObject({ temperature: 0 });
+  });
+
   it('constructs the SDK client with maxRetries: 0 (own retry owns it)', () => {
     makeAnthropicProvider(config, { ANTHROPIC_API_KEY: 'sk-test' });
     expect(AnthropicMock).toHaveBeenCalledWith(expect.objectContaining({ maxRetries: 0 }));
