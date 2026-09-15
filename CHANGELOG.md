@@ -11,6 +11,14 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Fixed
+
+- **The reporter's `path-title` key spells the file with forward slashes on Windows too.** Playwright
+  titles the file suite with `path.relative` (backslashes on Windows) and writes its JSON report
+  posix-style, so the key the reporter wrote on a Windows machine never equalled the one
+  `plune run import` derived from the report of the same run — the two met only through
+  `playwright-id`. One spelling now, the one a person would type into a case. `specRef` follows.
+
 ## [0.11.0] - 2026-09-15
 
 Also `@plune-ai/playwright` **0.2.3** - the same core, rebuilt. The adapter embeds `reporter-core`
