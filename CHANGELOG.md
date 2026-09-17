@@ -11,6 +11,23 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **`plune plan grep <id>` — a test plan as the `--grep` a runner takes.** The platform decides which
+  tests run (a plan is a collection of case filters, resolved when asked) and CI runs only those:
+  `npx playwright test --grep "$(plune plan grep <id>)"`, `npx vitest run -t "$(plune plan grep <id>)"`.
+  Each case of the plan contributes its title path from the `path-title` key the reporter wrote — the
+  file left out, each segment escaped, `[ >#]+` between them — and the fragments are joined with
+  `|`; a case with no such key goes in by title. The boundary class is what makes one pattern fit
+  every runner: Playwright, jest, mocha and vitest ≤ 4 filter on the space-joined title path, vitest
+  5 on `describe > title`, and a `#` a title had of its own (`… (#742)`) is a `#` in the key too. The
+  ` > ` of a vitest junit name and the ` › ` of a Playwright one are boundaries as well. Only the
+  pattern reaches stdout; the count of cases and of keyed cases goes to stderr. An empty plan prints
+  `(?!)`, a pattern that matches nothing, because an empty `--grep` would run everything. Same
+  refusals as `pull`: not logged in or a rejected token → 2, network or HTTP (a plan that does not
+  exist included) → 1. Testomat's `--filter 'testomatio:plan=<id>'` is the reference; theirs greps
+  `@T123` ids in titles, ours the title path.
+
 ### Fixed
 
 - **`PLUNE_TOKEN` is read by every platform command, not only by the reporter and `run`.** `sync`,

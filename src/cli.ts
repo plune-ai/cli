@@ -639,6 +639,40 @@ export function createProgram(): Command {
       }
     });
 
+  const planCommand = program
+    .command('plan')
+    .description('Test plans on the platform — what a plan collects, as something a runner can take');
+
+  planCommand
+    .command('grep')
+    .argument('<id>', 'The plan')
+    .description(
+      "Print the plan's cases as one --grep pattern for the runner (GET /v1/plans/:id/cases)",
+    )
+    .action(async (id: string, _options: Record<string, never>, command: Command) => {
+      const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
+      const { handlePlanGrep } = await import('./cli/commands/plan.js');
+      const { reportCasesFailure } = await import('./cli/commands/cases.js');
+      try {
+        const out = await handlePlanGrep({ planId: id });
+        // The pattern alone on stdout, so `--grep "$(plune plan grep <id>)"` gets nothing else.
+        process.stdout.write(out.pattern + '\n');
+        process.stderr.write(
+          out.cases === 0
+            ? 'plune: the plan matches no case — the pattern matches nothing.\n'
+            : `plune: ${out.cases} case(s) in the plan, ${out.keyed} with a test key; the rest by title.\n`,
+        );
+      } catch (err) {
+        const code = reportCasesFailure(err, (s) => process.stderr.write(s));
+        if (code !== null) {
+          maybeStack(err, verbose);
+          process.exitCode = code;
+          return;
+        }
+        failUnexpected(err, verbose);
+      }
+    });
+
   // Unknown command → exit 2 (CLI_SPEC §4.2). Registering a `command:*` listener makes commander
   // emit this event instead of its default "unknown command" error (which would exit 1).
   program.on('command:*', (operands: string[]) => {
