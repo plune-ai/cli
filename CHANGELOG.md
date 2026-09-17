@@ -11,6 +11,14 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Fixed
+
+- **`PLUNE_TOKEN` is read by every platform command, not only by the reporter and `run`.** `sync`,
+  `ingest`, `pull` and `push` looked at the saved login alone, so a CI job with the variable set —
+  the same token `run import` and `run start` were already using — was told "not logged in" and had
+  to `plune login` first (#44). One ladder now, in one place: the variable, then the saved login;
+  blank is absent, as the reporter reads it. The refusal names both roads.
+
 ## [0.12.0] - 2026-09-17
 
 Also `@plune-ai/playwright` **0.2.5** - the adapter embeds `reporter-core`, and `PLUNE_FULL_RUN`

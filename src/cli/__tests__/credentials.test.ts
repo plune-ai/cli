@@ -6,16 +6,45 @@ import { clearToken, credentialsFile, loadToken, saveToken } from '../credential
 
 let tmp: string;
 let savedXdg: string | undefined;
+let savedToken: string | undefined;
 
-// Redirect the store into a temp dir via XDG_CONFIG_HOME so no test ever touches the real ~/.config.
+// Redirect the store into a temp dir via XDG_CONFIG_HOME so no test ever touches the real ~/.config,
+// and clear PLUNE_TOKEN: the environment is the first rung of the ladder (#44), so a token in the
+// developer's shell would make every "nothing saved" case below pass for the wrong reason.
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), 'plune-creds-'));
   savedXdg = process.env['XDG_CONFIG_HOME'];
   process.env['XDG_CONFIG_HOME'] = tmp;
+  savedToken = process.env['PLUNE_TOKEN'];
+  delete process.env['PLUNE_TOKEN'];
 });
 afterEach(() => {
   if (savedXdg === undefined) delete process.env['XDG_CONFIG_HOME'];
   else process.env['XDG_CONFIG_HOME'] = savedXdg;
+  if (savedToken === undefined) delete process.env['PLUNE_TOKEN'];
+  else process.env['PLUNE_TOKEN'] = savedToken;
+});
+
+describe('PLUNE_TOKEN comes before the saved login (#44)', () => {
+  it('is the token when set, whether or not a login is saved', () => {
+    process.env['PLUNE_TOKEN'] = 'plune_from_ci';
+    expect(loadToken()).toBe('plune_from_ci');
+    saveToken('plune_saved');
+    expect(loadToken()).toBe('plune_from_ci');
+  });
+
+  it('is absent when empty or blank — the saved login answers then', () => {
+    saveToken('plune_saved');
+    process.env['PLUNE_TOKEN'] = '';
+    expect(loadToken()).toBe('plune_saved');
+    process.env['PLUNE_TOKEN'] = '   ';
+    expect(loadToken()).toBe('plune_saved');
+  });
+
+  it('is trimmed, as the reporter reads it', () => {
+    process.env['PLUNE_TOKEN'] = '  plune_from_ci\n';
+    expect(loadToken()).toBe('plune_from_ci');
+  });
 });
 
 describe('credentials store (#48)', () => {

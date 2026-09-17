@@ -27,7 +27,7 @@ import {
 /** No saved token — the user must `plune login` first. (exit 2) */
 export class IngestNotLoggedInError extends Error {
   constructor() {
-    super('Not logged in. Run "plune login" first to save your API token.');
+    super('Not logged in. Run "plune login" first, or set PLUNE_TOKEN.');
     this.name = 'IngestNotLoggedInError';
   }
 }
