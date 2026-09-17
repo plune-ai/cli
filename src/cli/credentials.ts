@@ -26,8 +26,19 @@ export function saveToken(token: string): string {
   return file;
 }
 
-/** The stored token, or `null` if none is saved (missing file or unreadable/corrupt content). */
+/**
+ * The token: `PLUNE_TOKEN` from the environment first, else the stored one, else `null`.
+ *
+ * One ladder for every command that talks to the platform (#44). The reporter, `run import` and
+ * `run start` always read `PLUNE_TOKEN`; `sync`, `ingest`, `pull`, `push` and `plan` read this — and
+ * until now this read only the file, so a CI job with the variable set was told "not logged in"
+ * and had to `plune login` first. Trimmed, and blank means absent, exactly as `readEnv()` reads it.
+ * The stored login is what `plune login` wrote; the variable is what a job exported — the job is
+ * the one that knows which account it is running as.
+ */
 export function loadToken(): string | null {
+  const fromEnv = process.env['PLUNE_TOKEN']?.trim();
+  if (fromEnv !== undefined && fromEnv !== '') return fromEnv;
   try {
     const parsed = JSON.parse(readFileSync(credentialsFile(), 'utf-8')) as { token?: unknown };
     return typeof parsed.token === 'string' && parsed.token.length > 0 ? parsed.token : null;

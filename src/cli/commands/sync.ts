@@ -22,7 +22,7 @@ import { loadToken } from '../credentials.js';
 /** No saved token — the user must `plune login` before syncing. (exit 2) */
 export class NotLoggedInError extends Error {
   constructor() {
-    super('Not logged in. Run "plune login" first to save your API token.');
+    super('Not logged in. Run "plune login" first, or set PLUNE_TOKEN.');
     this.name = 'NotLoggedInError';
   }
 }
