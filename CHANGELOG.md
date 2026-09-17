@@ -11,6 +11,11 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-09-18
+
+`@plune-ai/playwright` stays at **0.2.5** - nothing below touches `reporter-core`, so the adapter
+has nothing to re-embed.
+
 ### Added
 
 - **`plune plan grep <id>` — a test plan as the `--grep` a runner takes.** The platform decides which
@@ -497,7 +502,8 @@ First public release. Released from commit `ba43100`; no `v0.2.0` tag exists.
   `json-schema`, `llm-judge`, `semantic-similarity`, `faithfulness`, `answer-relevance`,
   `context-precision`.
 
-[Unreleased]: https://github.com/plune-ai/cli/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/plune-ai/cli/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/plune-ai/cli/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/plune-ai/cli/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/plune-ai/cli/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/plune-ai/cli/compare/v0.10.0...v0.11.0
