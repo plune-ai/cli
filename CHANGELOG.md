@@ -11,6 +11,11 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-09-17
+
+Also `@plune-ai/playwright` **0.2.5** - the adapter embeds `reporter-core`, and `PLUNE_FULL_RUN`
+below lives there, so it moves with the same rebuild.
+
 ### Added
 
 - **`PLUNE_FULL_RUN=1` — a run that is the whole suite says so, and the platform detaches what it
@@ -19,6 +24,15 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   the active cases this source used to report and did not this time to `detached` and the finish line
   says how many. Off by default: only whoever typed the command knows a run was not `-g smoke` or one
   file. `plune run start` sends no list to compare against, so the flag has no effect there.
+
+- **`plune pull` and `plune push` — the project's test cases as one Markdown document, and back.**
+  `plune pull [file]` writes the tree (or one suite with `--suite <id>`) as a Markdown document in
+  Testomat's classical format (`GET /v1/test-cases/markdown`); `plune push [file] [--dry-run]` sends
+  it back (`POST /v1/test-cases/markdown`) and prints the platform's report - created, updated,
+  unchanged, refused by line, warnings. `pull` refuses to overwrite a file git sees as modified or
+  untracked unless `--force`, so a pull can't quietly erase a working copy; exit 3 for that refusal,
+  exit 4 when a push carried refusals (they arrive inside the 200 report, not as a failed call). The
+  token is never printed.
 
 ## [0.11.1] - 2026-09-15
 
@@ -458,7 +472,8 @@ First public release. Released from commit `ba43100`; no `v0.2.0` tag exists.
   `json-schema`, `llm-judge`, `semantic-similarity`, `faithfulness`, `answer-relevance`,
   `context-precision`.
 
-[Unreleased]: https://github.com/plune-ai/cli/compare/v0.11.1...HEAD
+[Unreleased]: https://github.com/plune-ai/cli/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/plune-ai/cli/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/plune-ai/cli/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/plune-ai/cli/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/plune-ai/cli/compare/v0.9.1...v0.10.0
