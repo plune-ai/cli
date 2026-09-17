@@ -110,10 +110,12 @@ provider API key is read from the environment based on `provider.type`:
 | `plune run delete <id>` | Delete a run and everything it produced — its results and the review-queue entries it raised. Approved test cases and the audit log stay. **Recoverable for six months** (ask Plune to put it back), then gone for good. No prompt: it is your data, and this command belongs in scripts. |
 | `plune run report` | Replay `.plune/pending-results.jsonl` — send what the reporter could not. Flags: `--file <path>`. |
 | `plune ingest [dir]` | Record a [Cairn](https://github.com/plune-ai/cairn) run in Plune. Omit `[dir]` for the newest run under `./runs`, or name the directory holding `report.json`. Generated cases arrive as **review proposals** — nothing is created until a person approves it. |
+| `plune pull [file]` | Write the project's test cases as **one Markdown document** — Testomat's classical format, plus Plune's own columns — to `plune/cases.md` (or `[file]`). Refuses to overwrite a file git sees as modified; `--force` overrides, `--suite <id>` takes one suite or folder and what is under it. |
+| `plune push [file] [--dry-run]` | Send the document back. Cases are matched by `id`; a block without one becomes a draft; an unknown id is refused by line; **nothing is deleted**. Prints the report — created, updated, unchanged, refused, warnings — and with `--dry-run` writes nothing. Exit `4` when anything was refused. |
 
 Global flags: `-c, --config <path>` · `-v, --verbose` · `--no-color`.
 
-**Exit codes:** `0` everything passed · `1` an assertion failed · `2` configuration or execution error.
+**Exit codes:** `0` everything passed · `1` an assertion failed · `2` configuration or execution error · `3` `pull` refused to overwrite uncommitted changes · `4` `push` had refusals.
 
 ## Already running tests? Bring the results in
 
@@ -194,11 +196,14 @@ the [Plune platform](https://plune.ai/platform):
 plune login          # paste the API token from your platform settings page
 plune run            # exactly as before — the run is saved locally
 plune sync           # upload .plune/last-run.json, print the read-back URL
+plune pull           # the test cases as plune/cases.md — edit them anywhere
+plune push --dry-run # what a push would change, before it changes anything
 ```
 
 The token is stored at `~/.config/plune/credentials.json` (mode `0600`, honours `XDG_CONFIG_HOME`)
-and is never printed or logged. `PLUNE_API_URL` points `sync` at a different server — useful for a
-self-hosted backend.
+and is never printed or logged. `PLUNE_API_URL` points `sync`, `pull` and `push` at a different server —
+useful for a self-hosted backend. The Markdown format `pull` writes and `push` reads is documented at
+[docs.plune.ai/platform/cases/markdown](https://docs.plune.ai/platform/cases/markdown/).
 
 ## Programmatic API
 

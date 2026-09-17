@@ -236,7 +236,10 @@ export function createProgram(): Command {
     .action(async (options: { key?: string; json: boolean }, command: Command) => {
       try {
         const { handleRunStart } = await import('./cli/commands/run-lifecycle.js');
-        await handleRunStart({ ...(options.key !== undefined ? { key: options.key } : {}), json: options.json });
+        await handleRunStart({
+          ...(options.key !== undefined ? { key: options.key } : {}),
+          json: options.json,
+        });
       } catch (err) {
         await failRunCommand(err, verboseOf(command));
       }
@@ -248,22 +251,26 @@ export function createProgram(): Command {
     .description('Close a platform run — what the reporter tells you to do for a run left open')
     .option('--terminate', 'Record the run as cut short rather than finished', false)
     .option('--reason <text>', 'Why, for a terminated run')
-    .action(async (id: string, options: { terminate: boolean; reason?: string }, command: Command) => {
-      try {
-        const { handleRunFinish } = await import('./cli/commands/run-lifecycle.js');
-        await handleRunFinish(id, {
-          terminate: options.terminate,
-          ...(options.reason !== undefined ? { reason: options.reason } : {}),
-        });
-      } catch (err) {
-        await failRunCommand(err, verboseOf(command));
-      }
-    });
+    .action(
+      async (id: string, options: { terminate: boolean; reason?: string }, command: Command) => {
+        try {
+          const { handleRunFinish } = await import('./cli/commands/run-lifecycle.js');
+          await handleRunFinish(id, {
+            terminate: options.terminate,
+            ...(options.reason !== undefined ? { reason: options.reason } : {}),
+          });
+        } catch (err) {
+          await failRunCommand(err, verboseOf(command));
+        }
+      },
+    );
 
   runCommand
     .command('exec')
     .argument('<command...>', 'The command to run inside the run, after `--`')
-    .description('Open a run, run a command inside it, close the run — whatever the command returns')
+    .description(
+      'Open a run, run a command inside it, close the run — whatever the command returns',
+    )
     .option('--key <externalKey>', 'The key several processes share; generated when absent')
     .action(async (argv: string[], options: { key?: string }, command: Command) => {
       try {
@@ -279,7 +286,10 @@ export function createProgram(): Command {
 
   runCommand
     .command('delete')
-    .argument('<id>', 'The run id — the one `plune run import` printed, or the one in the dashboard URL')
+    .argument(
+      '<id>',
+      'The run id — the one `plune run import` printed, or the one in the dashboard URL',
+    )
     .description('Delete a run and everything it produced — recoverable for six months')
     .action(async (id: string, _options: unknown, command: Command) => {
       try {
@@ -316,14 +326,18 @@ export function createProgram(): Command {
         options: { format?: string; key?: string; create: boolean },
         command: Command,
       ) => {
-        const [{ handleRunImport }, { IMPORT_FORMATS, UnknownFormatError, XmlParseError, JsonReportError }] =
-          await Promise.all([
-            import('./cli/commands/run-import.js'),
-            import('./importers/index.js'),
-          ]);
+        const [
+          { handleRunImport },
+          { IMPORT_FORMATS, UnknownFormatError, XmlParseError, JsonReportError },
+        ] = await Promise.all([
+          import('./cli/commands/run-import.js'),
+          import('./importers/index.js'),
+        ]);
         const format = options.format;
         if (format !== undefined && !(IMPORT_FORMATS as readonly string[]).includes(format)) {
-          process.stderr.write(`Unknown --format "${format}". Use ${IMPORT_FORMATS.join(' or ')}.\n`);
+          process.stderr.write(
+            `Unknown --format "${format}". Use ${IMPORT_FORMATS.join(' or ')}.\n`,
+          );
           process.exit(2);
           return;
         }
@@ -552,6 +566,72 @@ export function createProgram(): Command {
         if (code !== null) {
           maybeStack(err, verbose);
           // exitCode, not process.exit — the same undici/libuv teardown race `sync` documents.
+          process.exitCode = code;
+          return;
+        }
+        failUnexpected(err, verbose);
+      }
+    });
+
+  program
+    .command('pull')
+    .argument('[file]', 'Where to write the document (default: plune/cases.md)')
+    .description(
+      "Write the project's test cases as one Markdown document (GET /v1/test-cases/markdown)",
+    )
+    .option('--suite <id>', 'Only this suite or folder and what is under it')
+    .option('--force', 'Overwrite the file even when git says it has uncommitted changes', false)
+    .action(
+      async (
+        file: string | undefined,
+        options: { suite?: string; force: boolean },
+        command: Command,
+      ) => {
+        const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
+        const { handlePull, reportCasesFailure } = await import('./cli/commands/cases.js');
+        try {
+          const result = await handlePull({
+            ...(file !== undefined ? { file } : {}),
+            ...(options.suite !== undefined ? { suiteId: options.suite } : {}),
+            force: options.force,
+          });
+          process.stdout.write(`Pulled ${result.cases} case(s) → ${result.file}\n`);
+        } catch (err) {
+          const code = reportCasesFailure(err, (s) => process.stderr.write(s));
+          if (code !== null) {
+            maybeStack(err, verbose);
+            // exitCode, not process.exit — the same undici/libuv teardown race `sync` documents.
+            process.exitCode = code;
+            return;
+          }
+          failUnexpected(err, verbose);
+        }
+      },
+    );
+
+  program
+    .command('push')
+    .argument('[file]', 'The document to send (default: plune/cases.md)')
+    .description(
+      'Send a Markdown document of test cases back to Plune (POST /v1/test-cases/markdown)',
+    )
+    .option('--dry-run', 'Show what would change and write nothing', false)
+    .action(async (file: string | undefined, options: { dryRun: boolean }, command: Command) => {
+      const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
+      const { handlePush, formatReport, reportCasesFailure } =
+        await import('./cli/commands/cases.js');
+      try {
+        const report = await handlePush({
+          ...(file !== undefined ? { file } : {}),
+          dryRun: options.dryRun,
+        });
+        process.stdout.write(formatReport(report));
+        // Refusals are inside the 200 report, not a status code — so the exit code carries them.
+        if (report.refused.length > 0) process.exitCode = 4;
+      } catch (err) {
+        const code = reportCasesFailure(err, (s) => process.stderr.write(s));
+        if (code !== null) {
+          maybeStack(err, verbose);
           process.exitCode = code;
           return;
         }
