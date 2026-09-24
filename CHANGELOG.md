@@ -11,6 +11,13 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-09-24
+
+Also `@plune-ai/playwright` **0.2.6** - the adapter embeds `reporter-core`, where the failure detail
+and the batches packed by bytes below live, and it sends the detail from the reporter API itself.
+Needs a platform that stores the detail (plune-ai/plune#806, on the beta since 2026-09-24): an older
+one drops the unknown field without a word.
+
 ### Added
 
 - **The failure detail of a failed attempt — what failed, the declared steps down to it, where, what
@@ -573,7 +580,8 @@ First public release. Released from commit `ba43100`; no `v0.2.0` tag exists.
   `json-schema`, `llm-judge`, `semantic-similarity`, `faithfulness`, `answer-relevance`,
   `context-precision`.
 
-[Unreleased]: https://github.com/plune-ai/cli/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/plune-ai/cli/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/plune-ai/cli/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/plune-ai/cli/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/plune-ai/cli/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/plune-ai/cli/compare/v0.11.0...v0.11.1
