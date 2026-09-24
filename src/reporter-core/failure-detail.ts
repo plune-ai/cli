@@ -95,7 +95,8 @@ const TEXT_LIMIT = 524_288;
  * The longest headline sent, in the bytes it weighs in a batch. The platform keeps 300 characters of it
  * after its own cleaning, and a credential straddling that point is a few KB at most; and with a text at
  * `TEXT_LIMIT`, a result has ~34 KB left for everything else if 100 of them are to fit 7 batches of
- * 8 MiB — 10 calls. A longer first line still travels in the text, which the dashboard shows instead.
+ * 8 MiB — 10 calls. A longer first line still travels in the text, which the dashboard shows instead —
+ * unless the text is over `TEXT_LIMIT` and the line over half of it, when `cut` leaves the line out.
  */
 const HEADLINE_LIMIT = 8 * 1024;
 
@@ -117,7 +118,10 @@ function pathIn(path: string): RegExp | undefined {
   const parts = path.split(/[\\/]+/);
   while (parts.length > 1 && parts.at(-1) === '') parts.pop();
   if (!parts.some((part) => part !== '' && !/^[A-Za-z]:$/.test(part))) return undefined;
-  const escaped = parts.map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\\\/]+');
+  const joined = parts.map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\\\/]+');
+  // A posix path's leading slash is one character: as `[\\/]+` it also took the `//` after a scheme,
+  // and `http://app/login` lost its host to a root `/app` (#790 re-review C1). A UNC path keeps both.
+  const escaped = /^\/(?!\/)/.test(path) ? joined.replace('[\\\\/]+', '\\/') : joined;
   return new RegExp(`(?:file:\\/\\/\\/?)?${escaped}`, /^[A-Za-z]:$/.test(parts[0]!) ? 'gi' : 'g');
 }
 
@@ -193,7 +197,9 @@ function placeOf(error: AttemptError, testFile: string): RunnerLocation | undefi
   let first: RunnerLocation | undefined;
   for (const line of stripVTControlCharacters(error.text).split('\n')) {
     // ponytail: past PATH_MAX plus a function name a line is no frame, and on it `FRAME` retries from
-    // every " (" — quadratic. Below the cap it still is: ~5 ms for the worst 8 191 characters.
+    // every " (" — quadratic. Below the cap it still is: ~5 ms for the worst 8 191 characters, per line,
+    // so a text of a thousand such `at` lines costs seconds. Only a hostile text has them; bound the
+    // lines scanned if one ever turns up.
     if (line.length > FRAME_MAX) continue;
     const frame = FRAME.exec(line);
     if (frame === null) continue;

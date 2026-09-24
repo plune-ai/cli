@@ -11,6 +11,19 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Fixed
+
+- **An address whose host is named as the repository or the home folder is left alone
+  (plune-ai/plune#790).** A posix root's leading slash matched as many slashes as there were, so it
+  also took the `//` after a scheme: with the root `/app`, `http://app/login` — a compose service named
+  after the image's `WORKDIR` — became `http:login`, and with the home `/root`, `http://root/x` became
+  `http:~/x`. A posix path now starts with exactly one slash; a UNC path keeps both.
+- **A success without the fields the core reads is no answer either.** A 2xx with JSON that lacks the
+  lookup's `results`, the start's `run`, a batch's `counts` (or has them `null`), or a close whose body
+  is `null`, threw out of the core — inside a flush, after the batch had left the buffer, so it was
+  neither delivered nor deferred. Each is now read as that call failing: the results are deferred and
+  counted, and the run still closes.
+
 ## [0.14.1] - 2026-09-24
 
 Also `@plune-ai/playwright` **0.2.7** - the adapter embeds `reporter-core`, so every fix below reaches
@@ -32,7 +45,8 @@ it too, and it now closes the run only after every batch is answered.
   first line as the runner wrote it, so a missing snapshot or a missing browser put the account's home
   folder on a page the whole project reads; it now goes through the same rewriting as the text. A first
   line over 8 KB is not sent as the headline at all (never cut): the platform keeps 300 characters of a
-  headline, the line still travels in the text, and the dashboard shows the text's first line instead.
+  headline, the line still travels in the text (unless the text is over 512 KB and the line over half
+  of that, when the cut leaves it out), and the dashboard shows the text's first line instead.
   An attachment named by its path (`testInfo.attach(file, { path: file })`) is named by the file alone,
   and one with an empty content type goes without it — the platform refused the whole batch for it.
 - **The repository and the home folder are rewritten only where a path starts.** A root of one segment

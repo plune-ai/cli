@@ -296,11 +296,16 @@ describe('failureOf — what the runner kept, and the CI run (AC-04, AC-05)', ()
     'https:/github.com/acme/shop/actions/runs/42',
     'https:github.com/acme/shop/actions/runs/42',
     'https:\\\\github.com\\acme\\shop',
-    ' https://github.com/acme/shop/actions/runs/42',
     '\u0001https://github.com/acme/shop/actions/runs/42',
   ])('is no link for %j, which the platform would refuse (AC-07b)', (href) => {
     expect(webLink(href)).toBeUndefined();
     expect(failureOf(attempt({ buildHref: href }))).not.toHaveProperty('ciUrl');
+  });
+
+  // #790 re-review C3: the platform trims this one and takes it; the link is still sent only as written
+  // (contracts/cli.md §1), so a value the report did not start with a scheme stays no link.
+  it('is no link for one with a space in front, which the platform would trim', () => {
+    expect(webLink(' https://github.com/acme/shop/actions/runs/42')).toBeUndefined();
   });
 
   it('keeps a link whose scheme is in capitals, as the platform does', () => {
@@ -411,6 +416,20 @@ describe('errorContextOf — the text of every error (AC-01, AC-01c, AC-05, AC-1
         'PATH=/usr/bin:~/.local/bin',
       ].join('\n'),
     );
+  });
+
+  // #790 re-review C1: after a scheme's `//` the host is not a path, even when it is named as the root
+  // or the home is — a compose service `app` beside `WORKDIR /app`, say.
+  it('leaves an address alone whose host is named as the root or the home (AC-01)', () => {
+    const lines = [
+      'Error: page.goto: net::ERR_NAME_NOT_RESOLVED at http://app/login',
+      'navigating to "http://app/", waiting until "load"',
+      'GET http://root/health',
+      '    at /app/e2e/shop.spec.ts:3:1',
+      '    at file:///app/e2e/helpers.ts:5:7',
+    ];
+    const text = errorContextOf(attempt({ errors: [{ text: lines.join('\n') }], testFile: '/app/e2e/shop.spec.ts', repoRoot: '/app' }), '/root');
+    expect(text).toBe([...lines.slice(0, 3), '    at e2e/shop.spec.ts:3:1', '    at e2e/helpers.ts:5:7'].join('\n'));
   });
 
   // #790 review G2: a diff prints a string, so a Windows path in it has every backslash doubled.

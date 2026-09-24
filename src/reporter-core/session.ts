@@ -251,9 +251,10 @@ export async function startRun(
         '/v1/test-cases/resolve',
         { keys: part },
       );
-      if (!out.ok) {
+      // A 2xx without its list is no answer either (#790 re-review C5).
+      if (!out.ok || !Array.isArray(out.body?.results)) {
         // Not fatal: an unresolved key defers its result rather than losing it.
-        log(`plune: could not look up test cases (${out.detail || out.kind}).`);
+        log(`plune: could not look up test cases (${out.ok ? 'the answer had no results' : out.detail || out.kind}).`);
         return;
       }
       for (const row of out.body.results) resolved.set(row.key.value, row.testCaseId);
@@ -315,12 +316,13 @@ export async function startRun(
       ...described,
     });
 
-    if (start.ok) {
+    if (start.ok && typeof start.body?.run?.id === 'string') {
       runId = start.body.run.id;
       joined = start.status === 200;
       warnIfDropped(described, start.body.run, log);
     } else {
-      log(`plune: could not start the run (${start.detail || start.kind}). Results will be written to ${fallbackPath}.`);
+      const why = start.ok ? 'the answer had no run' : start.detail || start.kind;
+      log(`plune: could not start the run (${why}). Results will be written to ${fallbackPath}.`);
     }
   }
 
@@ -458,7 +460,7 @@ export async function startRun(
         results: part,
       });
       // A success with no counts says nothing about what was stored: kept for a replay, not guessed.
-      const counts = out.ok ? out.body?.counts : undefined;
+      const counts = out.ok ? (out.body?.counts ?? undefined) : undefined;
       if (counts !== undefined) {
         stats.accepted += counts.accepted ?? 0;
         stats.duplicate += counts.duplicate ?? 0;
@@ -551,7 +553,7 @@ export async function startRun(
         if (!out.ok) log(`plune: could not close run ${runId} (${out.detail || out.kind}).`);
         // The one thing a full run does outside itself (D20). Said when it happened and only then:
         // a `0 detached` on every ordinary run would teach people to stop reading the line.
-        else if (typeof out.body.detached === 'number' && out.body.detached > 0) {
+        else if (typeof out.body?.detached === 'number' && out.body.detached > 0) {
           log(`plune: ${out.body.detached} test case(s) marked detached — this full run no longer reports them.`);
         }
       }
