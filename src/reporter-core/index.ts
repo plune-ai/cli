@@ -23,8 +23,8 @@ export type { EnvSettings } from './env.js';
 export { appendBatch, DEFAULT_FALLBACK_PATH } from './fallback.js';
 export type { DeferredBatch, DeferredResult } from './fallback.js';
 
-/** What failed and where, from one normalized attempt — the same for both roads (#790). */
-export { failureOf, repoRootOf } from './failure-detail.js';
+/** What failed and where, and the text of every error, from one normalized attempt — the same for both roads (#790). */
+export { errorContextOf, failureOf, repoRootOf } from './failure-detail.js';
 
 /** The client itself, for the CLI commands that drive a run without a runner (C5). */
 export { createClient } from './client.js';

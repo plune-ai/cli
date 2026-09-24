@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { failureOf, repoRootOf } from '../failure-detail.js';
+import { errorContextOf, failureOf, repoRootOf } from '../failure-detail.js';
 import type { FailedAttempt } from '../types.js';
 
 /**
@@ -219,5 +219,159 @@ describe('repoRootOf — the nearest .git above the runner’s root dir', () => 
   it('is undefined when no .git is above', () => {
     dir = mkdtempSync(join(tmpdir(), 'plune-root-'));
     expect(repoRootOf(join(dir, 'nowhere'), dir)).toBeUndefined();
+  });
+});
+
+describe('errorContextOf — the text of every error (AC-01, AC-01c, AC-05, AC-15)', () => {
+  const HOME = '/home/ci-user';
+  const LIMIT = 512 * 1024;
+  const MARKER = /^…\[omitted (\d+) lines\]…$/;
+
+  it('holds every error of the attempt in order, with no escape character left', () => {
+    const text = errorContextOf(
+      attempt({ errors: [{ text: SOFT('the first total', 23, 41) }, { text: SOFT('the second total', 24, 41) }, { text: `${ESC}[31mstray${ESC}` }] }),
+      HOME,
+    );
+    const first = text.indexOf('Error: the first total');
+    expect(first).toBeGreaterThanOrEqual(0);
+    expect(text.indexOf('Error: the second total')).toBeGreaterThan(first);
+    expect(text).toContain('    at e2e/shop.spec.ts:22:5\n\nError: the second total');
+    expect(text).toContain('expect(received).toBe(expected) // Object.is equality');
+    expect(text).toContain('stray');
+    expect(text).not.toContain(ESC);
+  });
+
+  it('is empty when no error has a text', () => {
+    expect(errorContextOf(attempt({ errors: [{ text: '' }, { text: 'Error: boom' }, { text: '' }] }), HOME)).toBe('Error: boom');
+    expect(errorContextOf(attempt({ errors: [{ text: '' }, { text: '' }] }), HOME)).toBe('');
+  });
+
+  it('writes the repository as relative paths and the home folder as ~ (AC-05)', () => {
+    const text = errorContextOf(
+      attempt({
+        errors: [
+          {
+            text: [
+              'Error: boom',
+              '    at /home/ci-user/shop/e2e/shop.spec.ts:12:13',
+              '    at /home/ci-user/.cache/ms-playwright/x.js:1:1',
+              '    at file:///home/ci-user/shop/e2e/helpers.ts:3:5',
+              '    at /home/ci-user/shop2/other.ts:9:9',
+            ].join('\n'),
+          },
+        ],
+        testFile: '/home/ci-user/shop/e2e/shop.spec.ts',
+        repoRoot: '/home/ci-user/shop',
+      }),
+      HOME,
+    );
+    expect(text).toBe(
+      ['Error: boom', '    at e2e/shop.spec.ts:12:13', '    at ~/.cache/ms-playwright/x.js:1:1', '    at e2e/helpers.ts:3:5', '    at ~/shop2/other.ts:9:9'].join('\n'),
+    );
+    expect(errorContextOf(attempt({ errors: [{ text: 'at /home/ci-user/.cache/x.js:1:1' }] }), '/home/ci-user/')).toBe('at ~/.cache/x.js:1:1');
+  });
+
+  it('with a root rewrites only this machine’s folders — a sibling, or a path that is the test’s own data, stays', () => {
+    const text = errorContextOf(
+      attempt({
+        errors: [{ text: ['at /srv/ci/repo/c.ts:3:3', 'at /srv/ci/repo2/a.ts:1:1', 'at /srv/ci-cache/b.ts:2:2', 'Expected: "/home/bob/report.txt"'].join('\n') }],
+        repoRoot: '/srv/ci/repo',
+      }),
+      '/srv/ci',
+    );
+    expect(text).toBe(['at c.ts:3:3', 'at ~/repo2/a.ts:1:1', 'at /srv/ci-cache/b.ts:2:2', 'Expected: "/home/bob/report.txt"'].join('\n'));
+  });
+
+  it('takes a root or a home at / or a bare drive for no folder — it would match every path', () => {
+    expect(errorContextOf(attempt({ repoRoot: '/', errors: [{ text: 'at /opt/x.js:2:2' }] }), '/')).toBe('at /opt/x.js:2:2');
+    expect(errorContextOf(attempt({ repoRoot: 'C:\\', errors: [{ text: 'at C:\\opt\\x.js:2:2' }] }), 'C:\\')).toBe('at C:\\opt\\x.js:2:2');
+  });
+
+  it('on Windows as well, whatever case the drive letter was written in (AC-05)', () => {
+    const text = errorContextOf(
+      attempt({
+        errors: [{ text: 'Error: boom\n    at D:\\repo\\e2e\\shop.spec.ts:12:13\n    at file:///D:/repo/e2e/helpers.ts:3:5\n    at C:\\Users\\alice\\AppData\\x.js:1:1' }],
+        testFile: 'D:\\repo\\e2e\\shop.spec.ts',
+        repoRoot: 'd:\\repo',
+      }),
+      'C:\\Users\\alice',
+    );
+    expect(text).toBe('Error: boom\n    at e2e\\shop.spec.ts:12:13\n    at e2e/helpers.ts:3:5\n    at ~\\AppData\\x.js:1:1');
+  });
+
+  it('with no repository root writes any home folder as ~ — the report may come from another machine (AC-05)', () => {
+    const text = errorContextOf(
+      attempt({
+        repoRoot: undefined,
+        errors: [
+          {
+            text: [
+              'at /home/bob/shop/a.ts:1:1',
+              'at /Users/carol/shop/b.ts:2:2',
+              'at C:\\Users\\dave\\shop\\c.ts:3:3',
+              'at file:///C:/Users/erin/shop/d.ts:4:4',
+              'cannot open /home/frank',
+              '/home/gina/.npm/_logs/debug.log',
+              'at /work/src/Users/list.ts:5:5',
+            ].join('\n'),
+          },
+        ],
+      }),
+      HOME,
+    );
+    expect(text).toBe(
+      [
+        'at ~/shop/a.ts:1:1',
+        'at ~/shop/b.ts:2:2',
+        'at ~\\shop\\c.ts:3:3',
+        'at ~/shop/d.ts:4:4',
+        'cannot open ~',
+        '~/.npm/_logs/debug.log',
+        'at /work/src/Users/list.ts:5:5',
+      ].join('\n'),
+    );
+  });
+
+  it('cuts a 20 MB text to whole lines from the head and the tail, and says how many it left out (AC-15)', () => {
+    const lines = Array.from({ length: 280_000 }, (_, i) => `  - locator resolved to <p data-testid="total">$42.00</p>, unexpected value "$42.00" (${i})`);
+    const text = errorContextOf(attempt({ errors: [{ text: lines.join('\n') }] }), HOME);
+
+    expect(Buffer.byteLength(lines.join('\n'))).toBeGreaterThan(20 * 1024 * 1024);
+    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(LIMIT);
+    const out = text.split('\n');
+    const at = out.findIndex((line) => MARKER.test(line));
+    expect(at).toBeGreaterThan(0);
+    expect(out.filter((line) => MARKER.test(line))).toHaveLength(1);
+    const kept = out.length - 1;
+    expect(at).toBeGreaterThan(1000);
+    expect(kept - at).toBeGreaterThan(1000);
+    expect(kept + Number(MARKER.exec(out[at]!)![1])).toBe(lines.length);
+    expect(out.slice(0, at)).toEqual(lines.slice(0, at));
+    expect(out.slice(at + 1)).toEqual(lines.slice(lines.length - (kept - at)));
+    expect(Buffer.byteLength(text)).toBeGreaterThan(LIMIT - 1024);
+  });
+
+  it('measures the limit in UTF-8 bytes, not in characters', () => {
+    const lines = Array.from({ length: 3_000 }, () => 'ї'.repeat(99));
+    const text = errorContextOf(attempt({ errors: [{ text: lines.join('\n') }] }), HOME);
+    expect(lines.join('\n').length).toBeLessThan(LIMIT);
+    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(LIMIT);
+    expect(text).toMatch(/…\[omitted \d+ lines\]…/);
+  });
+
+  it('counts the marker itself into the limit', () => {
+    const lines = Array.from({ length: 1_000 }, () => 'a'.repeat(1_023));
+    expect(Buffer.byteLength(errorContextOf(attempt({ errors: [{ text: lines.join('\n') }] }), HOME))).toBeLessThanOrEqual(LIMIT);
+  });
+
+  it('replaces a single line over the limit with the marker whole — no part of it shows (AC-15)', () => {
+    const value = `authorization: Bearer ${'s3cr3t'.repeat(100_000)}`;
+    const text = errorContextOf(attempt({ errors: [{ text: `Error: bad header\n${value}\n    at /repo/e2e/shop.spec.ts:4:2` }] }), HOME);
+    expect(text).toBe('Error: bad header\n…[omitted 1 lines]…\n    at e2e/shop.spec.ts:4:2');
+  });
+
+  it('leaves a text at the limit whole', () => {
+    const body = 'x'.repeat(LIMIT - 'Error: '.length);
+    expect(errorContextOf(attempt({ errors: [{ text: `Error: ${body}` }] }), HOME)).toBe(`Error: ${body}`);
   });
 });

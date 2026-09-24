@@ -21,7 +21,12 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   the test's own file as a posix path from the repository root (`repoRootOf` finds the root once per
   run; a file outside it, line 0 or a path the platform would refuse drops the place, not the batch),
   the names of the attachments kept as files, and the build link when it is http(s). Nothing is cut or
-  searched for credentials here — the platform does both after its own cleaning. Neither road sends it
+  searched for credentials here — the platform does both after its own cleaning. `errorContextOf`
+  builds the text beside it: every error of the attempt in order, colour codes gone, the repository as
+  relative paths and the home folder as `~` (any `/home/<u>`, `/Users/<u>` or `C:\Users\<u>` when the
+  root is unknown, as for a report from another machine), and at most 512 KB — the CLI's transport
+  limit, not a copy of the platform's 256 KB — cut by whole lines from the head and the tail around one
+  `…[omitted N lines]…`, so a line longer than the limit never shows in part. Neither road sends either
   yet.
 
 ## [0.13.0] - 2026-09-18

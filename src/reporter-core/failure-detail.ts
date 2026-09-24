@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join, posix, resolve } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import type { AttemptError, DeclaredStep, FailedAttempt, FailureDetail, RunnerLocation } from './types.js';
@@ -42,6 +43,66 @@ export function repoRootOf(dir: string, stopAt?: string): string | undefined {
     if (here === stopAt || dirname(here) === here) return undefined;
   }
 }
+
+/**
+ * `errorContext` for one attempt: every error in order, colour codes gone, the repository as relative
+ * paths and a home folder as `~` — any home folder when the root is unknown, since the report may come
+ * from another machine — and no longer than the CLI's transport limit, cut by whole lines. Nothing is
+ * searched for credentials: the platform does that before its own cut (ADR-0005).
+ */
+export function errorContextOf(attempt: FailedAttempt, home: string = homedir()): string {
+  let text = stripVTControlCharacters(
+    attempt.errors
+      .map((e) => e.text)
+      .filter((t) => t !== '')
+      .join('\n\n'),
+  ).replaceAll('\u001b', '');
+  const root = attempt.repoRoot === undefined ? undefined : pathIn(attempt.repoRoot);
+  if (root !== undefined) text = text.replace(new RegExp(`${root.source}[\\\\/]`, root.flags), '');
+  const own = pathIn(home);
+  if (own !== undefined) text = text.replace(new RegExp(`${own.source}(?![\\w.-])`, own.flags), '~');
+  if (attempt.repoRoot === undefined) text = text.replace(ANY_HOME, '~');
+  return cut(text);
+}
+
+/** The CLI's own transport limit for one text (ADR-0006) — not a copy of the platform's 256 KB. */
+const TEXT_LIMIT = 524_288;
+
+/** A home folder opening a path in a text: `/home/<u>`, `/Users/<u>`, `C:\Users\<u>`, a file URL too. */
+// ponytail: a user name with a space is cut at the space; the machine's own home is matched exactly.
+const ANY_HOME = /(?<=^|[\s'"`(=,[])(?:file:\/\/\/?)?(?:\/home\/|\/Users\/|[A-Za-z]:[\\/]Users[\\/])[^\\/\s'"`:*?<>|]+/g;
+
+/**
+ * `path` as a text may spell it: either slash, as a file URL, and on Windows in any case. Nothing for
+ * `/` or a bare drive — they would match every path.
+ */
+function pathIn(path: string): RegExp | undefined {
+  const parts = path.split(/[\\/]+/);
+  while (parts.length > 1 && parts.at(-1) === '') parts.pop();
+  if (!parts.some((part) => part !== '' && !/^[A-Za-z]:$/.test(part))) return undefined;
+  const escaped = parts.map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\\\/]');
+  return new RegExp(`(?:file:\\/\\/\\/?)?${escaped}`, /^[A-Za-z]:$/.test(parts[0]!) ? 'gi' : 'g');
+}
+
+/**
+ * At most `TEXT_LIMIT` UTF-8 bytes, by whole lines: lines from the head, then from the tail, and one
+ * `…[omitted N lines]…` where the rest were. A line longer than the limit goes whole, so no part of a
+ * one-line credential can show; the lines left out never leave the machine.
+ */
+function cut(text: string): string {
+  if (Buffer.byteLength(text) <= TEXT_LIMIT) return text;
+  const lines = text.split('\n');
+  const size = lines.map((line) => Buffer.byteLength(line) + 1);
+  const budget = TEXT_LIMIT - Buffer.byteLength(omitted(lines.length));
+  let used = 0;
+  let head = 0;
+  let tail = lines.length;
+  while (head < tail && used + size[head]! <= budget / 2) used += size[head++]!;
+  while (tail > head && used + size[tail - 1]! <= budget) used += size[--tail]!;
+  return [...lines.slice(0, head), omitted(tail - head), ...lines.slice(tail)].join('\n');
+}
+
+const omitted = (lines: number): string => `…[omitted ${lines} lines]…`;
 
 /** The content type a test hands the reporter its metadata in (platform ADR 0023) — not an artifact. */
 const METADATA_TYPE = 'application/plune.metadata+json';
