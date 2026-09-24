@@ -38,7 +38,7 @@ That is the whole setup. Options, if you want them:
 ```
 
 Keep the token out of this list: it comes from `PLUNE_TOKEN` or what `plune login` saved. Playwright
-writes every reporter's options into its JSON and blob reports, so a token set here travels with any
+writes every reporter's options into its JSON report, so a token set here travels with any such
 report a CI job keeps as an artifact.
 
 ## From CI, without editing the config
