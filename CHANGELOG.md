@@ -11,6 +11,77 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **The failure detail of a failed attempt — what failed, the declared steps down to it, where, what
+  the runner kept, and the CI run (plune-ai/plune#790).** `failureOf` in `@plune-ai/cli/reporter-core`
+  derives it from one normalized attempt, so `plune run import` and the reporter cannot disagree: the
+  first non-empty line of the error (on a test timeout, the line of the action that was still waiting,
+  not "Test timeout of N ms exceeded"), the chain of failed declared steps, the first stack frame in
+  the test's own file as a posix path from the repository root (`repoRootOf` finds the root once per
+  run; a file outside it, line 0 or a path the platform would refuse drops the place, not the batch),
+  the names of the attachments kept as files, and the build link when it is http(s). Nothing is cut or
+  searched for credentials here — the platform does both after its own cleaning. `errorContextOf`
+  builds the text beside it: every error of the attempt in order, colour codes gone, the repository as
+  relative paths and the home folder as `~` (any `/home/<u>`, `/Users/<u>` or `C:\Users\<u>` when the
+  root is unknown, as for a report from another machine), and at most 512 KB — the CLI's transport
+  limit, not a copy of the platform's 256 KB — cut by whole lines from the head and the tail around one
+  `…[omitted N lines]…`, so a line longer than the limit never shows in part.
+
+- **`plune run import` sends it for a Playwright JSON report, and opens the run with its CI run.**
+  Each attempt of the report is reduced to the attempt the core reads — `errors[i]` as Playwright
+  wrote them (the message, the code frame and the stack in one text, with where it was thrown), the
+  declared steps, the attachments, `config.metadata.ci.buildHref` — so a failed attempt carries its
+  `failure` and the text above; one that passed or was skipped carries none. The root comes from the
+  report's `rootDir`, and only when that folder is on this machine: a report from somewhere else keeps
+  its detail but names no place. The run opens with `meta.ciUrl` from the same `buildHref` — the CI
+  run the report names, never this machine's `GITHUB_*` — and without a link at all when it is not an
+  http(s) address, rather than being refused.
+
+- **`@plune-ai/playwright` sends the same detail, from the reporter API.** Each attempt becomes the same
+  normalized attempt: every error written as Playwright's own JSON report writes it (`formatError` with
+  colours off — the stack's head, the code frame, the `at` lines, a cause), the declared steps kept by
+  the report's own filter (`test.step` under `test.step` from the test body, so a step in a hook or a
+  fixture and every action stay out of the chain), the attachments. The repository root is looked up
+  once from `rootDir`; `metadata.ci` is read when the run opens, on the first result, because
+  Playwright's git plugin writes it after `onConfigure`. A report of the same run imported with
+  `plune run import` gives the same text and the same `failure`. Where an error carries no place, both
+  roads take the first stack frame outside `node_modules`, as Playwright does.
+
+### Changed
+
+- **What was not delivered is said in the same words on both roads, every time.** `plune run import`'s
+  summary line gains a fourth number, zero included: `Read 100 result(s) from a playwright report: 90
+  accepted, 0 already there, 2 unmatched, 8 not delivered.` — the results a refused batch or an
+  unanswered lookup kept out of Plune. The `[0-9]+ unmatched` workflows read stays whole, and the line
+  about the fallback file is unchanged. The reporter's own line says `… · 8 not delivered — written to
+  .plune/pending-results.jsonl` where it said `8 written to …`. In GitHub Actions a count above zero
+  also prints, once and on either road,
+  `::warning::8 result(s) were not delivered to Plune — see the reporting step's log.`; no exit code
+  changes.
+
+### Fixed
+
+- **A run whose failures carry long texts no longer loses them to one refused batch
+  (plune-ai/plune#790).** Results went in batches by count alone, so fifty failures with 10 KB of text
+  each were already over the route's ceiling: the batch was refused and written to the fallback file,
+  which in CI goes with the runner. A batch is now at most `batchSize` results **and** at most 8 MiB of
+  serialized JSON — under the 10 MiB the platform admits for it, the CLI's own number and not a copy of
+  the platform's. An ordinary run still takes one call; 100 results of 256 KB take four. A result
+  heavier than a batch goes alone. A refused batch costs only itself: the rest are still sent, and each
+  batch left after a refused token goes to the fallback file on a line of its own, so
+  `plune run report` sends it again in one call the route accepts.
+
+- **`plune run import` reads a real Playwright JSON report without being told its format.** Detection
+  looked for `"suites"` in the first 4 KB only, but Playwright writes `config` first — argv, every
+  project, each reporter's options, the CI metadata — and a report of a pinned 1.63 run put it past
+  7 KB: the import refused a report it reads fine. The whole file is searched now.
+
+- **`plune run import <file> --format <fmt>` uses the format it is given.** `plune run` has a
+  `--format` of its own (console | json | markdown), and the parser gave it every `--format` on the
+  line, so the import never saw one: the flag was ignored, an unknown value was not refused, and the
+  advice «Say which with --format» could not be followed.
+
 ## [0.13.0] - 2026-09-18
 
 `@plune-ai/playwright` stays at **0.2.5** - nothing below touches `reporter-core`, so the adapter

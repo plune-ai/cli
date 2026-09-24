@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -404,6 +404,87 @@ describe('plune run import', () => {
       await handleRunImport({ ...deps(fetchImpl), file: write('results.xml', REPORT) });
 
       expect(finishes(seen)).toHaveLength(1);
+    });
+  });
+
+  /**
+   * #790 T16. What did not reach Plune is said on the line people and workflows already read, and in
+   * GitHub Actions once more where a run's annotations show it; the CI run comes from the report the
+   * runner wrote, never from the machine that happens to import it.
+   */
+  describe('what was not delivered, and the CI run (#790)', () => {
+    const BUILD = 'https://github.com/acme/shop/actions/runs/42';
+    const playwrightReport = (buildHref: string) =>
+      JSON.stringify({
+        config: { rootDir: '/nowhere/here', metadata: { ci: { buildHref } } },
+        suites: [
+          {
+            title: 'a.spec.ts',
+            file: 'a.spec.ts',
+            specs: [{ title: 't', file: 'a.spec.ts', line: 1, tests: [{ id: 'id-1', results: [{ status: 'passed', retry: 0 }] }] }],
+          },
+        ],
+      });
+    /** The command's own summary — after the session's `plune: …` line, which comes first. */
+    const readLine = () => lines.find((l) => l.startsWith('Read '));
+    const refusingResults = (inner: typeof fetch) =>
+      (async (url: string | URL | Request, init?: RequestInit) =>
+        String(url).endsWith('/results') ? json(413, { error: 'request body too large' }) : inner(url, init)) as unknown as typeof fetch;
+
+    beforeEach(() => {
+      vi.stubEnv('GITHUB_ACTIONS', '');
+      vi.stubEnv('PLUNE_FALLBACK', path.join(dir, 'pending.jsonl'));
+    });
+    afterEach(() => vi.unstubAllEnvs());
+
+    it('always says how many were not delivered, zero included, and the unmatched count reads as before', async () => {
+      const { fetchImpl } = platform(() => null);
+      await handleRunImport({ ...deps(fetchImpl), file: write('results.xml', REPORT) });
+
+      expect(readLine()).toBe('Read 2 result(s) from a junit report: 0 accepted, 0 already there, 2 unmatched, 0 not delivered.');
+      // The pattern pre-release.yml and regression-beta.yml read the count with.
+      expect(readLine()?.match(/[0-9]+ unmatched/)?.[0]).toBe('2 unmatched');
+    });
+
+    it('counts a refused batch as not delivered, keeps the fallback line, and exits as before', async () => {
+      const { fetchImpl } = platform();
+      const out = await handleRunImport({ ...deps(refusingResults(fetchImpl)), file: write('results.xml', REPORT) });
+
+      expect(out.deferred).toBe(2);
+      expect(readLine()).toBe('Read 2 result(s) from a junit report: 0 accepted, 0 already there, 0 unmatched, 2 not delivered.');
+      expect(lines).toContain('2 could not be sent and are in the fallback file — "plune run report" retries them.');
+      expect(lines.some((l) => l.startsWith('::warning::'))).toBe(false);
+    });
+
+    it('in GitHub Actions warns once when something was not delivered, and never when all was', async () => {
+      vi.stubEnv('GITHUB_ACTIONS', 'true');
+      const { fetchImpl } = platform();
+      await handleRunImport({ ...deps(refusingResults(fetchImpl)), file: write('results.xml', REPORT) });
+      expect(lines.filter((l) => l.startsWith('::warning::'))).toEqual([
+        "::warning::2 result(s) were not delivered to Plune — see the reporting step's log.",
+      ]);
+
+      lines.length = 0;
+      await handleRunImport({ ...deps(platform().fetchImpl), file: write('results.xml', REPORT) });
+      expect(lines.some((l) => l.startsWith('::warning::'))).toBe(false);
+    });
+
+    it('opens the run with the CI run the report names, not this machine’s GITHUB_* (AC-04, AC-04b)', async () => {
+      vi.stubEnv('GITHUB_SERVER_URL', 'https://github.com');
+      vi.stubEnv('GITHUB_REPOSITORY', 'someone/else');
+      vi.stubEnv('GITHUB_RUN_ID', '999');
+      const { seen, fetchImpl } = platform();
+      await handleRunImport({ ...deps(fetchImpl), file: write('report.json', playwrightReport(BUILD)) });
+
+      expect(seen.find((s) => s.path === '/v1/runs')?.body['meta']).toEqual({ runner: 'playwright-json', ciUrl: BUILD });
+    });
+
+    it('opens the run without a link when the report’s is no web address, rather than being refused (AC-07b)', async () => {
+      const { seen, fetchImpl } = platform();
+      const out = await handleRunImport({ ...deps(fetchImpl), file: write('report.json', playwrightReport('javascript:alert(1)')) });
+
+      expect(seen.find((s) => s.path === '/v1/runs')?.body['meta']).toEqual({ runner: 'playwright-json' });
+      expect(out.runId).toBe('r-9');
     });
   });
 });

@@ -1,7 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { handleRunReport } from '../../cli/commands/run-lifecycle.js';
 import { startRun } from '../session.js';
 import type { KeyRef, PendingResult, ReporterConfig } from '../types.js';
 
@@ -19,6 +22,8 @@ interface Seen {
   starts: { body: Record<string, unknown> }[];
   resolves: { keys: KeyRef[] }[];
   results: { runId: string; results: Record<string, unknown>[] }[];
+  /** The size of every body sent to `…/results`, the refused ones included. */
+  resultCalls: number[];
   events: { runId: string; body: Record<string, unknown> }[];
   discovered: { body: Record<string, unknown> }[];
 }
@@ -30,6 +35,8 @@ interface PlatformOptions {
   startStatus?: number;
   /** Force a reply on `…/results`: a status + error message, or a thrown network failure. */
   resultsFailure?: { status: number; error: string } | 'network';
+  /** Only this call to `…/results` (from 0) meets `resultsFailure`; absent means every call does. */
+  failCall?: number;
   /**
    * Whether this deployment has the D13 columns. `false` models one older than them: it validates
    * the body, keeps what it knows, answers 201 — and nothing about that reads as a loss.
@@ -44,7 +51,7 @@ interface PlatformOptions {
 }
 
 function platform(opts: PlatformOptions = {}) {
-  const seen: Seen = { starts: [], resolves: [], results: [], events: [], discovered: [] };
+  const seen: Seen = { starts: [], resolves: [], results: [], resultCalls: [], events: [], discovered: [] };
   const known = opts.known ?? {};
 
   const json = (body: unknown, status = 200): Response =>
@@ -76,8 +83,10 @@ function platform(opts: PlatformOptions = {}) {
     }
     const results = /\/v1\/runs\/([^/]+)\/results$/.exec(target);
     if (results) {
-      if (opts.resultsFailure === 'network') throw new TypeError('fetch failed');
-      if (opts.resultsFailure !== undefined) {
+      const call = seen.resultCalls.push(Buffer.byteLength(String(init?.body ?? ''))) - 1;
+      const fails = opts.failCall === undefined || opts.failCall === call;
+      if (fails && opts.resultsFailure === 'network') throw new TypeError('fetch failed');
+      if (fails && opts.resultsFailure !== undefined) {
         return json({ error: opts.resultsFailure.error }, opts.resultsFailure.status);
       }
       const list = body['results'] as Record<string, unknown>[];
@@ -369,6 +378,152 @@ describe('batching', () => {
   });
 });
 
+describe('a batch is packed by bytes as well as by count (#790, ADR-0006)', () => {
+  const BATCH_BYTES = 8 * 1024 * 1024;
+  const failed = (id: string, bytes: number): PendingResult => result(id, { rawStatus: 'failed', errorContext: 'x'.repeat(bytes) });
+  const known = (n: number): Record<string, string> => Object.fromEntries(Array.from({ length: n }, (_, i) => [`t${i}`, `tc-${i}`]));
+  const many = (bytes: number): PendingResult[] => Array.from({ length: 100 }, (_, i) => failed(`t${i}`, bytes));
+
+  async function report(results: PendingResult[], opts: PlatformOptions = {}) {
+    const p = platform({ known: known(results.length), ...opts });
+    const cfg = config(p.fetchImpl);
+    const run = await startRun(cfg);
+    for (const r of results) await run.add(r);
+    await run.finish();
+    return { ...p, run, cfg };
+  }
+  const fallbackLines = (cfg: ReporterConfig): { results: unknown[] }[] =>
+    fs
+      .readFileSync(cfg.fallbackPath as string, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { results: unknown[] });
+
+  it('sends 100 results of 256 KB in 4 calls, none over 8 MiB', async () => {
+    const { seen, run } = await report(many(256 * 1024));
+    expect(seen.resultCalls).toHaveLength(4);
+    expect(Math.max(...seen.resultCalls)).toBeLessThanOrEqual(BATCH_BYTES);
+    expect(run.stats).toMatchObject({ accepted: 100, deferred: 0 });
+  });
+
+  it('sends 100 results of 512 KB in no more than 7 calls', async () => {
+    const { seen, run } = await report(many(512 * 1024));
+    expect(seen.resultCalls.length).toBeLessThanOrEqual(7);
+    expect(Math.max(...seen.resultCalls)).toBeLessThanOrEqual(BATCH_BYTES);
+    expect(run.stats).toMatchObject({ accepted: 100, deferred: 0 });
+  });
+
+  it('sends an ordinary run in the one call it took before', async () => {
+    const { seen } = await report(Array.from({ length: 100 }, (_, i) => (i < 10 ? failed(`t${i}`, 2_000) : result(`t${i}`))));
+    expect(seen.resultCalls).toHaveLength(1);
+  });
+
+  it('sends a result bigger than a batch on its own, and never an empty call before it', async () => {
+    const { seen, run } = await report([failed('t0', 9 * 1024 * 1024), failed('t1', 1_000), failed('t2', 9 * 1024 * 1024)]);
+    expect(seen.results.map((r) => r.results.length)).toEqual([1, 1, 1]);
+    expect(run.stats.accepted).toBe(3);
+  });
+
+  it('holds a body of exactly 8 MiB to one call, and one byte more to two', async () => {
+    // Three results, so the commas between them count as well as the envelope around them.
+    const probe = await report([failed('t0', 1), failed('t1', 1), failed('t2', 1)]);
+    const fixed = probe.seen.resultCalls[0]! - 3; // everything in that body but the three texts
+    const split = async (extra: number) => {
+      const third = Math.floor((BATCH_BYTES - fixed) / 3);
+      const last = BATCH_BYTES - fixed - 2 * third + extra;
+      return (await report([failed('t0', third), failed('t1', third), failed('t2', last)])).seen.resultCalls;
+    };
+    expect(await split(0)).toEqual([BATCH_BYTES]);
+    expect(await split(1)).toHaveLength(2);
+  });
+
+  it('defers only the batch refused for its size, delivers the rest, and "plune run report" sends it again', async () => {
+    const { seen, run, cfg } = await report(many(256 * 1024), { resultsFailure: { status: 413, error: 'request body too large' }, failCall: 1 });
+    expect(seen.resultCalls).toHaveLength(4);
+    const refused = 100 - run.stats.accepted;
+    expect(refused).toBeGreaterThan(0);
+    expect(refused).toBeLessThan(100);
+    expect(run.stats.deferred).toBe(refused);
+    expect(fallbackLines(cfg).map((line) => line.results.length)).toEqual([refused]);
+
+    const again = platform({ known: known(100) });
+    const replay = await handleRunReport({
+      file: cfg.fallbackPath as string,
+      apiUrl: 'https://api.test',
+      token: TOKEN,
+      fetchImpl: again.fetchImpl,
+      write: () => {},
+    });
+    expect(replay).toEqual({ batches: 1, sent: refused, failed: 0 });
+    expect(again.seen.results.map((r) => r.results.length)).toEqual([refused]);
+  });
+
+  it('after a refused token sends nothing more, and keeps each batch left on a line a replay can send', async () => {
+    const { seen, run, cfg } = await report(many(256 * 1024), { resultsFailure: { status: 401, error: 'unauthorized' }, failCall: 1 });
+    expect(seen.resultCalls).toHaveLength(2);
+    expect(run.stats.deferred).toBe(100 - run.stats.accepted);
+    const lines = fallbackLines(cfg);
+    expect(lines).toHaveLength(3);
+    for (const line of lines) expect(Buffer.byteLength(JSON.stringify({ results: line.results }))).toBeLessThanOrEqual(BATCH_BYTES);
+  });
+});
+
+/**
+ * #790 T18, spec §6 «Доставка найгіршого прогону». A server that refuses as the platform does, by the
+ * bytes that arrive (`hono/body-limit`): 10 MiB on `POST /v1/runs` and `…/results`, 512 KiB on every
+ * other write, 500 results a batch — Plune `src/server/middleware/body-limit.ts` and
+ * `src/server/results/v1-routes.ts`. Over a real socket, so what is measured is what was sent.
+ */
+describe('the worst run arrives whole against the platform’s ceilings (#790 AC-15)', () => {
+  const BULK = /^POST \/v1\/runs(?:\/[^/]+\/results)?$/;
+
+  it('100 failures of 256 KB each: all accepted, none deferred or rejected, in at most 10 calls', async () => {
+    const calls: string[] = [];
+    const server = createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk: Buffer) => chunks.push(chunk));
+      req.on('end', () => {
+        const route = `${req.method} ${req.url}`;
+        calls.push(route);
+        const reply = (status: number, payload: unknown): void => {
+          res.writeHead(status, { 'content-type': 'application/json' });
+          res.end(JSON.stringify(payload));
+        };
+        const raw = Buffer.concat(chunks);
+        const ceiling = BULK.test(route) ? 10 * 1024 * 1024 : 512 * 1024;
+        if (raw.length > ceiling) return reply(413, { error: `request body too large — this route accepts at most ${ceiling} bytes` });
+        const body = JSON.parse(raw.length === 0 ? '{}' : raw.toString('utf8')) as { keys?: KeyRef[]; results?: unknown[] };
+        if (route === 'POST /v1/runs') return reply(201, { run: { id: 'r-1' }, joined: false });
+        if (route === 'POST /v1/test-cases/resolve') {
+          return reply(200, { results: (body.keys ?? []).map((key) => ({ key, testCaseId: `tc-${key.value}`, matchedKind: null })) });
+        }
+        if (route.endsWith('/results')) {
+          const list = body.results ?? [];
+          if (list.length > 500) return reply(400, { error: 'results: at most 500 a batch' });
+          return reply(200, { items: [], counts: { accepted: list.length, duplicate: 0, conflict: 0, rejected: 0 } });
+        }
+        if (route.endsWith('/events')) return reply(200, { run: { id: 'r-1' }, changed: true });
+        return reply(500, { error: `unexpected ${route}` });
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const { port } = server.address() as AddressInfo;
+      const cfg = config(fetch, { apiUrl: `http://127.0.0.1:${port}` });
+      const worst = Array.from({ length: 100 }, (_, i) => result(`t${i}`, { rawStatus: 'failed', errorContext: 'x'.repeat(256 * 1024) }));
+      const run = await startRun(cfg, worst.map((r) => r.keys));
+      for (const r of worst) await run.add(r);
+      await run.finish();
+
+      expect(run.stats).toMatchObject({ accepted: 100, deferred: 0, rejected: 0 });
+      expect(calls.length).toBeLessThanOrEqual(10);
+      expect(fs.existsSync(cfg.fallbackPath as string)).toBe(false);
+    } finally {
+      server.close();
+    }
+  });
+});
+
 describe('the platform is not there (AC-05)', () => {
   it('defers the batch and lets the run carry on', async () => {
     const { fetchImpl } = platform({ known: { a: 'tc-a' }, resultsFailure: 'network' });
@@ -411,6 +566,43 @@ describe('a refused token stops the asking (AC-06)', () => {
 
     expect(logOf(cfg).filter((l) => l.includes('plune login'))).toHaveLength(1);
     expect(seen.events).toHaveLength(0);
+  });
+});
+
+/**
+ * #790 T17 — the line both roads end on names what did not reach Plune in the words the import's own
+ * summary uses, and in GitHub Actions says it once more where a run's annotations show it.
+ */
+describe('the summary says what was not delivered (#790)', () => {
+  beforeEach(() => vi.stubEnv('GITHUB_ACTIONS', ''));
+  afterEach(() => vi.unstubAllEnvs());
+
+  async function reportOne(opts: PlatformOptions): Promise<ReporterConfig> {
+    const { fetchImpl } = platform({ known: { a: 'tc-a', b: 'tc-b' }, ...opts });
+    const cfg = config(fetchImpl);
+    const run = await startRun(cfg);
+    await run.add(result('a'));
+    await run.add(result('b', { resultKey: 'b#0' }));
+    await run.finish();
+    return cfg;
+  }
+
+  it('names it as not delivered, beside the file it went to', async () => {
+    const cfg = await reportOne({ resultsFailure: { status: 413, error: 'request body too large' } });
+    expect(logOf(cfg).at(-1)).toBe(`plune: 0 accepted · 2 not delivered — written to ${cfg.fallbackPath}`);
+    expect(logOf(cfg).some((l) => l.startsWith('::warning::'))).toBe(false);
+  });
+
+  it('in GitHub Actions warns once on the same output, and not at all when everything arrived', async () => {
+    vi.stubEnv('GITHUB_ACTIONS', 'true');
+    const refused = await reportOne({ resultsFailure: { status: 413, error: 'request body too large' } });
+    expect(logOf(refused).filter((l) => l.startsWith('::warning::'))).toEqual([
+      "::warning::2 result(s) were not delivered to Plune — see the reporting step's log.",
+    ]);
+
+    const delivered = await reportOne({});
+    expect(logOf(delivered).at(-1)).toBe('plune: 2 accepted');
+    expect(logOf(delivered).some((l) => l.startsWith('::warning::'))).toBe(false);
   });
 });
 

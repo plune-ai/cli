@@ -333,7 +333,12 @@ export function createProgram(): Command {
           import('./cli/commands/run-import.js'),
           import('./importers/index.js'),
         ]);
-        const format = options.format;
+        // `run` has a --format of its own, and commander gives a parent every option it knows wherever
+        // it stands — so what was typed for the import lands on `run`. Typed, never `run`'s default.
+        const run = command.parent;
+        const format =
+          options.format ??
+          (run?.getOptionValueSource('format') === 'cli' ? (run.opts() as { format: string }).format : undefined);
         if (format !== undefined && !(IMPORT_FORMATS as readonly string[]).includes(format)) {
           process.stderr.write(
             `Unknown --format "${format}". Use ${IMPORT_FORMATS.join(' or ')}.\n`,

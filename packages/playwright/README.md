@@ -34,9 +34,12 @@ That is the whole setup. Options, if you want them:
   batchSize: 100,                          // results per request (max 500)
   fallbackPath: '.plune/pending-results.jsonl',
   apiUrl: 'https://beta-api.plune.ai',     // or PLUNE_API_URL
-  token: process.env.PLUNE_TOKEN,          // or whatever `plune login` saved
 }]
 ```
+
+Keep the token out of this list: it comes from `PLUNE_TOKEN` or what `plune login` saved. Playwright
+writes every reporter's options into its JSON and blob reports, so a token set here travels with any
+report a CI job keeps as an artifact.
 
 ## From CI, without editing the config
 

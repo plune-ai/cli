@@ -1,0 +1,343 @@
+{
+  "config": {
+    "rootDir": "/repo/tests",
+    "metadata": {
+      "ci": {
+        "commitHref": "https://github.com/acme/shop/commit/0123456789abcdef0123456789abcdef01234567",
+        "commitHash": "0123456789abcdef0123456789abcdef01234567",
+        "buildHref": "https://github.com/acme/shop/actions/runs/42"
+      }
+    },
+    "version": "1.63.0"
+  },
+  "suites": [
+    {
+      "title": "shop.spec.ts",
+      "file": "shop.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "times out while a helper waits",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 1500,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "timedOut",
+                  "duration": 1514,
+                  "error": {
+                    "message": "\u001b[31mTest timeout of 1500ms exceeded.\u001b[39m",
+                    "stack": "\u001b[31mTest timeout of 1500ms exceeded.\u001b[39m"
+                  },
+                  "errors": [
+                    {
+                      "message": "\u001b[31mTest timeout of 1500ms exceeded.\u001b[39m"
+                    },
+                    {
+                      "location": {
+                        "file": "/repo/tests/helpers.ts",
+                        "column": 17,
+                        "line": 14
+                      },
+                      "message": "Error: apiRequestContext.get: Request context disposed.\nCall log:\n\u001b[2m  - → GET http://127.0.0.1:64789/total\u001b[22m\n\u001b[2m    - user-agent: Playwright/1.63.0 (x64; windows 10.0) node/24.13\u001b[22m\n\u001b[2m    - accept: */*\u001b[22m\n\u001b[2m    - accept-encoding: gzip,deflate,br\u001b[22m\n\n\n   at helpers.ts:14\n\n  12 | /** The helper the test calls: the waiting action lives here, in another file. */\n  13 | export async function readTotal(request: APIRequestContext, url: string): Promise<void> {\n> 14 |   await request.get(url);\n     |                 ^\n  15 | }\n  16 |\n  17 | /** A fixture from another file that fails while it is set up. */\n    at readTotal (/repo/tests/helpers.ts:14:17)\n    at /repo/tests/shop.spec.ts:12:13\n    at /repo/tests/shop.spec.ts:11:5\n    at /repo/tests/shop.spec.ts:10:3"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "steps": [
+                    {
+                      "title": "Pay",
+                      "duration": 1507,
+                      "error": {
+                        "message": "Error: apiRequestContext.get: Request context disposed.\nCall log:\n\u001b[2m  - → GET http://127.0.0.1:64789/total\u001b[22m\n\u001b[2m    - user-agent: Playwright/1.63.0 (x64; windows 10.0) node/24.13\u001b[22m\n\u001b[2m    - accept: */*\u001b[22m\n\u001b[2m    - accept-encoding: gzip,deflate,br\u001b[22m\n",
+                        "stack": "Error: apiRequestContext.get: Request context disposed.\nCall log:\n\u001b[2m  - → GET http://127.0.0.1:64789/total\u001b[22m\n\u001b[2m    - user-agent: Playwright/1.63.0 (x64; windows 10.0) node/24.13\u001b[22m\n\u001b[2m    - accept: */*\u001b[22m\n\u001b[2m    - accept-encoding: gzip,deflate,br\u001b[22m\n\n    at readTotal (/repo/tests/helpers.ts:14:17)\n    at /repo/tests/shop.spec.ts:12:13\n    at /repo/tests/shop.spec.ts:11:5\n    at /repo/tests/shop.spec.ts:10:3",
+                        "location": {
+                          "file": "/repo/tests/helpers.ts",
+                          "column": 17,
+                          "line": 14
+                        },
+                        "snippet": "\u001b[90m   at \u001b[39mhelpers.ts:14\n\n\u001b[0m \u001b[90m 12 |\u001b[39m \u001b[90m/** The helper the test calls: the waiting action lives here, in another file. */\u001b[39m\n \u001b[90m 13 |\u001b[39m \u001b[36mexport\u001b[39m \u001b[36masync\u001b[39m \u001b[36mfunction\u001b[39m readTotal(request\u001b[33m:\u001b[39m \u001b[33mAPIRequestContext\u001b[39m\u001b[33m,\u001b[39m url\u001b[33m:\u001b[39m string)\u001b[33m:\u001b[39m \u001b[33mPromise\u001b[39m\u001b[33m<\u001b[39m\u001b[36mvoid\u001b[39m\u001b[33m>\u001b[39m {\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 14 |\u001b[39m   \u001b[36mawait\u001b[39m request\u001b[33m.\u001b[39m\u001b[36mget\u001b[39m(url)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                 \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 15 |\u001b[39m }\n \u001b[90m 16 |\u001b[39m\n \u001b[90m 17 |\u001b[39m \u001b[90m/** A fixture from another file that fails while it is set up. */\u001b[39m\u001b[0m"
+                      },
+                      "steps": [
+                        {
+                          "title": "Read the total",
+                          "duration": 1507,
+                          "error": {
+                            "message": "Error: apiRequestContext.get: Request context disposed.\nCall log:\n\u001b[2m  - → GET http://127.0.0.1:64789/total\u001b[22m\n\u001b[2m    - user-agent: Playwright/1.63.0 (x64; windows 10.0) node/24.13\u001b[22m\n\u001b[2m    - accept: */*\u001b[22m\n\u001b[2m    - accept-encoding: gzip,deflate,br\u001b[22m\n",
+                            "stack": "Error: apiRequestContext.get: Request context disposed.\nCall log:\n\u001b[2m  - → GET http://127.0.0.1:64789/total\u001b[22m\n\u001b[2m    - user-agent: Playwright/1.63.0 (x64; windows 10.0) node/24.13\u001b[22m\n\u001b[2m    - accept: */*\u001b[22m\n\u001b[2m    - accept-encoding: gzip,deflate,br\u001b[22m\n\n    at readTotal (/repo/tests/helpers.ts:14:17)\n    at /repo/tests/shop.spec.ts:12:13\n    at /repo/tests/shop.spec.ts:11:5\n    at /repo/tests/shop.spec.ts:10:3",
+                            "location": {
+                              "file": "/repo/tests/helpers.ts",
+                              "column": 17,
+                              "line": 14
+                            },
+                            "snippet": "\u001b[90m   at \u001b[39mhelpers.ts:14\n\n\u001b[0m \u001b[90m 12 |\u001b[39m \u001b[90m/** The helper the test calls: the waiting action lives here, in another file. */\u001b[39m\n \u001b[90m 13 |\u001b[39m \u001b[36mexport\u001b[39m \u001b[36masync\u001b[39m \u001b[36mfunction\u001b[39m readTotal(request\u001b[33m:\u001b[39m \u001b[33mAPIRequestContext\u001b[39m\u001b[33m,\u001b[39m url\u001b[33m:\u001b[39m string)\u001b[33m:\u001b[39m \u001b[33mPromise\u001b[39m\u001b[33m<\u001b[39m\u001b[36mvoid\u001b[39m\u001b[33m>\u001b[39m {\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 14 |\u001b[39m   \u001b[36mawait\u001b[39m request\u001b[33m.\u001b[39m\u001b[36mget\u001b[39m(url)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                 \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 15 |\u001b[39m }\n \u001b[90m 16 |\u001b[39m\n \u001b[90m 17 |\u001b[39m \u001b[90m/** A fixture from another file that fails while it is set up. */\u001b[39m\u001b[0m"
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "startTime": "2026-09-24T07:10:34.251Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/repo/test-results/shop-times-out-while-a-helper-waits/error-context.md"
+                    }
+                  ]
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "f3cfbb30272ae2b01352-898fa06c35f6289e4154",
+          "file": "shop.spec.ts",
+          "line": 8,
+          "column": 1
+        },
+        {
+          "title": "several soft assertions",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 1500,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 9,
+                  "error": {
+                    "message": "Error: the first total\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m",
+                    "stack": "Error: the first total\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n    at /repo/tests/shop.spec.ts:23:41\n    at /repo/tests/shop.spec.ts:22:5\n    at /repo/tests/shop.spec.ts:21:3",
+                    "location": {
+                      "file": "/repo/tests/shop.spec.ts",
+                      "column": 41,
+                      "line": 23
+                    },
+                    "snippet": "\u001b[0m \u001b[90m 21 |\u001b[39m   \u001b[36mawait\u001b[39m test\u001b[33m.\u001b[39mstep(\u001b[32m'Pay'\u001b[39m\u001b[33m,\u001b[39m \u001b[36masync\u001b[39m () \u001b[33m=>\u001b[39m {\n \u001b[90m 22 |\u001b[39m     \u001b[36mawait\u001b[39m test\u001b[33m.\u001b[39mstep(\u001b[32m'Check the totals'\u001b[39m\u001b[33m,\u001b[39m \u001b[36masync\u001b[39m () \u001b[33m=>\u001b[39m {\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 23 |\u001b[39m       expect\u001b[33m.\u001b[39msoft(\u001b[35m1\u001b[39m\u001b[33m,\u001b[39m \u001b[32m'the first total'\u001b[39m)\u001b[33m.\u001b[39mtoBe(\u001b[35m2\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                         \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 24 |\u001b[39m       expect\u001b[33m.\u001b[39msoft(\u001b[32m'EUR'\u001b[39m\u001b[33m,\u001b[39m \u001b[32m'the currency'\u001b[39m)\u001b[33m.\u001b[39mtoBe(\u001b[32m'USD'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 25 |\u001b[39m     })\u001b[33m;\u001b[39m\n \u001b[90m 26 |\u001b[39m   })\u001b[33m;\u001b[39m\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/repo/tests/shop.spec.ts",
+                        "column": 41,
+                        "line": 23
+                      },
+                      "message": "Error: the first total\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n\n  21 |   await test.step('Pay', async () => {\n  22 |     await test.step('Check the totals', async () => {\n> 23 |       expect.soft(1, 'the first total').toBe(2);\n     |                                         ^\n  24 |       expect.soft('EUR', 'the currency').toBe('USD');\n  25 |     });\n  26 |   });\n    at /repo/tests/shop.spec.ts:23:41\n    at /repo/tests/shop.spec.ts:22:5\n    at /repo/tests/shop.spec.ts:21:3"
+                    },
+                    {
+                      "location": {
+                        "file": "/repo/tests/shop.spec.ts",
+                        "column": 42,
+                        "line": 24
+                      },
+                      "message": "Error: the currency\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"USD\"\u001b[39m\nReceived: \u001b[31m\"EUR\"\u001b[39m\n\n  22 |     await test.step('Check the totals', async () => {\n  23 |       expect.soft(1, 'the first total').toBe(2);\n> 24 |       expect.soft('EUR', 'the currency').toBe('USD');\n     |                                          ^\n  25 |     });\n  26 |   });\n  27 | });\n    at /repo/tests/shop.spec.ts:24:42\n    at /repo/tests/shop.spec.ts:22:5\n    at /repo/tests/shop.spec.ts:21:3"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "steps": [
+                    {
+                      "title": "Pay",
+                      "duration": 5,
+                      "error": {
+                        "message": "Error: the first total\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m",
+                        "stack": "Error: the first total\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n    at /repo/tests/shop.spec.ts:23:41\n    at /repo/tests/shop.spec.ts:22:5\n    at /repo/tests/shop.spec.ts:21:3",
+                        "location": {
+                          "file": "/repo/tests/shop.spec.ts",
+                          "column": 41,
+                          "line": 23
+                        },
+                        "snippet": "\u001b[0m \u001b[90m 21 |\u001b[39m   \u001b[36mawait\u001b[39m test\u001b[33m.\u001b[39mstep(\u001b[32m'Pay'\u001b[39m\u001b[33m,\u001b[39m \u001b[36masync\u001b[39m () \u001b[33m=>\u001b[39m {\n \u001b[90m 22 |\u001b[39m     \u001b[36mawait\u001b[39m test\u001b[33m.\u001b[39mstep(\u001b[32m'Check the totals'\u001b[39m\u001b[33m,\u001b[39m \u001b[36masync\u001b[39m () \u001b[33m=>\u001b[39m {\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 23 |\u001b[39m       expect\u001b[33m.\u001b[39msoft(\u001b[35m1\u001b[39m\u001b[33m,\u001b[39m \u001b[32m'the first total'\u001b[39m)\u001b[33m.\u001b[39mtoBe(\u001b[35m2\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                         \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 24 |\u001b[39m       expect\u001b[33m.\u001b[39msoft(\u001b[32m'EUR'\u001b[39m\u001b[33m,\u001b[39m \u001b[32m'the currency'\u001b[39m)\u001b[33m.\u001b[39mtoBe(\u001b[32m'USD'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 25 |\u001b[39m     })\u001b[33m;\u001b[39m\n \u001b[90m 26 |\u001b[39m   })\u001b[33m;\u001b[39m\u001b[0m"
+                      },
+                      "steps": [
+                        {
+                          "title": "Check the totals",
+                          "duration": 5,
+                          "error": {
+                            "message": "Error: the first total\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m",
+                            "stack": "Error: the first total\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n    at /repo/tests/shop.spec.ts:23:41\n    at /repo/tests/shop.spec.ts:22:5\n    at /repo/tests/shop.spec.ts:21:3",
+                            "location": {
+                              "file": "/repo/tests/shop.spec.ts",
+                              "column": 41,
+                              "line": 23
+                            },
+                            "snippet": "\u001b[0m \u001b[90m 21 |\u001b[39m   \u001b[36mawait\u001b[39m test\u001b[33m.\u001b[39mstep(\u001b[32m'Pay'\u001b[39m\u001b[33m,\u001b[39m \u001b[36masync\u001b[39m () \u001b[33m=>\u001b[39m {\n \u001b[90m 22 |\u001b[39m     \u001b[36mawait\u001b[39m test\u001b[33m.\u001b[39mstep(\u001b[32m'Check the totals'\u001b[39m\u001b[33m,\u001b[39m \u001b[36masync\u001b[39m () \u001b[33m=>\u001b[39m {\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 23 |\u001b[39m       expect\u001b[33m.\u001b[39msoft(\u001b[35m1\u001b[39m\u001b[33m,\u001b[39m \u001b[32m'the first total'\u001b[39m)\u001b[33m.\u001b[39mtoBe(\u001b[35m2\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                         \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 24 |\u001b[39m       expect\u001b[33m.\u001b[39msoft(\u001b[32m'EUR'\u001b[39m\u001b[33m,\u001b[39m \u001b[32m'the currency'\u001b[39m)\u001b[33m.\u001b[39mtoBe(\u001b[32m'USD'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 25 |\u001b[39m     })\u001b[33m;\u001b[39m\n \u001b[90m 26 |\u001b[39m   })\u001b[33m;\u001b[39m\u001b[0m"
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "startTime": "2026-09-24T07:10:36.059Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "body": "cG5n"
+                    },
+                    {
+                      "name": "_internal",
+                      "contentType": "text/plain",
+                      "body": "eA=="
+                    },
+                    {
+                      "name": "note",
+                      "contentType": "text/plain",
+                      "body": "aW5saW5lIHRleHQ="
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/repo/test-results/shop-several-soft-assertions/error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/repo/tests/shop.spec.ts",
+                    "column": 41,
+                    "line": 23
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "f3cfbb30272ae2b01352-3f27aaeb45b048cc5505",
+          "file": "shop.spec.ts",
+          "line": 17,
+          "column": 1
+        },
+        {
+          "title": "fails in a fixture from another file",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 1500,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 2,
+                  "error": {
+                    "message": "Error: no test account in this environment",
+                    "stack": "Error: no test account in this environment\n    at Object.account (/repo/tests/helpers.ts:20:11)",
+                    "location": {
+                      "file": "/repo/tests/helpers.ts",
+                      "column": 11,
+                      "line": 20
+                    },
+                    "snippet": "\u001b[90m   at \u001b[39mhelpers.ts:20\n\n\u001b[0m \u001b[90m 18 |\u001b[39m \u001b[36mexport\u001b[39m \u001b[36mconst\u001b[39m test \u001b[33m=\u001b[39m base\u001b[33m.\u001b[39mextend\u001b[33m<\u001b[39m{ account\u001b[33m:\u001b[39m string }\u001b[33m>\u001b[39m({\n \u001b[90m 19 |\u001b[39m   account\u001b[33m:\u001b[39m \u001b[36masync\u001b[39m ({}\u001b[33m,\u001b[39m use) \u001b[33m=>\u001b[39m {\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 20 |\u001b[39m     \u001b[36mthrow\u001b[39m \u001b[36mnew\u001b[39m \u001b[33mError\u001b[39m(\u001b[32m'no test account in this environment'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m           \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 21 |\u001b[39m     \u001b[36mawait\u001b[39m use(\u001b[32m'never'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 22 |\u001b[39m   }\u001b[33m,\u001b[39m\n \u001b[90m 23 |\u001b[39m })\u001b[33m;\u001b[39m\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/repo/tests/helpers.ts",
+                        "column": 11,
+                        "line": 20
+                      },
+                      "message": "Error: no test account in this environment\n\n   at helpers.ts:20\n\n  18 | export const test = base.extend<{ account: string }>({\n  19 |   account: async ({}, use) => {\n> 20 |     throw new Error('no test account in this environment');\n     |           ^\n  21 |     await use('never');\n  22 |   },\n  23 | });\n    at Object.account (/repo/tests/helpers.ts:20:11)"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-24T07:10:36.372Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/repo/test-results/shop-fails-in-a-fixture-from-another-file/error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/repo/tests/helpers.ts",
+                    "column": 11,
+                    "line": 20
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "f3cfbb30272ae2b01352-71936945f95a28f0b6f6",
+          "file": "shop.spec.ts",
+          "line": 29,
+          "column": 1
+        },
+        {
+          "title": "passes",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 1500,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 8,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "steps": [
+                    {
+                      "title": "Pay",
+                      "duration": 4
+                    }
+                  ],
+                  "startTime": "2026-09-24T07:10:36.668Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "f3cfbb30272ae2b01352-553f99781bb154aacc71",
+          "file": "shop.spec.ts",
+          "line": 34,
+          "column": 1
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-09-24T07:10:33.875Z",
+    "duration": 2847.091,
+    "expected": 1,
+    "skipped": 0,
+    "unexpected": 3,
+    "flaky": 0
+  }
+}

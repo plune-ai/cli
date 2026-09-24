@@ -28,6 +28,11 @@ vi.mock('../../reporters/index.js', () => ({
   renderReport: (...args: unknown[]) => renderReportMock(...args),
 }));
 
+const handleRunImportMock = vi.fn(async (..._args: unknown[]) => ({}));
+vi.mock('../commands/run-import.js', () => ({
+  handleRunImport: (...args: unknown[]) => handleRunImportMock(...args),
+}));
+
 // loadEnv is a real fs side-effect — stub it so program tests never touch a real .env, and so we
 // can assert WHEN/WITH-WHAT it is invoked (T007).
 const loadEnvMock = vi.fn((..._args: unknown[]) => undefined);
@@ -40,12 +45,30 @@ import { createProgram } from '../../cli.js';
 
 beforeEach(() => {
   handleRunMock.mockClear();
+  handleRunImportMock.mockClear();
   renderReportMock.mockClear();
   loadEnvMock.mockClear();
   vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
 });
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+/**
+ * `run` has a --format of its own (console | json | markdown), and commander gives a parent every
+ * option it knows wherever the option stands — so the import's --format never arrived, and the advice
+ * «Say which with --format» could not be followed (#790 T18).
+ */
+describe('run import takes its own --format', () => {
+  it('hands the format typed after the file to the import', async () => {
+    await createProgram().parseAsync(['node', 'plune', 'run', 'import', 'r.json', '--format', 'playwright-json']);
+    expect(handleRunImportMock).toHaveBeenCalledWith({ file: 'r.json', format: 'playwright-json' });
+  });
+
+  it('leaves the format to the file when none was typed — not the run command’s default', async () => {
+    await createProgram().parseAsync(['node', 'plune', 'run', 'import', 'r.json']);
+    expect(handleRunImportMock).toHaveBeenCalledWith({ file: 'r.json' });
+  });
 });
 
 describe('global flags (AC-T01)', () => {

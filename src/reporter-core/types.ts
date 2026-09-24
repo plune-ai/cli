@@ -119,9 +119,73 @@ export interface PendingResult {
   specRef?: string;
   execution?: Execution;
   errorContext?: string;
+  /** What failed and where, for a failed attempt (#790); a pass carries none. Built by `failureOf`. */
+  failure?: FailureDetail;
   params?: Record<string, unknown>;
   attachments?: Attachment[];
   assertions?: AssertionRecord[];
+}
+
+/**
+ * What a failed attempt says about itself on the run page (#790, platform ADR-0002): every field
+ * optional — a field the runner could not supply is absent, never guessed. Nothing here is cut: the
+ * platform bounds the fields after its own cleaning, and a cut before that could halve a credential.
+ */
+export interface FailureDetail {
+  /** The first non-empty line of the chosen error, without colour codes. */
+  headline?: string;
+  /** Declared steps (`test.step`), from the outermost to the one that failed. */
+  steps?: string[];
+  /** Where it failed, from the repository root, posix. */
+  location?: { file: string; line: number; column?: number };
+  /** The files the runner kept for the attempt, by name — the files themselves stay in the CI run. */
+  artifacts?: { name: string; contentType?: string }[];
+  /** The CI run that produced the report, http(s) only. */
+  ciUrl?: string;
+}
+
+/** Where a runner says something happened: an absolute file, a line, maybe a column. */
+export interface RunnerLocation {
+  file: string;
+  line: number;
+  column?: number;
+}
+
+/** One error of an attempt, as the runner formats it for a report: the message, the code frame, the
+ * stack's `    at` lines — the form Playwright's JSON report already holds for every error. */
+export interface AttemptError {
+  text: string;
+  /** Where the runner says it was thrown. */
+  location?: RunnerLocation;
+}
+
+/** A step the test declared (`test.step`), with the declared steps inside it — nothing else. */
+export interface DeclaredStep {
+  title: string;
+  failed: boolean;
+  steps: DeclaredStep[];
+}
+
+/**
+ * One failed attempt, as both roads reduce their runner's data to it before anything is derived —
+ * `plune run import` from the JSON report, the adapter from the reporter API (#790 ADR-0001). The same
+ * shape in, so the same detail and the same text out.
+ */
+export interface FailedAttempt {
+  /** The runner's word: `timedOut` picks which error the headline comes from. */
+  status: string;
+  /** Every error of the attempt, in order. */
+  errors: AttemptError[];
+  /** The declared steps, outermost first — as the JSON report keeps them. */
+  steps: DeclaredStep[];
+  /** What the runner kept; `path` is what makes one a file. */
+  attachments: { name: string; contentType?: string; path?: string }[];
+  /** `metadata.ci.buildHref` of the run — the CI run that produced the report. */
+  buildHref?: string;
+  /** The test's own file, absolute. */
+  testFile: string;
+  /** The repository's root on this machine, when one was found above the runner's root dir. */
+  repoRoot?: string;
 }
 
 /** What a run submission looks like once a key has resolved. Built by the core, never by a caller. */
@@ -210,7 +274,11 @@ export interface RunStats extends SubmitCounts {
    * queue at capacity means "empty it and import again"; nothing else here means that.
    */
   unoffered: number;
-  /** Results written to the fallback file instead of the platform. */
+  /**
+   * Results not delivered, written to the fallback file instead of the platform (#790): a batch
+   * refused for any reason — its size, the network, the token, a closed run — or a result whose keys
+   * the platform could not be asked about. Apart from `rejected` and `unresolved`, which it did answer.
+   */
   deferred: number;
 }
 

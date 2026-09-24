@@ -15,6 +15,9 @@ if (apiUrl === undefined || apiUrl === '') {
   throw new Error('PLUNE_STUB_URL must be set — this fixture must never reach a real deployment');
 }
 
+// The same run as a JSON report as well, when a test asks for one — what `plune run import` reads (#790).
+const jsonReport = process.env['PLUNE_JSON_REPORT'];
+
 export default defineConfig({
   testDir: './tests',
   reporter: [
@@ -30,5 +33,6 @@ export default defineConfig({
         externalKey: process.env['PLUNE_RUN'] ?? 'e2e-fixture',
       },
     ],
+    ...(jsonReport !== undefined ? [['json', { outputFile: jsonReport }] as const] : []),
   ],
 });

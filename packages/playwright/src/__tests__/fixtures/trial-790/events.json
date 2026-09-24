@@ -1,0 +1,485 @@
+{
+  "rootDir": "/repo/tests",
+  "ciAtBegin": {
+    "commitHref": "https://github.com/acme/shop/commit/0123456789abcdef0123456789abcdef01234567",
+    "commitHash": "0123456789abcdef0123456789abcdef01234567",
+    "buildHref": "https://github.com/acme/shop/actions/runs/42"
+  },
+  "events": [
+    {
+      "title": "times out while a helper waits",
+      "file": "/repo/tests/shop.spec.ts",
+      "line": 8,
+      "status": "timedOut",
+      "retry": 0,
+      "errors": [
+        {
+          "message": "\u001b[31mTest timeout of 1500ms exceeded.\u001b[39m",
+          "stack": "\u001b[31mTest timeout of 1500ms exceeded.\u001b[39m"
+        },
+        {
+          "message": "Error: apiRequestContext.get: Request context disposed.\nCall log:\n\u001b[2m  - → GET http://127.0.0.1:64789/total\u001b[22m\n\u001b[2m    - user-agent: Playwright/1.63.0 (x64; windows 10.0) node/24.13\u001b[22m\n\u001b[2m    - accept: */*\u001b[22m\n\u001b[2m    - accept-encoding: gzip,deflate,br\u001b[22m\n",
+          "stack": "Error: apiRequestContext.get: Request context disposed.\nCall log:\n\u001b[2m  - → GET http://127.0.0.1:64789/total\u001b[22m\n\u001b[2m    - user-agent: Playwright/1.63.0 (x64; windows 10.0) node/24.13\u001b[22m\n\u001b[2m    - accept: */*\u001b[22m\n\u001b[2m    - accept-encoding: gzip,deflate,br\u001b[22m\n\n    at readTotal (/repo/tests/helpers.ts:14:17)\n    at /repo/tests/shop.spec.ts:12:13\n    at /repo/tests/shop.spec.ts:11:5\n    at /repo/tests/shop.spec.ts:10:3",
+          "location": {
+            "file": "/repo/tests/helpers.ts",
+            "column": 17,
+            "line": 14
+          },
+          "snippet": "\u001b[90m   at \u001b[39mhelpers.ts:14\n\n\u001b[0m \u001b[90m 12 |\u001b[39m \u001b[90m/** The helper the test calls: the waiting action lives here, in another file. */\u001b[39m\n \u001b[90m 13 |\u001b[39m \u001b[36mexport\u001b[39m \u001b[36masync\u001b[39m \u001b[36mfunction\u001b[39m readTotal(request\u001b[33m:\u001b[39m \u001b[33mAPIRequestContext\u001b[39m\u001b[33m,\u001b[39m url\u001b[33m:\u001b[39m string)\u001b[33m:\u001b[39m \u001b[33mPromise\u001b[39m\u001b[33m<\u001b[39m\u001b[36mvoid\u001b[39m\u001b[33m>\u001b[39m {\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 14 |\u001b[39m   \u001b[36mawait\u001b[39m request\u001b[33m.\u001b[39m\u001b[36mget\u001b[39m(url)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                 \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 15 |\u001b[39m }\n \u001b[90m 16 |\u001b[39m\n \u001b[90m 17 |\u001b[39m \u001b[90m/** A fixture from another file that fails while it is set up. */\u001b[39m\u001b[0m"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Before Hooks",
+          "category": "hook",
+          "steps": [
+            {
+              "title": "beforeEach hook",
+              "category": "hook",
+              "location": {
+                "file": "/repo/tests/shop.spec.ts",
+                "line": 4,
+                "column": 6
+              },
+              "steps": [
+                {
+                  "title": "Seed the basket",
+                  "category": "test.step",
+                  "location": {
+                    "file": "/repo/tests/shop.spec.ts",
+                    "line": 5,
+                    "column": 3
+                  },
+                  "steps": []
+                }
+              ]
+            },
+            {
+              "title": "Fixture \"request\"",
+              "category": "fixture",
+              "steps": [
+                {
+                  "title": "Create request context",
+                  "category": "pw:api",
+                  "steps": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Pay",
+          "category": "test.step",
+          "location": {
+            "file": "/repo/tests/shop.spec.ts",
+            "line": 10,
+            "column": 3
+          },
+          "error": {
+            "message": "Error: apiRequestContext.get: Request context disposed.\nCall log:\n\u001b[2m  - → GET http://127.0.0.1:64789/total\u001b[22m\n\u001b[2m    - user-agent: Playwright/1.63.0 (x64; windows 10.0) node/24.13\u001b[22m\n\u001b[2m    - accept: */*\u001b[22m\n\u001b[2m    - accept-encoding: gzip,deflate,br\u001b[22m\n"
+          },
+          "steps": [
+            {
+              "title": "Read the total",
+              "category": "test.step",
+              "location": {
+                "file": "/repo/tests/shop.spec.ts",
+                "line": 11,
+                "column": 5
+              },
+              "error": {
+                "message": "Error: apiRequestContext.get: Request context disposed.\nCall log:\n\u001b[2m  - → GET http://127.0.0.1:64789/total\u001b[22m\n\u001b[2m    - user-agent: Playwright/1.63.0 (x64; windows 10.0) node/24.13\u001b[22m\n\u001b[2m    - accept: */*\u001b[22m\n\u001b[2m    - accept-encoding: gzip,deflate,br\u001b[22m\n"
+              },
+              "steps": [
+                {
+                  "title": "GET",
+                  "category": "pw:api",
+                  "location": {
+                    "file": "/repo/tests/helpers.ts",
+                    "line": 14,
+                    "column": 17,
+                    "function": "readTotal"
+                  },
+                  "steps": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "After Hooks",
+          "category": "hook",
+          "steps": [
+            {
+              "title": "Fixture \"request\"",
+              "category": "fixture",
+              "steps": []
+            }
+          ]
+        },
+        {
+          "title": "Worker Cleanup",
+          "category": "hook",
+          "steps": []
+        }
+      ],
+      "attachments": [
+        {
+          "name": "error-context",
+          "contentType": "text/markdown",
+          "path": "/repo/test-results/shop-times-out-while-a-helper-waits/error-context.md"
+        }
+      ],
+      "ciAtTestEnd": {
+        "commitHref": "https://github.com/acme/shop/commit/0123456789abcdef0123456789abcdef01234567",
+        "commitHash": "0123456789abcdef0123456789abcdef01234567",
+        "buildHref": "https://github.com/acme/shop/actions/runs/42"
+      }
+    },
+    {
+      "title": "several soft assertions",
+      "file": "/repo/tests/shop.spec.ts",
+      "line": 17,
+      "status": "failed",
+      "retry": 0,
+      "errors": [
+        {
+          "message": "Error: the first total\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m",
+          "stack": "Error: the first total\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n    at /repo/tests/shop.spec.ts:23:41\n    at /repo/tests/shop.spec.ts:22:5\n    at /repo/tests/shop.spec.ts:21:3",
+          "location": {
+            "file": "/repo/tests/shop.spec.ts",
+            "column": 41,
+            "line": 23
+          },
+          "snippet": "\u001b[0m \u001b[90m 21 |\u001b[39m   \u001b[36mawait\u001b[39m test\u001b[33m.\u001b[39mstep(\u001b[32m'Pay'\u001b[39m\u001b[33m,\u001b[39m \u001b[36masync\u001b[39m () \u001b[33m=>\u001b[39m {\n \u001b[90m 22 |\u001b[39m     \u001b[36mawait\u001b[39m test\u001b[33m.\u001b[39mstep(\u001b[32m'Check the totals'\u001b[39m\u001b[33m,\u001b[39m \u001b[36masync\u001b[39m () \u001b[33m=>\u001b[39m {\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 23 |\u001b[39m       expect\u001b[33m.\u001b[39msoft(\u001b[35m1\u001b[39m\u001b[33m,\u001b[39m \u001b[32m'the first total'\u001b[39m)\u001b[33m.\u001b[39mtoBe(\u001b[35m2\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                         \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 24 |\u001b[39m       expect\u001b[33m.\u001b[39msoft(\u001b[32m'EUR'\u001b[39m\u001b[33m,\u001b[39m \u001b[32m'the currency'\u001b[39m)\u001b[33m.\u001b[39mtoBe(\u001b[32m'USD'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 25 |\u001b[39m     })\u001b[33m;\u001b[39m\n \u001b[90m 26 |\u001b[39m   })\u001b[33m;\u001b[39m\u001b[0m"
+        },
+        {
+          "message": "Error: the currency\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"USD\"\u001b[39m\nReceived: \u001b[31m\"EUR\"\u001b[39m",
+          "stack": "Error: the currency\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"USD\"\u001b[39m\nReceived: \u001b[31m\"EUR\"\u001b[39m\n    at /repo/tests/shop.spec.ts:24:42\n    at /repo/tests/shop.spec.ts:22:5\n    at /repo/tests/shop.spec.ts:21:3",
+          "location": {
+            "file": "/repo/tests/shop.spec.ts",
+            "column": 42,
+            "line": 24
+          },
+          "snippet": "\u001b[0m \u001b[90m 22 |\u001b[39m     \u001b[36mawait\u001b[39m test\u001b[33m.\u001b[39mstep(\u001b[32m'Check the totals'\u001b[39m\u001b[33m,\u001b[39m \u001b[36masync\u001b[39m () \u001b[33m=>\u001b[39m {\n \u001b[90m 23 |\u001b[39m       expect\u001b[33m.\u001b[39msoft(\u001b[35m1\u001b[39m\u001b[33m,\u001b[39m \u001b[32m'the first total'\u001b[39m)\u001b[33m.\u001b[39mtoBe(\u001b[35m2\u001b[39m)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 24 |\u001b[39m       expect\u001b[33m.\u001b[39msoft(\u001b[32m'EUR'\u001b[39m\u001b[33m,\u001b[39m \u001b[32m'the currency'\u001b[39m)\u001b[33m.\u001b[39mtoBe(\u001b[32m'USD'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                          \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 25 |\u001b[39m     })\u001b[33m;\u001b[39m\n \u001b[90m 26 |\u001b[39m   })\u001b[33m;\u001b[39m\n \u001b[90m 27 |\u001b[39m })\u001b[33m;\u001b[39m\u001b[0m"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Before Hooks",
+          "category": "hook",
+          "steps": [
+            {
+              "title": "beforeEach hook",
+              "category": "hook",
+              "location": {
+                "file": "/repo/tests/shop.spec.ts",
+                "line": 4,
+                "column": 6
+              },
+              "steps": [
+                {
+                  "title": "Seed the basket",
+                  "category": "test.step",
+                  "location": {
+                    "file": "/repo/tests/shop.spec.ts",
+                    "line": 5,
+                    "column": 3
+                  },
+                  "steps": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Attach \"screenshot\"",
+          "category": "test.attach",
+          "location": {
+            "file": "/repo/tests/shop.spec.ts",
+            "line": 18,
+            "column": 18
+          },
+          "steps": []
+        },
+        {
+          "title": "Attach \"_internal\"",
+          "category": "test.attach",
+          "location": {
+            "file": "/repo/tests/shop.spec.ts",
+            "line": 19,
+            "column": 18
+          },
+          "steps": []
+        },
+        {
+          "title": "Attach \"note\"",
+          "category": "test.attach",
+          "location": {
+            "file": "/repo/tests/shop.spec.ts",
+            "line": 20,
+            "column": 18
+          },
+          "steps": []
+        },
+        {
+          "title": "Pay",
+          "category": "test.step",
+          "location": {
+            "file": "/repo/tests/shop.spec.ts",
+            "line": 21,
+            "column": 3
+          },
+          "error": {
+            "message": "Error: the first total\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m"
+          },
+          "steps": [
+            {
+              "title": "Check the totals",
+              "category": "test.step",
+              "location": {
+                "file": "/repo/tests/shop.spec.ts",
+                "line": 22,
+                "column": 5
+              },
+              "error": {
+                "message": "Error: the first total\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m"
+              },
+              "steps": [
+                {
+                  "title": "the first total",
+                  "category": "expect",
+                  "location": {
+                    "file": "/repo/tests/shop.spec.ts",
+                    "line": 23,
+                    "column": 41
+                  },
+                  "error": {
+                    "message": "Error: the first total\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m"
+                  },
+                  "steps": []
+                },
+                {
+                  "title": "the currency",
+                  "category": "expect",
+                  "location": {
+                    "file": "/repo/tests/shop.spec.ts",
+                    "line": 24,
+                    "column": 42
+                  },
+                  "error": {
+                    "message": "Error: the currency\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"USD\"\u001b[39m\nReceived: \u001b[31m\"EUR\"\u001b[39m"
+                  },
+                  "steps": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "After Hooks",
+          "category": "hook",
+          "steps": []
+        },
+        {
+          "title": "Worker Cleanup",
+          "category": "hook",
+          "steps": []
+        }
+      ],
+      "attachments": [
+        {
+          "name": "screenshot",
+          "contentType": "image/png",
+          "body": 3
+        },
+        {
+          "name": "_internal",
+          "contentType": "text/plain",
+          "body": 1
+        },
+        {
+          "name": "note",
+          "contentType": "text/plain",
+          "body": 11
+        },
+        {
+          "name": "error-context",
+          "contentType": "text/markdown",
+          "path": "/repo/test-results/shop-several-soft-assertions/error-context.md"
+        }
+      ],
+      "ciAtTestEnd": {
+        "commitHref": "https://github.com/acme/shop/commit/0123456789abcdef0123456789abcdef01234567",
+        "commitHash": "0123456789abcdef0123456789abcdef01234567",
+        "buildHref": "https://github.com/acme/shop/actions/runs/42"
+      }
+    },
+    {
+      "title": "fails in a fixture from another file",
+      "file": "/repo/tests/shop.spec.ts",
+      "line": 29,
+      "status": "failed",
+      "retry": 0,
+      "errors": [
+        {
+          "message": "Error: no test account in this environment",
+          "stack": "Error: no test account in this environment\n    at Object.account (/repo/tests/helpers.ts:20:11)",
+          "location": {
+            "file": "/repo/tests/helpers.ts",
+            "column": 11,
+            "line": 20
+          },
+          "snippet": "\u001b[90m   at \u001b[39mhelpers.ts:20\n\n\u001b[0m \u001b[90m 18 |\u001b[39m \u001b[36mexport\u001b[39m \u001b[36mconst\u001b[39m test \u001b[33m=\u001b[39m base\u001b[33m.\u001b[39mextend\u001b[33m<\u001b[39m{ account\u001b[33m:\u001b[39m string }\u001b[33m>\u001b[39m({\n \u001b[90m 19 |\u001b[39m   account\u001b[33m:\u001b[39m \u001b[36masync\u001b[39m ({}\u001b[33m,\u001b[39m use) \u001b[33m=>\u001b[39m {\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 20 |\u001b[39m     \u001b[36mthrow\u001b[39m \u001b[36mnew\u001b[39m \u001b[33mError\u001b[39m(\u001b[32m'no test account in this environment'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m           \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 21 |\u001b[39m     \u001b[36mawait\u001b[39m use(\u001b[32m'never'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 22 |\u001b[39m   }\u001b[33m,\u001b[39m\n \u001b[90m 23 |\u001b[39m })\u001b[33m;\u001b[39m\u001b[0m"
+        }
+      ],
+      "steps": [
+        {
+          "title": "Before Hooks",
+          "category": "hook",
+          "error": {
+            "message": "Error: no test account in this environment"
+          },
+          "steps": [
+            {
+              "title": "beforeEach hook",
+              "category": "hook",
+              "location": {
+                "file": "/repo/tests/shop.spec.ts",
+                "line": 4,
+                "column": 6
+              },
+              "steps": [
+                {
+                  "title": "Seed the basket",
+                  "category": "test.step",
+                  "location": {
+                    "file": "/repo/tests/shop.spec.ts",
+                    "line": 5,
+                    "column": 3
+                  },
+                  "steps": []
+                }
+              ]
+            },
+            {
+              "title": "Fixture \"account\"",
+              "category": "fixture",
+              "location": {
+                "file": "/repo/tests/helpers.ts",
+                "line": 18,
+                "column": 26
+              },
+              "error": {
+                "message": "Error: no test account in this environment"
+              },
+              "steps": []
+            }
+          ]
+        },
+        {
+          "title": "After Hooks",
+          "category": "hook",
+          "steps": [
+            {
+              "title": "Fixture \"account\"",
+              "category": "fixture",
+              "location": {
+                "file": "/repo/tests/helpers.ts",
+                "line": 18,
+                "column": 26
+              },
+              "steps": []
+            }
+          ]
+        },
+        {
+          "title": "Worker Cleanup",
+          "category": "hook",
+          "steps": []
+        }
+      ],
+      "attachments": [
+        {
+          "name": "error-context",
+          "contentType": "text/markdown",
+          "path": "/repo/test-results/shop-fails-in-a-fixture-from-another-file/error-context.md"
+        }
+      ],
+      "ciAtTestEnd": {
+        "commitHref": "https://github.com/acme/shop/commit/0123456789abcdef0123456789abcdef01234567",
+        "commitHash": "0123456789abcdef0123456789abcdef01234567",
+        "buildHref": "https://github.com/acme/shop/actions/runs/42"
+      }
+    },
+    {
+      "title": "passes",
+      "file": "/repo/tests/shop.spec.ts",
+      "line": 34,
+      "status": "passed",
+      "retry": 0,
+      "errors": [],
+      "steps": [
+        {
+          "title": "Before Hooks",
+          "category": "hook",
+          "steps": [
+            {
+              "title": "beforeEach hook",
+              "category": "hook",
+              "location": {
+                "file": "/repo/tests/shop.spec.ts",
+                "line": 4,
+                "column": 6
+              },
+              "steps": [
+                {
+                  "title": "Seed the basket",
+                  "category": "test.step",
+                  "location": {
+                    "file": "/repo/tests/shop.spec.ts",
+                    "line": 5,
+                    "column": 3
+                  },
+                  "steps": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Pay",
+          "category": "test.step",
+          "location": {
+            "file": "/repo/tests/shop.spec.ts",
+            "line": 35,
+            "column": 3
+          },
+          "steps": [
+            {
+              "title": "Expect \"toBe\"",
+              "category": "expect",
+              "location": {
+                "file": "/repo/tests/shop.spec.ts",
+                "line": 35,
+                "column": 48
+              },
+              "steps": []
+            }
+          ]
+        },
+        {
+          "title": "After Hooks",
+          "category": "hook",
+          "steps": []
+        }
+      ],
+      "attachments": [],
+      "ciAtTestEnd": {
+        "commitHref": "https://github.com/acme/shop/commit/0123456789abcdef0123456789abcdef01234567",
+        "commitHash": "0123456789abcdef0123456789abcdef01234567",
+        "buildHref": "https://github.com/acme/shop/actions/runs/42"
+      }
+    }
+  ]
+}

@@ -12,13 +12,18 @@
  * are the same two the adapter builds, from the same fields.
  */
 
+import { existsSync } from 'node:fs';
+import { errorContextOf, failureOf, repoRootOf, webLink } from '../reporter-core/failure-detail.js';
 import { resultKey } from '../reporter-core/result-key.js';
-import type { KeyRef, PendingResult, ResultStatus } from '../reporter-core/types.js';
+import type { DeclaredStep, FailedAttempt, KeyRef, PendingResult, ResultStatus } from '../reporter-core/types.js';
 
 const SOURCE = 'playwright';
 
 /** `@P<id>` anywhere in a title — the same token the adapter reads, and the same non-stripping. */
 const TOKEN = /@P([A-Za-z0-9_-]+)/;
+
+/** The statuses of an attempt that has no failure detail (#790 AC-02b). */
+const NOT_FAILED = new Set(['passed', 'skipped']);
 
 /** As much of Playwright's report as this reads. Everything optional: it is another tool's file. */
 interface JsonResult {
@@ -27,7 +32,19 @@ interface JsonResult {
   retry?: number;
   startTime?: string;
   workerIndex?: number;
-  errors?: { message?: string; stack?: string; value?: string }[];
+  /**
+   * `formatError` of each error: the message, the code frame and the stack's `at` lines in one text,
+   * and where it was thrown. No `stack` of its own — the frames are in the message.
+   */
+  errors?: { message?: string; value?: string; location?: { file?: string; line?: number; column?: number } }[];
+  /** The declared steps only — the report filters hooks, fixtures and actions out at every level. */
+  steps?: JsonStep[];
+  attachments?: { name?: string; contentType?: string; path?: string }[];
+}
+interface JsonStep {
+  title?: string;
+  error?: unknown;
+  steps?: JsonStep[];
 }
 interface JsonTest {
   id?: string;
@@ -46,6 +63,19 @@ interface JsonSuite {
   file?: string;
   specs?: JsonSpec[];
   suites?: JsonSuite[];
+}
+interface JsonReport {
+  config?: { rootDir?: string; metadata?: { ci?: { buildHref?: string } } };
+  suites: JsonSuite[];
+}
+
+/** What every attempt of one report shares. */
+interface ReportContext {
+  /** Where the runner ran — spec files are relative to it. */
+  rootDir?: string;
+  /** Found only when `rootDir` is on this machine: a report from elsewhere names no place (#790). */
+  repoRoot?: string;
+  buildHref?: string;
 }
 
 /** A report we could not read. Same contract as the XML side: name the file, never «invalid input». */
@@ -66,11 +96,29 @@ function statedIdOf(test: JsonTest, title: string): string | undefined {
   return TOKEN.exec(title)?.[1];
 }
 
-function errorTextOf(result: JsonResult): string {
-  return (result.errors ?? [])
-    .map((e) => e.stack ?? e.message ?? e.value ?? '')
-    .filter((text) => text !== '')
-    .join('\n\n');
+/** The attempt as the core reads it (#790 ADR-0001) — the same shape the adapter builds from its events. */
+function attemptOf(result: JsonResult, file: string, ctx: ReportContext): FailedAttempt {
+  const steps = (list: JsonStep[] | undefined): DeclaredStep[] =>
+    (list ?? []).map((s) => ({ title: s.title ?? '', failed: s.error !== undefined, steps: steps(s.steps) }));
+  return {
+    status: result.status ?? 'unknown',
+    errors: (result.errors ?? []).map(({ message, value, location: at }) => ({
+      text: message ?? value ?? '',
+      ...(typeof at?.file === 'string' && typeof at.line === 'number'
+        ? { location: { file: at.file, line: at.line, ...(typeof at.column === 'number' ? { column: at.column } : {}) } }
+        : {}),
+    })),
+    steps: steps(result.steps),
+    attachments: (result.attachments ?? []).map(({ name, contentType, path }) => ({
+      name: name ?? '',
+      ...(contentType !== undefined ? { contentType } : {}),
+      ...(path !== undefined ? { path } : {}),
+    })),
+    ...(ctx.buildHref !== undefined ? { buildHref: ctx.buildHref } : {}),
+    // Spec files are posix and relative to the root dir; the core reads either slash.
+    testFile: ctx.rootDir === undefined ? file : `${ctx.rootDir.replace(/[\\/]+$/, '')}/${file}`,
+    ...(ctx.repoRoot !== undefined ? { repoRoot: ctx.repoRoot } : {}),
+  };
 }
 
 function pendingFrom(
@@ -79,6 +127,7 @@ function pendingFrom(
   result: JsonResult,
   file: string,
   titles: string[],
+  ctx: ReportContext,
 ): PendingResult {
   const pathTitle = [file, ...titles].join('#');
   // Without an id there is nothing stable to mint a result key from, so the readable path stands in
@@ -86,7 +135,9 @@ function pendingFrom(
   const seed = test.id ?? pathTitle;
   const stated = statedIdOf(test, spec.title ?? '');
   const expected = test.expectedStatus;
-  const errorContext = errorTextOf(result);
+  const attempt = attemptOf(result, file, ctx);
+  const errorContext = errorContextOf(attempt);
+  const failure = NOT_FAILED.has(attempt.status) ? undefined : failureOf(attempt);
   const keys: KeyRef[] = [
     ...(test.id !== undefined ? [{ kind: 'playwright-id' as const, value: test.id }] : []),
     { kind: 'path-title', value: pathTitle },
@@ -121,6 +172,7 @@ function pendingFrom(
         }
       : {}),
     ...(errorContext !== '' ? { errorContext } : {}),
+    ...(failure !== undefined ? { failure } : {}),
   };
 }
 
@@ -131,7 +183,7 @@ function pendingFrom(
  * `describe`. That is the same split `titlesOf`/`fileOf` make on the reporter side, which is what
  * keeps the two paths producing one identity.
  */
-function walk(suite: JsonSuite, describes: string[], depth: number, out: PendingResult[]): void {
+function walk(suite: JsonSuite, describes: string[], depth: number, ctx: ReportContext, out: PendingResult[]): void {
   const here = depth === 0 ? [] : [...describes, suite.title ?? ''];
   for (const spec of suite.specs ?? []) {
     const file = spec.file ?? suite.file ?? suite.title ?? '';
@@ -139,14 +191,18 @@ function walk(suite: JsonSuite, describes: string[], depth: number, out: Pending
     for (const test of spec.tests ?? []) {
       // One result per attempt, exactly as the reporter sends them: a flaky test's retries are
       // three results, and collapsing them here would hide the thing that makes it flaky.
-      for (const result of test.results ?? []) out.push(pendingFrom(spec, test, result, file, titles));
+      for (const result of test.results ?? []) out.push(pendingFrom(spec, test, result, file, titles, ctx));
     }
   }
-  for (const child of suite.suites ?? []) walk(child, here, depth + 1, out);
+  for (const child of suite.suites ?? []) walk(child, here, depth + 1, ctx, out);
 }
 
-/** Read a Playwright JSON report. */
-export function readPlaywrightJson(source: string, file: string): PendingResult[] {
+/**
+ * Read a Playwright JSON report: its results, and the CI run that wrote it (`metadata.ci.buildHref`,
+ * an http(s) address or nothing) for the run to open with — from the report, never from the machine
+ * that imports it (#790 AC-04b).
+ */
+export function readPlaywrightJson(source: string, file: string): { results: PendingResult[]; ciUrl?: string } {
   let parsed: unknown;
   try {
     parsed = JSON.parse(source);
@@ -157,13 +213,27 @@ export function readPlaywrightJson(source: string, file: string): PendingResult[
     throw new JsonReportError(file, 'no "suites" array — is this a Playwright JSON report?');
   }
 
+  const { config, suites } = parsed as JsonReport;
+  const rootDir = typeof config?.rootDir === 'string' ? config.rootDir : undefined;
+  const buildHref = config?.metadata?.ci?.buildHref;
+  // Looked up once per report. A root dir this machine does not have is another machine's run.
+  const repoRoot = rootDir !== undefined && existsSync(rootDir) ? repoRootOf(rootDir) : undefined;
+  const ctx: ReportContext = {
+    ...(rootDir !== undefined ? { rootDir } : {}),
+    ...(repoRoot !== undefined ? { repoRoot } : {}),
+    ...(typeof buildHref === 'string' ? { buildHref } : {}),
+  };
   const out: PendingResult[] = [];
-  for (const suite of (parsed as { suites: JsonSuite[] }).suites) walk(suite, [], 0, out);
-  return out;
+  for (const suite of suites) walk(suite, [], 0, ctx, out);
+  const ciUrl = webLink(ctx.buildHref);
+  return ciUrl === undefined ? { results: out } : { results: out, ciUrl };
 }
 
-/** Does this text look like a Playwright JSON report? Read by the detector, never by a parser. */
+/**
+ * Does this text look like a Playwright JSON report? Read by the detector, never by a parser. The whole
+ * text, not a head of it: Playwright writes `config` first — argv, every project, each reporter's
+ * options — and a real report put "suites" past its first 7 KB (#790 T18).
+ */
 export function looksLikePlaywrightJson(source: string): boolean {
-  const head = source.slice(0, 4096);
-  return head.trimStart().startsWith('{') && head.includes('"suites"');
+  return /^\s*\{/.test(source) && source.includes('"suites"');
 }
