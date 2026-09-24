@@ -17,12 +17,23 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   (plune-ai/plune#790).** A posix root's leading slash matched as many slashes as there were, so it
   also took the `//` after a scheme: with the root `/app`, `http://app/login` — a compose service named
   after the image's `WORKDIR` — became `http:login`, and with the home `/root`, `http://root/x` became
-  `http:~/x`. A posix path now starts with exactly one slash; a UNC path keeps both.
-- **A success without the fields the core reads is no answer either.** A 2xx with JSON that lacks the
-  lookup's `results`, the start's `run`, a batch's `counts` (or has them `null`), or a close whose body
-  is `null`, threw out of the core — inside a flush, after the batch had left the buffer, so it was
-  neither delivered nor deferred. Each is now read as that call failing: the results are deferred and
-  counted, and the run still closes.
+  `http:~/x`. A posix path now starts with exactly one slash, escaped or not; a UNC path keeps both.
+- **A path written with escaped slashes, as PHP's JSON writes them, reads like the plain one.** With no
+  repository root — a report from another machine — `\/home\/bob\/…` kept the account's name; it is
+  now `~\/…`. A file URL written that way lost the root but kept its `file:` (`file:e2e\/a.ts`); it now
+  loses both.
+- **An answer without the fields the core reads is a failed call, not a crash.** A 2xx whose JSON lacks
+  what the core reads threw out of it: the adapter said "reporting stopped" and `plune run import`
+  ended non-zero. Each call now reads such an answer as that call failing:
+  - the lookup without `results`, or a row without its key: it threw at the start or inside a flush,
+    where the batch had already left the buffer, so its results were neither delivered nor deferred;
+    they are now deferred;
+  - the start without `run`: it threw in `startRun`; the results are now deferred;
+  - a batch without `counts`, or with counts that hold no number: `null` threw inside the flush, and
+    `{}` counted the batch as delivered with nothing accepted; the batch is now deferred;
+  - the offer to the review queue (`--create`) without `results`: it threw from `finish`, and the run
+    stayed open; the tests are now counted as not offered, and the run closes;
+  - a close answering `null`: it threw from `finish`; the run is now taken as closed.
 
 ## [0.14.1] - 2026-09-24
 

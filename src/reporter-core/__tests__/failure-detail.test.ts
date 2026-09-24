@@ -432,6 +432,37 @@ describe('errorContextOf — the text of every error (AC-01, AC-01c, AC-05, AC-1
     expect(text).toBe([...lines.slice(0, 3), '    at e2e/shop.spec.ts:3:1', '    at e2e/helpers.ts:5:7'].join('\n'));
   });
 
+  // #790 re-review C6: PHP's JSON escapes every slash — `\/Users\/alice\/…` — and a path printed that way
+  // names the machine all the same; after an escaped scheme's `\/\/` the host still stays.
+  it('rewrites a path whose slashes are escaped, as PHP writes JSON — an address stays whole (AC-01, AC-05)', () => {
+    const of = (text: string, repoRoot: string | undefined, home: string): string => errorContextOf(attempt({ errors: [{ text }], repoRoot }), home);
+    expect(
+      of(
+        String.raw`{"file":"\/Users\/alice\/shop\/vendor\/x.php","home":"\/Users\/alice\/.composer","at":"file:\/\/\/Users\/alice\/shop\/e2e\/a.ts"}`,
+        '/Users/alice/shop',
+        '/Users/alice',
+      ),
+    ).toBe(String.raw`{"file":"vendor\/x.php","home":"~\/.composer","at":"e2e\/a.ts"}`);
+    expect(of(String.raw`"\\/app\\/e2e" at http:\/\/app\/login and http:\\/\\/app\\/login`, '/app', '/root')).toBe(
+      String.raw`"e2e" at http:\/\/app\/login and http:\\/\\/app\\/login`,
+    );
+    expect(of(String.raw`"\/home\/bob\/report.txt" "file:\/\/\/Users\/carol\/x"`, undefined, HOME)).toBe(String.raw`"~\/report.txt" "~\/x"`);
+  });
+
+  // An escaped slash is a run of backslashes and one slash: a path starts only where no backslash is
+  // before it, so a run with no slash after it is passed over once, not once per backslash. Escalated
+  // as F6's is, so a worse regression fails at the small size instead of hanging at the large one.
+  it('passes over runs of backslashes and escaped slashes in time that does not grow with their square', () => {
+    for (const n of [20_000, 200_000]) {
+      const text = `"${'\\'.repeat(n)}x" file:${'\\/'.repeat(n)}x`;
+      for (const repoRoot of ['/Users/alice/shop', undefined]) {
+        const started = performance.now();
+        errorContextOf(attempt({ errors: [{ text }], repoRoot }), '/Users/alice');
+        expect(performance.now() - started).toBeLessThan(100);
+      }
+    }
+  });
+
   // #790 review G2: a diff prints a string, so a Windows path in it has every backslash doubled.
   it('rewrites a Windows path printed with doubled backslashes, as in a diff of a string (AC-05)', () => {
     const diff = ['-   "file": "D:\\\\a\\\\shop\\\\e2e\\\\data.json",', '+   "file": "C:\\\\Users\\\\alice\\\\AppData\\\\Local\\\\Temp\\\\data.json",'].join('\n');

@@ -28,6 +28,8 @@ const EXPECTED_MAX = 10_000;
 /** The platform's ceiling on one external key's value, and on the title of a queue entry. */
 const KEY_MAX = 1024;
 const TITLE_MAX = 300;
+/** What a batch's answer counts — the part of `RunStats` a submission adds to. */
+const COUNTED = ['accepted', 'duplicate', 'conflict', 'rejected'] as const;
 
 /**
  * A foreign test name is not a key until it fits one.
@@ -257,7 +259,10 @@ export async function startRun(
         log(`plune: could not look up test cases (${out.ok ? 'the answer had no results' : out.detail || out.kind}).`);
         return;
       }
-      for (const row of out.body.results) resolved.set(row.key.value, row.testCaseId);
+      for (const row of out.body.results) {
+        // A row with no key names no test: its result stays unanswered, and so deferred (#790 re-review C7).
+        if (typeof row?.key?.value === 'string') resolved.set(row.key.value, row.testCaseId);
+      }
     }
   }
 
@@ -390,7 +395,8 @@ export async function startRun(
         discovered: batch,
         runId,
       });
-      if (!out.ok) {
+      // A 2xx without its list is no answer either (#790 re-review C7).
+      if (!out.ok || !Array.isArray(out.body?.results)) {
         // The number that matters is not the batch that was refused — it is everything still
         // unoffered, which is that batch plus every one behind it, because this loop stops here.
         // Naming only the batch understates the work left by however many batches remain, and the
@@ -398,19 +404,19 @@ export async function startRun(
         stats.unoffered = batches.slice(index).reduce((n, rest) => n + rest.length, 0);
         log(
           `plune: could not offer ${stats.unoffered} unknown test(s) for review ` +
-            `(${out.detail || out.kind}).`,
+            `(${out.ok ? 'the answer had no results' : out.detail || out.kind}).`,
         );
         return;
       }
       // Only what a person now has to look at. `duplicate`, `refused` and `known` are the platform
       // saying "already handled" — reporting them as offers would make a repeat run look like new
       // work every time, which is how a queue stops being read.
-      stats.offered += out.body.results.filter((r) => r.outcome === 'queued').length;
+      stats.offered += out.body.results.filter((r) => r?.outcome === 'queued').length;
       // `created` is the opposite of work to do, and it is counted for exactly that reason: the
       // project trusts this source, so the case exists already. Left out, a run that filled a
       // project with two thousand cases would print "0 offered for review" and read as a run where
       // nothing happened.
-      stats.created += out.body.results.filter((r) => r.outcome === 'created').length;
+      stats.created += out.body.results.filter((r) => r?.outcome === 'created').length;
     }
   }
 
@@ -459,13 +465,12 @@ export async function startRun(
       const out = await client.post<{ counts: Record<keyof RunStats, number> }>(`/v1/runs/${runId}/results`, {
         results: part,
       });
-      // A success with no counts says nothing about what was stored: kept for a replay, not guessed.
-      const counts = out.ok ? (out.body?.counts ?? undefined) : undefined;
-      if (counts !== undefined) {
-        stats.accepted += counts.accepted ?? 0;
-        stats.duplicate += counts.duplicate ?? 0;
-        stats.conflict += counts.conflict ?? 0;
-        stats.rejected += counts.rejected ?? 0;
+      // A success with no counts says nothing about what was stored: kept for a replay, not guessed —
+      // and counts with no number in them say no more (#790 re-review C7).
+      const counts = out.ok ? out.body?.counts : undefined;
+      const told = COUNTED.filter((k) => typeof counts?.[k] === 'number');
+      if (told.length > 0) {
+        for (const k of told) stats[k] += counts![k];
         progress();
         continue;
       }

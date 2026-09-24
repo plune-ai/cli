@@ -697,12 +697,16 @@ describe('a success the client cannot read is a batch not delivered (#790)', () 
         : p.fetchImpl(url, init)) as unknown as typeof fetch;
 
   it.each([
-    ['the lookup', /\/v1\/test-cases\/resolve$/, 'null'],
-    ['the lookup', /\/v1\/test-cases\/resolve$/, '{}'],
-    ['the start', /\/v1\/runs$/, 'null'],
-    ['the start', /\/v1\/runs$/, '{}'],
-    ['a batch', /\/results$/, '{"counts": null}'],
-  ])('defers the results when %s answers %s', async (_label, route, body) => {
+    ['the lookup', 'null', /\/v1\/test-cases\/resolve$/],
+    ['the lookup', '{}', /\/v1\/test-cases\/resolve$/],
+    ['the lookup', '{"results": [{}]}', /\/v1\/test-cases\/resolve$/],
+    ['the lookup', '{"results": [null]}', /\/v1\/test-cases\/resolve$/],
+    ['the start', 'null', /\/v1\/runs$/],
+    ['the start', '{}', /\/v1\/runs$/],
+    ['a batch', '{"counts": null}', /\/results$/],
+    ['a batch', '{"counts": {}}', /\/results$/],
+    ['a batch', '{"counts": {"accepted": "2"}}', /\/results$/],
+  ])('defers the results when %s answers %s', async (_label, body, route) => {
     const p = platform({ known: { a: 'tc-a', b: 'tc-b' } });
     const cfg = config(answering(route, body, p));
     const run = await startRun(cfg);
@@ -721,6 +725,22 @@ describe('a success the client cannot read is a batch not delivered (#790)', () 
 
     await expect(run.finish()).resolves.toBeUndefined();
     expect(run.stats).toMatchObject({ accepted: 1, deferred: 0 });
+  });
+
+  // #790 re-review C7: the review queue too — the offer threw out of `finish`, and the run stayed open.
+  it.each([
+    ['null', 1],
+    ['{}', 1],
+    ['{"results": [null]}', 0],
+  ])('closes the run when the review queue answers %s, with %i test(s) left unoffered', async (body, unoffered) => {
+    const p = platform();
+    const cfg = config(answering(/\/v1\/review-items\/discovered$/, body, p), { offerDiscovered: true });
+    const run = await startRun(cfg);
+    await run.add(result('pw-1', { title: 'cart › adds an item', specRef: 'e2e/checkout.spec.ts:12' }));
+
+    await expect(run.finish()).resolves.toBeUndefined();
+    expect(run.stats).toMatchObject({ offered: 0, unoffered });
+    expect(p.seen.events).toHaveLength(1);
   });
 });
 

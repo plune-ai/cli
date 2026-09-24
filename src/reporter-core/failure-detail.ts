@@ -105,24 +105,28 @@ const jsonBytes = (text: string): number => Buffer.byteLength(JSON.stringify(tex
 
 /**
  * A home folder opening a path in a text: `/home/<u>`, `/Users/<u>`, `C:\Users\<u>` — with the
- * backslashes doubled too, as a diff prints a string — a file URL too.
+ * backslashes doubled too, as a diff prints a string, and a slash escaped as PHP's JSON writes it
+ * (`\/home\/<u>`) — a file URL too.
  */
 // ponytail: a user name with a space is cut at the space; the machine's own home is matched exactly.
-const ANY_HOME = /(?<=^|[\s'"`(=,[])(?:file:\/\/\/?)?(?:\/home\/|\/Users\/|[A-Za-z]:[\\/]+Users[\\/]+)[^\\/\s'"`:*?<>|]+/g;
+const ANY_HOME =
+  /(?<=^|[\s'"`(=,[])(?:file:(?:\\*\/){2,3})?(?:\\*\/home\\*\/|\\*\/Users\\*\/|[A-Za-z]:[\\/]+Users[\\/]+)[^\\/\s'"`:*?<>|]+/g;
 
 /**
- * `path` as a text may spell it: either slash, doubled as a printed string doubles a backslash, as a
- * file URL, and on Windows in any case. Nothing for `/` or a bare drive — they would match every path.
+ * `path` as a text may spell it: either slash, doubled as a printed string doubles a backslash or
+ * escaped as PHP's JSON escapes a slash (`\/`), as a file URL, and on Windows in any case. Nothing for
+ * `/` or a bare drive — they would match every path.
  */
 function pathIn(path: string): RegExp | undefined {
   const parts = path.split(/[\\/]+/);
   while (parts.length > 1 && parts.at(-1) === '') parts.pop();
   if (!parts.some((part) => part !== '' && !/^[A-Za-z]:$/.test(part))) return undefined;
   const joined = parts.map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\\\/]+');
-  // A posix path's leading slash is one character: as `[\\/]+` it also took the `//` after a scheme,
-  // and `http://app/login` lost its host to a root `/app` (#790 re-review C1). A UNC path keeps both.
-  const escaped = /^\/(?!\/)/.test(path) ? joined.replace('[\\\\/]+', '\\/') : joined;
-  return new RegExp(`(?:file:\\/\\/\\/?)?${escaped}`, /^[A-Za-z]:$/.test(parts[0]!) ? 'gi' : 'g');
+  // A posix path's leading slash is one slash, escaped or not: as `[\\/]+` it also took the `//` after
+  // a scheme, and `http://app/login` lost its host to a root `/app` (#790 re-review C1); as a bare `/`
+  // it missed `\/Users\/alice\/…` (C6). A UNC path keeps both.
+  const escaped = /^\/(?!\/)/.test(path) ? joined.replace('[\\\\/]+', '\\\\*\\/') : joined;
+  return new RegExp(`(?:file:(?:\\\\*\\/){2,3})?${escaped}`, /^[A-Za-z]:$/.test(parts[0]!) ? 'gi' : 'g');
 }
 
 /** An attachment named by its path — `testInfo.attach(file, { path: file })` — by the file alone. */
