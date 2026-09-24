@@ -463,9 +463,10 @@ describe('errorContextOf — the text of every error (AC-01, AC-01c, AC-05, AC-1
     }
   });
 
-  // #790 re-review C9: every path form a round of the review raised, as it reads now. Each round's fix
-  // broke a form the round before had fixed (C1 → C6 → C9), and only the next review saw it; this table
-  // is that review. Beside a row 0.14.1 read otherwise: what 0.14.1 made of it.
+  // #790 re-review C9: every path form a round of the review raised, as it reads now. The C1 fix broke two
+  // forms 0.14.1 had read — escaped slashes (C6) and webpack's `///` (C9) — and only a later review saw
+  // each; this table is that review. Beside a row 0.14.1 read otherwise: what 0.14.1 made of it. A row
+  // marked as a ceiling keeps what 0.14.1 did too; it is not a goal (C12).
   const PATH_FORMS: [text: string, repoRoot: string | undefined, home: string, expected: string][] = [
   // escaped slashes, as PHP writes JSON (#790 re-review C6)
   ["{\"file\":\"\\/Users\\/alice\\/shop\\/vendor\\/x.php\",\"home\":\"\\/Users\\/alice\\/.composer\"}", "/Users/alice/shop", "/Users/alice", "{\"file\":\"vendor\\/x.php\",\"home\":\"~\\/.composer\"}"],
@@ -554,8 +555,10 @@ describe('errorContextOf — the text of every error (AC-01, AC-01c, AC-05, AC-1
   // 0.14.1: "new RegExp(\"\\\\/home\\\\/feed\") page.goto(\"~\")"
   ["new RegExp(\"\\\\/home\\\\/feed\") page.goto(\"/home/feed\")", undefined, "/home/ci", "new RegExp(\"~\") page.goto(\"~\")"],
   ["Expected pattern: /\\/home\\/feed/", undefined, "/home/ci", "Expected pattern: /\\/home\\/feed/"],
+  // a ceiling: no rule for any home starts after `:`, so a PATH keeps a foreign home
   ["PATH=/usr/bin:/home/bob/bin", undefined, "/home/ci", "PATH=/usr/bin:/home/bob/bin"],
   // 0.14.1: "(\\/Users\\/dave\\/x) [\\/Users\\/x]"
+  // a ceiling: a user name takes a closing bracket too — 0.14.1 read `[/Users/x]` as `[~` already
   ["(\\/Users\\/dave\\/x) [\\/Users\\/x]", undefined, "/home/ci", "(~\\/x) [~"],
   ];
 
