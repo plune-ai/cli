@@ -151,11 +151,7 @@ function describe(result: ImportResult, apiUrl: string): string[] {
       `${result.accepted} accepted, ${result.duplicate} already there, ${result.unresolved} unmatched, ` +
       `${result.deferred} not delivered.`,
   ];
-  // Where a GitHub run shows it without anyone opening the log. The step stays green: a reporting
-  // failure is not the build's failure (#788).
-  if (result.deferred > 0 && process.env['GITHUB_ACTIONS'] === 'true') {
-    lines.push(`::warning::${result.deferred} result(s) were not delivered to Plune — see the reporting step's log.`);
-  }
+  // The `::warning::` for what was not delivered is the session's, said with its own summary above.
   if (result.conflict > 0 || result.rejected > 0) {
     lines.push(`${result.conflict} conflicted and ${result.rejected} were refused.`);
   }

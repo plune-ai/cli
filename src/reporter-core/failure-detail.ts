@@ -140,14 +140,22 @@ function chainOf(steps: DeclaredStep[]): string[] {
   return chain;
 }
 
-/** The first frame in the test's own file — a helper's line is not where the test failed — else the runner's place. */
+/**
+ * The first frame in the test's own file — a helper's line is not where the test failed — else where
+ * it was thrown: the runner's place, or the first frame outside `node_modules` as Playwright takes it
+ * when the error has none, so a raw error and the report's formatted one land on the same line.
+ */
 function placeOf(error: AttemptError, testFile: string): RunnerLocation | undefined {
   const own = normal(testFile);
+  let first: RunnerLocation | undefined;
   for (const line of stripVTControlCharacters(error.text).split('\n')) {
     const frame = FRAME.exec(line);
-    if (frame !== null && normal(fileOf(frame[1]!)) === own) return { file: fileOf(frame[1]!), line: Number(frame[2]), column: Number(frame[3]) };
+    if (frame === null) continue;
+    const place = { file: fileOf(frame[1]!), line: Number(frame[2]), column: Number(frame[3]) };
+    if (normal(place.file) === own) return place;
+    if (first === undefined && !normal(place.file).includes('/node_modules/')) first = place;
   }
-  return error.location;
+  return error.location ?? first;
 }
 
 /** `file:///D:/repo/x.ts` or `file:///repo/x.ts` — read the same on every OS, unlike `fileURLToPath`. */

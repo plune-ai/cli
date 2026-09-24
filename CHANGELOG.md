@@ -36,17 +36,29 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   report's `rootDir`, and only when that folder is on this machine: a report from somewhere else keeps
   its detail but names no place. The run opens with `meta.ciUrl` from the same `buildHref` — the CI
   run the report names, never this machine's `GITHUB_*` — and without a link at all when it is not an
-  http(s) address, rather than being refused. The reporter does not send any of it yet.
+  http(s) address, rather than being refused.
+
+- **`@plune-ai/playwright` sends the same detail, from the reporter API.** Each attempt becomes the same
+  normalized attempt: every error written as Playwright's own JSON report writes it (`formatError` with
+  colours off — the stack's head, the code frame, the `at` lines, a cause), the declared steps kept by
+  the report's own filter (`test.step` under `test.step` from the test body, so a step in a hook or a
+  fixture and every action stay out of the chain), the attachments. The repository root is looked up
+  once from `rootDir`; `metadata.ci` is read when the run opens, on the first result, because
+  Playwright's git plugin writes it after `onConfigure`. A report of the same run imported with
+  `plune run import` gives the same text and the same `failure`. Where an error carries no place, both
+  roads take the first stack frame outside `node_modules`, as Playwright does.
 
 ### Changed
 
-- **`plune run import` says how many results were not delivered, every time.** The summary line gains
-  a fourth number, zero included: `Read 100 result(s) from a playwright report: 90 accepted, 0 already
-  there, 2 unmatched, 8 not delivered.` — the results a refused batch or an unanswered lookup kept out
-  of Plune. The `[0-9]+ unmatched` workflows read stays whole, and the line about the fallback file is
-  unchanged. In GitHub Actions a count above zero also prints
-  `::warning::8 result(s) were not delivered to Plune — see the reporting step's log.`; the exit code
-  does not change.
+- **What was not delivered is said in the same words on both roads, every time.** `plune run import`'s
+  summary line gains a fourth number, zero included: `Read 100 result(s) from a playwright report: 90
+  accepted, 0 already there, 2 unmatched, 8 not delivered.` — the results a refused batch or an
+  unanswered lookup kept out of Plune. The `[0-9]+ unmatched` workflows read stays whole, and the line
+  about the fallback file is unchanged. The reporter's own line says `… · 8 not delivered — written to
+  .plune/pending-results.jsonl` where it said `8 written to …`. In GitHub Actions a count above zero
+  also prints, once and on either road,
+  `::warning::8 result(s) were not delivered to Plune — see the reporting step's log.`; no exit code
+  changes.
 
 ### Fixed
 

@@ -1,9 +1,16 @@
 import { readFileSync } from 'node:fs';
-import type { FullConfig, FullResult, Suite, TestCase, TestResult } from '@playwright/test/reporter';
+import { stripVTControlCharacters } from 'node:util';
+import type { FullConfig, FullResult, Suite, TestCase, TestError, TestResult, TestStep } from '@playwright/test/reporter';
 import {
+  errorContextOf,
+  failureOf,
   readEnv,
+  repoRootOf,
   resultKey,
   startRun,
+  webLink,
+  type DeclaredStep,
+  type FailedAttempt,
   type KeyRef,
   type PendingResult,
   type RunSession,
@@ -134,18 +141,66 @@ function statedIdOf(test: TestCase, metadata: PluneMetadata | undefined): string
   return metadata?.id !== undefined && metadata.id !== '' ? metadata.id : undefined;
 }
 
-function errorTextOf(result: TestResult): string {
-  return result.errors
-    .map((e) => e.stack ?? e.message ?? e.value ?? '')
-    .filter((text) => text !== '')
-    .join('\n\n');
+/** The statuses of an attempt that has no failure detail (#790 AC-02b). */
+const NOT_FAILED = new Set(['passed', 'skipped']);
+
+/**
+ * One error as Playwright's own JSON report writes it — `formatError` with colours off: the message
+ * (the stack's head when there is a stack), the code frame, the stack's `at` lines, a cause after
+ * them — so `plune run import` of that report and this reporter send one text (#790 ADR-0001).
+ */
+function textOf(error: TestError): string {
+  const message = error.message || error.value || '';
+  if (!error.stack && !error.location) return message;
+  const lines = error.stack?.split('\n') ?? [];
+  const at = lines.findIndex((line) => line.startsWith('    at '));
+  const tokens = [(at === -1 ? lines : lines.slice(0, at)).join('\n') || message];
+  if (error.snippet) tokens.push('', stripVTControlCharacters(error.snippet));
+  if (at !== -1) tokens.push(lines.slice(at).join('\n'));
+  if (error.cause) tokens.push(`[cause]: ${textOf(error.cause)}`);
+  return tokens.join('\n');
 }
 
-function pendingFrom(test: TestCase, result: TestResult): PendingResult {
+/**
+ * The declared steps, as the JSON report keeps them: `test.step` under `test.step` from the test body
+ * down, so a step inside a hook or a fixture, and every action, stays out of the chain.
+ */
+function declared(steps: readonly TestStep[]): DeclaredStep[] {
+  return steps
+    .filter((step) => step.category === 'test.step')
+    .map((step) => ({ title: step.title, failed: step.error !== undefined, steps: declared(step.steps) }));
+}
+
+/** What every attempt of this run shares: where the repository is, and the CI run. */
+interface RunContext {
+  repoRoot?: string;
+  buildHref?: string;
+}
+
+/** The attempt as the core reads it — the shape `plune run import` builds from the report. */
+function attemptOf(test: TestCase, result: TestResult, ctx: RunContext): FailedAttempt {
+  return {
+    status: result.status,
+    errors: result.errors.map((e) => ({ text: textOf(e), ...(e.location !== undefined ? { location: e.location } : {}) })),
+    steps: declared(result.steps ?? []),
+    attachments: result.attachments.map(({ name, contentType, path }) => ({
+      name,
+      contentType,
+      ...(path !== undefined ? { path } : {}),
+    })),
+    ...(ctx.buildHref !== undefined ? { buildHref: ctx.buildHref } : {}),
+    testFile: test.location.file,
+    ...(ctx.repoRoot !== undefined ? { repoRoot: ctx.repoRoot } : {}),
+  };
+}
+
+function pendingFrom(test: TestCase, result: TestResult, ctx: RunContext): PendingResult {
   const metadata = metadataOf(result);
   const pluneId = statedIdOf(test, metadata);
   const expected = test.expectedStatus;
-  const errorContext = errorTextOf(result);
+  const attempt = attemptOf(test, result, ctx);
+  const errorContext = errorContextOf(attempt);
+  const failure = NOT_FAILED.has(result.status) ? undefined : failureOf(attempt);
   const startedAt = result.startTime;
 
   return {
@@ -175,6 +230,7 @@ function pendingFrom(test: TestCase, result: TestResult): PendingResult {
       worker: String(result.workerIndex),
     },
     ...(errorContext !== '' ? { errorContext } : {}),
+    ...(failure !== undefined ? { failure } : {}),
   };
 }
 
@@ -187,6 +243,9 @@ export default class PluneReporter {
   private chain: Promise<void> = Promise.resolve();
   private keepOpen = false;
   private complained = false;
+  /** Kept whole: `metadata.ci` is written into it after `onConfigure`, so it is read at the run's opening. */
+  private config: FullConfig | null = null;
+  private context: RunContext = {};
 
   constructor(options: PluneReporterOptions = {}) {
     this.options = options;
@@ -207,6 +266,10 @@ export default class PluneReporter {
     // `PLUNE_SHARED_RUN` / `PLUNE_PROCEED` say the same thing for a job Playwright cannot see:
     // a `merge-reports` step, or several suites reporting into one run.
     this.keepOpen = (config.shard !== null && config.shard !== undefined) || readEnv().keepOpen;
+    this.config = config;
+    // Once per run: the failure detail names files from the repository root (#790).
+    const repoRoot = config.rootDir === undefined ? undefined : repoRootOf(config.rootDir);
+    if (repoRoot !== undefined) this.context = { repoRoot };
   }
 
   /**
@@ -222,6 +285,12 @@ export default class PluneReporter {
 
   private open(): Promise<RunSession> {
     if (this.session === null) {
+      // Not at `onConfigure`: Playwright's git plugin writes `metadata.ci` after it, and before the
+      // first result (#790 ADR-0004). Only an http(s) address — anything else opens without a link.
+      const ci: unknown = this.config?.metadata?.['ci'];
+      const buildHref = typeof ci === 'object' && ci !== null ? (ci as { buildHref?: unknown }).buildHref : undefined;
+      if (typeof buildHref === 'string') this.context = { ...this.context, buildHref };
+      const ciUrl = webLink(this.context.buildHref);
       this.session = startRun(
         {
           ...(this.options.apiUrl !== undefined ? { apiUrl: this.options.apiUrl } : {}),
@@ -233,7 +302,7 @@ export default class PluneReporter {
           ...(this.options.fallbackPath !== undefined
             ? { fallbackPath: this.options.fallbackPath }
             : {}),
-          meta: { runner: SOURCE },
+          meta: { runner: SOURCE, ...(ciUrl !== undefined ? { ciUrl } : {}) },
         },
         this.declared,
       );
@@ -245,7 +314,7 @@ export default class PluneReporter {
     const session = this.open();
     this.chain = this.chain
       .then(async () => {
-        (await session).add(pendingFrom(test, result));
+        (await session).add(pendingFrom(test, result, this.context));
       })
       .catch((err: unknown) => this.giveUp(err));
   }

@@ -506,9 +506,14 @@ export async function startRun(
     if (stats.unresolved > 0) parts.push(`${stats.unresolved} with no matching test case`);
     if (stats.offered > 0) parts.push(`${stats.offered} offered for review`);
     if (stats.created > 0) parts.push(`${stats.created} added as cases (trusted source)`);
-    if (stats.deferred > 0) parts.push(`${stats.deferred} written to ${fallbackPath}`);
+    if (stats.deferred > 0) parts.push(`${stats.deferred} not delivered — written to ${fallbackPath}`);
     if (shortened.size > 0) parts.push(`${shortened.size} test name(s) shortened to fit a key`);
     log(`plune: ${parts.join(' · ')}`);
+    // Where a GitHub run shows it without anyone opening the log — for every road, from here (#790).
+    // Said and nothing more: a reporting failure is not the build's failure (#788).
+    if (stats.deferred > 0 && process.env['GITHUB_ACTIONS'] === 'true') {
+      log(`::warning::${stats.deferred} result(s) were not delivered to Plune — see the reporting step's log.`);
+    }
   }
 
   return {

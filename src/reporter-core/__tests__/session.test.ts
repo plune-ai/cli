@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -508,6 +508,43 @@ describe('a refused token stops the asking (AC-06)', () => {
 
     expect(logOf(cfg).filter((l) => l.includes('plune login'))).toHaveLength(1);
     expect(seen.events).toHaveLength(0);
+  });
+});
+
+/**
+ * #790 T17 — the line both roads end on names what did not reach Plune in the words the import's own
+ * summary uses, and in GitHub Actions says it once more where a run's annotations show it.
+ */
+describe('the summary says what was not delivered (#790)', () => {
+  beforeEach(() => vi.stubEnv('GITHUB_ACTIONS', ''));
+  afterEach(() => vi.unstubAllEnvs());
+
+  async function reportOne(opts: PlatformOptions): Promise<ReporterConfig> {
+    const { fetchImpl } = platform({ known: { a: 'tc-a', b: 'tc-b' }, ...opts });
+    const cfg = config(fetchImpl);
+    const run = await startRun(cfg);
+    await run.add(result('a'));
+    await run.add(result('b', { resultKey: 'b#0' }));
+    await run.finish();
+    return cfg;
+  }
+
+  it('names it as not delivered, beside the file it went to', async () => {
+    const cfg = await reportOne({ resultsFailure: { status: 413, error: 'request body too large' } });
+    expect(logOf(cfg).at(-1)).toBe(`plune: 0 accepted · 2 not delivered — written to ${cfg.fallbackPath}`);
+    expect(logOf(cfg).some((l) => l.startsWith('::warning::'))).toBe(false);
+  });
+
+  it('in GitHub Actions warns once on the same output, and not at all when everything arrived', async () => {
+    vi.stubEnv('GITHUB_ACTIONS', 'true');
+    const refused = await reportOne({ resultsFailure: { status: 413, error: 'request body too large' } });
+    expect(logOf(refused).filter((l) => l.startsWith('::warning::'))).toEqual([
+      "::warning::2 result(s) were not delivered to Plune — see the reporting step's log.",
+    ]);
+
+    const delivered = await reportOne({});
+    expect(logOf(delivered).at(-1)).toBe('plune: 2 accepted');
+    expect(logOf(delivered).some((l) => l.startsWith('::warning::'))).toBe(false);
   });
 });
 

@@ -1,9 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
 import type { FullConfig, FullResult, Suite, TestCase, TestResult } from '@playwright/test/reporter';
-import type { PendingResult } from '@plune-ai/cli/reporter-core';
+import { errorContextOf, type PendingResult } from '@plune-ai/cli/reporter-core';
 
 const added: PendingResult[] = [];
 const expectedLists: unknown[] = [];
+const startConfigs: Record<string, unknown>[] = [];
+const rootsAsked: string[] = [];
 const calls: string[] = [];
 let startThrows = false;
 
@@ -15,8 +18,18 @@ vi.mock('@plune-ai/cli/reporter-core', async () => {
     // `resultKey` and `readEnv` are pure; stubbing them would test the stub.
     resultKey: actual.resultKey,
     readEnv: actual.readEnv,
-    startRun: vi.fn(async (_cfg: unknown, expected: unknown) => {
+    // The same for what the failure detail is made of (#790): the adapter's part is the attempt.
+    errorContextOf: actual.errorContextOf,
+    failureOf: actual.failureOf,
+    webLink: actual.webLink,
+    // The one that reads the disk. The recorded run's repository is `/repo`, not on this machine.
+    repoRootOf: vi.fn((dir: string) => {
+      rootsAsked.push(dir);
+      return '/repo';
+    }),
+    startRun: vi.fn(async (cfg: Record<string, unknown>, expected: unknown) => {
       if (startThrows) throw new Error('platform exploded');
+      startConfigs.push(cfg);
       expectedLists.push(expected);
       return {
         runId: 'r-1',
@@ -36,6 +49,8 @@ const { default: PluneReporter } = await import('../index.js');
 beforeEach(() => {
   added.length = 0;
   expectedLists.length = 0;
+  startConfigs.length = 0;
+  rootsAsked.length = 0;
   calls.length = 0;
   startThrows = false;
 });
@@ -380,5 +395,148 @@ describe('it stays out of the terminal', () => {
   it('leaves stdio to the runner reporter', () => {
     expect(new PluneReporter().printsToStdio()).toBe(false);
     expect(new PluneReporter().version()).toBe('v2');
+  });
+});
+
+/**
+ * #790 T17. Replays what Playwright 1.63 handed a reporter in a trial run (`fixtures/trial-790`,
+ * recorded beside the JSON report of the same run; the machine's paths put under `/repo`): a test that
+ * timed out while a helper waited, one with two soft assertions, one whose fixture threw in another
+ * file, one that passed — each with the hooks, fixtures and actions a real run has around its steps.
+ */
+describe('what failed and where, from a recorded run (#790)', () => {
+  interface RecordedStep {
+    title: string;
+    category: string;
+    error?: { message: string };
+    steps: RecordedStep[];
+  }
+  interface RecordedEvent {
+    title: string;
+    file: string;
+    line: number;
+    status: string;
+    retry: number;
+    errors: unknown[];
+    steps: RecordedStep[];
+    attachments: { name: string; contentType: string; path?: string; body?: number }[];
+  }
+  const fixture = (name: string): unknown =>
+    JSON.parse(readFileSync(new URL(`./fixtures/trial-790/${name}`, import.meta.url), 'utf8'));
+  const recorded = fixture('events.json') as { rootDir: string; ciAtBegin: Record<string, string>; events: RecordedEvent[] };
+  const CI = recorded.ciAtBegin['buildHref'];
+
+  /** The run again: `metadata.ci` arrives after `onConfigure`, as the git plugin adds it (ADR-0004). */
+  async function replay(): Promise<void> {
+    const file = { type: 'file', title: 'shop.spec.ts', parent: undefined };
+    const tests = recorded.events.map((e, i) =>
+      fakeTest({ id: `rec-${i}`, title: e.title, location: { file: e.file, line: e.line, column: 1 }, parent: file }),
+    );
+    const results = recorded.events.map((e) =>
+      fakeResult({
+        status: e.status,
+        retry: e.retry,
+        errors: e.errors,
+        steps: e.steps,
+        attachments: e.attachments.map(({ body, ...a }) => (body === undefined ? a : { ...a, body: Buffer.alloc(body) })),
+      }),
+    );
+    const config = { shard: null, rootDir: recorded.rootDir, metadata: {} as Record<string, unknown> };
+    const reporter = new PluneReporter();
+    reporter.onConfigure(config as unknown as FullConfig);
+    config.metadata['ci'] = recorded.ciAtBegin;
+    reporter.onBegin(suiteOf(...tests));
+    tests.forEach((t, i) => reporter.onTestEnd(t, results[i] as TestResult));
+    await reporter.onEnd({} as FullResult);
+  }
+  const reported = (title: string): PendingResult | undefined => added.find((r) => r.title === title);
+
+  it('opens the run with the CI run the git plugin wrote after onConfigure, and finds the root once (AC-04)', async () => {
+    await replay();
+    expect(startConfigs[0]?.['meta']).toEqual({ runner: 'playwright', ciUrl: CI });
+    expect(rootsAsked).toEqual([recorded.rootDir]);
+  });
+
+  it('on a timeout names the action still waiting, the declared steps down to it and the test’s own line (AC-01c, AC-02)', async () => {
+    await replay();
+    expect(reported('times out while a helper waits')?.failure).toEqual({
+      headline: 'Error: apiRequestContext.get: Request context disposed.',
+      steps: ['Pay', 'Read the total'],
+      location: { file: 'tests/shop.spec.ts', line: 12, column: 13 },
+      artifacts: [{ name: 'error-context', contentType: 'text/markdown' }],
+      ciUrl: CI,
+    });
+  });
+
+  it('keeps hooks, fixtures and actions out of the chain — declared steps from the test body only (AC-02c)', async () => {
+    await replay();
+    expect(reported('several soft assertions')?.failure?.steps).toEqual(['Pay', 'Check the totals']);
+    const thrown = reported('fails in a fixture from another file')?.failure;
+    expect(thrown).not.toHaveProperty('steps');
+    expect(thrown?.location).toEqual({ file: 'tests/helpers.ts', line: 20, column: 11 });
+  });
+
+  it('gives the attempt that passed no failure and no text (AC-02b)', async () => {
+    await replay();
+    expect(reported('passes')).not.toHaveProperty('failure');
+    expect(reported('passes')).not.toHaveProperty('errorContext');
+  });
+
+  it('writes the same text as the JSON report of the same run (AC-06)', async () => {
+    await replay();
+    const report = fixture('report.json') as { suites: { specs: { title: string; tests: { results: { errors: { message: string }[] }[] }[] }[] }[] };
+    const specs = report.suites[0]?.specs ?? [];
+    expect(specs).toHaveLength(4);
+    for (const spec of specs) {
+      const errors = spec.tests[0]?.results[0]?.errors ?? [];
+      const fromReport = errorContextOf({ status: 'failed', errors: errors.map((e) => ({ text: e.message })), steps: [], attachments: [], testFile: '', repoRoot: '/repo' });
+      expect(reported(spec.title)?.errorContext ?? '').toBe(fromReport);
+    }
+  });
+
+  it('follows the declared step that failed, not the first one', async () => {
+    const steps = [
+      { title: 'Open the basket', category: 'test.step', steps: [] },
+      { title: 'Pay', category: 'test.step', error: { message: 'x' }, steps: [{ title: 'Card', category: 'test.step', error: { message: 'x' }, steps: [] }] },
+    ];
+    await run(new PluneReporter(), [fakeTest()], [fakeResult({ status: 'failed', errors: [{ message: 'Error: boom' }], steps })]);
+    expect(added[0]?.failure?.steps).toEqual(['Pay', 'Card']);
+  });
+
+  it('writes an error as formatError does: no code frame without a place, and the cause after the stack', async () => {
+    const errors = [
+      { message: 'Error: bare', snippet: '> 1 | x' },
+      { message: 'outer', stack: 'Error: outer\n    at /repo/tests/shop.spec.ts:3:1', cause: { message: 'inner' } },
+    ];
+    await run(new PluneReporter(), [fakeTest()], [fakeResult({ status: 'failed', errors })]);
+    expect(added[0]?.errorContext).toBe('Error: bare\n\nError: outer\n    at /repo/tests/shop.spec.ts:3:1\n[cause]: inner');
+  });
+
+  it('places the failure where the runner says it was thrown when the stack shows only libraries', async () => {
+    const config = { shard: null, rootDir: '/repo/tests', metadata: {} } as unknown as FullConfig;
+    const test = fakeTest({ location: { file: '/repo/tests/shop.spec.ts', line: 1, column: 1 } });
+    const error = { message: 'Error: x', stack: 'Error: x\n    at /repo/node_modules/lib/a.js:1:1', location: { file: '/repo/tests/shop.spec.ts', line: 7, column: 3 } };
+    const reporter = new PluneReporter();
+    reporter.onConfigure(config);
+    reporter.onBegin(suiteOf(test));
+    reporter.onTestEnd(test, fakeResult({ status: 'failed', errors: [error] }));
+    await reporter.onEnd({} as FullResult);
+    expect(added[0]?.failure?.location).toEqual({ file: 'tests/shop.spec.ts', line: 7, column: 3 });
+  });
+
+  it('opens the run without a link when the CI run is no web address (AC-07b)', async () => {
+    const config = { shard: null, metadata: { ci: { buildHref: 'javascript:alert(1)' } } } as unknown as FullConfig;
+    const reporter = new PluneReporter();
+    reporter.onConfigure(config);
+    reporter.onBegin(suiteOf(fakeTest()));
+    reporter.onTestEnd(fakeTest(), fakeResult());
+    await reporter.onEnd({} as FullResult);
+    expect(startConfigs[0]?.['meta']).toEqual({ runner: 'playwright' });
+  });
+
+  it('keeps a declared step inside a hook out of the chain, as the JSON report does', async () => {
+    const inHook = [{ title: 'Before Hooks', category: 'hook', error: { message: 'x' }, steps: [{ title: 'beforeEach hook', category: 'hook', error: { message: 'x' }, steps: [{ title: 'Log in', category: 'test.step', error: { message: 'x' }, steps: [] }] }] }];
+    await run(new PluneReporter(), [fakeTest()], [fakeResult({ status: 'failed', errors: [{ message: 'Error: boom' }], steps: inHook })]);
+    expect(added[0]?.failure).toEqual({ headline: 'Error: boom' });
   });
 });

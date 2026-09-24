@@ -146,6 +146,11 @@ describe('failureOf — the place (AC-02, AC-05, AC-07)', () => {
     expect(failure?.location).toEqual({ file: 'e2e/shop.spec.ts', line: 7, column: 3 });
   });
 
+  it('without the runner’s place is the first frame outside node_modules, where Playwright puts it', () => {
+    const text = ['Error: boom', '    at x (/repo/node_modules/lib/index.js:1:1)', '    at helper (/repo/e2e/helpers.ts:5:7)'].join('\n');
+    expect(failureOf(attempt({ errors: [{ text }] }))?.location).toEqual({ file: 'e2e/helpers.ts', line: 5, column: 7 });
+  });
+
   it('is absent for a file outside the repository — the rest of the detail still goes (AC-07)', () => {
     const failure = failureOf(
       attempt({
