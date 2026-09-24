@@ -320,6 +320,25 @@ describe('a failed attempt in the report carries its failure detail (#790)', () 
     expect(failed?.failure?.location).toEqual({ file: 'e2e/helpers.ts', line: 20, column: 11 });
   });
 
+  /**
+   * #790 T18. The trial run the adapter's tests replay as reporter events
+   * (`packages/playwright/src/__tests__/fixtures/trial-790`), read here as its JSON report; both roads
+   * answer to the one `expected.json` beside it, since neither can import the other's code.
+   */
+  it('reads the recorded run as the reporter reported it: failure, text, code frame and all (AC-06)', () => {
+    const recorded = new URL('../../../packages/playwright/src/__tests__/fixtures/trial-790/', import.meta.url);
+    fs.mkdirSync(at('tests'));
+    const source = fs.readFileSync(new URL('report.json', recorded), 'utf8').replaceAll('/repo', root.replaceAll('\\', '/'));
+    const expected = JSON.parse(fs.readFileSync(new URL('expected.json', recorded), 'utf8')) as Record<string, { failure?: unknown; errorContext?: string }>;
+    const { results, ciUrl } = readPlaywrightJson(source, 'report.json');
+    expect(results.map((r) => r.title)).toEqual(Object.keys(expected));
+    for (const r of results) expect({ failure: r.failure, errorContext: r.errorContext }, r.title).toEqual(expected[r.title]);
+    expect(ciUrl).toBe(BUILD);
+    // Not a baseline two roads could meet by both saying nothing: each code frame is there, its line marked.
+    expect(expected['times out while a helper waits']?.errorContext).toContain('> 14 |   await request.get(url);');
+    expect(expected['several soft assertions']?.errorContext).toContain("> 24 |       expect.soft('EUR', 'the currency').toBe('USD');");
+  });
+
   it('from another machine keeps the detail but names no place — not even inside a repository here', () => {
     const [failed] = readPlaywrightJson(report({ rootDir: at('gone') }), 'report.json').results;
     expect(failed?.failure?.headline).toBe('Error: apiRequestContext.get: Request context disposed.');

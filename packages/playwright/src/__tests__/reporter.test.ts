@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import type { FullConfig, FullResult, Suite, TestCase, TestResult } from '@playwright/test/reporter';
-import { errorContextOf, type PendingResult } from '@plune-ai/cli/reporter-core';
+import type { PendingResult } from '@plune-ai/cli/reporter-core';
 
 const added: PendingResult[] = [];
 const expectedLists: unknown[] = [];
@@ -482,15 +482,17 @@ describe('what failed and where, from a recorded run (#790)', () => {
     expect(reported('passes')).not.toHaveProperty('errorContext');
   });
 
-  it('writes the same text as the JSON report of the same run (AC-06)', async () => {
+  /**
+   * #790 T18. `expected.json` is what `plune run import` makes of `report.json`, the same run read the
+   * other road; `src/importers/__tests__/playwright-json.test.ts` holds the importer to the same file.
+   * Neither road can import the other's code, so they meet at the file.
+   */
+  it('gives every attempt the failure and the text the JSON report of the same run gives (AC-06)', async () => {
     await replay();
-    const report = fixture('report.json') as { suites: { specs: { title: string; tests: { results: { errors: { message: string }[] }[] }[] }[] }[] };
-    const specs = report.suites[0]?.specs ?? [];
-    expect(specs).toHaveLength(4);
-    for (const spec of specs) {
-      const errors = spec.tests[0]?.results[0]?.errors ?? [];
-      const fromReport = errorContextOf({ status: 'failed', errors: errors.map((e) => ({ text: e.message })), steps: [], attachments: [], testFile: '', repoRoot: '/repo' });
-      expect(reported(spec.title)?.errorContext ?? '').toBe(fromReport);
+    const expected = fixture('expected.json') as Record<string, { failure?: unknown; errorContext?: string }>;
+    expect(Object.keys(expected)).toEqual(recorded.events.map((e) => e.title));
+    for (const { title } of recorded.events) {
+      expect({ failure: reported(title)?.failure, errorContext: reported(title)?.errorContext }, title).toEqual(expected[title]);
     }
   });
 

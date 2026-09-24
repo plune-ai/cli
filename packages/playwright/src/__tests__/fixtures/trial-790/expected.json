@@ -1,0 +1,65 @@
+{
+  "times out while a helper waits": {
+    "failure": {
+      "headline": "Error: apiRequestContext.get: Request context disposed.",
+      "steps": [
+        "Pay",
+        "Read the total"
+      ],
+      "location": {
+        "file": "tests/shop.spec.ts",
+        "line": 12,
+        "column": 13
+      },
+      "artifacts": [
+        {
+          "name": "error-context",
+          "contentType": "text/markdown"
+        }
+      ],
+      "ciUrl": "https://github.com/acme/shop/actions/runs/42"
+    },
+    "errorContext": "Test timeout of 1500ms exceeded.\n\nError: apiRequestContext.get: Request context disposed.\nCall log:\n  - → GET http://127.0.0.1:64789/total\n    - user-agent: Playwright/1.63.0 (x64; windows 10.0) node/24.13\n    - accept: */*\n    - accept-encoding: gzip,deflate,br\n\n\n   at helpers.ts:14\n\n  12 | /** The helper the test calls: the waiting action lives here, in another file. */\n  13 | export async function readTotal(request: APIRequestContext, url: string): Promise<void> {\n> 14 |   await request.get(url);\n     |                 ^\n  15 | }\n  16 |\n  17 | /** A fixture from another file that fails while it is set up. */\n    at readTotal (tests/helpers.ts:14:17)\n    at tests/shop.spec.ts:12:13\n    at tests/shop.spec.ts:11:5\n    at tests/shop.spec.ts:10:3"
+  },
+  "several soft assertions": {
+    "failure": {
+      "headline": "Error: the first total",
+      "steps": [
+        "Pay",
+        "Check the totals"
+      ],
+      "location": {
+        "file": "tests/shop.spec.ts",
+        "line": 23,
+        "column": 41
+      },
+      "artifacts": [
+        {
+          "name": "error-context",
+          "contentType": "text/markdown"
+        }
+      ],
+      "ciUrl": "https://github.com/acme/shop/actions/runs/42"
+    },
+    "errorContext": "Error: the first total\n\nexpect(received).toBe(expected) // Object.is equality\n\nExpected: 2\nReceived: 1\n\n  21 |   await test.step('Pay', async () => {\n  22 |     await test.step('Check the totals', async () => {\n> 23 |       expect.soft(1, 'the first total').toBe(2);\n     |                                         ^\n  24 |       expect.soft('EUR', 'the currency').toBe('USD');\n  25 |     });\n  26 |   });\n    at tests/shop.spec.ts:23:41\n    at tests/shop.spec.ts:22:5\n    at tests/shop.spec.ts:21:3\n\nError: the currency\n\nexpect(received).toBe(expected) // Object.is equality\n\nExpected: \"USD\"\nReceived: \"EUR\"\n\n  22 |     await test.step('Check the totals', async () => {\n  23 |       expect.soft(1, 'the first total').toBe(2);\n> 24 |       expect.soft('EUR', 'the currency').toBe('USD');\n     |                                          ^\n  25 |     });\n  26 |   });\n  27 | });\n    at tests/shop.spec.ts:24:42\n    at tests/shop.spec.ts:22:5\n    at tests/shop.spec.ts:21:3"
+  },
+  "fails in a fixture from another file": {
+    "failure": {
+      "headline": "Error: no test account in this environment",
+      "location": {
+        "file": "tests/helpers.ts",
+        "line": 20,
+        "column": 11
+      },
+      "artifacts": [
+        {
+          "name": "error-context",
+          "contentType": "text/markdown"
+        }
+      ],
+      "ciUrl": "https://github.com/acme/shop/actions/runs/42"
+    },
+    "errorContext": "Error: no test account in this environment\n\n   at helpers.ts:20\n\n  18 | export const test = base.extend<{ account: string }>({\n  19 |   account: async ({}, use) => {\n> 20 |     throw new Error('no test account in this environment');\n     |           ^\n  21 |     await use('never');\n  22 |   },\n  23 | });\n    at Object.account (tests/helpers.ts:20:11)"
+  },
+  "passes": {}
+}

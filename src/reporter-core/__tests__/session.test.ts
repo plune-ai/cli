@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { handleRunReport } from '../../cli/commands/run-lifecycle.js';
@@ -463,6 +465,62 @@ describe('a batch is packed by bytes as well as by count (#790, ADR-0006)', () =
     const lines = fallbackLines(cfg);
     expect(lines).toHaveLength(3);
     for (const line of lines) expect(Buffer.byteLength(JSON.stringify({ results: line.results }))).toBeLessThanOrEqual(BATCH_BYTES);
+  });
+});
+
+/**
+ * #790 T18, spec §6 «Доставка найгіршого прогону». A server that refuses as the platform does, by the
+ * bytes that arrive (`hono/body-limit`): 10 MiB on `POST /v1/runs` and `…/results`, 512 KiB on every
+ * other write, 500 results a batch — Plune `src/server/middleware/body-limit.ts` and
+ * `src/server/results/v1-routes.ts`. Over a real socket, so what is measured is what was sent.
+ */
+describe('the worst run arrives whole against the platform’s ceilings (#790 AC-15)', () => {
+  const BULK = /^POST \/v1\/runs(?:\/[^/]+\/results)?$/;
+
+  it('100 failures of 256 KB each: all accepted, none deferred or rejected, in at most 10 calls', async () => {
+    const calls: string[] = [];
+    const server = createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk: Buffer) => chunks.push(chunk));
+      req.on('end', () => {
+        const route = `${req.method} ${req.url}`;
+        calls.push(route);
+        const reply = (status: number, payload: unknown): void => {
+          res.writeHead(status, { 'content-type': 'application/json' });
+          res.end(JSON.stringify(payload));
+        };
+        const raw = Buffer.concat(chunks);
+        const ceiling = BULK.test(route) ? 10 * 1024 * 1024 : 512 * 1024;
+        if (raw.length > ceiling) return reply(413, { error: `request body too large — this route accepts at most ${ceiling} bytes` });
+        const body = JSON.parse(raw.length === 0 ? '{}' : raw.toString('utf8')) as { keys?: KeyRef[]; results?: unknown[] };
+        if (route === 'POST /v1/runs') return reply(201, { run: { id: 'r-1' }, joined: false });
+        if (route === 'POST /v1/test-cases/resolve') {
+          return reply(200, { results: (body.keys ?? []).map((key) => ({ key, testCaseId: `tc-${key.value}`, matchedKind: null })) });
+        }
+        if (route.endsWith('/results')) {
+          const list = body.results ?? [];
+          if (list.length > 500) return reply(400, { error: 'results: at most 500 a batch' });
+          return reply(200, { items: [], counts: { accepted: list.length, duplicate: 0, conflict: 0, rejected: 0 } });
+        }
+        if (route.endsWith('/events')) return reply(200, { run: { id: 'r-1' }, changed: true });
+        return reply(500, { error: `unexpected ${route}` });
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const { port } = server.address() as AddressInfo;
+      const cfg = config(fetch, { apiUrl: `http://127.0.0.1:${port}` });
+      const worst = Array.from({ length: 100 }, (_, i) => result(`t${i}`, { rawStatus: 'failed', errorContext: 'x'.repeat(256 * 1024) }));
+      const run = await startRun(cfg, worst.map((r) => r.keys));
+      for (const r of worst) await run.add(r);
+      await run.finish();
+
+      expect(run.stats).toMatchObject({ accepted: 100, deferred: 0, rejected: 0 });
+      expect(calls.length).toBeLessThanOrEqual(10);
+      expect(fs.existsSync(cfg.fallbackPath as string)).toBe(false);
+    } finally {
+      server.close();
+    }
   });
 });
 
