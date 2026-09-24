@@ -13,14 +13,18 @@ import type { AttemptError, DeclaredStep, FailedAttempt, FailureDetail, RunnerLo
  * and nothing is searched for credentials — the platform does both after its own cleaning, and a cut
  * here could halve a credential it would then not recognise.
  */
-export function failureOf(attempt: FailedAttempt): FailureDetail | undefined {
+export function failureOf(attempt: FailedAttempt, home: string = homedir()): FailureDetail | undefined {
   const error = chosen(attempt);
-  const headline = error === undefined ? undefined : firstLine(error.text);
+  // Rewritten as the text is; past `HEADLINE_LIMIT` left out whole, never cut (ADR-0001).
+  const line = error === undefined ? undefined : firstLine(machineless(error.text, attempt.repoRoot, home));
+  const headline = line !== undefined && jsonBytes(line) <= HEADLINE_LIMIT ? line : undefined;
   const steps = chainOf(attempt.steps);
   const location = error === undefined ? undefined : fromRoot(placeOf(error, attempt.testFile), attempt.repoRoot);
+  // An empty type is no type: the platform refuses one, and the whole batch with it.
   const artifacts = attempt.attachments
-    .filter((a) => a.path !== undefined && a.name !== '' && !a.name.startsWith('_') && a.contentType !== METADATA_TYPE)
-    .map(({ name, contentType }) => (contentType === undefined ? { name } : { name, contentType }));
+    .filter((a) => a.path !== undefined && !a.name.startsWith('_') && a.contentType !== METADATA_TYPE)
+    .map(({ name, contentType }) => ({ name: fileNameOf(name), ...(contentType ? { contentType } : {}) }))
+    .filter((a) => a.name !== '');
   const ciUrl = webLink(attempt.buildHref);
 
   const failure: FailureDetail = {
@@ -51,49 +55,87 @@ export function repoRootOf(dir: string, stopAt?: string): string | undefined {
  * searched for credentials: the platform does that before its own cut (ADR-0005).
  */
 export function errorContextOf(attempt: FailedAttempt, home: string = homedir()): string {
-  let text = stripVTControlCharacters(
-    attempt.errors
-      .map((e) => e.text)
-      .filter((t) => t !== '')
-      .join('\n\n'),
-  ).replaceAll('\u001b', '');
-  const root = attempt.repoRoot === undefined ? undefined : pathIn(attempt.repoRoot);
-  if (root !== undefined) text = text.replace(new RegExp(`${root.source}[\\\\/]`, root.flags), '');
-  const own = pathIn(home);
-  if (own !== undefined) text = text.replace(new RegExp(`${own.source}(?![\\w.-])`, own.flags), '~');
-  if (attempt.repoRoot === undefined) text = text.replace(ANY_HOME, '~');
-  return cut(text);
+  const text = attempt.errors
+    .map((e) => e.text)
+    .filter((t) => t !== '')
+    .join('\n\n');
+  return cut(machineless(text, attempt.repoRoot, home));
 }
 
-/** The CLI's own transport limit for one text (ADR-0006) — not a copy of the platform's 256 KB. */
-const TEXT_LIMIT = 524_288;
-
-/** A home folder opening a path in a text: `/home/<u>`, `/Users/<u>`, `C:\Users\<u>`, a file URL too. */
-// ponytail: a user name with a space is cut at the space; the machine's own home is matched exactly.
-const ANY_HOME = /(?<=^|[\s'"`(=,[])(?:file:\/\/\/?)?(?:\/home\/|\/Users\/|[A-Za-z]:[\\/]Users[\\/])[^\\/\s'"`:*?<>|]+/g;
+/**
+ * A text without this machine in it: colour codes gone, the repository as relative paths and a home
+ * folder as `~` — any home folder when the root is unknown. The headline and the text both go through
+ * here, so neither can name a folder the other hides (#790 AC-05).
+ */
+function machineless(raw: string, repoRoot: string | undefined, home: string): string {
+  let text = stripVTControlCharacters(raw).replaceAll('\u001b', '');
+  const root = repoRoot === undefined ? undefined : pathIn(repoRoot);
+  if (root !== undefined) text = text.replace(new RegExp(`${PATH_START}${root.source}[\\\\/]+`, root.flags), '');
+  const own = pathIn(home);
+  if (own !== undefined) text = text.replace(new RegExp(`${PATH_START}${own.source}(?![\\w.-])`, own.flags), '~');
+  if (repoRoot === undefined) text = text.replace(ANY_HOME, '~');
+  return text;
+}
 
 /**
- * `path` as a text may spell it: either slash, as a file URL, and on Windows in any case. Nothing for
- * `/` or a bare drive — they would match every path.
+ * Where a path may start: not glued to a word, a path or an address — a root of one segment is a word
+ * an address holds too (`http://localhost:3000/app/login` for a root `/app`).
+ */
+// ponytail: a route in a line of code (`'/app/login'` for a root `/app`) still reads as a path; telling
+// the two apart needs the disk (`existsSync` of root + the rest), not a pattern.
+const PATH_START = '(?<![\\w.~%/\\\\-])';
+
+/**
+ * The CLI's own transport limit for one text (ADR-0006) — not a copy of the platform's 256 KB — in the
+ * bytes the text weighs in a batch, which is packed by its JSON (#790 review G1).
+ */
+const TEXT_LIMIT = 524_288;
+
+/**
+ * The longest headline sent, in the bytes it weighs in a batch. The platform keeps 300 characters of it
+ * after its own cleaning, and a credential straddling that point is a few KB at most; and with a text at
+ * `TEXT_LIMIT`, a result has ~34 KB left for everything else if 100 of them are to fit 7 batches of
+ * 8 MiB — 10 calls. A longer first line still travels in the text, which the dashboard shows instead.
+ */
+const HEADLINE_LIMIT = 8 * 1024;
+
+/** What a text weighs inside a batch: JSON writes a quote, a backslash or a control character in two bytes or more. */
+const jsonBytes = (text: string): number => Buffer.byteLength(JSON.stringify(text)) - 2;
+
+/**
+ * A home folder opening a path in a text: `/home/<u>`, `/Users/<u>`, `C:\Users\<u>` — with the
+ * backslashes doubled too, as a diff prints a string — a file URL too.
+ */
+// ponytail: a user name with a space is cut at the space; the machine's own home is matched exactly.
+const ANY_HOME = /(?<=^|[\s'"`(=,[])(?:file:\/\/\/?)?(?:\/home\/|\/Users\/|[A-Za-z]:[\\/]+Users[\\/]+)[^\\/\s'"`:*?<>|]+/g;
+
+/**
+ * `path` as a text may spell it: either slash, doubled as a printed string doubles a backslash, as a
+ * file URL, and on Windows in any case. Nothing for `/` or a bare drive — they would match every path.
  */
 function pathIn(path: string): RegExp | undefined {
   const parts = path.split(/[\\/]+/);
   while (parts.length > 1 && parts.at(-1) === '') parts.pop();
   if (!parts.some((part) => part !== '' && !/^[A-Za-z]:$/.test(part))) return undefined;
-  const escaped = parts.map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\\\/]');
+  const escaped = parts.map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\\\/]+');
   return new RegExp(`(?:file:\\/\\/\\/?)?${escaped}`, /^[A-Za-z]:$/.test(parts[0]!) ? 'gi' : 'g');
 }
 
+/** An attachment named by its path — `testInfo.attach(file, { path: file })` — by the file alone. */
+const fileNameOf = (name: string): string =>
+  /^(?:file:\/\/|[\\/]|~[\\/]|[A-Za-z]:[\\/])/.test(name) ? (name.split(/[\\/]/).pop() ?? '') : name;
+
 /**
- * At most `TEXT_LIMIT` UTF-8 bytes, by whole lines: lines from the head, then from the tail, and one
- * `…[omitted N lines]…` where the rest were. A line longer than the limit goes whole, so no part of a
- * one-line credential can show; the lines left out never leave the machine.
+ * At most `TEXT_LIMIT` bytes as a batch carries it, by whole lines: lines from the head, then from the
+ * tail, and one `…[omitted N lines]…` where the rest were. A line longer than the limit goes whole, so
+ * no part of a one-line credential can show; the lines left out never leave the machine.
  */
 function cut(text: string): string {
-  if (Buffer.byteLength(text) <= TEXT_LIMIT) return text;
+  if (jsonBytes(text) <= TEXT_LIMIT) return text;
   const lines = text.split('\n');
-  const size = lines.map((line) => Buffer.byteLength(line) + 1);
-  const budget = TEXT_LIMIT - Buffer.byteLength(omitted(lines.length));
+  // A line and the `\n` after it, which JSON writes in two bytes; the marker's separator is one of them.
+  const size = lines.map((line) => jsonBytes(line) + 2);
+  const budget = TEXT_LIMIT - jsonBytes(omitted(lines.length));
   let used = 0;
   let head = 0;
   let tail = lines.length;
@@ -112,6 +154,7 @@ const REPO_RELATIVE = /^(?![A-Za-z][A-Za-z0-9+.-]*:)(?![\\/~])(?!(?:.*[\\/])?\.\
 
 /** A stack frame as V8 writes it: `at fn (file:line:col)` or `at file:line:col`. */
 const FRAME = /^\s+at (?:.*? \()?(.+?):(\d+):(\d+)\)?$/;
+const FRAME_MAX = 8192;
 
 const firstLine = (text: string): string | undefined =>
   stripVTControlCharacters(text)
@@ -149,6 +192,9 @@ function placeOf(error: AttemptError, testFile: string): RunnerLocation | undefi
   const own = normal(testFile);
   let first: RunnerLocation | undefined;
   for (const line of stripVTControlCharacters(error.text).split('\n')) {
+    // ponytail: past PATH_MAX plus a function name a line is no frame, and on it `FRAME` retries from
+    // every " (" — quadratic. Below the cap it still is: ~5 ms for the worst 8 191 characters.
+    if (line.length > FRAME_MAX) continue;
     const frame = FRAME.exec(line);
     if (frame === null) continue;
     const place = { file: fileOf(frame[1]!), line: Number(frame[2]), column: Number(frame[3]) };
@@ -161,7 +207,12 @@ function placeOf(error: AttemptError, testFile: string): RunnerLocation | undefi
 /** `file:///D:/repo/x.ts` or `file:///repo/x.ts` — read the same on every OS, unlike `fileURLToPath`. */
 function fileOf(raw: string): string {
   if (!raw.startsWith('file://')) return raw;
-  const path = decodeURIComponent(raw.slice('file://'.length));
+  let path = raw.slice('file://'.length);
+  try {
+    path = decodeURIComponent(path);
+  } catch {
+    // A broken escape: kept as written, rather than ending the whole report on a `URIError`.
+  }
   return /^\/[A-Za-z]:\//.test(path) ? path.slice(1) : path;
 }
 
@@ -181,13 +232,11 @@ function fromRoot(place: RunnerLocation | undefined, root: string | undefined): 
   return column === undefined ? { file: relative, line: place.line } : { file: relative, line: place.line, column };
 }
 
-/** A link only for an address a browser opens as a page — never `file:`, `javascript:` or half a URL. */
+/**
+ * A link only for an address a browser opens as a page — never `file:`, `javascript:` or half a URL.
+ * As the platform checks it: `new URL` alone mends `https:/host` and `https:host` into https, and a
+ * link the platform refuses costs the run's start or the whole batch.
+ */
 export function webLink(href: string | undefined): string | undefined {
-  if (href === undefined) return undefined;
-  try {
-    const { protocol } = new URL(href);
-    return protocol === 'http:' || protocol === 'https:' ? href : undefined;
-  } catch {
-    return undefined;
-  }
+  return href !== undefined && /^https?:\/\//i.test(href) && URL.canParse(href) ? href : undefined;
 }

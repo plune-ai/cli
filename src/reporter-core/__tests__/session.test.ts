@@ -5,8 +5,9 @@ import type { AddressInfo } from 'node:net';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { handleRunReport } from '../../cli/commands/run-lifecycle.js';
+import { errorContextOf, failureOf } from '../failure-detail.js';
 import { startRun } from '../session.js';
-import type { KeyRef, PendingResult, ReporterConfig } from '../types.js';
+import type { FailedAttempt, KeyRef, PendingResult, ReporterConfig } from '../types.js';
 
 const TOKEN = 'plune_tok_never_print_me';
 
@@ -477,7 +478,11 @@ describe('a batch is packed by bytes as well as by count (#790, ADR-0006)', () =
 describe('the worst run arrives whole against the platform’s ceilings (#790 AC-15)', () => {
   const BULK = /^POST \/v1\/runs(?:\/[^/]+\/results)?$/;
 
-  it('100 failures of 256 KB each: all accepted, none deferred or rejected, in at most 10 calls', async () => {
+  /**
+   * The run through the transport that ships — `node:http`, which nothing else here exercises for a
+   * whole run (#790 review F7) — so `fetch` must not be touched at all.
+   */
+  async function deliver(worst: PendingResult[]): Promise<{ calls: string[]; run: Awaited<ReturnType<typeof startRun>>; cfg: ReporterConfig }> {
     const calls: string[] = [];
     const server = createServer((req, res) => {
       const chunks: Buffer[] = [];
@@ -507,20 +512,73 @@ describe('the worst run arrives whole against the platform’s ceilings (#790 AC
       });
     });
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const viaFetch = vi.spyOn(globalThis, 'fetch');
     try {
       const { port } = server.address() as AddressInfo;
       const cfg = config(fetch, { apiUrl: `http://127.0.0.1:${port}` });
-      const worst = Array.from({ length: 100 }, (_, i) => result(`t${i}`, { rawStatus: 'failed', errorContext: 'x'.repeat(256 * 1024) }));
+      delete cfg.fetchImpl;
       const run = await startRun(cfg, worst.map((r) => r.keys));
       for (const r of worst) await run.add(r);
       await run.finish();
-
-      expect(run.stats).toMatchObject({ accepted: 100, deferred: 0, rejected: 0 });
-      expect(calls.length).toBeLessThanOrEqual(10);
-      expect(fs.existsSync(cfg.fallbackPath as string)).toBe(false);
+      expect(viaFetch).not.toHaveBeenCalled();
+      return { calls, run, cfg };
     } finally {
+      viaFetch.mockRestore();
       server.close();
     }
+  }
+
+  it('100 failures of 256 KB each: all accepted, none deferred or rejected, in at most 10 calls', async () => {
+    const worst = Array.from({ length: 100 }, (_, i) => result(`t${i}`, { rawStatus: 'failed', errorContext: 'x'.repeat(256 * 1024) }));
+    const { calls, run, cfg } = await deliver(worst);
+
+    expect(run.stats).toMatchObject({ accepted: 100, deferred: 0, rejected: 0 });
+    expect(calls.length).toBeLessThanOrEqual(10);
+    expect(fs.existsSync(cfg.fallbackPath as string)).toBe(false);
+  });
+
+  // #790 review G1: a text as long as any, cut to the limit, full of what JSON writes in two bytes —
+  // a `toEqual` diff of a Windows path, CRLF-ended. Cut by its raw bytes it weighed a quarter more in
+  // the batch, and the run took 12 calls.
+  it('100 failures whose text is cut to the limit and full of quotes, backslashes and CRLF: the same', async () => {
+    const line = '+     "path": "C:\\\\Users\\\\runner\\\\work\\\\shop\\\\e2e\\\\fixtures\\\\order.json",\r';
+    const attempt: FailedAttempt = {
+      status: 'failed',
+      errors: [{ text: ['Error: expect(received).toEqual(expected) // deep equality\r', ...Array.from({ length: 12_000 }, () => line)].join('\n') }],
+      steps: [],
+      attachments: [],
+      testFile: '/repo/e2e/cart.spec.ts',
+      repoRoot: '/repo',
+    };
+    const errorContext = errorContextOf(attempt, '/home/ci-user');
+    const failure = failureOf(attempt, '/home/ci-user');
+    const worst = Array.from({ length: 100 }, (_, i) => result(`t${i}`, { rawStatus: 'failed', errorContext, ...(failure !== undefined ? { failure } : {}) }));
+    const { calls, run, cfg } = await deliver(worst);
+
+    expect(run.stats).toMatchObject({ accepted: 100, deferred: 0, rejected: 0 });
+    expect(calls.length).toBeLessThanOrEqual(10);
+    expect(fs.existsSync(cfg.fallbackPath as string)).toBe(false);
+  });
+
+  // A 40 KB first line travelled twice — in the text, which keeps it, and as the headline — and 14
+  // such results filled a batch where 15 must: 11 calls. The headline past 8 KB is left out.
+  it('100 failures whose first line is 40 KB and whose text is at the limit: the same', async () => {
+    const attempt: FailedAttempt = {
+      status: 'failed',
+      errors: [{ text: [`Error: ${'x'.repeat(40_000)}`, '    at /repo/e2e/cart.spec.ts:4:2', ...Array.from({ length: 8_000 }, () => 'y'.repeat(99))].join('\n') }],
+      steps: [],
+      attachments: [],
+      testFile: '/repo/e2e/cart.spec.ts',
+      repoRoot: '/repo',
+    };
+    const errorContext = errorContextOf(attempt, '/home/ci-user');
+    const failure = failureOf(attempt, '/home/ci-user');
+    const worst = Array.from({ length: 100 }, (_, i) => result(`t${i}`, { rawStatus: 'failed', errorContext, ...(failure !== undefined ? { failure } : {}) }));
+    const { calls, run, cfg } = await deliver(worst);
+
+    expect(run.stats).toMatchObject({ accepted: 100, deferred: 0, rejected: 0 });
+    expect(calls.length).toBeLessThanOrEqual(10);
+    expect(fs.existsSync(cfg.fallbackPath as string)).toBe(false);
   });
 });
 
@@ -603,6 +661,32 @@ describe('the summary says what was not delivered (#790)', () => {
     const delivered = await reportOne({});
     expect(logOf(delivered).at(-1)).toBe('plune: 2 accepted');
     expect(logOf(delivered).some((l) => l.startsWith('::warning::'))).toBe(false);
+  });
+});
+
+/**
+ * #790 review F4. A success the client cannot read — a proxy's page answering 200, a body with no
+ * counts — used to throw out of `add`: the adapter lost the batch and said "reporting stopped", and
+ * `plune run import` ended non-zero. It is a batch not delivered, like any other refusal.
+ */
+describe('a success the client cannot read is a batch not delivered (#790)', () => {
+  it.each([
+    ['a page instead of JSON', () => new Response('<html>signed in</html>', { status: 200, headers: { 'content-type': 'text/html' } })],
+    ['JSON without counts', () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })],
+  ])('defers it on %s, and the run still closes', async (_label, answer) => {
+    const p = platform({ known: { a: 'tc-a', b: 'tc-b' } });
+    const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) =>
+      /\/results$/.test(String(url)) ? answer() : p.fetchImpl(url, init)) as unknown as typeof fetch;
+    const cfg = config(fetchImpl);
+    const run = await startRun(cfg);
+    await run.add(result('a'));
+    await run.add(result('b', { resultKey: 'b#0' }));
+
+    await expect(run.finish()).resolves.toBeUndefined();
+
+    expect(run.stats).toMatchObject({ accepted: 0, deferred: 2 });
+    expect(p.seen.events).toHaveLength(1);
+    expect(logOf(cfg).some((l) => l.startsWith('plune: could not send results'))).toBe(true);
   });
 });
 

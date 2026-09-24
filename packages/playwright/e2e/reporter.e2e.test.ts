@@ -35,17 +35,26 @@ interface FixtureRun {
   stderr: string;
   received: Received[];
   fallback: string;
+  /** How many results the stub had answered when the run was closed; `null` if it never was. */
+  answeredAtClose: number | null;
 }
 
 interface Stub {
   url: string;
   received: Received[];
+  answeredAtClose: () => number | null;
   close: () => void;
 }
 
-/** A stub that speaks the platform's shapes and keeps what it got; `refuseResults` answers every results batch 413. */
-async function stub(refuseResults: boolean): Promise<Stub> {
+/**
+ * A stub that speaks the platform's shapes and keeps what it got; `refuseResults` answers every results
+ * batch 413, and `answerAfterMs` answers each batch that much later. A result counts as stored when it
+ * is answered, and a batch arriving after the run closed is refused 409 — as the platform does.
+ */
+async function stub(refuseResults: boolean, answerAfterMs = 0): Promise<Stub> {
   const received: Received[] = [];
+  let answered = 0;
+  let answeredAtClose: number | null = null;
   const server: Server = createServer((req, res) => {
     let raw = '';
     req.on('data', (c) => (raw += String(c)));
@@ -67,25 +76,41 @@ async function stub(refuseResults: boolean): Promise<Stub> {
       }
       if (url.endsWith('/results')) {
         if (refuseResults) return json({ error: 'request body too large' }, 413);
+        if (answeredAtClose !== null) return json({ error: 'this run is finished' }, 409);
         const list = (body['results'] ?? []) as unknown[];
-        return json({ items: [], counts: { accepted: list.length, duplicate: 0, conflict: 0, rejected: 0 } });
+        const answer = (): void => {
+          answered += list.length;
+          json({ items: [], counts: { accepted: list.length, duplicate: 0, conflict: 0, rejected: 0 } });
+        };
+        if (answerAfterMs > 0) setTimeout(answer, answerAfterMs);
+        else answer();
+        return;
       }
-      if (url.endsWith('/events')) return json({ run: { id: 'r-e2e' }, changed: true });
+      if (url.endsWith('/events')) {
+        answeredAtClose ??= answered;
+        return json({ run: { id: 'r-e2e' }, changed: true });
+      }
       return json({ error: `unexpected ${url}` }, 500);
     });
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
   const url = `http://127.0.0.1:${typeof address === 'object' && address !== null ? address.port : 0}`;
-  return { url, received, close: () => server.close() };
+  return { url, received, answeredAtClose: () => answeredAtClose, close: () => server.close() };
 }
 
 /**
  * Run the fixture project once against a stub; `refuseResults` answers every results batch 413, `args`
- * go to the runner as they are, and `env` over the environment it inherits.
+ * go to the runner as they are, `env` over the environment it inherits, and `answerAfterMs` delays
+ * every results answer.
  */
-async function runFixture(refuseResults: boolean, args: string[] = [], env: Record<string, string> = {}): Promise<FixtureRun> {
-  const platform = await stub(refuseResults);
+async function runFixture(
+  refuseResults: boolean,
+  args: string[] = [],
+  env: Record<string, string> = {},
+  answerAfterMs = 0,
+): Promise<FixtureRun> {
+  const platform = await stub(refuseResults, answerAfterMs);
   const fallback = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'plune-e2e-')), 'pending.jsonl');
 
   try {
@@ -100,7 +125,9 @@ async function runFixture(refuseResults: boolean, args: string[] = [], env: Reco
       // One test fails on purpose, so a non-zero exit is the expected outcome — what must not happen
       // is the runner failing to start at all.
       child.on('close', (code) =>
-        code === null ? reject(new Error(stderr)) : resolve({ code, stderr, received: platform.received, fallback }),
+        code === null
+          ? reject(new Error(stderr))
+          : resolve({ code, stderr, received: platform.received, fallback, answeredAtClose: platform.answeredAtClose() }),
       );
       child.on('error', reject);
     });
@@ -217,6 +244,26 @@ describe('a refused batch changes nothing about the test run (#790, #788)', () =
   it('says the result was not delivered, and keeps it for "plune run report"', () => {
     expect(refused.stderr).toContain(`plune: 0 accepted · 1 not delivered — written to ${refused.fallback}`);
     expect(fs.readFileSync(refused.fallback, 'utf8').trim().split('\n')).toHaveLength(1);
+  });
+});
+
+/**
+ * #790 review F4, on the real runner and the real core: a hundred results in batches of two against a
+ * platform that answers each batch 100 ms later. The run closes only after the last batch is answered,
+ * or `notRun` freezes without them and the batches behind the close are refused.
+ */
+describe('a slow platform has every result before the run closes (#790 AC-15)', () => {
+  let slow: FixtureRun;
+
+  beforeAll(async () => {
+    slow = await runFixture(false, [], { PLUNE_TEST_DIR: './many', PLUNE_BATCH_SIZE: '2' }, 100);
+  }, 240_000);
+
+  it('answered all 100 before the finish arrived, and the summary counts all of them', () => {
+    expect(slow.answeredAtClose).toBe(100);
+    expect(slow.stderr).toContain('plune: 100 accepted');
+    expect(fs.existsSync(slow.fallback)).toBe(false);
+    expect(slow.code).toBe(0);
   });
 });
 

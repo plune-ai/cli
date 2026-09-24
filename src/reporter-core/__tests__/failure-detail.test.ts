@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { errorContextOf, failureOf, repoRootOf } from '../failure-detail.js';
+import { errorContextOf, failureOf, repoRootOf, webLink } from '../failure-detail.js';
 import type { FailedAttempt } from '../types.js';
 
 /**
@@ -84,6 +84,48 @@ describe('failureOf — the headline (AC-01, AC-01c)', () => {
   it('is not cut — the platform bounds it after its own cleaning (ADR-0001)', () => {
     const long = `Error: ${'x'.repeat(5000)}`;
     expect(failureOf(attempt({ errors: [{ text: long }] }))?.headline).toBe(long);
+  });
+
+  // #790 review F2. The messages are Playwright 1.63's own: a missing snapshot, a missing browser.
+  it('names the repository and the home folder as the text does, never this machine’s paths (AC-05)', () => {
+    const snapshot = "Error: A snapshot doesn't exist at /home/ci-user/shop/e2e/__snapshots__/cart-1.png, writing actual.";
+    const failure = failureOf(attempt({ errors: [{ text: snapshot }], testFile: '/home/ci-user/shop/e2e/cart.spec.ts', repoRoot: '/home/ci-user/shop' }), '/home/ci-user');
+    expect(failure?.headline).toBe("Error: A snapshot doesn't exist at e2e/__snapshots__/cart-1.png, writing actual.");
+
+    const browser = `${ESC}[31mError: browserType.launch: Executable doesn't exist at /Users/alice/Library/Caches/ms-playwright/chromium-1187/chrome-mac/Chromium${ESC}[39m`;
+    expect(failureOf(attempt({ errors: [{ text: browser }] }), '/Users/alice')?.headline).toBe(
+      "Error: browserType.launch: Executable doesn't exist at ~/Library/Caches/ms-playwright/chromium-1187/chrome-mac/Chromium",
+    );
+    expect(failureOf(attempt({ errors: [{ text: browser }], repoRoot: undefined }), '/home/ci-user')?.headline).toBe(
+      "Error: browserType.launch: Executable doesn't exist at ~/Library/Caches/ms-playwright/chromium-1187/chrome-mac/Chromium",
+    );
+  });
+
+  it('is left out whole when its line is longer than the text may be — never cut (ADR-0001, AC-15)', () => {
+    const failure = failureOf(attempt({ errors: [{ text: `Error: ${'x'.repeat(512 * 1024)}\n    at /repo/e2e/shop.spec.ts:4:2` }] }), '/home/ci-user');
+    expect(failure).not.toHaveProperty('headline');
+    expect(failure?.location).toEqual({ file: 'e2e/shop.spec.ts', line: 4, column: 2 });
+    // Measured as the batch carries it: 300 000 quotes are 600 000 bytes of JSON (#790 review G1).
+    const quoted = failureOf(attempt({ errors: [{ text: `Error: ${'"'.repeat(300_000)}\n    at /repo/e2e/shop.spec.ts:4:2` }] }), '/home/ci-user');
+    expect(quoted?.location).toEqual({ file: 'e2e/shop.spec.ts', line: 4, column: 2 });
+    expect(quoted).not.toHaveProperty('headline');
+  });
+
+  // The text keeps its first line, so a long headline travelled twice and made the worst result heavier
+  // than 15 fit in a batch. The platform keeps 300 characters of it; past 8 KB as a batch carries it,
+  // the headline is left out whole and the dashboard shows the text's first line instead.
+  it('is left out whole past 8 KB as a batch carries it, while the text keeps the line (AC-15)', () => {
+    const first = `Error: ${'x'.repeat(20_000)}`;
+    const long = attempt({ errors: [{ text: [first, '    at /repo/e2e/shop.spec.ts:4:2', ...Array.from({ length: 5_000 }, () => 'y'.repeat(99))].join('\n') }] });
+    expect(failureOf(long, '/home/ci-user')).not.toHaveProperty('headline');
+    expect(failureOf(long, '/home/ci-user')?.location).toEqual({ file: 'e2e/shop.spec.ts', line: 4, column: 2 });
+    expect(errorContextOf(long, '/home/ci-user').startsWith(`${first}\n`)).toBe(true);
+
+    const headlineOf = (text: string) => failureOf(attempt({ errors: [{ text: `${text}\n    at /repo/e2e/shop.spec.ts:4:2` }] }), '/home/ci-user')?.headline;
+    expect(headlineOf(`Error: ${'x'.repeat(8 * 1024 - 7)}`)).toBe(`Error: ${'x'.repeat(8 * 1024 - 7)}`);
+    expect(headlineOf(`Error: ${'x'.repeat(8 * 1024 - 6)}`)).toBeUndefined();
+    // 5 000 quotes are 5 007 characters and 10 007 bytes in the batch.
+    expect(headlineOf(`Error: ${'"'.repeat(5_000)}`)).toBeUndefined();
   });
 });
 
@@ -172,6 +214,25 @@ describe('failureOf — the place (AC-02, AC-05, AC-07)', () => {
     expect(failureOf(attempt({ repoRoot: undefined }))).not.toHaveProperty('location');
   });
 
+  // #790 review F6: the frame pattern retries from every " (" of a line that opens like a frame, which
+  // is quadratic in its length — 180 ms at 20 000, on the runner's own thread. Escalated in one test,
+  // so a worse regression fails at the small size instead of hanging at the large one.
+  it('passes over a line too long to be a frame, in time that does not grow with its square', () => {
+    for (const n of [5_000, 50_000]) {
+      const text = `Error: boom\n    at ${' (x'.repeat(n)}\n    at /repo/e2e/shop.spec.ts:4:2`;
+      const started = performance.now();
+      const failure = failureOf(attempt({ errors: [{ text }] }), '/home/ci-user');
+      expect(performance.now() - started).toBeLessThan(100);
+      expect(failure?.location).toEqual({ file: 'e2e/shop.spec.ts', line: 4, column: 2 });
+    }
+  });
+
+  it('reads a frame whose file URL has a broken escape as it is, and still finds the place (#790 review F6)', () => {
+    const text = 'Error: boom\n    at file:///repo/e2e/%E0%A4%A.spec.ts:3:1\n    at /repo/e2e/shop.spec.ts:4:2';
+    expect(() => failureOf(attempt({ errors: [{ text }] }), '/home/ci-user')).not.toThrow();
+    expect(failureOf(attempt({ errors: [{ text }] }), '/home/ci-user')?.location).toEqual({ file: 'e2e/shop.spec.ts', line: 4, column: 2 });
+  });
+
   it('is absent for a path the platform would refuse, rather than costing the batch', () => {
     const failure = failureOf(attempt({ errors: [{ text: 'Error: boom', location: { file: '/repo/~tmp/x.spec.ts', line: 2 } }] }));
     expect(failure).not.toHaveProperty('location');
@@ -195,11 +256,55 @@ describe('failureOf — what the runner kept, and the CI run (AC-04, AC-05)', ()
     expect(failure?.artifacts).toEqual([{ name: 'screenshot', contentType: 'image/png' }, { name: 'trace' }]);
   });
 
+  // #790 review G2: `testInfo.attach(file, { path: file })` names the attachment by its absolute path.
+  it('names an attachment named by its path by the file alone — no folder of this machine (AC-05)', () => {
+    const failure = failureOf(
+      attempt({
+        attachments: [
+          { name: 'C:\\Users\\alice\\shop\\shot.png', contentType: 'image/png', path: 'C:\\Users\\alice\\shop\\test-results\\a\\shot.png' },
+          { name: '/home/ci-user/shop/report.html', contentType: 'text/html', path: '/repo/test-results/a/report.html' },
+          { name: 'file:///Users/alice/trace.zip', path: '/repo/test-results/a/trace.zip' },
+          { name: '~/shots/after.png', contentType: 'image/png', path: '/repo/test-results/a/after.png' },
+          { name: 'checkout page', contentType: 'image/png', path: '/repo/test-results/a/p.png' },
+        ],
+      }),
+    );
+    expect(failure?.artifacts).toEqual([
+      { name: 'shot.png', contentType: 'image/png' },
+      { name: 'report.html', contentType: 'text/html' },
+      { name: 'trace.zip' },
+      { name: 'after.png', contentType: 'image/png' },
+      { name: 'checkout page', contentType: 'image/png' },
+    ]);
+  });
+
+  // #790 review F3: the platform refuses an empty type, and with it the whole batch.
+  it('sends no type for an attachment whose type is empty (AC-07)', () => {
+    expect(failureOf(attempt({ attachments: [{ name: 'log', contentType: '', path: '/repo/test-results/a/log.txt' }] }))?.artifacts).toEqual([{ name: 'log' }]);
+  });
+
   it('keeps an http(s) build link, and nothing else is a link (AC-04, AC-05)', () => {
     expect(failureOf(attempt({ buildHref: 'https://github.com/acme/shop/actions/runs/42' }))?.ciUrl).toBe('https://github.com/acme/shop/actions/runs/42');
     for (const href of ['file:///home/ci-user/report', 'javascript:alert(1)', 'https://', 'not a link']) {
       expect(failureOf(attempt({ buildHref: href }))).not.toHaveProperty('ciUrl');
     }
+  });
+
+  // #790 review G5: `new URL` mends these into https, the platform's check does not — and a link it
+  // refuses costs the run's start or the whole batch (contracts/cli.md §1 promises no link instead).
+  it.each([
+    'https:/github.com/acme/shop/actions/runs/42',
+    'https:github.com/acme/shop/actions/runs/42',
+    'https:\\\\github.com\\acme\\shop',
+    ' https://github.com/acme/shop/actions/runs/42',
+    '\u0001https://github.com/acme/shop/actions/runs/42',
+  ])('is no link for %j, which the platform would refuse (AC-07b)', (href) => {
+    expect(webLink(href)).toBeUndefined();
+    expect(failureOf(attempt({ buildHref: href }))).not.toHaveProperty('ciUrl');
+  });
+
+  it('keeps a link whose scheme is in capitals, as the platform does', () => {
+    expect(webLink('HTTPS://github.com/acme/shop/actions/runs/42')).toBe('HTTPS://github.com/acme/shop/actions/runs/42');
   });
 
   it('is nothing at all when there is nothing to say', () => {
@@ -287,6 +392,36 @@ describe('errorContextOf — the text of every error (AC-01, AC-01c, AC-05, AC-1
     expect(text).toBe(['at c.ts:3:3', 'at ~/repo2/a.ts:1:1', 'at /srv/ci-cache/b.ts:2:2', 'Expected: "/home/bob/report.txt"'].join('\n'));
   });
 
+  // #790 review F5: a root of one segment is a word an address can hold too.
+  it('rewrites a root or a home only where a path starts — never inside an address (AC-01)', () => {
+    const lines = [
+      'Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/app/login',
+      '    at /app/e2e/shop.spec.ts:3:1',
+      'navigating to "http://localhost/root", waiting until "load"',
+      '    at file:///app/e2e/helpers.ts:5:7',
+      'PATH=/usr/bin:/root/.local/bin',
+    ];
+    const text = errorContextOf(attempt({ errors: [{ text: lines.join('\n') }], testFile: '/app/e2e/shop.spec.ts', repoRoot: '/app' }), '/root');
+    expect(text).toBe(
+      [
+        'Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/app/login',
+        '    at e2e/shop.spec.ts:3:1',
+        'navigating to "http://localhost/root", waiting until "load"',
+        '    at e2e/helpers.ts:5:7',
+        'PATH=/usr/bin:~/.local/bin',
+      ].join('\n'),
+    );
+  });
+
+  // #790 review G2: a diff prints a string, so a Windows path in it has every backslash doubled.
+  it('rewrites a Windows path printed with doubled backslashes, as in a diff of a string (AC-05)', () => {
+    const diff = ['-   "file": "D:\\\\a\\\\shop\\\\e2e\\\\data.json",', '+   "file": "C:\\\\Users\\\\alice\\\\AppData\\\\Local\\\\Temp\\\\data.json",'].join('\n');
+    expect(errorContextOf(attempt({ errors: [{ text: diff }], testFile: 'D:\\a\\shop\\e2e\\x.spec.ts', repoRoot: 'D:\\a\\shop' }), 'C:\\Users\\alice')).toBe(
+      ['-   "file": "e2e\\\\data.json",', '+   "file": "~\\\\AppData\\\\Local\\\\Temp\\\\data.json",'].join('\n'),
+    );
+    expect(errorContextOf(attempt({ errors: [{ text: '"C:\\\\Users\\\\dave\\\\x.json"' }], repoRoot: undefined }), HOME)).toBe('"~\\\\x.json"');
+  });
+
   it('takes a root or a home at / or a bare drive for no folder — it would match every path', () => {
     expect(errorContextOf(attempt({ repoRoot: '/', errors: [{ text: 'at /opt/x.js:2:2' }] }), '/')).toBe('at /opt/x.js:2:2');
     expect(errorContextOf(attempt({ repoRoot: 'C:\\', errors: [{ text: 'at C:\\opt\\x.js:2:2' }] }), 'C:\\')).toBe('at C:\\opt\\x.js:2:2');
@@ -353,7 +488,10 @@ describe('errorContextOf — the text of every error (AC-01, AC-01c, AC-05, AC-1
     expect(kept + Number(MARKER.exec(out[at]!)![1])).toBe(lines.length);
     expect(out.slice(0, at)).toEqual(lines.slice(0, at));
     expect(out.slice(at + 1)).toEqual(lines.slice(lines.length - (kept - at)));
-    expect(Buffer.byteLength(text)).toBeGreaterThan(LIMIT - 1024);
+    // Full to the limit in the unit it is kept in: what the text weighs in a batch (#790 review G1).
+    const inBatch = Buffer.byteLength(JSON.stringify(text)) - 2;
+    expect(inBatch).toBeLessThanOrEqual(LIMIT);
+    expect(inBatch).toBeGreaterThan(LIMIT - 1024);
   });
 
   it('measures the limit in UTF-8 bytes, not in characters', () => {
@@ -361,6 +499,18 @@ describe('errorContextOf — the text of every error (AC-01, AC-01c, AC-05, AC-1
     const text = errorContextOf(attempt({ errors: [{ text: lines.join('\n') }] }), HOME);
     expect(lines.join('\n').length).toBeLessThan(LIMIT);
     expect(Buffer.byteLength(text)).toBeLessThanOrEqual(LIMIT);
+    expect(text).toMatch(/…\[omitted \d+ lines\]…/);
+  });
+
+  // #790 review G1. A batch is packed by the bytes JSON writes, where a quote, a backslash and a CR
+  // weigh two: a text cut by its raw bytes weighed a quarter more in the batch, and the worst run
+  // took 12 calls instead of 10. The line is a diff of a Windows path, as `toEqual` prints one.
+  it('measures the limit in the bytes the text weighs in a batch — quotes and backslashes count twice (AC-15)', () => {
+    const line = '+     "path": "C:\\\\Users\\\\runner\\\\work\\\\shop\\\\e2e\\\\fixtures\\\\order.json",\r';
+    const text = errorContextOf(attempt({ errors: [{ text: Array.from({ length: 12_000 }, () => line).join('\n') }] }), HOME);
+    const inBatch = Buffer.byteLength(JSON.stringify(text)) - 2;
+    expect(inBatch).toBeLessThanOrEqual(LIMIT);
+    expect(inBatch).toBeGreaterThan(LIMIT - 1024);
     expect(text).toMatch(/…\[omitted \d+ lines\]…/);
   });
 

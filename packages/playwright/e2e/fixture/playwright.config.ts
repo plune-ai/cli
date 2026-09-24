@@ -18,8 +18,12 @@ if (apiUrl === undefined || apiUrl === '') {
 // The same run as a JSON report as well, when a test asks for one — what `plune run import` reads (#790).
 const jsonReport = process.env['PLUNE_JSON_REPORT'];
 
+// The results per batch, when a test asks — the core sends from inside `add` at every multiple (#790).
+const batchSize = process.env['PLUNE_BATCH_SIZE'];
+
 export default defineConfig({
-  testDir: './tests',
+  // `./many` when a test asks: a hundred quick passes, the AC-15 run's count (#790).
+  testDir: process.env['PLUNE_TEST_DIR'] ?? './tests',
   reporter: [
     [
       '../../dist/index.js',
@@ -31,6 +35,7 @@ export default defineConfig({
         token: process.env['PLUNE_TOKEN'] ?? 'stub-token',
         fallbackPath: process.env['PLUNE_FALLBACK'] ?? '.plune/pending-results.jsonl',
         externalKey: process.env['PLUNE_RUN'] ?? 'e2e-fixture',
+        ...(batchSize !== undefined ? { batchSize: Number(batchSize) } : {}),
       },
     ],
     ...(jsonReport !== undefined ? [['json', { outputFile: jsonReport }] as const] : []),

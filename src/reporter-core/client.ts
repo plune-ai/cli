@@ -189,7 +189,13 @@ export function createClient(opts: ClientOptions): PlatformClient {
         // the throw would land in the retry loop as "unavailable". The success has to be read as a
         // success by the code that expects a JSON answer everywhere else.
         if (res.status === 204) return { ok: true, status: res.status, body: undefined as T };
-        return { ok: true, status: res.status, body: (await res.json()) as T };
+        // A success that is not JSON is not the platform's answer — a proxy's page, say. Classified,
+        // not thrown: a throw here left `add` with a batch nobody delivered or deferred (#790).
+        try {
+          return { ok: true, status: res.status, body: (await res.json()) as T };
+        } catch {
+          return { ok: false, kind: 'other', status: res.status, detail: 'the answer was not JSON' };
+        }
       }
 
       const detail = scrub(await detailOf(res));

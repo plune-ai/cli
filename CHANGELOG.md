@@ -11,6 +11,43 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Fixed
+
+- **`@plune-ai/playwright` closes the run only after every batch is answered (plune-ai/plune#790).**
+  The adapter handed each result to the core without waiting for it, and the core sends a batch from
+  inside that hand-over once enough results are buffered. So the run could be closed while batches were
+  still in flight: the platform froze the run's never-run tests without them, refused the batches
+  behind the close, and the summary counted only what had come back — in the AC-15 run, 60 of 100 were
+  stored. A result the core refuses is now the one "reporting stopped" line instead of an unhandled
+  rejection that ended the run with exit code 1.
+- **A success the client cannot read is a batch not delivered.** A 2xx that is not JSON — a proxy's
+  page — or one without counts threw out of the reporter and out of `plune run import`; the batch now
+  goes to the fallback file and is named in the summary like any other refusal.
+- **No path of the machine in the headline or in an attachment's name.** The headline was the error's
+  first line as the runner wrote it, so a missing snapshot or a missing browser put the account's home
+  folder on a page the whole project reads; it now goes through the same rewriting as the text. A first
+  line over 8 KB is not sent as the headline at all (never cut): the platform keeps 300 characters of a
+  headline, the line still travels in the text, and the dashboard shows the text's first line instead.
+  An attachment named by its path (`testInfo.attach(file, { path: file })`) is named by the file alone,
+  and one with an empty content type goes without it — the platform refused the whole batch for it.
+- **The repository and the home folder are rewritten only where a path starts.** A root of one segment
+  such as `/app` also turned `http://localhost:3000/app/login` into `http://localhost:3000login`, and
+  a home of `/root` did the same to an address ending in it. A Windows path printed with doubled
+  backslashes — a string in a diff — is now rewritten too.
+- **A CI link the platform would refuse is not sent.** `https:/host` and `https:host` passed as links
+  because `new URL` mends them, and the platform refused the run's start for them — every result then
+  went to the fallback file. A link now needs `http://` or `https://` as written.
+- **The worst run arrives in at most ten calls whatever its texts hold.** The 512 KB limit on one
+  failure text counted the text's raw bytes, while a batch is packed by the bytes of its JSON, where a
+  quote, a backslash and a CR weigh two: a `toEqual` diff of a Windows path weighed a quarter more in
+  the batch, and a hundred such failures took 12 calls instead of 10. The limit, and the 8 KB one on a
+  headline, now count what the text weighs in the batch — a 40 KB first line also sent as the headline
+  made a hundred results take 11.
+- **A stack line cannot stall the runner or end the import.** A line over 8 192 characters is no longer
+  read as a stack frame, where the pattern took time quadratic in its length on the runner's own thread,
+  and a frame whose file URL has a broken escape is read as written instead of ending the report on a
+  `URIError`.
+
 ## [0.14.0] - 2026-09-24
 
 Also `@plune-ai/playwright` **0.2.6** - the adapter embeds `reporter-core`, where the failure detail
