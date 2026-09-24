@@ -105,6 +105,10 @@ describe('failureOf — the headline (AC-01, AC-01c)', () => {
     const failure = failureOf(attempt({ errors: [{ text: `Error: ${'x'.repeat(512 * 1024)}\n    at /repo/e2e/shop.spec.ts:4:2` }] }), '/home/ci-user');
     expect(failure).not.toHaveProperty('headline');
     expect(failure?.location).toEqual({ file: 'e2e/shop.spec.ts', line: 4, column: 2 });
+    // Measured as the batch carries it: 300 000 quotes are 600 000 bytes of JSON (#790 review G1).
+    const quoted = failureOf(attempt({ errors: [{ text: `Error: ${'"'.repeat(300_000)}\n    at /repo/e2e/shop.spec.ts:4:2` }] }), '/home/ci-user');
+    expect(quoted?.location).toEqual({ file: 'e2e/shop.spec.ts', line: 4, column: 2 });
+    expect(quoted).not.toHaveProperty('headline');
   });
 });
 
@@ -467,7 +471,10 @@ describe('errorContextOf — the text of every error (AC-01, AC-01c, AC-05, AC-1
     expect(kept + Number(MARKER.exec(out[at]!)![1])).toBe(lines.length);
     expect(out.slice(0, at)).toEqual(lines.slice(0, at));
     expect(out.slice(at + 1)).toEqual(lines.slice(lines.length - (kept - at)));
-    expect(Buffer.byteLength(text)).toBeGreaterThan(LIMIT - 1024);
+    // Full to the limit in the unit it is kept in: what the text weighs in a batch (#790 review G1).
+    const inBatch = Buffer.byteLength(JSON.stringify(text)) - 2;
+    expect(inBatch).toBeLessThanOrEqual(LIMIT);
+    expect(inBatch).toBeGreaterThan(LIMIT - 1024);
   });
 
   it('measures the limit in UTF-8 bytes, not in characters', () => {
@@ -475,6 +482,18 @@ describe('errorContextOf — the text of every error (AC-01, AC-01c, AC-05, AC-1
     const text = errorContextOf(attempt({ errors: [{ text: lines.join('\n') }] }), HOME);
     expect(lines.join('\n').length).toBeLessThan(LIMIT);
     expect(Buffer.byteLength(text)).toBeLessThanOrEqual(LIMIT);
+    expect(text).toMatch(/…\[omitted \d+ lines\]…/);
+  });
+
+  // #790 review G1. A batch is packed by the bytes JSON writes, where a quote, a backslash and a CR
+  // weigh two: a text cut by its raw bytes weighed a quarter more in the batch, and the worst run
+  // took 12 calls instead of 10. The line is a diff of a Windows path, as `toEqual` prints one.
+  it('measures the limit in the bytes the text weighs in a batch — quotes and backslashes count twice (AC-15)', () => {
+    const line = '+     "path": "C:\\\\Users\\\\runner\\\\work\\\\shop\\\\e2e\\\\fixtures\\\\order.json",\r';
+    const text = errorContextOf(attempt({ errors: [{ text: Array.from({ length: 12_000 }, () => line).join('\n') }] }), HOME);
+    const inBatch = Buffer.byteLength(JSON.stringify(text)) - 2;
+    expect(inBatch).toBeLessThanOrEqual(LIMIT);
+    expect(inBatch).toBeGreaterThan(LIMIT - 1024);
     expect(text).toMatch(/…\[omitted \d+ lines\]…/);
   });
 

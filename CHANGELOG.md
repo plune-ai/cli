@@ -36,6 +36,11 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 - **A CI link the platform would refuse is not sent.** `https:/host` and `https:host` passed as links
   because `new URL` mends them, and the platform refused the run's start for them — every result then
   went to the fallback file. A link now needs `http://` or `https://` as written.
+- **The worst run arrives in at most ten calls whatever its texts hold.** The 512 KB limit on one
+  failure text counted the text's raw bytes, while a batch is packed by the bytes of its JSON, where a
+  quote, a backslash and a CR weigh two: a `toEqual` diff of a Windows path weighed a quarter more in
+  the batch, and a hundred such failures took 12 calls instead of 10. The limit, and the check that
+  leaves out an overlong headline, now count what the text weighs in the batch.
 - **A stack line cannot stall the runner or end the import.** A line over 8 192 characters is no longer
   read as a stack frame, where the pattern took time quadratic in its length on the runner's own thread,
   and a frame whose file URL has a broken escape is read as written instead of ending the report on a

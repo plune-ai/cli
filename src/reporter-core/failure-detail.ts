@@ -17,7 +17,7 @@ export function failureOf(attempt: FailedAttempt, home: string = homedir()): Fai
   const error = chosen(attempt);
   // Rewritten as the text is; a line too long to travel in the text is left out whole, never cut.
   const line = error === undefined ? undefined : firstLine(machineless(error.text, attempt.repoRoot, home));
-  const headline = line !== undefined && Buffer.byteLength(line) <= TEXT_LIMIT ? line : undefined;
+  const headline = line !== undefined && jsonBytes(line) <= TEXT_LIMIT ? line : undefined;
   const steps = chainOf(attempt.steps);
   const location = error === undefined ? undefined : fromRoot(placeOf(error, attempt.testFile), attempt.repoRoot);
   // An empty type is no type: the platform refuses one, and the whole batch with it.
@@ -85,8 +85,14 @@ function machineless(raw: string, repoRoot: string | undefined, home: string): s
 // the two apart needs the disk (`existsSync` of root + the rest), not a pattern.
 const PATH_START = '(?<![\\w.~%/\\\\-])';
 
-/** The CLI's own transport limit for one text (ADR-0006) — not a copy of the platform's 256 KB. */
+/**
+ * The CLI's own transport limit for one text (ADR-0006) — not a copy of the platform's 256 KB — in the
+ * bytes the text weighs in a batch, which is packed by its JSON (#790 review G1).
+ */
 const TEXT_LIMIT = 524_288;
+
+/** What a text weighs inside a batch: JSON writes a quote, a backslash or a control character in two bytes or more. */
+const jsonBytes = (text: string): number => Buffer.byteLength(JSON.stringify(text)) - 2;
 
 /**
  * A home folder opening a path in a text: `/home/<u>`, `/Users/<u>`, `C:\Users\<u>` — with the
@@ -112,15 +118,16 @@ const fileNameOf = (name: string): string =>
   /^(?:file:\/\/|[\\/]|~[\\/]|[A-Za-z]:[\\/])/.test(name) ? (name.split(/[\\/]/).pop() ?? '') : name;
 
 /**
- * At most `TEXT_LIMIT` UTF-8 bytes, by whole lines: lines from the head, then from the tail, and one
- * `…[omitted N lines]…` where the rest were. A line longer than the limit goes whole, so no part of a
- * one-line credential can show; the lines left out never leave the machine.
+ * At most `TEXT_LIMIT` bytes as a batch carries it, by whole lines: lines from the head, then from the
+ * tail, and one `…[omitted N lines]…` where the rest were. A line longer than the limit goes whole, so
+ * no part of a one-line credential can show; the lines left out never leave the machine.
  */
 function cut(text: string): string {
-  if (Buffer.byteLength(text) <= TEXT_LIMIT) return text;
+  if (jsonBytes(text) <= TEXT_LIMIT) return text;
   const lines = text.split('\n');
-  const size = lines.map((line) => Buffer.byteLength(line) + 1);
-  const budget = TEXT_LIMIT - Buffer.byteLength(omitted(lines.length));
+  // A line and the `\n` after it, which JSON writes in two bytes; the marker's separator is one of them.
+  const size = lines.map((line) => jsonBytes(line) + 2);
+  const budget = TEXT_LIMIT - jsonBytes(omitted(lines.length));
   let used = 0;
   let head = 0;
   let tail = lines.length;

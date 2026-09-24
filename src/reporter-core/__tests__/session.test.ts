@@ -5,8 +5,9 @@ import type { AddressInfo } from 'node:net';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { handleRunReport } from '../../cli/commands/run-lifecycle.js';
+import { errorContextOf, failureOf } from '../failure-detail.js';
 import { startRun } from '../session.js';
-import type { KeyRef, PendingResult, ReporterConfig } from '../types.js';
+import type { FailedAttempt, KeyRef, PendingResult, ReporterConfig } from '../types.js';
 
 const TOKEN = 'plune_tok_never_print_me';
 
@@ -477,7 +478,11 @@ describe('a batch is packed by bytes as well as by count (#790, ADR-0006)', () =
 describe('the worst run arrives whole against the platform’s ceilings (#790 AC-15)', () => {
   const BULK = /^POST \/v1\/runs(?:\/[^/]+\/results)?$/;
 
-  it('100 failures of 256 KB each: all accepted, none deferred or rejected, in at most 10 calls', async () => {
+  /**
+   * The run through the transport that ships — `node:http`, which nothing else here exercises for a
+   * whole run (#790 review F7) — so `fetch` must not be touched at all.
+   */
+  async function deliver(worst: PendingResult[]): Promise<{ calls: string[]; run: Awaited<ReturnType<typeof startRun>>; cfg: ReporterConfig }> {
     const calls: string[] = [];
     const server = createServer((req, res) => {
       const chunks: Buffer[] = [];
@@ -507,20 +512,52 @@ describe('the worst run arrives whole against the platform’s ceilings (#790 AC
       });
     });
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const viaFetch = vi.spyOn(globalThis, 'fetch');
     try {
       const { port } = server.address() as AddressInfo;
       const cfg = config(fetch, { apiUrl: `http://127.0.0.1:${port}` });
-      const worst = Array.from({ length: 100 }, (_, i) => result(`t${i}`, { rawStatus: 'failed', errorContext: 'x'.repeat(256 * 1024) }));
+      delete cfg.fetchImpl;
       const run = await startRun(cfg, worst.map((r) => r.keys));
       for (const r of worst) await run.add(r);
       await run.finish();
-
-      expect(run.stats).toMatchObject({ accepted: 100, deferred: 0, rejected: 0 });
-      expect(calls.length).toBeLessThanOrEqual(10);
-      expect(fs.existsSync(cfg.fallbackPath as string)).toBe(false);
+      expect(viaFetch).not.toHaveBeenCalled();
+      return { calls, run, cfg };
     } finally {
+      viaFetch.mockRestore();
       server.close();
     }
+  }
+
+  it('100 failures of 256 KB each: all accepted, none deferred or rejected, in at most 10 calls', async () => {
+    const worst = Array.from({ length: 100 }, (_, i) => result(`t${i}`, { rawStatus: 'failed', errorContext: 'x'.repeat(256 * 1024) }));
+    const { calls, run, cfg } = await deliver(worst);
+
+    expect(run.stats).toMatchObject({ accepted: 100, deferred: 0, rejected: 0 });
+    expect(calls.length).toBeLessThanOrEqual(10);
+    expect(fs.existsSync(cfg.fallbackPath as string)).toBe(false);
+  });
+
+  // #790 review G1: a text as long as any, cut to the limit, full of what JSON writes in two bytes —
+  // a `toEqual` diff of a Windows path, CRLF-ended. Cut by its raw bytes it weighed a quarter more in
+  // the batch, and the run took 12 calls.
+  it('100 failures whose text is cut to the limit and full of quotes, backslashes and CRLF: the same', async () => {
+    const line = '+     "path": "C:\\\\Users\\\\runner\\\\work\\\\shop\\\\e2e\\\\fixtures\\\\order.json",\r';
+    const attempt: FailedAttempt = {
+      status: 'failed',
+      errors: [{ text: ['Error: expect(received).toEqual(expected) // deep equality\r', ...Array.from({ length: 12_000 }, () => line)].join('\n') }],
+      steps: [],
+      attachments: [],
+      testFile: '/repo/e2e/cart.spec.ts',
+      repoRoot: '/repo',
+    };
+    const errorContext = errorContextOf(attempt, '/home/ci-user');
+    const failure = failureOf(attempt, '/home/ci-user');
+    const worst = Array.from({ length: 100 }, (_, i) => result(`t${i}`, { rawStatus: 'failed', errorContext, ...(failure !== undefined ? { failure } : {}) }));
+    const { calls, run, cfg } = await deliver(worst);
+
+    expect(run.stats).toMatchObject({ accepted: 100, deferred: 0, rejected: 0 });
+    expect(calls.length).toBeLessThanOrEqual(10);
+    expect(fs.existsSync(cfg.fallbackPath as string)).toBe(false);
   });
 });
 
