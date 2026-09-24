@@ -23,6 +23,16 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 - **A success the client cannot read is a batch not delivered.** A 2xx that is not JSON — a proxy's
   page — or one without counts threw out of the reporter and out of `plune run import`; the batch now
   goes to the fallback file and is named in the summary like any other refusal.
+- **No path of the machine in the headline or in an attachment's name.** The headline was the error's
+  first line as the runner wrote it, so a missing snapshot or a missing browser put the account's home
+  folder on a page the whole project reads; it now goes through the same rewriting as the text, and a
+  first line too long to travel in the text is left out whole rather than sent past the transport limit.
+  An attachment named by its path (`testInfo.attach(file, { path: file })`) is named by the file alone,
+  and one with an empty content type goes without it — the platform refused the whole batch for it.
+- **The repository and the home folder are rewritten only where a path starts.** A root of one segment
+  such as `/app` also turned `http://localhost:3000/app/login` into `http://localhost:3000login`, and
+  a home of `/root` did the same to an address ending in it. A Windows path printed with doubled
+  backslashes — a string in a diff — is now rewritten too.
 
 ## [0.14.0] - 2026-09-24
 

@@ -85,6 +85,27 @@ describe('failureOf — the headline (AC-01, AC-01c)', () => {
     const long = `Error: ${'x'.repeat(5000)}`;
     expect(failureOf(attempt({ errors: [{ text: long }] }))?.headline).toBe(long);
   });
+
+  // #790 review F2. The messages are Playwright 1.63's own: a missing snapshot, a missing browser.
+  it('names the repository and the home folder as the text does, never this machine’s paths (AC-05)', () => {
+    const snapshot = "Error: A snapshot doesn't exist at /home/ci-user/shop/e2e/__snapshots__/cart-1.png, writing actual.";
+    const failure = failureOf(attempt({ errors: [{ text: snapshot }], testFile: '/home/ci-user/shop/e2e/cart.spec.ts', repoRoot: '/home/ci-user/shop' }), '/home/ci-user');
+    expect(failure?.headline).toBe("Error: A snapshot doesn't exist at e2e/__snapshots__/cart-1.png, writing actual.");
+
+    const browser = `${ESC}[31mError: browserType.launch: Executable doesn't exist at /Users/alice/Library/Caches/ms-playwright/chromium-1187/chrome-mac/Chromium${ESC}[39m`;
+    expect(failureOf(attempt({ errors: [{ text: browser }] }), '/Users/alice')?.headline).toBe(
+      "Error: browserType.launch: Executable doesn't exist at ~/Library/Caches/ms-playwright/chromium-1187/chrome-mac/Chromium",
+    );
+    expect(failureOf(attempt({ errors: [{ text: browser }], repoRoot: undefined }), '/home/ci-user')?.headline).toBe(
+      "Error: browserType.launch: Executable doesn't exist at ~/Library/Caches/ms-playwright/chromium-1187/chrome-mac/Chromium",
+    );
+  });
+
+  it('is left out whole when its line is longer than the text may be — never cut (ADR-0001, AC-15)', () => {
+    const failure = failureOf(attempt({ errors: [{ text: `Error: ${'x'.repeat(512 * 1024)}\n    at /repo/e2e/shop.spec.ts:4:2` }] }), '/home/ci-user');
+    expect(failure).not.toHaveProperty('headline');
+    expect(failure?.location).toEqual({ file: 'e2e/shop.spec.ts', line: 4, column: 2 });
+  });
 });
 
 describe('failureOf — the chain of declared steps (AC-02, AC-02c, AC-03)', () => {
@@ -195,6 +216,33 @@ describe('failureOf — what the runner kept, and the CI run (AC-04, AC-05)', ()
     expect(failure?.artifacts).toEqual([{ name: 'screenshot', contentType: 'image/png' }, { name: 'trace' }]);
   });
 
+  // #790 review G2: `testInfo.attach(file, { path: file })` names the attachment by its absolute path.
+  it('names an attachment named by its path by the file alone — no folder of this machine (AC-05)', () => {
+    const failure = failureOf(
+      attempt({
+        attachments: [
+          { name: 'C:\\Users\\alice\\shop\\shot.png', contentType: 'image/png', path: 'C:\\Users\\alice\\shop\\test-results\\a\\shot.png' },
+          { name: '/home/ci-user/shop/report.html', contentType: 'text/html', path: '/repo/test-results/a/report.html' },
+          { name: 'file:///Users/alice/trace.zip', path: '/repo/test-results/a/trace.zip' },
+          { name: '~/shots/after.png', contentType: 'image/png', path: '/repo/test-results/a/after.png' },
+          { name: 'checkout page', contentType: 'image/png', path: '/repo/test-results/a/p.png' },
+        ],
+      }),
+    );
+    expect(failure?.artifacts).toEqual([
+      { name: 'shot.png', contentType: 'image/png' },
+      { name: 'report.html', contentType: 'text/html' },
+      { name: 'trace.zip' },
+      { name: 'after.png', contentType: 'image/png' },
+      { name: 'checkout page', contentType: 'image/png' },
+    ]);
+  });
+
+  // #790 review F3: the platform refuses an empty type, and with it the whole batch.
+  it('sends no type for an attachment whose type is empty (AC-07)', () => {
+    expect(failureOf(attempt({ attachments: [{ name: 'log', contentType: '', path: '/repo/test-results/a/log.txt' }] }))?.artifacts).toEqual([{ name: 'log' }]);
+  });
+
   it('keeps an http(s) build link, and nothing else is a link (AC-04, AC-05)', () => {
     expect(failureOf(attempt({ buildHref: 'https://github.com/acme/shop/actions/runs/42' }))?.ciUrl).toBe('https://github.com/acme/shop/actions/runs/42');
     for (const href of ['file:///home/ci-user/report', 'javascript:alert(1)', 'https://', 'not a link']) {
@@ -285,6 +333,36 @@ describe('errorContextOf — the text of every error (AC-01, AC-01c, AC-05, AC-1
       '/srv/ci',
     );
     expect(text).toBe(['at c.ts:3:3', 'at ~/repo2/a.ts:1:1', 'at /srv/ci-cache/b.ts:2:2', 'Expected: "/home/bob/report.txt"'].join('\n'));
+  });
+
+  // #790 review F5: a root of one segment is a word an address can hold too.
+  it('rewrites a root or a home only where a path starts — never inside an address (AC-01)', () => {
+    const lines = [
+      'Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/app/login',
+      '    at /app/e2e/shop.spec.ts:3:1',
+      'navigating to "http://localhost/root", waiting until "load"',
+      '    at file:///app/e2e/helpers.ts:5:7',
+      'PATH=/usr/bin:/root/.local/bin',
+    ];
+    const text = errorContextOf(attempt({ errors: [{ text: lines.join('\n') }], testFile: '/app/e2e/shop.spec.ts', repoRoot: '/app' }), '/root');
+    expect(text).toBe(
+      [
+        'Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/app/login',
+        '    at e2e/shop.spec.ts:3:1',
+        'navigating to "http://localhost/root", waiting until "load"',
+        '    at e2e/helpers.ts:5:7',
+        'PATH=/usr/bin:~/.local/bin',
+      ].join('\n'),
+    );
+  });
+
+  // #790 review G2: a diff prints a string, so a Windows path in it has every backslash doubled.
+  it('rewrites a Windows path printed with doubled backslashes, as in a diff of a string (AC-05)', () => {
+    const diff = ['-   "file": "D:\\\\a\\\\shop\\\\e2e\\\\data.json",', '+   "file": "C:\\\\Users\\\\alice\\\\AppData\\\\Local\\\\Temp\\\\data.json",'].join('\n');
+    expect(errorContextOf(attempt({ errors: [{ text: diff }], testFile: 'D:\\a\\shop\\e2e\\x.spec.ts', repoRoot: 'D:\\a\\shop' }), 'C:\\Users\\alice')).toBe(
+      ['-   "file": "e2e\\\\data.json",', '+   "file": "~\\\\AppData\\\\Local\\\\Temp\\\\data.json",'].join('\n'),
+    );
+    expect(errorContextOf(attempt({ errors: [{ text: '"C:\\\\Users\\\\dave\\\\x.json"' }], repoRoot: undefined }), HOME)).toBe('"~\\\\x.json"');
   });
 
   it('takes a root or a home at / or a bare drive for no folder — it would match every path', () => {

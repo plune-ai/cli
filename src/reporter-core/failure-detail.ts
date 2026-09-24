@@ -13,14 +13,18 @@ import type { AttemptError, DeclaredStep, FailedAttempt, FailureDetail, RunnerLo
  * and nothing is searched for credentials — the platform does both after its own cleaning, and a cut
  * here could halve a credential it would then not recognise.
  */
-export function failureOf(attempt: FailedAttempt): FailureDetail | undefined {
+export function failureOf(attempt: FailedAttempt, home: string = homedir()): FailureDetail | undefined {
   const error = chosen(attempt);
-  const headline = error === undefined ? undefined : firstLine(error.text);
+  // Rewritten as the text is; a line too long to travel in the text is left out whole, never cut.
+  const line = error === undefined ? undefined : firstLine(machineless(error.text, attempt.repoRoot, home));
+  const headline = line !== undefined && Buffer.byteLength(line) <= TEXT_LIMIT ? line : undefined;
   const steps = chainOf(attempt.steps);
   const location = error === undefined ? undefined : fromRoot(placeOf(error, attempt.testFile), attempt.repoRoot);
+  // An empty type is no type: the platform refuses one, and the whole batch with it.
   const artifacts = attempt.attachments
-    .filter((a) => a.path !== undefined && a.name !== '' && !a.name.startsWith('_') && a.contentType !== METADATA_TYPE)
-    .map(({ name, contentType }) => (contentType === undefined ? { name } : { name, contentType }));
+    .filter((a) => a.path !== undefined && !a.name.startsWith('_') && a.contentType !== METADATA_TYPE)
+    .map(({ name, contentType }) => ({ name: fileNameOf(name), ...(contentType ? { contentType } : {}) }))
+    .filter((a) => a.name !== '');
   const ciUrl = webLink(attempt.buildHref);
 
   const failure: FailureDetail = {
@@ -51,38 +55,61 @@ export function repoRootOf(dir: string, stopAt?: string): string | undefined {
  * searched for credentials: the platform does that before its own cut (ADR-0005).
  */
 export function errorContextOf(attempt: FailedAttempt, home: string = homedir()): string {
-  let text = stripVTControlCharacters(
-    attempt.errors
-      .map((e) => e.text)
-      .filter((t) => t !== '')
-      .join('\n\n'),
-  ).replaceAll('\u001b', '');
-  const root = attempt.repoRoot === undefined ? undefined : pathIn(attempt.repoRoot);
-  if (root !== undefined) text = text.replace(new RegExp(`${root.source}[\\\\/]`, root.flags), '');
-  const own = pathIn(home);
-  if (own !== undefined) text = text.replace(new RegExp(`${own.source}(?![\\w.-])`, own.flags), '~');
-  if (attempt.repoRoot === undefined) text = text.replace(ANY_HOME, '~');
-  return cut(text);
+  const text = attempt.errors
+    .map((e) => e.text)
+    .filter((t) => t !== '')
+    .join('\n\n');
+  return cut(machineless(text, attempt.repoRoot, home));
 }
+
+/**
+ * A text without this machine in it: colour codes gone, the repository as relative paths and a home
+ * folder as `~` — any home folder when the root is unknown. The headline and the text both go through
+ * here, so neither can name a folder the other hides (#790 AC-05).
+ */
+function machineless(raw: string, repoRoot: string | undefined, home: string): string {
+  let text = stripVTControlCharacters(raw).replaceAll('\u001b', '');
+  const root = repoRoot === undefined ? undefined : pathIn(repoRoot);
+  if (root !== undefined) text = text.replace(new RegExp(`${PATH_START}${root.source}[\\\\/]+`, root.flags), '');
+  const own = pathIn(home);
+  if (own !== undefined) text = text.replace(new RegExp(`${PATH_START}${own.source}(?![\\w.-])`, own.flags), '~');
+  if (repoRoot === undefined) text = text.replace(ANY_HOME, '~');
+  return text;
+}
+
+/**
+ * Where a path may start: not glued to a word, a path or an address — a root of one segment is a word
+ * an address holds too (`http://localhost:3000/app/login` for a root `/app`).
+ */
+// ponytail: a route in a line of code (`'/app/login'` for a root `/app`) still reads as a path; telling
+// the two apart needs the disk (`existsSync` of root + the rest), not a pattern.
+const PATH_START = '(?<![\\w.~%/\\\\-])';
 
 /** The CLI's own transport limit for one text (ADR-0006) — not a copy of the platform's 256 KB. */
 const TEXT_LIMIT = 524_288;
 
-/** A home folder opening a path in a text: `/home/<u>`, `/Users/<u>`, `C:\Users\<u>`, a file URL too. */
+/**
+ * A home folder opening a path in a text: `/home/<u>`, `/Users/<u>`, `C:\Users\<u>` — with the
+ * backslashes doubled too, as a diff prints a string — a file URL too.
+ */
 // ponytail: a user name with a space is cut at the space; the machine's own home is matched exactly.
-const ANY_HOME = /(?<=^|[\s'"`(=,[])(?:file:\/\/\/?)?(?:\/home\/|\/Users\/|[A-Za-z]:[\\/]Users[\\/])[^\\/\s'"`:*?<>|]+/g;
+const ANY_HOME = /(?<=^|[\s'"`(=,[])(?:file:\/\/\/?)?(?:\/home\/|\/Users\/|[A-Za-z]:[\\/]+Users[\\/]+)[^\\/\s'"`:*?<>|]+/g;
 
 /**
- * `path` as a text may spell it: either slash, as a file URL, and on Windows in any case. Nothing for
- * `/` or a bare drive — they would match every path.
+ * `path` as a text may spell it: either slash, doubled as a printed string doubles a backslash, as a
+ * file URL, and on Windows in any case. Nothing for `/` or a bare drive — they would match every path.
  */
 function pathIn(path: string): RegExp | undefined {
   const parts = path.split(/[\\/]+/);
   while (parts.length > 1 && parts.at(-1) === '') parts.pop();
   if (!parts.some((part) => part !== '' && !/^[A-Za-z]:$/.test(part))) return undefined;
-  const escaped = parts.map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\\\/]');
+  const escaped = parts.map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\\\/]+');
   return new RegExp(`(?:file:\\/\\/\\/?)?${escaped}`, /^[A-Za-z]:$/.test(parts[0]!) ? 'gi' : 'g');
 }
+
+/** An attachment named by its path — `testInfo.attach(file, { path: file })` — by the file alone. */
+const fileNameOf = (name: string): string =>
+  /^(?:file:\/\/|[\\/]|~[\\/]|[A-Za-z]:[\\/])/.test(name) ? (name.split(/[\\/]/).pop() ?? '') : name;
 
 /**
  * At most `TEXT_LIMIT` UTF-8 bytes, by whole lines: lines from the head, then from the tail, and one
