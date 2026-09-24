@@ -559,6 +559,27 @@ describe('the worst run arrives whole against the platform’s ceilings (#790 AC
     expect(calls.length).toBeLessThanOrEqual(10);
     expect(fs.existsSync(cfg.fallbackPath as string)).toBe(false);
   });
+
+  // A 40 KB first line travelled twice — in the text, which keeps it, and as the headline — and 14
+  // such results filled a batch where 15 must: 11 calls. The headline past 8 KB is left out.
+  it('100 failures whose first line is 40 KB and whose text is at the limit: the same', async () => {
+    const attempt: FailedAttempt = {
+      status: 'failed',
+      errors: [{ text: [`Error: ${'x'.repeat(40_000)}`, '    at /repo/e2e/cart.spec.ts:4:2', ...Array.from({ length: 8_000 }, () => 'y'.repeat(99))].join('\n') }],
+      steps: [],
+      attachments: [],
+      testFile: '/repo/e2e/cart.spec.ts',
+      repoRoot: '/repo',
+    };
+    const errorContext = errorContextOf(attempt, '/home/ci-user');
+    const failure = failureOf(attempt, '/home/ci-user');
+    const worst = Array.from({ length: 100 }, (_, i) => result(`t${i}`, { rawStatus: 'failed', errorContext, ...(failure !== undefined ? { failure } : {}) }));
+    const { calls, run, cfg } = await deliver(worst);
+
+    expect(run.stats).toMatchObject({ accepted: 100, deferred: 0, rejected: 0 });
+    expect(calls.length).toBeLessThanOrEqual(10);
+    expect(fs.existsSync(cfg.fallbackPath as string)).toBe(false);
+  });
 });
 
 describe('the platform is not there (AC-05)', () => {

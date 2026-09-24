@@ -110,6 +110,23 @@ describe('failureOf — the headline (AC-01, AC-01c)', () => {
     expect(quoted?.location).toEqual({ file: 'e2e/shop.spec.ts', line: 4, column: 2 });
     expect(quoted).not.toHaveProperty('headline');
   });
+
+  // The text keeps its first line, so a long headline travelled twice and made the worst result heavier
+  // than 15 fit in a batch. The platform keeps 300 characters of it; past 8 KB as a batch carries it,
+  // the headline is left out whole and the dashboard shows the text's first line instead.
+  it('is left out whole past 8 KB as a batch carries it, while the text keeps the line (AC-15)', () => {
+    const first = `Error: ${'x'.repeat(20_000)}`;
+    const long = attempt({ errors: [{ text: [first, '    at /repo/e2e/shop.spec.ts:4:2', ...Array.from({ length: 5_000 }, () => 'y'.repeat(99))].join('\n') }] });
+    expect(failureOf(long, '/home/ci-user')).not.toHaveProperty('headline');
+    expect(failureOf(long, '/home/ci-user')?.location).toEqual({ file: 'e2e/shop.spec.ts', line: 4, column: 2 });
+    expect(errorContextOf(long, '/home/ci-user').startsWith(`${first}\n`)).toBe(true);
+
+    const headlineOf = (text: string) => failureOf(attempt({ errors: [{ text: `${text}\n    at /repo/e2e/shop.spec.ts:4:2` }] }), '/home/ci-user')?.headline;
+    expect(headlineOf(`Error: ${'x'.repeat(8 * 1024 - 7)}`)).toBe(`Error: ${'x'.repeat(8 * 1024 - 7)}`);
+    expect(headlineOf(`Error: ${'x'.repeat(8 * 1024 - 6)}`)).toBeUndefined();
+    // 5 000 quotes are 5 007 characters and 10 007 bytes in the batch.
+    expect(headlineOf(`Error: ${'"'.repeat(5_000)}`)).toBeUndefined();
+  });
 });
 
 describe('failureOf — the chain of declared steps (AC-02, AC-02c, AC-03)', () => {

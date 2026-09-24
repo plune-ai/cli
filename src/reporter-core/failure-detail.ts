@@ -15,9 +15,9 @@ import type { AttemptError, DeclaredStep, FailedAttempt, FailureDetail, RunnerLo
  */
 export function failureOf(attempt: FailedAttempt, home: string = homedir()): FailureDetail | undefined {
   const error = chosen(attempt);
-  // Rewritten as the text is; a line too long to travel in the text is left out whole, never cut.
+  // Rewritten as the text is; past `HEADLINE_LIMIT` left out whole, never cut (ADR-0001).
   const line = error === undefined ? undefined : firstLine(machineless(error.text, attempt.repoRoot, home));
-  const headline = line !== undefined && jsonBytes(line) <= TEXT_LIMIT ? line : undefined;
+  const headline = line !== undefined && jsonBytes(line) <= HEADLINE_LIMIT ? line : undefined;
   const steps = chainOf(attempt.steps);
   const location = error === undefined ? undefined : fromRoot(placeOf(error, attempt.testFile), attempt.repoRoot);
   // An empty type is no type: the platform refuses one, and the whole batch with it.
@@ -90,6 +90,14 @@ const PATH_START = '(?<![\\w.~%/\\\\-])';
  * bytes the text weighs in a batch, which is packed by its JSON (#790 review G1).
  */
 const TEXT_LIMIT = 524_288;
+
+/**
+ * The longest headline sent, in the bytes it weighs in a batch. The platform keeps 300 characters of it
+ * after its own cleaning, and a credential straddling that point is a few KB at most; and with a text at
+ * `TEXT_LIMIT`, a result has ~34 KB left for everything else if 100 of them are to fit 7 batches of
+ * 8 MiB — 10 calls. A longer first line still travels in the text, which the dashboard shows instead.
+ */
+const HEADLINE_LIMIT = 8 * 1024;
 
 /** What a text weighs inside a batch: JSON writes a quote, a backslash or a control character in two bytes or more. */
 const jsonBytes = (text: string): number => Buffer.byteLength(JSON.stringify(text)) - 2;

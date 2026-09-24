@@ -25,8 +25,9 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   goes to the fallback file and is named in the summary like any other refusal.
 - **No path of the machine in the headline or in an attachment's name.** The headline was the error's
   first line as the runner wrote it, so a missing snapshot or a missing browser put the account's home
-  folder on a page the whole project reads; it now goes through the same rewriting as the text, and a
-  first line too long to travel in the text is left out whole rather than sent past the transport limit.
+  folder on a page the whole project reads; it now goes through the same rewriting as the text. A first
+  line over 8 KB is not sent as the headline at all (never cut): the platform keeps 300 characters of a
+  headline, the line still travels in the text, and the dashboard shows the text's first line instead.
   An attachment named by its path (`testInfo.attach(file, { path: file })`) is named by the file alone,
   and one with an empty content type goes without it — the platform refused the whole batch for it.
 - **The repository and the home folder are rewritten only where a path starts.** A root of one segment
@@ -39,8 +40,9 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 - **The worst run arrives in at most ten calls whatever its texts hold.** The 512 KB limit on one
   failure text counted the text's raw bytes, while a batch is packed by the bytes of its JSON, where a
   quote, a backslash and a CR weigh two: a `toEqual` diff of a Windows path weighed a quarter more in
-  the batch, and a hundred such failures took 12 calls instead of 10. The limit, and the check that
-  leaves out an overlong headline, now count what the text weighs in the batch.
+  the batch, and a hundred such failures took 12 calls instead of 10. The limit, and the 8 KB one on a
+  headline, now count what the text weighs in the batch — a 40 KB first line also sent as the headline
+  made a hundred results take 11.
 - **A stack line cannot stall the runner or end the import.** A line over 8 192 characters is no longer
   read as a stack frame, where the pattern took time quadratic in its length on the runner's own thread,
   and a frame whose file URL has a broken escape is read as written instead of ending the report on a
