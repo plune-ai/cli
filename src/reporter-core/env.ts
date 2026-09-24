@@ -59,6 +59,10 @@ function count(env: NodeJS.ProcessEnv, name: string): number | undefined {
  * exceeds them by name (ADR 0012 — one side owns the contract), and a refusal is loud and costs no
  * results: the run fails to start, the reporter says why, and every result goes to the fallback
  * file. A client-side copy of the caps would be a second place for them to drift.
+ *
+ * The two sizes the core does hold are not such copies: a results batch's 8 MiB and a failure text's
+ * 512 KB (#790, ADR-0006 of that feature) are this client's own transport limits, set under the
+ * platform's caps rather than equal to them — the numbers may drift apart and nothing breaks.
  */
 function list(env: NodeJS.ProcessEnv, name: string): string[] | undefined {
   const raw = value(env, name);

@@ -29,6 +29,18 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   `…[omitted N lines]…`, so a line longer than the limit never shows in part. Neither road sends either
   yet.
 
+### Fixed
+
+- **A run whose failures carry long texts no longer loses them to one refused batch
+  (plune-ai/plune#790).** Results went in batches by count alone, so fifty failures with 10 KB of text
+  each were already over the route's ceiling: the batch was refused and written to the fallback file,
+  which in CI goes with the runner. A batch is now at most `batchSize` results **and** at most 8 MiB of
+  serialized JSON — under the 10 MiB the platform admits for it, the CLI's own number and not a copy of
+  the platform's. An ordinary run still takes one call; 100 results of 256 KB take four. A result
+  heavier than a batch goes alone. A refused batch costs only itself: the rest are still sent, and each
+  batch left after a refused token goes to the fallback file on a line of its own, so
+  `plune run report` sends it again in one call the route accepts.
+
 ## [0.13.0] - 2026-09-18
 
 `@plune-ai/playwright` stays at **0.2.5** - nothing below touches `reporter-core`, so the adapter

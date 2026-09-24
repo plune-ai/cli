@@ -274,7 +274,11 @@ export interface RunStats extends SubmitCounts {
    * queue at capacity means "empty it and import again"; nothing else here means that.
    */
   unoffered: number;
-  /** Results written to the fallback file instead of the platform. */
+  /**
+   * Results not delivered, written to the fallback file instead of the platform (#790): a batch
+   * refused for any reason — its size, the network, the token, a closed run — or a result whose keys
+   * the platform could not be asked about. Apart from `rejected` and `unresolved`, which it did answer.
+   */
   deferred: number;
 }
 

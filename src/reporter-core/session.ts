@@ -76,6 +76,33 @@ export interface RunSession {
   leaveOpen(): Promise<void>;
 }
 
+/**
+ * What one results call may weigh, as serialized JSON — under the 10 MiB the route admits (#790,
+ * ADR-0006 of that feature) with room for the envelope. The CLI's own transport limit, not a copy of
+ * the platform's cap: the two can differ and nothing breaks.
+ */
+const BATCH_BYTES = 8 * 1024 * 1024;
+const ENVELOPE_BYTES = Buffer.byteLength(JSON.stringify({ results: [] }));
+
+/** Consecutive batches of at most `BATCH_BYTES`; a result that weighs more on its own goes alone. */
+function packed(results: readonly ResultSubmission[]): ResultSubmission[][] {
+  const out: ResultSubmission[][] = [];
+  let part: ResultSubmission[] = [];
+  let bytes = ENVELOPE_BYTES;
+  for (const result of results) {
+    const size = Buffer.byteLength(JSON.stringify(result));
+    if (part.length > 0 && bytes + 1 + size > BATCH_BYTES) {
+      out.push(part);
+      part = [];
+      bytes = ENVELOPE_BYTES;
+    }
+    bytes += (part.length > 0 ? 1 : 0) + size; // the comma between two results
+    part.push(result);
+  }
+  if (part.length > 0) out.push(part);
+  return out;
+}
+
 function chunk<T>(items: readonly T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
@@ -420,30 +447,37 @@ export async function startRun(
       return;
     }
 
-    const out = await client.post<{ counts: Record<keyof RunStats, number> }>(
-      `/v1/runs/${runId}/results`,
-      { results: submissions },
-    );
-    if (out.ok) {
-      stats.accepted += out.body.counts.accepted ?? 0;
-      stats.duplicate += out.body.counts.duplicate ?? 0;
-      stats.conflict += out.body.counts.conflict ?? 0;
-      stats.rejected += out.body.counts.rejected ?? 0;
-      progress();
-      return;
-    }
+    // One fallback line per batch, never the rest of the flush on one line: `plune run report` sends
+    // a line as one request, and a line of every batch left would be the request the route refuses.
+    for (const part of packed(submissions)) {
+      if (offline) {
+        defer(part);
+        continue;
+      }
+      const out = await client.post<{ counts: Record<keyof RunStats, number> }>(`/v1/runs/${runId}/results`, {
+        results: part,
+      });
+      if (out.ok) {
+        stats.accepted += out.body.counts.accepted ?? 0;
+        stats.duplicate += out.body.counts.duplicate ?? 0;
+        stats.conflict += out.body.counts.conflict ?? 0;
+        stats.rejected += out.body.counts.rejected ?? 0;
+        progress();
+        continue;
+      }
 
-    if (out.kind === 'auth') {
-      log('plune: the API token was refused — run "plune login" with a fresh one.');
-      offline = true;
-    } else if (out.kind === 'conflict') {
-      // Two processes closed one run. Retrying would not help and hiding it would leave someone
-      // wondering why a third of a sharded run is missing.
-      log(`plune: this run is closed — ${out.detail}`);
-    } else {
-      log(`plune: could not send results (${out.detail || out.kind}).`);
+      if (out.kind === 'auth') {
+        log('plune: the API token was refused — run "plune login" with a fresh one.');
+        offline = true;
+      } else if (out.kind === 'conflict') {
+        // Two processes closed one run. Retrying would not help and hiding it would leave someone
+        // wondering why a third of a sharded run is missing.
+        log(`plune: this run is closed — ${out.detail}`);
+      } else {
+        log(`plune: could not send results (${out.detail || out.kind}).`);
+      }
+      defer(part);
     }
-    defer(submissions);
   }
 
   /**
