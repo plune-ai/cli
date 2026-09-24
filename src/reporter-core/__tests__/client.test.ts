@@ -1,5 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
-import { createClient } from '../client.js';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createServer, type IncomingHttpHeaders, type Server, type ServerResponse } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { createClient, nodeTransport } from '../client.js';
 
 const TOKEN = 'plune_tok_do_not_leak_me';
 
@@ -139,5 +141,83 @@ describe('client — hygiene', () => {
     const out = await client.post('/v1/runs', {});
 
     expect(JSON.stringify(out)).not.toContain(TOKEN);
+  });
+});
+
+/**
+ * cli#58. With no `fetchImpl` the client speaks `node:http(s)`, whose parser is native. `fetch` goes
+ * through undici, whose first request compiles a WASM parser that V8 re-optimizes on a background
+ * thread; on Windows a `process.exit` during that — Playwright calls it as a run ends — trips a libuv
+ * assertion, and a green run exits 0xC0000409.
+ */
+describe('client — its own transport (cli#58)', () => {
+  let server: Server;
+  let url = '';
+  let seen: { method?: string; path?: string; headers: IncomingHttpHeaders; body: string }[] = [];
+  let answers: ((res: ServerResponse) => void)[] = [];
+
+  beforeEach(async () => {
+    seen = [];
+    answers = [];
+    server = createServer((req, res) => {
+      let body = '';
+      req.on('data', (chunk) => (body += String(chunk)));
+      req.on('end', () => {
+        seen.push({ method: req.method, path: req.url, headers: req.headers, body });
+        answers.shift()?.(res);
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    server.closeAllConnections();
+    server.close();
+  });
+
+  const reply =
+    (status: number, body: unknown = undefined, headers: Record<string, string> = {}) =>
+    (res: ServerResponse): void => {
+      res.writeHead(status, { 'content-type': 'application/json', ...headers });
+      res.end(body === undefined ? undefined : JSON.stringify(body));
+    };
+
+  it('sends the request over node:http, never through fetch', async () => {
+    const viaFetch = vi.spyOn(globalThis, 'fetch');
+    answers.push(reply(201, { run: { id: 'r-1' } }));
+    const out = await createClient({ apiUrl: url, token: TOKEN }).post('/v1/runs', { schemaVersion: 2 });
+
+    expect(out).toEqual({ ok: true, status: 201, body: { run: { id: 'r-1' } } });
+    expect(seen[0]).toMatchObject({ method: 'POST', path: '/v1/runs', body: '{"schemaVersion":2}' });
+    expect(seen[0]?.headers).toMatchObject({
+      authorization: `Bearer ${TOKEN}`,
+      'content-type': 'application/json',
+      'content-length': '19',
+    });
+    expect(viaFetch).not.toHaveBeenCalled();
+  });
+
+  it('reads a refusal, its Retry-After and an empty 204 as fetch did', async () => {
+    const waited: number[] = [];
+    const client = createClient({ apiUrl: url, token: TOKEN, wait: async (ms) => void waited.push(ms) });
+    answers.push(reply(503, { error: 'busy' }, { 'retry-after': '2' }), reply(204));
+    expect(await client.del('/v1/runs/r-1')).toEqual({ ok: true, status: 204, body: undefined });
+    expect(waited).toEqual([2000]);
+    expect(seen.map((s) => s.method)).toEqual(['DELETE', 'DELETE']);
+
+    answers.push(reply(401, { error: `bad token ${TOKEN}` }));
+    expect(await client.post('/v1/runs', {})).toEqual({ ok: false, kind: 'auth', status: 401, detail: 'bad token ***' });
+  });
+
+  it('calls a platform nobody answers for unavailable', async () => {
+    server.close();
+    const out = await createClient({ apiUrl: url, token: TOKEN, wait: async () => {} }).post('/v1/runs', {});
+    expect(out).toMatchObject({ ok: false, kind: 'unavailable', status: null });
+  });
+
+  it('gives up on a platform that stops answering, rather than holding the run open', async () => {
+    // No answer queued: the server reads the request and says nothing.
+    await expect(nodeTransport(`${url}/v1/runs`, { method: 'POST', headers: {}, body: '{}' }, 50)).rejects.toThrow(/answer/);
   });
 });
