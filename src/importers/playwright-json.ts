@@ -229,8 +229,11 @@ export function readPlaywrightJson(source: string, file: string): { results: Pen
   return ciUrl === undefined ? { results: out } : { results: out, ciUrl };
 }
 
-/** Does this text look like a Playwright JSON report? Read by the detector, never by a parser. */
+/**
+ * Does this text look like a Playwright JSON report? Read by the detector, never by a parser. The whole
+ * text, not a head of it: Playwright writes `config` first — argv, every project, each reporter's
+ * options — and a real report put "suites" past its first 7 KB (#790 T18).
+ */
 export function looksLikePlaywrightJson(source: string): boolean {
-  const head = source.slice(0, 4096);
-  return head.trimStart().startsWith('{') && head.includes('"suites"');
+  return /^\s*\{/.test(source) && source.includes('"suites"');
 }

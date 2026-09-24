@@ -72,6 +72,16 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   batch left after a refused token goes to the fallback file on a line of its own, so
   `plune run report` sends it again in one call the route accepts.
 
+- **`plune run import` reads a real Playwright JSON report without being told its format.** Detection
+  looked for `"suites"` in the first 4 KB only, but Playwright writes `config` first — argv, every
+  project, each reporter's options, the CI metadata — and a report of a pinned 1.63 run put it past
+  7 KB: the import refused a report it reads fine. The whole file is searched now.
+
+- **`plune run import <file> --format <fmt>` uses the format it is given.** `plune run` has a
+  `--format` of its own (console | json | markdown), and the parser gave it every `--format` on the
+  line, so the import never saw one: the flag was ignored, an unknown value was not refused, and the
+  advice «Say which with --format» could not be followed.
+
 ## [0.13.0] - 2026-09-18
 
 `@plune-ai/playwright` stays at **0.2.5** - nothing below touches `reporter-core`, so the adapter

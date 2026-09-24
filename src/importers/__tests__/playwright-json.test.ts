@@ -202,6 +202,15 @@ describe('reading a Playwright JSON report', () => {
     expect(looksLikePlaywrightJson('{"config":{},"suites":[]}')).toBe(true);
     expect(looksLikePlaywrightJson('<testsuites/>')).toBe(false);
   });
+
+  it('recognises a report whose config runs long before its suites', () => {
+    // Playwright writes `config` first — argv, every project, every reporter's options, the CI
+    // metadata; a pinned 1.63 run of the adapter's e2e fixture put "suites" at byte 7 632 (#790 T18).
+    const config = { argv: ['node', 'playwright', 'test'], projects: [{ name: 'x'.repeat(8_000) }] };
+    expect(looksLikePlaywrightJson(JSON.stringify({ config, suites: [] }, null, 2))).toBe(true);
+    expect(looksLikePlaywrightJson(JSON.stringify({ config, testResults: [] }, null, 2))).toBe(false);
+    expect(looksLikePlaywrightJson('[{"suites":[]}]')).toBe(false);
+  });
 });
 
 /**
