@@ -312,9 +312,11 @@ export default class PluneReporter {
 
   onTestEnd(test: TestCase, result: TestResult): void {
     const session = this.open();
+    // Awaited: `add` sends a batch once enough are buffered, and `onEnd` closes the run after the
+    // chain — a batch still in flight then freezes `notRun` without it (#790 AC-15).
     this.chain = this.chain
       .then(async () => {
-        (await session).add(pendingFrom(test, result, this.context));
+        await (await session).add(pendingFrom(test, result, this.context));
       })
       .catch((err: unknown) => this.giveUp(err));
   }

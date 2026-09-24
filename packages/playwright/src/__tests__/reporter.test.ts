@@ -8,6 +8,10 @@ const expectedLists: unknown[] = [];
 const startConfigs: Record<string, unknown>[] = [];
 const rootsAsked: string[] = [];
 const calls: string[] = [];
+/** How many results the core had taken when the run was closed or left open. */
+const addedAtClose: number[] = [];
+/** A test's own `add` — how the core takes a result; the default only records it. */
+let addImpl: ((r: PendingResult) => Promise<void>) | null = null;
 let startThrows = false;
 
 vi.mock('@plune-ai/cli/reporter-core', async () => {
@@ -35,10 +39,16 @@ vi.mock('@plune-ai/cli/reporter-core', async () => {
         runId: 'r-1',
         joined: false,
         stats: {},
-        add: async (r: PendingResult) => void added.push(r),
+        add: async (r: PendingResult) => (addImpl === null ? void added.push(r) : addImpl(r)),
         flush: async () => undefined,
-        finish: async () => void calls.push('finish'),
-        leaveOpen: async () => void calls.push('leaveOpen'),
+        finish: async () => {
+          calls.push('finish');
+          addedAtClose.push(added.length);
+        },
+        leaveOpen: async () => {
+          calls.push('leaveOpen');
+          addedAtClose.push(added.length);
+        },
       };
     }),
   };
@@ -52,6 +62,8 @@ beforeEach(() => {
   startConfigs.length = 0;
   rootsAsked.length = 0;
   calls.length = 0;
+  addedAtClose.length = 0;
+  addImpl = null;
   startThrows = false;
 });
 
@@ -352,6 +364,57 @@ describe('the reporter never fails the run', () => {
     const reporter = new PluneReporter();
     await expect(reporter.onEnd({} as FullResult)).resolves.toBeUndefined();
     expect(calls).toEqual([]);
+  });
+});
+
+/**
+ * #790 review F4. The core sends a batch from inside `add` once enough results are buffered, and a
+ * batch takes as long as the platform does. A run closed while one is in flight freezes `notRun`
+ * without it and refuses the batches behind it — the AC-15 run lost 40 of 100 that way.
+ */
+describe('every result reaches the core before the run closes (AC-15)', () => {
+  it('waits for the batches the core is still sending, then closes the run', async () => {
+    // The core's rhythm at batchSize 2: every second result sends both, and the platform takes its time.
+    const buffered: PendingResult[] = [];
+    addImpl = async (r) => {
+      buffered.push(r);
+      if (buffered.length < 2) return;
+      const batch = buffered.splice(0);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      added.push(...batch);
+    };
+    const tests = ['a', 'b', 'c', 'd'].map((id) => fakeTest({ id }));
+
+    await run(new PluneReporter(), tests, tests.map(() => fakeResult()));
+
+    expect(addedAtClose).toEqual([4]);
+  });
+
+  it('says once that the core refused a result, and leaves no rejection unhandled', async () => {
+    addImpl = async () => {
+      throw new Error('the platform said no');
+    };
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => void unhandled.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+    const written: string[] = [];
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      written.push(String(chunk));
+      return true;
+    });
+    try {
+      const tests = [fakeTest({ id: 'a' }), fakeTest({ id: 'b' })];
+      await expect(run(new PluneReporter(), tests, tests.map(() => fakeResult()))).resolves.toBeUndefined();
+      // Node reports an unhandled rejection once the microtasks run dry — a macrotask later.
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    } finally {
+      spy.mockRestore();
+      process.off('unhandledRejection', onUnhandled);
+    }
+
+    expect(unhandled).toEqual([]);
+    expect(written.filter((l) => l.includes('reporting stopped — the platform said no'))).toHaveLength(1);
+    expect(calls).toEqual(['finish']);
   });
 });
 

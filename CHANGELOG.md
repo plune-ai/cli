@@ -11,6 +11,19 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Fixed
+
+- **`@plune-ai/playwright` closes the run only after every batch is answered (plune-ai/plune#790).**
+  The adapter handed each result to the core without waiting for it, and the core sends a batch from
+  inside that hand-over once enough results are buffered. So the run could be closed while batches were
+  still in flight: the platform froze the run's never-run tests without them, refused the batches
+  behind the close, and the summary counted only what had come back — in the AC-15 run, 60 of 100 were
+  stored. A result the core refuses is now the one "reporting stopped" line instead of an unhandled
+  rejection that ended the run with exit code 1.
+- **A success the client cannot read is a batch not delivered.** A 2xx that is not JSON — a proxy's
+  page — or one without counts threw out of the reporter and out of `plune run import`; the batch now
+  goes to the fallback file and is named in the summary like any other refusal.
+
 ## [0.14.0] - 2026-09-24
 
 Also `@plune-ai/playwright` **0.2.6** - the adapter embeds `reporter-core`, where the failure detail

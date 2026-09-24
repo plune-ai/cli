@@ -457,16 +457,20 @@ export async function startRun(
       const out = await client.post<{ counts: Record<keyof RunStats, number> }>(`/v1/runs/${runId}/results`, {
         results: part,
       });
-      if (out.ok) {
-        stats.accepted += out.body.counts.accepted ?? 0;
-        stats.duplicate += out.body.counts.duplicate ?? 0;
-        stats.conflict += out.body.counts.conflict ?? 0;
-        stats.rejected += out.body.counts.rejected ?? 0;
+      // A success with no counts says nothing about what was stored: kept for a replay, not guessed.
+      const counts = out.ok ? out.body?.counts : undefined;
+      if (counts !== undefined) {
+        stats.accepted += counts.accepted ?? 0;
+        stats.duplicate += counts.duplicate ?? 0;
+        stats.conflict += counts.conflict ?? 0;
+        stats.rejected += counts.rejected ?? 0;
         progress();
         continue;
       }
 
-      if (out.kind === 'auth') {
+      if (out.ok) {
+        log('plune: could not send results (the answer carried no counts).');
+      } else if (out.kind === 'auth') {
         log('plune: the API token was refused — run "plune login" with a fresh one.');
         offline = true;
       } else if (out.kind === 'conflict') {

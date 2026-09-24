@@ -606,6 +606,32 @@ describe('the summary says what was not delivered (#790)', () => {
   });
 });
 
+/**
+ * #790 review F4. A success the client cannot read — a proxy's page answering 200, a body with no
+ * counts — used to throw out of `add`: the adapter lost the batch and said "reporting stopped", and
+ * `plune run import` ended non-zero. It is a batch not delivered, like any other refusal.
+ */
+describe('a success the client cannot read is a batch not delivered (#790)', () => {
+  it.each([
+    ['a page instead of JSON', () => new Response('<html>signed in</html>', { status: 200, headers: { 'content-type': 'text/html' } })],
+    ['JSON without counts', () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })],
+  ])('defers it on %s, and the run still closes', async (_label, answer) => {
+    const p = platform({ known: { a: 'tc-a', b: 'tc-b' } });
+    const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) =>
+      /\/results$/.test(String(url)) ? answer() : p.fetchImpl(url, init)) as unknown as typeof fetch;
+    const cfg = config(fetchImpl);
+    const run = await startRun(cfg);
+    await run.add(result('a'));
+    await run.add(result('b', { resultKey: 'b#0' }));
+
+    await expect(run.finish()).resolves.toBeUndefined();
+
+    expect(run.stats).toMatchObject({ accepted: 0, deferred: 2 });
+    expect(p.seen.events).toHaveLength(1);
+    expect(logOf(cfg).some((l) => l.startsWith('plune: could not send results'))).toBe(true);
+  });
+});
+
 describe('a closed run is a configuration mistake, not a blip (AC-07)', () => {
   it('names the cause and defers', async () => {
     const { fetchImpl } = platform({
