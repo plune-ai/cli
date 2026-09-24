@@ -95,7 +95,8 @@ const TEXT_LIMIT = 524_288;
  * The longest headline sent, in the bytes it weighs in a batch. The platform keeps 300 characters of it
  * after its own cleaning, and a credential straddling that point is a few KB at most; and with a text at
  * `TEXT_LIMIT`, a result has ~34 KB left for everything else if 100 of them are to fit 7 batches of
- * 8 MiB — 10 calls. A longer first line still travels in the text, which the dashboard shows instead.
+ * 8 MiB — 10 calls. A longer first line still travels in the text, which the dashboard shows instead —
+ * unless the text is over `TEXT_LIMIT` and the line over half of it, when `cut` leaves the line out.
  */
 const HEADLINE_LIMIT = 8 * 1024;
 
@@ -104,21 +105,35 @@ const jsonBytes = (text: string): number => Buffer.byteLength(JSON.stringify(tex
 
 /**
  * A home folder opening a path in a text: `/home/<u>`, `/Users/<u>`, `C:\Users\<u>` — with the
- * backslashes doubled too, as a diff prints a string — a file URL too.
+ * backslashes doubled too, as a diff prints a string, and a slash escaped as PHP's JSON writes it
+ * (`\/home\/<u>`) — a file URL too, and a webpack source map's.
  */
-// ponytail: a user name with a space is cut at the space; the machine's own home is matched exactly.
-const ANY_HOME = /(?<=^|[\s'"`(=,[])(?:file:\/\/\/?)?(?:\/home\/|\/Users\/|[A-Za-z]:[\\/]+Users[\\/]+)[^\\/\s'"`:*?<>|]+/g;
+// ponytail: a user name with a space is cut at the space, and a route shaped like a home (`"/home/feed"`)
+// reads as one; the machine's own home is matched exactly.
+const ANY_HOME =
+  /(?<=^|[\s'"`(=,[])(?:(?:file|webpack|webpack-internal):(?:\\*\/){2,3})?(?:\\*\/home\\*\/|\\*\/Users\\*\/|[A-Za-z]:[\\/]+Users[\\/]+)[^\\/\s'"`:*?<>|]+/g;
 
 /**
- * `path` as a text may spell it: either slash, doubled as a printed string doubles a backslash, as a
- * file URL, and on Windows in any case. Nothing for `/` or a bare drive — they would match every path.
+ * `path` as a text may spell it: either slash, doubled as a printed string doubles a backslash or
+ * escaped as PHP's JSON escapes a slash (`\/`), as a file URL or a webpack source map's
+ * (`webpack:///Users/…`, #790 re-review C9), and on Windows in any case. Nothing for `/` or a bare
+ * drive — they would match every path.
  */
 function pathIn(path: string): RegExp | undefined {
   const parts = path.split(/[\\/]+/);
   while (parts.length > 1 && parts.at(-1) === '') parts.pop();
   if (!parts.some((part) => part !== '' && !/^[A-Za-z]:$/.test(part))) return undefined;
-  const escaped = parts.map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\\\/]+');
-  return new RegExp(`(?:file:\\/\\/\\/?)?${escaped}`, /^[A-Za-z]:$/.test(parts[0]!) ? 'gi' : 'g');
+  const joined = parts.map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\\\/]+');
+  // A posix path's leading slash is one slash, escaped or not: as `[\\/]+` it also took the `//` after
+  // a scheme, and `http://app/login` lost its host to a root `/app` (#790 re-review C1); as a bare `/`
+  // it missed `\/Users\/alice\/…` (C6). A UNC path keeps both.
+  const escaped = /^\/(?!\/)/.test(path) ? joined.replace('[\\\\/]+', '\\\\*\\/') : joined;
+  // Only the schemes whose `///` opens a path of this machine: any scheme would take `sqlite:///app/…`.
+  // ponytail: so another scheme's absolute `////` (`sqlite:////Users/alice/…`) keeps its path, and so does
+  // a scheme in capitals before a posix path (`FILE:///Users/…`) — a Windows root or home is matched in
+  // any case. Neither is likely in a runner's error text (#790 re-review C11).
+  const url = '(?:(?:file|webpack|webpack-internal):(?:\\\\*\\/){2,3})?';
+  return new RegExp(`${url}${escaped}`, /^[A-Za-z]:$/.test(parts[0]!) ? 'gi' : 'g');
 }
 
 /** An attachment named by its path — `testInfo.attach(file, { path: file })` — by the file alone. */
@@ -193,7 +208,9 @@ function placeOf(error: AttemptError, testFile: string): RunnerLocation | undefi
   let first: RunnerLocation | undefined;
   for (const line of stripVTControlCharacters(error.text).split('\n')) {
     // ponytail: past PATH_MAX plus a function name a line is no frame, and on it `FRAME` retries from
-    // every " (" — quadratic. Below the cap it still is: ~5 ms for the worst 8 191 characters.
+    // every " (" — quadratic. Below the cap it still is: ~5 ms for the worst 8 191 characters, per line,
+    // so a text of a thousand such `at` lines costs seconds. Only a hostile text has them; bound the
+    // lines scanned if one ever turns up.
     if (line.length > FRAME_MAX) continue;
     const frame = FRAME.exec(line);
     if (frame === null) continue;

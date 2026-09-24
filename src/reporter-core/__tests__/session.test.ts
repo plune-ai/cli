@@ -688,6 +688,60 @@ describe('a success the client cannot read is a batch not delivered (#790)', () 
     expect(p.seen.events).toHaveLength(1);
     expect(logOf(cfg).some((l) => l.startsWith('plune: could not send results'))).toBe(true);
   });
+
+  // #790 re-review C5: the same for the other calls — JSON that lacks what the core reads.
+  const answering = (route: RegExp, body: string, p: ReturnType<typeof platform>) =>
+    (async (url: string | URL | Request, init?: RequestInit) =>
+      route.test(String(url))
+        ? new Response(body, { status: 200, headers: { 'content-type': 'application/json' } })
+        : p.fetchImpl(url, init)) as unknown as typeof fetch;
+
+  it.each([
+    ['the lookup', 'null', /\/v1\/test-cases\/resolve$/],
+    ['the lookup', '{}', /\/v1\/test-cases\/resolve$/],
+    ['the lookup', '{"results": [{}]}', /\/v1\/test-cases\/resolve$/],
+    ['the lookup', '{"results": [null]}', /\/v1\/test-cases\/resolve$/],
+    ['the start', 'null', /\/v1\/runs$/],
+    ['the start', '{}', /\/v1\/runs$/],
+    ['a batch', '{"counts": null}', /\/results$/],
+    ['a batch', '{"counts": {}}', /\/results$/],
+    ['a batch', '{"counts": {"accepted": "2"}}', /\/results$/],
+  ])('defers the results when %s answers %s', async (_label, body, route) => {
+    const p = platform({ known: { a: 'tc-a', b: 'tc-b' } });
+    const cfg = config(answering(route, body, p));
+    const run = await startRun(cfg);
+    await run.add(result('a'));
+    await run.add(result('b', { resultKey: 'b#0' }));
+
+    await expect(run.finish()).resolves.toBeUndefined();
+    expect(run.stats).toMatchObject({ accepted: 0, deferred: 2 });
+  });
+
+  it('closes the run when the close answers null', async () => {
+    const p = platform({ known: { a: 'tc-a' } });
+    const cfg = config(answering(/\/events$/, 'null', p));
+    const run = await startRun(cfg);
+    await run.add(result('a'));
+
+    await expect(run.finish()).resolves.toBeUndefined();
+    expect(run.stats).toMatchObject({ accepted: 1, deferred: 0 });
+  });
+
+  // #790 re-review C7: the review queue too — the offer threw out of `finish`, and the run stayed open.
+  it.each([
+    ['null', 1],
+    ['{}', 1],
+    ['{"results": [null]}', 0],
+  ])('closes the run when the review queue answers %s, with %i test(s) left unoffered', async (body, unoffered) => {
+    const p = platform();
+    const cfg = config(answering(/\/v1\/review-items\/discovered$/, body, p), { offerDiscovered: true });
+    const run = await startRun(cfg);
+    await run.add(result('pw-1', { title: 'cart › adds an item', specRef: 'e2e/checkout.spec.ts:12' }));
+
+    await expect(run.finish()).resolves.toBeUndefined();
+    expect(run.stats).toMatchObject({ offered: 0, unoffered });
+    expect(p.seen.events).toHaveLength(1);
+  });
 });
 
 describe('a closed run is a configuration mistake, not a blip (AC-07)', () => {

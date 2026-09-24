@@ -11,6 +11,35 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Fixed
+
+- **An address whose host is named as the repository or the home folder is left alone
+  (plune-ai/plune#790).** A posix root's leading slash matched as many slashes as there were, so it
+  also took the `//` after a scheme: with the root `/app`, `http://app/login` — a compose service named
+  after the image's `WORKDIR` — became `http:login`, and with the home `/root`, `http://root/x` became
+  `http:~/x`. A posix path now starts with exactly one slash, escaped or not; a UNC path keeps both.
+- **A path written with escaped slashes, as PHP's JSON writes them, reads like the plain one.** With no
+  repository root — a report from another machine — `\/home\/bob\/…` kept the account's name; it is
+  now `~\/…`. A file URL written that way lost the root but kept its `file:` (`file:e2e\/a.ts`); it now
+  loses both.
+- **A path in a webpack source map reads like a file URL's.** With the root known, `webpack:///…` lost
+  the root but kept its `webpack:` (`webpack:src/Foo.tsx`); it now loses both. With no root, the home
+  folder in such a path — `webpack:///home/bob/…`, `webpack-internal:///Users/carol/…` — kept the
+  account's name; it is now `~`. Other schemes keep their `///`: `sqlite:///app/db.sqlite` is left alone.
+- **An answer without the fields the core reads no longer throws.** A 2xx whose JSON lacks what the
+  core reads threw out of it: the adapter said "reporting stopped" and `plune run import` ended
+  non-zero. Now the lookup, the start, a batch and the offer read such an answer as that call failing,
+  and a close answering `null` is taken as done:
+  - the lookup without `results`, or a row without its key: it threw at the start or inside a flush,
+    where the batch had already left the buffer, so its results were neither delivered nor deferred;
+    they are now deferred;
+  - the start without `run`: it threw in `startRun`; the results are now deferred;
+  - a batch without `counts`, or with counts that hold no number: `null` threw inside the flush, and
+    `{}` counted the batch as delivered with nothing accepted; the batch is now deferred;
+  - the offer to the review queue (`--create`) without `results`: it threw from `finish`, and the run
+    stayed open; the tests are now counted as not offered, and the run closes;
+  - a close answering `null`: it threw from `finish`; the run is now taken as closed.
+
 ## [0.14.1] - 2026-09-24
 
 Also `@plune-ai/playwright` **0.2.7** - the adapter embeds `reporter-core`, so every fix below reaches
@@ -32,7 +61,8 @@ it too, and it now closes the run only after every batch is answered.
   first line as the runner wrote it, so a missing snapshot or a missing browser put the account's home
   folder on a page the whole project reads; it now goes through the same rewriting as the text. A first
   line over 8 KB is not sent as the headline at all (never cut): the platform keeps 300 characters of a
-  headline, the line still travels in the text, and the dashboard shows the text's first line instead.
+  headline, the line still travels in the text (unless the text is over 512 KB and the line over half
+  of that, when the cut leaves it out), and the dashboard shows the text's first line instead.
   An attachment named by its path (`testInfo.attach(file, { path: file })`) is named by the file alone,
   and one with an empty content type goes without it — the platform refused the whole batch for it.
 - **The repository and the home folder are rewritten only where a path starts.** A root of one segment
