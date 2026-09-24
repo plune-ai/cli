@@ -11,6 +11,11 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-09-24
+
+Also `@plune-ai/playwright` **0.2.7** - the adapter embeds `reporter-core`, so every fix below reaches
+it too, and it now closes the run only after every batch is answered.
+
 ### Fixed
 
 - **`@plune-ai/playwright` closes the run only after every batch is answered (plune-ai/plune#790).**
@@ -626,7 +631,8 @@ First public release. Released from commit `ba43100`; no `v0.2.0` tag exists.
   `json-schema`, `llm-judge`, `semantic-similarity`, `faithfulness`, `answer-relevance`,
   `context-precision`.
 
-[Unreleased]: https://github.com/plune-ai/cli/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/plune-ai/cli/compare/v0.14.1...HEAD
+[0.14.1]: https://github.com/plune-ai/cli/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/plune-ai/cli/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/plune-ai/cli/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/plune-ai/cli/compare/v0.11.1...v0.12.0
