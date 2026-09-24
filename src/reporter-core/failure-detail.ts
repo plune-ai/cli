@@ -106,16 +106,18 @@ const jsonBytes = (text: string): number => Buffer.byteLength(JSON.stringify(tex
 /**
  * A home folder opening a path in a text: `/home/<u>`, `/Users/<u>`, `C:\Users\<u>` — with the
  * backslashes doubled too, as a diff prints a string, and a slash escaped as PHP's JSON writes it
- * (`\/home\/<u>`) — a file URL too.
+ * (`\/home\/<u>`) — a file URL too, and a webpack source map's.
  */
-// ponytail: a user name with a space is cut at the space; the machine's own home is matched exactly.
+// ponytail: a user name with a space is cut at the space, and a route shaped like a home (`"/home/feed"`)
+// reads as one; the machine's own home is matched exactly.
 const ANY_HOME =
-  /(?<=^|[\s'"`(=,[])(?:file:(?:\\*\/){2,3})?(?:\\*\/home\\*\/|\\*\/Users\\*\/|[A-Za-z]:[\\/]+Users[\\/]+)[^\\/\s'"`:*?<>|]+/g;
+  /(?<=^|[\s'"`(=,[])(?:(?:file|webpack|webpack-internal):(?:\\*\/){2,3})?(?:\\*\/home\\*\/|\\*\/Users\\*\/|[A-Za-z]:[\\/]+Users[\\/]+)[^\\/\s'"`:*?<>|]+/g;
 
 /**
  * `path` as a text may spell it: either slash, doubled as a printed string doubles a backslash or
- * escaped as PHP's JSON escapes a slash (`\/`), as a file URL, and on Windows in any case. Nothing for
- * `/` or a bare drive — they would match every path.
+ * escaped as PHP's JSON escapes a slash (`\/`), as a file URL or a webpack source map's
+ * (`webpack:///Users/…`, #790 re-review C9), and on Windows in any case. Nothing for `/` or a bare
+ * drive — they would match every path.
  */
 function pathIn(path: string): RegExp | undefined {
   const parts = path.split(/[\\/]+/);
@@ -126,7 +128,9 @@ function pathIn(path: string): RegExp | undefined {
   // a scheme, and `http://app/login` lost its host to a root `/app` (#790 re-review C1); as a bare `/`
   // it missed `\/Users\/alice\/…` (C6). A UNC path keeps both.
   const escaped = /^\/(?!\/)/.test(path) ? joined.replace('[\\\\/]+', '\\\\*\\/') : joined;
-  return new RegExp(`(?:file:(?:\\\\*\\/){2,3})?${escaped}`, /^[A-Za-z]:$/.test(parts[0]!) ? 'gi' : 'g');
+  // Only the schemes whose `///` opens a path of this machine: any scheme would take `sqlite:///app/…`.
+  const url = '(?:(?:file|webpack|webpack-internal):(?:\\\\*\\/){2,3})?';
+  return new RegExp(`${url}${escaped}`, /^[A-Za-z]:$/.test(parts[0]!) ? 'gi' : 'g');
 }
 
 /** An attachment named by its path — `testInfo.attach(file, { path: file })` — by the file alone. */

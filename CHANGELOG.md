@@ -22,9 +22,14 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   repository root — a report from another machine — `\/home\/bob\/…` kept the account's name; it is
   now `~\/…`. A file URL written that way lost the root but kept its `file:` (`file:e2e\/a.ts`); it now
   loses both.
-- **An answer without the fields the core reads is a failed call, not a crash.** A 2xx whose JSON lacks
-  what the core reads threw out of it: the adapter said "reporting stopped" and `plune run import`
-  ended non-zero. Each call now reads such an answer as that call failing:
+- **A path in a webpack source map reads like a file URL's.** With the root known, `webpack:///…` lost
+  the root but kept its `webpack:` (`webpack:src/Foo.tsx`); it now loses both. With no root, the home
+  folder in such a path — `webpack:///home/bob/…`, `webpack-internal:///Users/carol/…` — kept the
+  account's name; it is now `~`. Other schemes keep their `///`: `sqlite:///app/db.sqlite` is left alone.
+- **An answer without the fields the core reads no longer throws.** A 2xx whose JSON lacks what the
+  core reads threw out of it: the adapter said "reporting stopped" and `plune run import` ended
+  non-zero. Now the lookup, the start, a batch and the offer read such an answer as that call failing,
+  and a close answering `null` is taken as done:
   - the lookup without `results`, or a row without its key: it threw at the start or inside a flush,
     where the batch had already left the buffer, so its results were neither delivered nor deferred;
     they are now deferred;

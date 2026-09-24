@@ -463,6 +463,106 @@ describe('errorContextOf — the text of every error (AC-01, AC-01c, AC-05, AC-1
     }
   });
 
+  // #790 re-review C9: every path form a round of the review raised, as it reads now. Each round's fix
+  // broke a form the round before had fixed (C1 → C6 → C9), and only the next review saw it; this table
+  // is that review. Beside a row 0.14.1 read otherwise: what 0.14.1 made of it.
+  const PATH_FORMS: [text: string, repoRoot: string | undefined, home: string, expected: string][] = [
+  // escaped slashes, as PHP writes JSON (#790 re-review C6)
+  ["{\"file\":\"\\/Users\\/alice\\/shop\\/vendor\\/x.php\",\"home\":\"\\/Users\\/alice\\/.composer\"}", "/Users/alice/shop", "/Users/alice", "{\"file\":\"vendor\\/x.php\",\"home\":\"~\\/.composer\"}"],
+  ["\"\\/app\\/e2e\\/data.json\"", "/app", "/root", "\"e2e\\/data.json\""],
+  [" \\/app\\/e2e", "/app", "/root", " e2e"],
+  ["\"\\\\/app\\\\/e2e\"", "/app", "/root", "\"e2e\""],
+  ["\"\\\\\\/app\\\\\\/e2e\"", "/app", "/root", "\"e2e\""],
+  ["x\\/app\\/y", "/app", "/root", "x\\/app\\/y"],
+  // 0.14.1: "\"file:e2e\\/a.ts\""
+  ["\"file:\\/\\/\\/app\\/e2e\\/a.ts\"", "/app", "/root", "\"e2e\\/a.ts\""],
+  // 0.14.1: "file:e2e\\/x.ts and file:~\\/.npm"
+  ["file:\\/\\/\\/Users\\/alice\\/shop\\/e2e\\/x.ts and file:\\/\\/\\/Users\\/alice\\/.npm", "/Users/alice/shop", "/Users/alice", "e2e\\/x.ts and ~\\/.npm"],
+  ["\"\\/home\\/runner\\/work\\/shop\\/shop\\/e2e\"", "/home/runner/work/shop/shop", "/home/runner", "\"e2e\""],
+  // 0.14.1: "\"\\/home\\/bob\\/x\""
+  ["\"\\/home\\/bob\\/x\"", undefined, "/home/ci", "\"~\\/x\""],
+  // 0.14.1: "\"file:\\/\\/\\/Users\\/carol\\/x\""
+  ["\"file:\\/\\/\\/Users\\/carol\\/x\"", undefined, "/home/ci", "\"~\\/x\""],
+  // 0.14.1: "\"\\/homer\\/x\" \"\\/home\\/\" \"\\\\\\\\/home\\\\\\\\/bob\\\\\\\\/x\""
+  ["\"\\/homer\\/x\" \"\\/home\\/\" \"\\\\\\\\/home\\\\\\\\/bob\\\\\\\\/x\"", undefined, "/home/ci", "\"\\/homer\\/x\" \"\\/home\\/\" \"~\\\\\\\\/x\""],
+  // 0.14.1: "\"~/x\" \"file://\\/home\\/bob\""
+  ["\"file:///home/bob/x\" \"file://\\/home\\/bob\"", undefined, "/home/ci", "\"~/x\" \"~\""],
+  // an address whose host is named like the root or the home (C1)
+  // 0.14.1: "page.goto: at http:login"
+  ["page.goto: at http://app/login", "/app", "/root", "page.goto: at http://app/login"],
+  // 0.14.1: "navigating to \"http:\""
+  ["navigating to \"http://app/\"", "/app", "/root", "navigating to \"http://app/\""],
+  // 0.14.1: "GET http:~/health"
+  ["GET http://root/health", "/app", "/root", "GET http://root/health"],
+  // 0.14.1: "\"url\":\"http:login\""
+  ["\"url\":\"http:\\/\\/app\\/login\"", "/app", "/root", "\"url\":\"http:\\/\\/app\\/login\""],
+  // 0.14.1: "\"url\":\"http:login\""
+  ["\"url\":\"http:\\\\/\\\\/app\\\\/login\"", "/app", "/root", "\"url\":\"http:\\\\/\\\\/app\\\\/login\""],
+  ["https:\\/\\/example.com\\/app\\/login", "/app", "/root", "https:\\/\\/example.com\\/app\\/login"],
+  ["\"url\":\"http:\\/\\/localhost:3000\\/app\\/login\"", "/app", "/root", "\"url\":\"http:\\/\\/localhost:3000\\/app\\/login\""],
+  ["http://localhost:3000/app/login", "/app", "/root", "http://localhost:3000/app/login"],
+  // 0.14.1: "file:x"
+  ["file://app/x", "/app", "/root", "file://app/x"],
+  ["http://h/home/bob http:\\/\\/h\\/home\\/bob", undefined, "/home/ci", "http://h/home/bob http:\\/\\/h\\/home\\/bob"],
+  // a source map of webpack (C9)
+  // 0.14.1: "    at Foo (webpack:src/Foo.tsx:12:5)"
+  ["    at Foo (webpack:///Users/alice/shop/src/Foo.tsx:12:5)", "/Users/alice/shop", "/Users/alice", "    at Foo (src/Foo.tsx:12:5)"],
+  // 0.14.1: "    at Foo (webpack:src/Foo.tsx:12:5)"
+  ["    at Foo (webpack:////Users/alice/shop/src/Foo.tsx:12:5)", "/Users/alice/shop", "/Users/alice", "    at Foo (src/Foo.tsx:12:5)"],
+  // 0.14.1: "    at webpack:~/.nvm/x.js:1:1"
+  ["    at webpack:///Users/alice/.nvm/x.js:1:1", "/Users/alice/shop", "/Users/alice", "    at ~/.nvm/x.js:1:1"],
+  // 0.14.1: "source: webpack-internal:src/a.js"
+  ["source: webpack-internal:///home/bob/shop/src/a.js", "/home/bob/shop", "/home/bob", "source: src/a.js"],
+  // 0.14.1: "webpack:x.ts"
+  ["webpack:///app/x.ts", "/app", "/root", "x.ts"],
+  // 0.14.1: "at http:login and webpack:./src/x.ts and sqlite:db.sqlite"
+  ["at http://app/login and webpack://app/./src/x.ts and sqlite:///app/db.sqlite", "/app", "/root", "at http://app/login and webpack://app/./src/x.ts and sqlite:///app/db.sqlite"],
+  // 0.14.1: "at webpack:///home/bob/shop/src/a.js and webpack-internal:///Users/carol/x.js"
+  ["at webpack:///home/bob/shop/src/a.js and webpack-internal:///Users/carol/x.js", undefined, "/home/ci", "at ~/shop/src/a.js and ~/x.js"],
+  // the plain forms
+  ["    at /app/e2e/shop.spec.ts:3:1", "/app", "/root", "    at e2e/shop.spec.ts:3:1"],
+  ["    at file:///app/e2e/helpers.ts:5:7", "/app", "/root", "    at e2e/helpers.ts:5:7"],
+  ["(/app//e2e/x.ts:1:1)", "/app", "/root", "(e2e/x.ts:1:1)"],
+  ["PATH=/usr/bin:/root/.local/bin", "/app", "/root", "PATH=/usr/bin:~/.local/bin"],
+  ["'/app/login'", "/app", "/root", "'login'"],
+  ["Expected: \"/app/login\"", "/app", "/root", "Expected: \"login\""],
+  // 0.14.1: "Expected pattern: login/"
+  ["Expected pattern: /\\/app\\/login/", "/app", "/root", "Expected pattern: /\\/app\\/login/"],
+  ["new RegExp('\\\\/app\\\\/login')", "/app", "/root", "new RegExp('login')"],
+  // 0.14.1: "C:x"
+  ["C:\\app\\x", "/app", "/root", "C:\\app\\x"],
+  ["url(/app/img.png)", "/app", "/root", "url(img.png)"],
+  ["-/app/e2e ~/app/e2e ../app/e2e", "/app", "/root", "-/app/e2e ~/app/e2e ../app/e2e"],
+  ["\"\\/root\\/.cache\" \"\\/rootfs\\/x\" \"\\/root\"", "/app", "/root", "\"~\\/.cache\" \"\\/rootfs\\/x\" \"~\""],
+  ["at /Users/alice/shop/e2e/a.ts:1:1 and /Users/alice/.cache/x", "/Users/alice/shop", "/Users/alice", "at e2e/a.ts:1:1 and ~/.cache/x"],
+  ["file:///Users/alice/shop/e2e/x.ts", "/Users/alice/shop", "/Users/alice", "e2e/x.ts"],
+  ["/Users/alice.bak/x", "/Users/alice/shop", "/Users/alice", "/Users/alice.bak/x"],
+  ["\"\\/Users\\/alice2\\/x\"", "/Users/alice/shop", "/Users/alice", "\"\\/Users\\/alice2\\/x\""],
+  ["at file:///home/runner/work/shop/shop/e2e/a.ts:1:1", "/home/runner/work/shop/shop", "/home/runner", "at e2e/a.ts:1:1"],
+  ["at D:\\a\\shop\\e2e\\x.spec.ts:1:1 and C:\\Users\\alice\\AppData\\x", "D:\\a\\shop", "C:\\Users\\alice", "at e2e\\x.spec.ts:1:1 and ~\\AppData\\x"],
+  ["\"D:\\\\a\\\\shop\\\\e2e\\\\data.json\" \"C:\\\\Users\\\\alice\\\\x\"", "D:\\a\\shop", "C:\\Users\\alice", "\"e2e\\\\data.json\" \"~\\\\x\""],
+  ["at file:///D:/a/shop/e2e/x.ts:1:1", "D:\\a\\shop", "C:\\Users\\alice", "at e2e/x.ts:1:1"],
+  // 0.14.1: "\"file:\\/\\/\\/D:\\/a\\/shop\\/x\""
+  ["\"file:\\/\\/\\/D:\\/a\\/shop\\/x\"", "D:\\a\\shop", "C:\\Users\\alice", "\"x\""],
+  ["\"D:\\/a\\/shop\\/x\"", "D:\\a\\shop", "C:\\Users\\alice", "\"x\""],
+  ["at \\\\server\\share\\repo\\e2e\\x.ts:1:1", "\\\\server\\share\\repo", "C:\\Users\\alice", "at e2e\\x.ts:1:1"],
+  ["at //server/share/repo/e2e/x.ts:1:1", "//server/share/repo", "/home/ci", "at e2e/x.ts:1:1"],
+  ["\"/home/bob/report.txt\" at /home/ci/x", undefined, "/home/ci", "\"~/report.txt\" at ~/x"],
+  ["\"C:\\\\Users\\\\alice\\\\AppData\" at C:\\Users\\eve\\x", undefined, "/home/ci", "\"~\\\\AppData\" at ~\\x"],
+  // 0.14.1: "{\"redirect\":\"\\/home\\/dashboard\"} {\"redirect\":\"~\"}"
+  ["{\"redirect\":\"\\/home\\/dashboard\"} {\"redirect\":\"/home/dashboard\"}", undefined, "/home/ci", "{\"redirect\":\"~\"} {\"redirect\":\"~\"}"],
+  // 0.14.1: "new RegExp(\"\\\\/home\\\\/feed\") page.goto(\"~\")"
+  ["new RegExp(\"\\\\/home\\\\/feed\") page.goto(\"/home/feed\")", undefined, "/home/ci", "new RegExp(\"~\") page.goto(\"~\")"],
+  ["Expected pattern: /\\/home\\/feed/", undefined, "/home/ci", "Expected pattern: /\\/home\\/feed/"],
+  ["PATH=/usr/bin:/home/bob/bin", undefined, "/home/ci", "PATH=/usr/bin:/home/bob/bin"],
+  // 0.14.1: "(\\/Users\\/dave\\/x) [\\/Users\\/x]"
+  ["(\\/Users\\/dave\\/x) [\\/Users\\/x]", undefined, "/home/ci", "(~\\/x) [~"],
+  ];
+
+  it.each(PATH_FORMS)('reads %j with the root %s and the home %s as %j', (text, repoRoot, home, expected) => {
+    expect(errorContextOf(attempt({ errors: [{ text }], repoRoot }), home)).toBe(expected);
+  });
+
   // #790 review G2: a diff prints a string, so a Windows path in it has every backslash doubled.
   it('rewrites a Windows path printed with doubled backslashes, as in a diff of a string (AC-05)', () => {
     const diff = ['-   "file": "D:\\\\a\\\\shop\\\\e2e\\\\data.json",', '+   "file": "C:\\\\Users\\\\alice\\\\AppData\\\\Local\\\\Temp\\\\data.json",'].join('\n');
