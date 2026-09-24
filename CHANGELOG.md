@@ -33,6 +33,13 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   such as `/app` also turned `http://localhost:3000/app/login` into `http://localhost:3000login`, and
   a home of `/root` did the same to an address ending in it. A Windows path printed with doubled
   backslashes — a string in a diff — is now rewritten too.
+- **A CI link the platform would refuse is not sent.** `https:/host` and `https:host` passed as links
+  because `new URL` mends them, and the platform refused the run's start for them — every result then
+  went to the fallback file. A link now needs `http://` or `https://` as written.
+- **A stack line cannot stall the runner or end the import.** A line over 8 192 characters is no longer
+  read as a stack frame, where the pattern took time quadratic in its length on the runner's own thread,
+  and a frame whose file URL has a broken escape is read as written instead of ending the report on a
+  `URIError`.
 
 ## [0.14.0] - 2026-09-24
 

@@ -139,6 +139,7 @@ const REPO_RELATIVE = /^(?![A-Za-z][A-Za-z0-9+.-]*:)(?![\\/~])(?!(?:.*[\\/])?\.\
 
 /** A stack frame as V8 writes it: `at fn (file:line:col)` or `at file:line:col`. */
 const FRAME = /^\s+at (?:.*? \()?(.+?):(\d+):(\d+)\)?$/;
+const FRAME_MAX = 8192;
 
 const firstLine = (text: string): string | undefined =>
   stripVTControlCharacters(text)
@@ -176,6 +177,9 @@ function placeOf(error: AttemptError, testFile: string): RunnerLocation | undefi
   const own = normal(testFile);
   let first: RunnerLocation | undefined;
   for (const line of stripVTControlCharacters(error.text).split('\n')) {
+    // ponytail: past PATH_MAX plus a function name a line is no frame, and on it `FRAME` retries from
+    // every " (" — quadratic. Below the cap it still is: ~5 ms for the worst 8 191 characters.
+    if (line.length > FRAME_MAX) continue;
     const frame = FRAME.exec(line);
     if (frame === null) continue;
     const place = { file: fileOf(frame[1]!), line: Number(frame[2]), column: Number(frame[3]) };
@@ -188,7 +192,12 @@ function placeOf(error: AttemptError, testFile: string): RunnerLocation | undefi
 /** `file:///D:/repo/x.ts` or `file:///repo/x.ts` — read the same on every OS, unlike `fileURLToPath`. */
 function fileOf(raw: string): string {
   if (!raw.startsWith('file://')) return raw;
-  const path = decodeURIComponent(raw.slice('file://'.length));
+  let path = raw.slice('file://'.length);
+  try {
+    path = decodeURIComponent(path);
+  } catch {
+    // A broken escape: kept as written, rather than ending the whole report on a `URIError`.
+  }
   return /^\/[A-Za-z]:\//.test(path) ? path.slice(1) : path;
 }
 
@@ -208,13 +217,11 @@ function fromRoot(place: RunnerLocation | undefined, root: string | undefined): 
   return column === undefined ? { file: relative, line: place.line } : { file: relative, line: place.line, column };
 }
 
-/** A link only for an address a browser opens as a page — never `file:`, `javascript:` or half a URL. */
+/**
+ * A link only for an address a browser opens as a page — never `file:`, `javascript:` or half a URL.
+ * As the platform checks it: `new URL` alone mends `https:/host` and `https:host` into https, and a
+ * link the platform refuses costs the run's start or the whole batch.
+ */
 export function webLink(href: string | undefined): string | undefined {
-  if (href === undefined) return undefined;
-  try {
-    const { protocol } = new URL(href);
-    return protocol === 'http:' || protocol === 'https:' ? href : undefined;
-  } catch {
-    return undefined;
-  }
+  return href !== undefined && /^https?:\/\//i.test(href) && URL.canParse(href) ? href : undefined;
 }

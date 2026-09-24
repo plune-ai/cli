@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { errorContextOf, failureOf, repoRootOf } from '../failure-detail.js';
+import { errorContextOf, failureOf, repoRootOf, webLink } from '../failure-detail.js';
 import type { FailedAttempt } from '../types.js';
 
 /**
@@ -193,6 +193,25 @@ describe('failureOf — the place (AC-02, AC-05, AC-07)', () => {
     expect(failureOf(attempt({ repoRoot: undefined }))).not.toHaveProperty('location');
   });
 
+  // #790 review F6: the frame pattern retries from every " (" of a line that opens like a frame, which
+  // is quadratic in its length — 180 ms at 20 000, on the runner's own thread. Escalated in one test,
+  // so a worse regression fails at the small size instead of hanging at the large one.
+  it('passes over a line too long to be a frame, in time that does not grow with its square', () => {
+    for (const n of [5_000, 50_000]) {
+      const text = `Error: boom\n    at ${' (x'.repeat(n)}\n    at /repo/e2e/shop.spec.ts:4:2`;
+      const started = performance.now();
+      const failure = failureOf(attempt({ errors: [{ text }] }), '/home/ci-user');
+      expect(performance.now() - started).toBeLessThan(100);
+      expect(failure?.location).toEqual({ file: 'e2e/shop.spec.ts', line: 4, column: 2 });
+    }
+  });
+
+  it('reads a frame whose file URL has a broken escape as it is, and still finds the place (#790 review F6)', () => {
+    const text = 'Error: boom\n    at file:///repo/e2e/%E0%A4%A.spec.ts:3:1\n    at /repo/e2e/shop.spec.ts:4:2';
+    expect(() => failureOf(attempt({ errors: [{ text }] }), '/home/ci-user')).not.toThrow();
+    expect(failureOf(attempt({ errors: [{ text }] }), '/home/ci-user')?.location).toEqual({ file: 'e2e/shop.spec.ts', line: 4, column: 2 });
+  });
+
   it('is absent for a path the platform would refuse, rather than costing the batch', () => {
     const failure = failureOf(attempt({ errors: [{ text: 'Error: boom', location: { file: '/repo/~tmp/x.spec.ts', line: 2 } }] }));
     expect(failure).not.toHaveProperty('location');
@@ -248,6 +267,23 @@ describe('failureOf — what the runner kept, and the CI run (AC-04, AC-05)', ()
     for (const href of ['file:///home/ci-user/report', 'javascript:alert(1)', 'https://', 'not a link']) {
       expect(failureOf(attempt({ buildHref: href }))).not.toHaveProperty('ciUrl');
     }
+  });
+
+  // #790 review G5: `new URL` mends these into https, the platform's check does not — and a link it
+  // refuses costs the run's start or the whole batch (contracts/cli.md §1 promises no link instead).
+  it.each([
+    'https:/github.com/acme/shop/actions/runs/42',
+    'https:github.com/acme/shop/actions/runs/42',
+    'https:\\\\github.com\\acme\\shop',
+    ' https://github.com/acme/shop/actions/runs/42',
+    '\u0001https://github.com/acme/shop/actions/runs/42',
+  ])('is no link for %j, which the platform would refuse (AC-07b)', (href) => {
+    expect(webLink(href)).toBeUndefined();
+    expect(failureOf(attempt({ buildHref: href }))).not.toHaveProperty('ciUrl');
+  });
+
+  it('keeps a link whose scheme is in capitals, as the platform does', () => {
+    expect(webLink('HTTPS://github.com/acme/shop/actions/runs/42')).toBe('HTTPS://github.com/acme/shop/actions/runs/42');
   });
 
   it('is nothing at all when there is nothing to say', () => {
