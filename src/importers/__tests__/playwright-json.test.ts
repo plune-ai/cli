@@ -1,4 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { readPlaywrightJson, looksLikePlaywrightJson, JsonReportError } from '../playwright-json.js';
 
 /**
@@ -47,7 +50,14 @@ const SAME_TEST_AS_THE_ADAPTER_FAKES = JSON.stringify({
                       duration: 30,
                       retry: 0,
                       startTime: '2026-09-09T10:00:00.000Z',
-                      errors: [{ message: 'expected 1 to be 0', stack: 'at cart.spec.ts:12:3' }],
+                      // The shape Playwright writes: `formatError` of the error — the message, the
+                      // code frame and the stack's `at` lines in one text — and where it was thrown.
+                      errors: [
+                        {
+                          message: 'Error: expected 1 to be 0\n\n    at cart.spec.ts:12:3',
+                          location: { file: '/repo/tests/cart.spec.ts', line: 12, column: 3 },
+                        },
+                      ],
                     },
                   ],
                 },
@@ -63,7 +73,7 @@ const SAME_TEST_AS_THE_ADAPTER_FAKES = JSON.stringify({
 
 describe('reading a Playwright JSON report', () => {
   it('derives the identity the reporter derives, to the character', () => {
-    const [result] = readPlaywrightJson(SAME_TEST_AS_THE_ADAPTER_FAKES, 'report.json');
+    const [result] = readPlaywrightJson(SAME_TEST_AS_THE_ADAPTER_FAKES, 'report.json').results;
 
     expect(result?.keys).toEqual([
       { kind: 'playwright-id', value: 'tid-1' },
@@ -75,7 +85,7 @@ describe('reading a Playwright JSON report', () => {
   });
 
   it('carries the runner’s own word for the status, unmapped', () => {
-    const [result] = readPlaywrightJson(SAME_TEST_AS_THE_ADAPTER_FAKES, 'report.json');
+    const [result] = readPlaywrightJson(SAME_TEST_AS_THE_ADAPTER_FAKES, 'report.json').results;
 
     expect(result?.source).toBe('playwright');
     expect(result?.rawStatus).toBe('failed');
@@ -83,7 +93,7 @@ describe('reading a Playwright JSON report', () => {
   });
 
   it('records when and how long, from the report', () => {
-    const [result] = readPlaywrightJson(SAME_TEST_AS_THE_ADAPTER_FAKES, 'report.json');
+    const [result] = readPlaywrightJson(SAME_TEST_AS_THE_ADAPTER_FAKES, 'report.json').results;
 
     expect(result?.execution).toEqual({
       startedAt: '2026-09-09T10:00:00.000Z',
@@ -121,7 +131,7 @@ describe('reading a Playwright JSON report', () => {
         },
       ],
     });
-    const results = readPlaywrightJson(flaky, 'r.json');
+    const results = readPlaywrightJson(flaky, 'r.json').results;
 
     expect(results.map((r) => r.rawStatus)).toEqual(['failed', 'passed']);
     expect(results.map((r) => r.resultKey)).toEqual(['tid-9#0', 'tid-9#1']);
@@ -148,12 +158,12 @@ describe('reading a Playwright JSON report', () => {
         ],
       });
 
-    expect(readPlaywrightJson(stated({}), 'r.json')[0]?.testCaseId).toBe('tc-77');
+    expect(readPlaywrightJson(stated({}), 'r.json').results[0]?.testCaseId).toBe('tc-77');
     expect(
       readPlaywrightJson(
         stated({ annotations: [{ type: 'PluneId', description: 'tc-annotated' }] }),
         'r.json',
-      )[0]?.testCaseId,
+      ).results[0]?.testCaseId,
     ).toBe('tc-annotated');
   });
 
@@ -171,8 +181,8 @@ describe('reading a Playwright JSON report', () => {
         ],
       });
 
-    expect(readPlaywrightJson(withExpected('failed'), 'r.json')[0]?.expectedStatus).toBe('failed');
-    expect(readPlaywrightJson(withExpected('passed'), 'r.json')[0]?.expectedStatus).toBeUndefined();
+    expect(readPlaywrightJson(withExpected('failed'), 'r.json').results[0]?.expectedStatus).toBe('failed');
+    expect(readPlaywrightJson(withExpected('passed'), 'r.json').results[0]?.expectedStatus).toBeUndefined();
   });
 
   describe('when the file is not what it claims', () => {
@@ -191,5 +201,119 @@ describe('reading a Playwright JSON report', () => {
   it('recognises its own shape and not the other format', () => {
     expect(looksLikePlaywrightJson('{"config":{},"suites":[]}')).toBe(true);
     expect(looksLikePlaywrightJson('<testsuites/>')).toBe(false);
+  });
+});
+
+/**
+ * #790 T16 — the import road reduces each attempt of the report to the normalized attempt the core
+ * reads, so it says what failed, where and in which CI run exactly as the reporter does. The report is
+ * the shape Playwright 1.63 wrote in a trial: `errors[i]` is `formatError` of each error, `steps` are
+ * already only the declared ones, `config.metadata.ci.buildHref` is the CI run.
+ */
+describe('a failed attempt in the report carries its failure detail (#790)', () => {
+  let root = '';
+  beforeEach(() => {
+    root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plune-json-')));
+    fs.mkdirSync(path.join(root, '.git'));
+  });
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const BUILD = 'https://github.com/acme/shop/actions/runs/42';
+  const at = (...parts: string[]) => path.join(root, ...parts);
+  const WAITING = () => [
+    { message: 'Test timeout of 1500ms exceeded.' },
+    {
+      message: [
+        'Error: apiRequestContext.get: Request context disposed.',
+        '',
+        `    at readTotal (${at('e2e', 'helpers.ts')}:14:17)`,
+        `    at ${at('e2e', 'shop.spec.ts')}:12:13`,
+      ].join('\n'),
+      location: { file: at('e2e', 'helpers.ts'), line: 14, column: 17 },
+    },
+  ];
+  const report = (over: { rootDir?: string; buildHref?: string; errors?: unknown[] } = {}) =>
+    JSON.stringify({
+      config: { rootDir: over.rootDir ?? root, metadata: { ci: { buildHref: over.buildHref ?? BUILD, commitHash: 'abc' } } },
+      suites: [
+        {
+          title: 'e2e/shop.spec.ts',
+          file: 'e2e/shop.spec.ts',
+          specs: [
+            {
+              title: 'pays for the basket',
+              file: 'e2e/shop.spec.ts',
+              line: 11,
+              tests: [
+                {
+                  id: 't-1',
+                  expectedStatus: 'passed',
+                  results: [
+                    {
+                      status: 'timedOut',
+                      retry: 0,
+                      errors: over.errors ?? WAITING(),
+                      steps: [
+                        { title: 'Open the basket', duration: 2 },
+                        { title: 'Pay', duration: 3, error: { message: 'x' }, steps: [{ title: 'Check the totals', duration: 1, error: { message: 'x' } }] },
+                      ],
+                      attachments: [
+                        { name: 'screenshot', contentType: 'image/png', path: at('test-results', 'a', 'test-failed-1.png') },
+                        { name: 'note', contentType: 'text/plain', body: 'aGk=' },
+                      ],
+                    },
+                    { status: 'passed', retry: 1, errors: [], steps: [], attachments: [] },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+  it('says what failed, down which steps, where from the repository root, what was kept and in which CI run', () => {
+    const [failed] = readPlaywrightJson(report(), 'report.json').results;
+    expect(failed?.failure).toEqual({
+      headline: 'Error: apiRequestContext.get: Request context disposed.',
+      steps: ['Pay', 'Check the totals'],
+      location: { file: 'e2e/shop.spec.ts', line: 12, column: 13 },
+      artifacts: [{ name: 'screenshot', contentType: 'image/png' }],
+      ciUrl: BUILD,
+    });
+  });
+
+  it('writes every error in order, from the repository root', () => {
+    const [failed] = readPlaywrightJson(report(), 'report.json').results;
+    const text = failed?.errorContext ?? '';
+    expect(text.indexOf('Test timeout of 1500ms exceeded.')).toBe(0);
+    expect(text).toContain('Error: apiRequestContext.get: Request context disposed.');
+    expect(text).toMatch(/at e2e[\\/]shop\.spec\.ts:12:13/);
+    expect(text).not.toContain(root);
+  });
+
+  it('gives the attempt that passed no failure detail (AC-02b)', () => {
+    const [, passed] = readPlaywrightJson(report(), 'report.json').results;
+    expect(passed).not.toHaveProperty('failure');
+    expect(passed).not.toHaveProperty('errorContext');
+  });
+
+  it('hands the CI run up for the run itself, and only an http(s) one (AC-04, AC-07b)', () => {
+    expect(readPlaywrightJson(report(), 'report.json').ciUrl).toBe(BUILD);
+    const refused = readPlaywrightJson(report({ buildHref: 'javascript:alert(1)' }), 'report.json');
+    expect(refused.ciUrl).toBeUndefined();
+    expect(refused.results[0]?.failure).not.toHaveProperty('ciUrl');
+  });
+
+  it('places a failure thrown outside the test’s own file where it was thrown', () => {
+    const errors = [{ message: `Error: no test account\n    at Object.account (${at('e2e', 'helpers.ts')}:20:11)`, location: { file: at('e2e', 'helpers.ts'), line: 20, column: 11 } }];
+    const [failed] = readPlaywrightJson(report({ errors }), 'report.json').results;
+    expect(failed?.failure?.location).toEqual({ file: 'e2e/helpers.ts', line: 20, column: 11 });
+  });
+
+  it('from another machine keeps the detail but names no place — not even inside a repository here', () => {
+    const [failed] = readPlaywrightJson(report({ rootDir: at('gone') }), 'report.json').results;
+    expect(failed?.failure?.headline).toBe('Error: apiRequestContext.get: Request context disposed.');
+    expect(failed?.failure).not.toHaveProperty('location');
   });
 });

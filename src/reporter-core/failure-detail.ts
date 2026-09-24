@@ -174,7 +174,7 @@ function fromRoot(place: RunnerLocation | undefined, root: string | undefined): 
 }
 
 /** A link only for an address a browser opens as a page — never `file:`, `javascript:` or half a URL. */
-function webLink(href: string | undefined): string | undefined {
+export function webLink(href: string | undefined): string | undefined {
   if (href === undefined) return undefined;
   try {
     const { protocol } = new URL(href);

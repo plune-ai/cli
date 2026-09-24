@@ -42,15 +42,16 @@ export function detectFormat(source: string, file: string): ImportFormat {
   );
 }
 
-/** Parse a report into results. `format` omitted means detect it. */
+/**
+ * Parse a report into results — and, where the format names one, the CI run that wrote it. `format`
+ * omitted means detect it.
+ */
 export function readReport(
   source: string,
   file: string,
   format?: ImportFormat,
-): { format: ImportFormat; results: PendingResult[] } {
+): { format: ImportFormat; results: PendingResult[]; ciUrl?: string } {
   const chosen = format ?? detectFormat(source, file);
-  return {
-    format: chosen,
-    results: chosen === 'junit' ? readJUnit(source, file) : readPlaywrightJson(source, file),
-  };
+  if (chosen === 'junit') return { format: chosen, results: readJUnit(source, file) };
+  return { format: chosen, ...readPlaywrightJson(source, file) };
 }

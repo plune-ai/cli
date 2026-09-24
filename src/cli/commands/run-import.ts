@@ -68,7 +68,7 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
     throw new RunCommandError(`Cannot read ${options.file}.`);
   }
 
-  const { format, results } = readReport(source, options.file, options.format);
+  const { format, results, ciUrl } = readReport(source, options.file, options.format);
   if (results.length === 0) {
     throw new RunCommandError(`No test cases in ${options.file} — it parsed, but there is nothing in it.`);
   }
@@ -86,7 +86,8 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
       ...(options.key !== undefined ? { externalKey: options.key } : {}),
       ...(options.create === true ? { offerDiscovered: true } : {}),
       kind: 'automated',
-      meta: { runner: format },
+      // The CI run the report names, never this machine's: whoever imports may be another job (#790).
+      meta: { runner: format, ...(ciUrl !== undefined ? { ciUrl } : {}) },
       log: write,
     },
     // The file is the complete list of what ran, so the platform can resolve every test in one
@@ -144,9 +145,17 @@ function describe(result: ImportResult, apiUrl: string): string[] {
     // «Imported 555 result(s): 0 accepted, 0 already there, 0 unmatched» was a sentence whose two
     // halves disagreed, and readers stop at the verb — a run that reached nobody read as one that
     // worked (#622).
+    // `not delivered` always, zero included (#790): a number that only appears when it is bad is one
+    // nobody learns to look for. The `[0-9]+ unmatched` the workflows read stays whole.
     `Read ${result.parsed} result(s) from a ${result.format} report: ` +
-      `${result.accepted} accepted, ${result.duplicate} already there, ${result.unresolved} unmatched.`,
+      `${result.accepted} accepted, ${result.duplicate} already there, ${result.unresolved} unmatched, ` +
+      `${result.deferred} not delivered.`,
   ];
+  // Where a GitHub run shows it without anyone opening the log. The step stays green: a reporting
+  // failure is not the build's failure (#788).
+  if (result.deferred > 0 && process.env['GITHUB_ACTIONS'] === 'true') {
+    lines.push(`::warning::${result.deferred} result(s) were not delivered to Plune — see the reporting step's log.`);
+  }
   if (result.conflict > 0 || result.rejected > 0) {
     lines.push(`${result.conflict} conflicted and ${result.rejected} were refused.`);
   }

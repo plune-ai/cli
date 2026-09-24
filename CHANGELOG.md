@@ -26,8 +26,27 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   relative paths and the home folder as `~` (any `/home/<u>`, `/Users/<u>` or `C:\Users\<u>` when the
   root is unknown, as for a report from another machine), and at most 512 KB — the CLI's transport
   limit, not a copy of the platform's 256 KB — cut by whole lines from the head and the tail around one
-  `…[omitted N lines]…`, so a line longer than the limit never shows in part. Neither road sends either
-  yet.
+  `…[omitted N lines]…`, so a line longer than the limit never shows in part.
+
+- **`plune run import` sends it for a Playwright JSON report, and opens the run with its CI run.**
+  Each attempt of the report is reduced to the attempt the core reads — `errors[i]` as Playwright
+  wrote them (the message, the code frame and the stack in one text, with where it was thrown), the
+  declared steps, the attachments, `config.metadata.ci.buildHref` — so a failed attempt carries its
+  `failure` and the text above; one that passed or was skipped carries none. The root comes from the
+  report's `rootDir`, and only when that folder is on this machine: a report from somewhere else keeps
+  its detail but names no place. The run opens with `meta.ciUrl` from the same `buildHref` — the CI
+  run the report names, never this machine's `GITHUB_*` — and without a link at all when it is not an
+  http(s) address, rather than being refused. The reporter does not send any of it yet.
+
+### Changed
+
+- **`plune run import` says how many results were not delivered, every time.** The summary line gains
+  a fourth number, zero included: `Read 100 result(s) from a playwright report: 90 accepted, 0 already
+  there, 2 unmatched, 8 not delivered.` — the results a refused batch or an unanswered lookup kept out
+  of Plune. The `[0-9]+ unmatched` workflows read stays whole, and the line about the fallback file is
+  unchanged. In GitHub Actions a count above zero also prints
+  `::warning::8 result(s) were not delivered to Plune — see the reporting step's log.`; the exit code
+  does not change.
 
 ### Fixed
 
