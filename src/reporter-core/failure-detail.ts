@@ -129,8 +129,9 @@ function pathIn(path: string): RegExp | undefined {
   // it missed `\/Users\/alice\/…` (C6). A UNC path keeps both.
   const escaped = /^\/(?!\/)/.test(path) ? joined.replace('[\\\\/]+', '\\\\*\\/') : joined;
   // Only the schemes whose `///` opens a path of this machine: any scheme would take `sqlite:///app/…`.
-  // ponytail: so another scheme's absolute `////` (`sqlite:////Users/alice/…`) and a scheme in capitals
-  // (`FILE:///`) keep their path — neither turns up in a runner's error text (#790 re-review C11).
+  // ponytail: so another scheme's absolute `////` (`sqlite:////Users/alice/…`) keeps its path, and so does
+  // a scheme in capitals before a posix path (`FILE:///Users/…`) — a Windows root or home is matched in
+  // any case. Neither is likely in a runner's error text (#790 re-review C11).
   const url = '(?:(?:file|webpack|webpack-internal):(?:\\\\*\\/){2,3})?';
   return new RegExp(`${url}${escaped}`, /^[A-Za-z]:$/.test(parts[0]!) ? 'gi' : 'g');
 }
