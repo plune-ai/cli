@@ -124,5 +124,6 @@ describe('what the published tarball would carry', () => {
 /** The builtins this bundle actually reaches for. Named rather than derived from `module.builtinModules`
  * so that adding a new one is a visible change, not a silent one. */
 function isNodeBuiltin(specifier: string): boolean {
-  return ['crypto', 'fs', 'os', 'path', 'url', 'util'].includes(specifier);
+  // `http`/`https`: the core's own transport, not `fetch` (cli#58).
+  return ['crypto', 'fs', 'http', 'https', 'os', 'path', 'url', 'util'].includes(specifier);
 }

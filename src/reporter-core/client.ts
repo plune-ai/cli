@@ -11,8 +11,66 @@
  * than a rule someone has to remember.
  */
 
+import { request as httpRequest } from 'node:http';
+import { request as httpsRequest } from 'node:https';
+
 /** How long to wait before each retry, and — by its length — how many retries there are. */
 const RETRY_DELAYS_MS = [300, 900] as const;
+
+/** How long a silent platform is waited for — the idle limit `fetch` had (undici's 300 s). */
+const IDLE_MS = 300_000;
+
+/** What the client reads of an answer: all a transport has to give. `Response` is one. */
+interface Reply {
+  ok: boolean;
+  status: number;
+  headers: { get(name: string): string | null };
+  json(): Promise<unknown>;
+}
+
+interface Outgoing {
+  method: string;
+  headers: Record<string, string>;
+  body?: string;
+}
+
+/**
+ * The transport when nobody hands one in: `node:http(s)`, whose parser is native. `fetch` goes through
+ * undici, whose first request compiles a WASM parser that V8 re-optimizes on a background thread; on
+ * Windows a `process.exit` during that — Playwright calls it as a run ends — trips a libuv assertion,
+ * and a green run exits 0xC0000409 (#58). The body is read whole before the answer is handed back.
+ */
+// ponytail: redirects are not followed (fetch followed them); no platform route redirects.
+export function nodeTransport(url: string, init: Outgoing, idleMs: number = IDLE_MS): Promise<Reply> {
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const send = target.protocol === 'https:' ? httpsRequest : httpRequest;
+    // `end(body)` with nothing written before it sends a Content-Length of its own, not chunks.
+    const req = send(target, { method: init.method, headers: init.headers }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (chunk: Buffer) => chunks.push(chunk));
+      res.on('error', reject);
+      res.on('end', () => {
+        const status = res.statusCode ?? 0;
+        const text = Buffer.concat(chunks).toString('utf8');
+        resolve({
+          ok: status >= 200 && status <= 299,
+          status,
+          headers: {
+            get: (name) => {
+              const value = res.headers[name.toLowerCase()];
+              return value === undefined ? null : Array.isArray(value) ? value.join(', ') : value;
+            },
+          },
+          json: async () => JSON.parse(text) as unknown,
+        });
+      });
+    });
+    req.setTimeout(idleMs, () => req.destroy(new Error(`no answer from ${target.origin} in ${idleMs} ms`)));
+    req.on('error', reject);
+    req.end(init.body);
+  });
+}
 
 export type ClientFailureKind =
   /** The token was refused. Retrying sends the same token to the same door. */
@@ -58,7 +116,7 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
  * blocks a clean process exit and — on Windows — trips a libuv teardown assertion. `plune sync`
  * learned this one in production.
  */
-async function detailOf(res: Response): Promise<string> {
+async function detailOf(res: Reply): Promise<string> {
   try {
     const body = (await res.json()) as { error?: unknown };
     return typeof body.error === 'string' ? body.error : '';
@@ -68,7 +126,7 @@ async function detailOf(res: Response): Promise<string> {
 }
 
 /** `Retry-After` in seconds, or `null` if the header is absent or not a count of seconds. */
-function retryAfterMs(res: Response): number | null {
+function retryAfterMs(res: Reply): number | null {
   const raw = res.headers.get('retry-after');
   if (raw === null) return null;
   const seconds = Number(raw.trim());
@@ -84,7 +142,7 @@ function classify(status: number): ClientFailureKind {
 }
 
 export function createClient(opts: ClientOptions): PlatformClient {
-  const doFetch = opts.fetchImpl ?? fetch;
+  const doFetch: (url: string, init: Outgoing) => Promise<Reply> = opts.fetchImpl ?? nodeTransport;
   const wait = opts.wait ?? sleep;
   const base = opts.apiUrl.replace(/\/+$/, '');
 
@@ -110,7 +168,7 @@ export function createClient(opts: ClientOptions): PlatformClient {
     };
 
     for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
-      let res: Response;
+      let res: Reply;
       try {
         res = await doFetch(`${base}${path}`, {
           method,

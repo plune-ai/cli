@@ -89,6 +89,15 @@ one drops the unknown field without a word.
   line, so the import never saw one: the flag was ignored, an unknown value was not refused, and the
   advice «Say which with --format» could not be followed.
 
+- **A green Playwright run on Windows ends 0 with the reporter in it, not 0xC0000409 (#58).** The
+  reporter core spoke to the platform through `fetch`, whose first request compiles undici's WASM
+  parser, and V8 re-optimizes it on a background thread. Playwright calls `process.exit` as a run
+  ends; landing during that compile, it tripped a libuv assertion on Windows, and a run whose tests all
+  passed exited 0xC0000409 with its results delivered. The core now speaks `node:http(s)`, whose
+  parser is native — the reporter, `plune run import`, `plune run report` and the run lifecycle
+  commands alike; `fetchImpl` still replaces it. A platform silent for 300 s is given up on, as
+  `fetch` did. Redirects are not followed: `fetch` followed them, and no platform route redirects.
+
 ## [0.13.0] - 2026-09-18
 
 `@plune-ai/playwright` stays at **0.2.5** - nothing below touches `reporter-core`, so the adapter

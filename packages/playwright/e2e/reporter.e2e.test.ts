@@ -208,10 +208,9 @@ describe('a foreign Playwright project reports to Plune (AC-01)', () => {
 });
 
 describe('a refused batch changes nothing about the test run (#790, #788)', () => {
-  // Not on Windows until cli#58: there the process can abort at exit whatever the platform answered —
-  // V8's background compile of the fetch parser against Playwright's `process.exit` — and a green run
-  // ends 0xC0000409. On Linux this is the check.
-  it.skipIf(process.platform === 'win32')('leaves a green run green', () => {
+  // On Windows too (cli#58): through `fetch`, V8's background compile of undici's WASM parser against
+  // Playwright's `process.exit` could abort a green run with 0xC0000409, whatever the platform answered.
+  it('leaves a green run green', () => {
     expect(refused.code).toBe(0);
   });
 
