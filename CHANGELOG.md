@@ -58,8 +58,8 @@ one drops the unknown field without a word.
 ### Changed
 
 - **What was not delivered is said in the same words on both roads, every time.** `plune run import`'s
-  summary line gains a fourth number, zero included: `Read 100 result(s) from a playwright report: 90
-  accepted, 0 already there, 2 unmatched, 8 not delivered.` — the results a refused batch or an
+  summary line gains a fourth number, zero included: `Read 100 result(s) from a playwright-json
+  report: 90 accepted, 0 already there, 2 unmatched, 8 not delivered.` — the results a refused batch or an
   unanswered lookup kept out of Plune. The `[0-9]+ unmatched` workflows read stays whole, and the line
   about the fallback file is unchanged. The reporter's own line says `… · 8 not delivered — written to
   .plune/pending-results.jsonl` where it said `8 written to …`. In GitHub Actions a count above zero
