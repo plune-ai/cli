@@ -11,6 +11,19 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **The failure detail of a failed attempt — what failed, the declared steps down to it, where, what
+  the runner kept, and the CI run (plune-ai/plune#790).** `failureOf` in `@plune-ai/cli/reporter-core`
+  derives it from one normalized attempt, so `plune run import` and the reporter cannot disagree: the
+  first non-empty line of the error (on a test timeout, the line of the action that was still waiting,
+  not "Test timeout of N ms exceeded"), the chain of failed declared steps, the first stack frame in
+  the test's own file as a posix path from the repository root (`repoRootOf` finds the root once per
+  run; a file outside it, line 0 or a path the platform would refuse drops the place, not the batch),
+  the names of the attachments kept as files, and the build link when it is http(s). Nothing is cut or
+  searched for credentials here — the platform does both after its own cleaning. Neither road sends it
+  yet.
+
 ## [0.13.0] - 2026-09-18
 
 `@plune-ai/playwright` stays at **0.2.5** - nothing below touches `reporter-core`, so the adapter
