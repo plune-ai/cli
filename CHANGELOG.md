@@ -11,7 +11,9 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
-Also `@plune-ai/playwright` - the adapter embeds `reporter-core`, where the upload below lives, and it
+## [0.15.0] - 2026-09-28
+
+Also `@plune-ai/playwright` **0.3.0** - the adapter embeds `reporter-core`, where the upload below lives, and it
 hands the core every attempt's files. Needs a platform that stores a result's files
 (plune-ai/plune#915); with an older one the results arrive as before and the screenshots do not.
 
@@ -710,7 +712,8 @@ First public release. Released from commit `ba43100`; no `v0.2.0` tag exists.
   `json-schema`, `llm-judge`, `semantic-similarity`, `faithfulness`, `answer-relevance`,
   `context-precision`.
 
-[Unreleased]: https://github.com/plune-ai/cli/compare/v0.14.3...HEAD
+[Unreleased]: https://github.com/plune-ai/cli/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/plune-ai/cli/compare/v0.14.3...v0.15.0
 [0.14.3]: https://github.com/plune-ai/cli/compare/v0.14.2...v0.14.3
 [0.14.2]: https://github.com/plune-ai/cli/compare/v0.14.1...v0.14.2
 [0.14.1]: https://github.com/plune-ai/cli/compare/v0.14.0...v0.14.1
