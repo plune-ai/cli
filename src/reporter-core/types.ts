@@ -58,11 +58,18 @@ export interface Execution {
   worker?: string;
 }
 
-/** A link, not a file. Uploading artefacts is C3; this carries what someone else already hosts. */
+/** A link, not a file: this carries what someone else already hosts. A file the runner kept is `files`. */
 export interface Attachment {
   name: string;
   url: string;
   contentType?: string;
+}
+
+/** A file the runner kept for an attempt, where it lies on this machine. */
+export interface ResultFile {
+  name: string;
+  contentType?: string;
+  path: string;
 }
 
 /** One assertion's outcome, in the shape the platform already stores for its own runner. */
@@ -124,6 +131,12 @@ export interface PendingResult {
   params?: Record<string, unknown>;
   attachments?: Attachment[];
   assertions?: AssertionRecord[];
+  /**
+   * The files the runner kept for this attempt, passed or not — built by `filesOf`. Never part of a
+   * batch: the paths are this machine's. Once the platform has accepted the result, the core uploads
+   * the screenshots among them to it (platform ADR 0040).
+   */
+  files?: ResultFile[];
 }
 
 /**
@@ -138,7 +151,8 @@ export interface FailureDetail {
   steps?: string[];
   /** Where it failed, from the repository root, posix. */
   location?: { file: string; line: number; column?: number };
-  /** The files the runner kept for the attempt, by name — the files themselves stay in the CI run. */
+  /** The files the runner kept for the attempt, by name. The screenshots among them are uploaded to the
+   * result besides (`files`); the rest stay in the CI run. */
   artifacts?: { name: string; contentType?: string }[];
   /** The CI run that produced the report, http(s) only. */
   ciUrl?: string;
@@ -189,7 +203,7 @@ export interface FailedAttempt {
 }
 
 /** What a run submission looks like once a key has resolved. Built by the core, never by a caller. */
-export interface ResultSubmission extends Omit<PendingResult, 'keys' | 'testCaseId'> {
+export interface ResultSubmission extends Omit<PendingResult, 'keys' | 'testCaseId' | 'files'> {
   testCaseId: string;
 }
 
@@ -280,6 +294,12 @@ export interface RunStats extends SubmitCounts {
    * the platform could not be asked about. Apart from `rejected` and `unresolved`, which it did answer.
    */
   deferred: number;
+  /**
+   * The screenshots of the accepted results (platform ADR 0040): uploaded to their result; skipped
+   * because the platform would refuse them or the file is not here; refused or unanswered on the way.
+   * None of them costs a result — a result is reported whether its screenshots arrive or not.
+   */
+  screenshots: { uploaded: number; skipped: number; failed: number };
 }
 
 /** Everything the core needs to talk to a deployment. */

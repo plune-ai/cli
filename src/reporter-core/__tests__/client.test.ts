@@ -95,6 +95,27 @@ describe('client — what it retries (AC-05)', () => {
   });
 });
 
+/** plune-ai/plune#913, platform ADR 0040: a file is its bytes, not a JSON document about them. */
+describe('client — a file', () => {
+  it('sends the bytes as they are, under their own type, and waits out a 429 as a POST does', async () => {
+    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    const { client, calls, waited } = harness([
+      json({ error: 'slow down' }, 429, { 'retry-after': '2' }),
+      json({ id: 'f-1', name: 'a.png', contentType: 'image/png', size: 4 }, 201),
+    ]);
+    const out = await client.upload('/v1/results/res-1/files?name=a.png', bytes, 'image/png');
+
+    expect(out).toEqual({ ok: true, status: 201, body: { id: 'f-1', name: 'a.png', contentType: 'image/png', size: 4 } });
+    expect(waited).toEqual([2000]);
+    expect(calls.map((c) => c.url)).toEqual([
+      'https://api.test/v1/results/res-1/files?name=a.png',
+      'https://api.test/v1/results/res-1/files?name=a.png',
+    ]);
+    expect(calls[1]?.init.body).toBe(bytes);
+    expect(calls[1]?.init.headers).toEqual({ 'content-type': 'image/png', authorization: `Bearer ${TOKEN}` });
+  });
+});
+
 describe('client — what it refuses to retry', () => {
   it('does not retry a rejected token (AC-06)', async () => {
     const { client, calls } = harness([json({ error: 'unauthorized' }, 401)]);
@@ -208,6 +229,19 @@ describe('client — its own transport (cli#58)', () => {
 
     answers.push(reply(401, { error: `bad token ${TOKEN}` }));
     expect(await client.post('/v1/runs', {})).toEqual({ ok: false, kind: 'auth', status: 401, detail: 'bad token ***' });
+  });
+
+  it('sends a file’s bytes over node:http with their own type and length', async () => {
+    answers.push(reply(201, { id: 'f-1' }));
+    const out = await createClient({ apiUrl: url, token: TOKEN }).upload(
+      '/v1/results/r-1/files?name=a.png',
+      Buffer.from('not really a png'),
+      'image/png',
+    );
+
+    expect(out).toEqual({ ok: true, status: 201, body: { id: 'f-1' } });
+    expect(seen[0]).toMatchObject({ method: 'POST', path: '/v1/results/r-1/files?name=a.png', body: 'not really a png' });
+    expect(seen[0]?.headers).toMatchObject({ 'content-type': 'image/png', 'content-length': '16' });
   });
 
   it('calls a platform nobody answers for unavailable', async () => {

@@ -25,6 +25,7 @@ vi.mock('@plune-ai/cli/reporter-core', async () => {
     // The same for what the failure detail is made of (#790): the adapter's part is the attempt.
     errorContextOf: actual.errorContextOf,
     failureOf: actual.failureOf,
+    filesOf: actual.filesOf,
     webLink: actual.webLink,
     // The one that reads the disk. The recorded run's repository is `/repo`, not on this machine.
     repoRootOf: vi.fn((dir: string) => {
@@ -171,6 +172,25 @@ describe('what the adapter tells the core about a test', () => {
     expect(added[0]?.title).toBe('cart › rejects a negative quantity');
     // With the line. A reviewer's first move on an unknown test is to open it.
     expect(added[0]?.specRef).toBe('tests/cart.spec.ts:12');
+  });
+
+  /**
+   * plune-ai/plune#913. The core uploads the screenshots among them once the result is stored, so a
+   * person sees what a green test looked at, not only a red one. A body kept in memory is no file.
+   */
+  it('hands the core every file the attempt kept, a passed one’s too', async () => {
+    const attachments = [
+      { name: 'screenshot', contentType: 'image/png', path: '/repo/test-results/cart/test-finished-1.png' },
+      { name: 'trace', contentType: 'application/zip', path: '/repo/test-results/cart/trace.zip' },
+      { name: 'note', contentType: 'text/plain', body: Buffer.from('hi') },
+    ];
+    await run(new PluneReporter(), [fakeTest()], [fakeResult({ status: 'passed', attachments })]);
+
+    expect(added[0]?.files).toEqual([
+      { name: 'screenshot', contentType: 'image/png', path: '/repo/test-results/cart/test-finished-1.png' },
+      { name: 'trace', contentType: 'application/zip', path: '/repo/test-results/cart/trace.zip' },
+    ]);
+    expect(added[0]).not.toHaveProperty('failure');
   });
 
   it('hands the whole test list over at the start, so the lookup is one request', async () => {

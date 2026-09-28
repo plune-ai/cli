@@ -31,7 +31,7 @@ interface Reply {
 interface Outgoing {
   method: string;
   headers: Record<string, string>;
-  body?: string;
+  body?: string | Buffer;
 }
 
 /**
@@ -99,6 +99,11 @@ export interface ClientOptions {
 export interface PlatformClient {
   post<T>(path: string, body: unknown): Promise<ClientOutcome<T>>;
   /**
+   * A file's bytes as the body, under the file's own type (platform ADR 0040) — not JSON. Through the
+   * same retries as a POST, so a 429 on the platform's upload limit waits out its `Retry-After`.
+   */
+  upload<T>(path: string, bytes: Buffer, contentType: string): Promise<ClientOutcome<T>>;
+  /**
    * A DELETE, through the same retries, the same classification and the same token scrubbing as a
    * POST. It is here rather than as a bare `fetch` in the one command that needs it because all
    * three of those matter at least as much for a delete: an unclassified 404 reads as an outage, and
@@ -159,7 +164,7 @@ export function createClient(opts: ClientOptions): PlatformClient {
   async function send<T>(
     method: 'POST' | 'DELETE',
     path: string,
-    body?: unknown,
+    payload?: { body: string | Buffer; type: string },
   ): Promise<ClientOutcome<T>> {
     let last: { kind: ClientFailureKind; status: number | null; detail: string } = {
       kind: 'unavailable',
@@ -172,11 +177,11 @@ export function createClient(opts: ClientOptions): PlatformClient {
       try {
         res = await doFetch(`${base}${path}`, {
           method,
-          headers: { 'content-type': 'application/json', authorization: `Bearer ${opts.token}` },
+          headers: { 'content-type': payload?.type ?? 'application/json', authorization: `Bearer ${opts.token}` },
           // A DELETE carries none. Sending `"undefined"` as a body is what a naive
           // `JSON.stringify(body)` would do, and some proxies answer that with a 400 nobody can
           // explain.
-          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+          ...(payload === undefined ? {} : { body: payload.body }),
         });
       } catch (err) {
         last = { kind: 'unavailable', status: null, detail: scrub(String(err)) };
@@ -212,7 +217,10 @@ export function createClient(opts: ClientOptions): PlatformClient {
   }
 
   return {
-    post: <T>(path: string, body: unknown) => send<T>('POST', path, body),
+    post: <T>(path: string, body: unknown) =>
+      send<T>('POST', path, { body: JSON.stringify(body), type: 'application/json' }),
+    upload: <T>(path: string, bytes: Buffer, contentType: string) =>
+      send<T>('POST', path, { body: bytes, type: contentType }),
     del: <T>(path: string) => send<T>('DELETE', path),
   };
 }

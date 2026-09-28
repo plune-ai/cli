@@ -4,6 +4,7 @@ import type { FullConfig, FullResult, Suite, TestCase, TestError, TestResult, Te
 import {
   errorContextOf,
   failureOf,
+  filesOf,
   readEnv,
   repoRootOf,
   resultKey,
@@ -201,6 +202,7 @@ function pendingFrom(test: TestCase, result: TestResult, ctx: RunContext): Pendi
   const attempt = attemptOf(test, result, ctx);
   const errorContext = errorContextOf(attempt);
   const failure = NOT_FAILED.has(result.status) ? undefined : failureOf(attempt);
+  const files = filesOf(attempt);
   const startedAt = result.startTime;
 
   return {
@@ -231,6 +233,8 @@ function pendingFrom(test: TestCase, result: TestResult, ctx: RunContext): Pendi
     },
     ...(errorContext !== '' ? { errorContext } : {}),
     ...(failure !== undefined ? { failure } : {}),
+    // Every attempt's, a passed one's too; the core uploads the screenshots once the result is stored.
+    ...(files.length > 0 ? { files } : {}),
   };
 }
 

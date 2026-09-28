@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { promises as disk } from 'node:fs';
+import { basename, extname } from 'node:path';
 import { resolveApiUrl } from '../cli/api-url.js';
 import { loadToken } from '../cli/credentials.js';
 import { createClient, type PlatformClient } from './client.js';
@@ -11,6 +13,7 @@ import type {
   KeyRef,
   PendingResult,
   ReporterConfig,
+  ResultFile,
   ResultSubmission,
   RunStats,
 } from './types.js';
@@ -30,6 +33,75 @@ const KEY_MAX = 1024;
 const TITLE_MAX = 300;
 /** What a batch's answer counts — the part of `RunStats` a submission adds to. */
 const COUNTED = ['accepted', 'duplicate', 'conflict', 'rejected'] as const;
+
+/** One verdict of a batch, as the platform answers it. Only an `accepted` one carries the result's `id`. */
+interface BatchItem {
+  resultKey?: string;
+  status?: string;
+  id?: string;
+}
+
+/** A screenshot on its way: the result it goes to, the name and type it goes by, where it is read from. */
+interface Shot {
+  id: string;
+  name: string;
+  type: string;
+  path: string;
+}
+
+/**
+ * What the platform takes as a result's file, and how many (ADR 0040). Checked before sending rather
+ * than left to the platform's refusal: a refused file has already crossed the wire — up to 2 MB, twenty
+ * times a result — to learn what was known here. Drift costs no result: at worst a screenshot the
+ * platform would now take is skipped, or one it no longer takes is refused and counted.
+ */
+const SCREENSHOT_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const SCREENSHOT_BYTES = 2 * 1024 * 1024;
+const SCREENSHOTS_PER_RESULT = 20;
+/** The type of a file whose attachment names none — only the ones the platform takes. */
+const TYPE_BY_EXTENSION: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+};
+/** Uploads in flight at once. One at a time, a suite with a screenshot per test waits on every round trip. */
+const UPLOADS_AT_ONCE = 4;
+/** The longest name the platform takes for a result's file (ADR 0040) — in UTF-16 units, as it measures. */
+const NAME_MAX = 200;
+
+/**
+ * The name a person reads on the run page: the attachment's, not its file's. Playwright reports a file
+ * attached by path as the copy it saved, `<name>-<sha1>.png`, and the hash tells nobody anything. Read
+ * as the platform reads a name — the last segment, trimmed: a name can be a path of this machine,
+ * `attach(file, { path: file })` — with the file's extension when the name has no image extension of its
+ * own, and within the 200 characters the platform takes, the extension kept.
+ */
+function nameOf(file: ResultFile): string {
+  const own = file.name.split(/[\\/]/).pop()?.trim() || basename(file.path);
+  const fileExt = extname(file.path);
+  const ownExt = extname(own);
+  // `Step 1. Checkout` has an "extension" by `extname`; only an image's, or the file's own, counts.
+  const typed =
+    ownExt !== '' &&
+    (ownExt.toLowerCase() === fileExt.toLowerCase() || TYPE_BY_EXTENSION[ownExt.toLowerCase()] !== undefined);
+  const ext = typed ? ownExt : fileExt;
+  let stem = typed ? own.slice(0, -ownExt.length) : own;
+  if (stem.length + ext.length > NAME_MAX) {
+    stem = stem.slice(0, Math.max(0, NAME_MAX - ext.length));
+    if (/[\uD800-\uDBFF]$/.test(stem)) stem = stem.slice(0, -1); // half a pair would throw in the URL
+  }
+  return `${stem}${ext}`;
+}
+
+/** Why a screenshot stayed behind — said once per reason, every one counted. */
+const SKIPPED = {
+  hidden: "its name starts with an underscore, which hides an attachment in Playwright's own reports too",
+  type: 'Plune takes PNG, JPEG and WebP',
+  limit: `a result holds at most ${SCREENSHOTS_PER_RESULT}`,
+  missing: 'the file cannot be read on this machine',
+  size: 'Plune takes a file of at most 2 MB',
+} as const;
 
 /**
  * A foreign test name is not a key until it fits one.
@@ -189,6 +261,7 @@ export async function startRun(
     created: 0,
     unoffered: 0,
     deferred: 0,
+    screenshots: { uploaded: 0, skipped: 0, failed: 0 },
   };
   /** `null` records a key we already asked about and the platform did not know — asking twice
    * would cost a request to learn the same thing. */
@@ -209,6 +282,8 @@ export async function startRun(
   let done = false;
   /** Names shortened to fit a key or a title, by original value — said once, counted once. */
   const shortened = new Set<string>();
+  /** Why screenshots stayed behind, as far as it has been said — once per reason; the summary counts them all. */
+  const skipsSaid = new Set<keyof typeof SKIPPED>();
 
   function bound(keys: readonly KeyRef[]): KeyRef[] {
     return keys.map((key) => {
@@ -420,6 +495,75 @@ export async function startRun(
     }
   }
 
+  function skip(name: string, why: keyof typeof SKIPPED): void {
+    stats.screenshots.skipped += 1;
+    if (skipsSaid.has(why)) return;
+    skipsSaid.add(why);
+    log(`plune: screenshot "${name}" not uploaded — ${SKIPPED[why]}.`);
+  }
+
+  /** One screenshot to its result, under the name `nameOf` gave it — never the path, which names this machine. */
+  async function uploadOne(shot: Shot): Promise<void> {
+    let bytes: Buffer;
+    try {
+      if ((await disk.stat(shot.path)).size > SCREENSHOT_BYTES) return skip(shot.name, 'size');
+      bytes = await disk.readFile(shot.path);
+    } catch {
+      return skip(shot.name, 'missing');
+    }
+    const out = await client.upload(
+      `/v1/results/${encodeURIComponent(shot.id)}/files?name=${encodeURIComponent(shot.name)}`,
+      bytes,
+      shot.type,
+    );
+    if (out.ok) {
+      stats.screenshots.uploaded += 1;
+      return;
+    }
+    // Said once: a closed run or a lost network refuses every file after the first the same way.
+    stats.screenshots.failed += 1;
+    if (stats.screenshots.failed === 1) {
+      log(`plune: could not upload a screenshot (${out.detail || out.kind}) — its result is reported without it.`);
+    }
+  }
+
+  /**
+   * The screenshots of the results a batch just stored, each to its own result (platform ADR 0040).
+   *
+   * Only `accepted`: a `duplicate` was stored by an earlier report, files and all, and sending them
+   * again would fill its twenty places with copies. Awaited before the next batch, and so before
+   * anything closes the run — the platform takes no file on a closed run. Never deferred: the fallback
+   * file replays results, and a result that arrived without its screenshots has still arrived.
+   */
+  async function upload(items: BatchItem[] | undefined, filesByKey: ReadonlyMap<string, ResultFile[]>): Promise<void> {
+    if (filesByKey.size === 0 || !Array.isArray(items)) return;
+    const shots: Shot[] = [];
+    for (const item of items) {
+      if (item?.status !== 'accepted' || typeof item.id !== 'string' || typeof item.resultKey !== 'string') continue;
+      let room = SCREENSHOTS_PER_RESULT;
+      for (const file of filesByKey.get(item.resultKey) ?? []) {
+        const type =
+          file.contentType?.split(';')[0]?.trim().toLowerCase() || TYPE_BY_EXTENSION[extname(file.path).toLowerCase()];
+        // A trace, a video, a page of text: not a screenshot, so neither sent nor counted.
+        if (!type?.startsWith('image/')) continue;
+        const name = nameOf(file);
+        if (file.name.startsWith('_')) skip(name, 'hidden');
+        else if (!SCREENSHOT_TYPES.has(type)) skip(name, 'type');
+        else if (room === 0) skip(name, 'limit');
+        else {
+          room -= 1;
+          shots.push({ id: item.id, name, type, path: file.path });
+        }
+      }
+    }
+    let next = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(UPLOADS_AT_ONCE, shots.length) }, async () => {
+        while (next < shots.length) await uploadOne(shots[next++]!);
+      }),
+    );
+  }
+
   async function flush(): Promise<void> {
     if (buffer.length === 0) return;
     const pending = buffer;
@@ -434,11 +578,14 @@ export async function startRun(
 
     const submissions: ResultSubmission[] = [];
     const unanswered: PendingResult[] = [];
+    /** The files of what is sent, by result key — kept on this side: their paths name this machine. */
+    const filesByKey = new Map<string, ResultFile[]>();
     for (const result of pending) {
       const match = matchFor(result);
       if (match.kind === 'found') {
-        const { keys: _keys, ...rest } = result;
+        const { keys: _keys, files, ...rest } = result;
         submissions.push({ ...rest, testCaseId: match.testCaseId });
+        if (files !== undefined) filesByKey.set(result.resultKey, files);
       } else if (match.kind === 'unmatched') {
         stats.unresolved += 1;
         remember(result);
@@ -462,9 +609,10 @@ export async function startRun(
         defer(part);
         continue;
       }
-      const out = await client.post<{ counts: Record<keyof RunStats, number> }>(`/v1/runs/${runId}/results`, {
-        results: part,
-      });
+      const out = await client.post<{ counts: Record<keyof RunStats, number>; items?: BatchItem[] }>(
+        `/v1/runs/${runId}/results`,
+        { results: part },
+      );
       // A success with no counts says nothing about what was stored: kept for a replay, not guessed —
       // and counts with no number in them say no more (#790 re-review C7).
       const counts = out.ok ? out.body?.counts : undefined;
@@ -472,6 +620,7 @@ export async function startRun(
       if (told.length > 0) {
         for (const k of told) stats[k] += counts![k];
         progress();
+        await upload(out.ok ? out.body?.items : undefined, filesByKey);
         continue;
       }
 
@@ -517,6 +666,14 @@ export async function startRun(
     if (stats.unresolved > 0) parts.push(`${stats.unresolved} with no matching test case`);
     if (stats.offered > 0) parts.push(`${stats.offered} offered for review`);
     if (stats.created > 0) parts.push(`${stats.created} added as cases (trusted source)`);
+    const shots = stats.screenshots;
+    if (shots.uploaded + shots.skipped + shots.failed > 0) {
+      parts.push(
+        `${shots.uploaded} screenshot(s) uploaded` +
+          (shots.skipped > 0 ? `, ${shots.skipped} skipped` : '') +
+          (shots.failed > 0 ? `, ${shots.failed} failed to upload` : ''),
+      );
+    }
     if (stats.deferred > 0) parts.push(`${stats.deferred} not delivered — written to ${fallbackPath}`);
     if (shortened.size > 0) parts.push(`${shortened.size} test name(s) shortened to fit a key`);
     log(`plune: ${parts.join(' · ')}`);

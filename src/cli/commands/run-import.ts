@@ -43,6 +43,8 @@ export interface ImportResult {
   /** Unmatched tests the queue had no room for — the work a second import still has to do. */
   unoffered: number;
   deferred: number;
+  /** The screenshots the report's files hold, as they went to the accepted results (ADR 0040). */
+  screenshots: { uploaded: number; skipped: number; failed: number };
   /** Tests the report gives no location for, so the queue could never show a reviewer where to look. */
   unlocatable: number;
   /** Whether offering was asked for at all — the difference between «nothing was offered» and
@@ -120,6 +122,7 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
     created: stats.created,
     unoffered: stats.unoffered,
     deferred: stats.deferred,
+    screenshots: { ...stats.screenshots },
     unlocatable: results.filter((r) => r.specRef === undefined).length,
     offering: options.create === true,
   };
@@ -154,6 +157,17 @@ function describe(result: ImportResult, apiUrl: string): string[] {
   // The `::warning::` for what was not delivered is the session's, said with its own summary above.
   if (result.conflict > 0 || result.rejected > 0) {
     lines.push(`${result.conflict} conflicted and ${result.rejected} were refused.`);
+  }
+  // Only for a report that had screenshots at all: a JUnit file never does, and a line of zeros under
+  // every such import would say nothing. Why one stayed behind is the session's line, said above.
+  const shots = result.screenshots;
+  if (shots.uploaded + shots.skipped + shots.failed > 0) {
+    lines.push(
+      `${shots.uploaded} screenshot(s) uploaded to their results` +
+        (shots.skipped > 0 ? `, ${shots.skipped} skipped` : '') +
+        (shots.failed > 0 ? `, ${shots.failed} could not be uploaded` : '') +
+        '.',
+    );
   }
   if (result.deferred > 0) {
     lines.push(

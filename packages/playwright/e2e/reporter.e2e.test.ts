@@ -27,6 +27,8 @@ const cli = path.resolve(here, '../../../dist/cli.cjs');
 interface Received {
   path: string;
   body: Record<string, unknown>;
+  /** An upload's type and bytes — its body is the file, not JSON. */
+  file?: { type: string; bytes: Buffer };
 }
 
 interface FixtureRun {
@@ -49,24 +51,32 @@ interface Stub {
 /**
  * A stub that speaks the platform's shapes and keeps what it got; `refuseResults` answers every results
  * batch 413, and `answerAfterMs` answers each batch that much later. A result counts as stored when it
- * is answered, and a batch arriving after the run closed is refused 409 — as the platform does.
+ * is answered, and a batch or a file arriving after the run closed is refused 409 — as the platform does.
  */
 async function stub(refuseResults: boolean, answerAfterMs = 0): Promise<Stub> {
   const received: Received[] = [];
   let answered = 0;
   let answeredAtClose: number | null = null;
   const server: Server = createServer((req, res) => {
-    let raw = '';
-    req.on('data', (c) => (raw += String(c)));
+    const chunks: Buffer[] = [];
+    req.on('data', (c: Buffer) => chunks.push(c));
     req.on('end', () => {
       const url = req.url ?? '';
-      const body = raw === '' ? {} : (JSON.parse(raw) as Record<string, unknown>);
-      received.push({ path: url, body });
+      const raw = Buffer.concat(chunks);
 
       const json = (payload: unknown, status = 200): void => {
         res.writeHead(status, { 'content-type': 'application/json' });
         res.end(JSON.stringify(payload));
       };
+
+      // Before the JSON below: a file's body is its bytes (platform ADR 0040).
+      if (url.includes('/files?name=')) {
+        received.push({ path: url, body: {}, file: { type: req.headers['content-type'] ?? '', bytes: raw } });
+        if (answeredAtClose !== null) return json({ error: 'the run is closed — its results stand' }, 409);
+        return json({ id: `file-${received.length}`, size: raw.length }, 201);
+      }
+      const body = raw.length === 0 ? {} : (JSON.parse(raw.toString('utf8')) as Record<string, unknown>);
+      received.push({ path: url, body });
 
       if (url === '/v1/runs') return json({ run: { id: 'r-e2e' }, joined: false }, 201);
       if (url === '/v1/test-cases/resolve') {
@@ -77,10 +87,13 @@ async function stub(refuseResults: boolean, answerAfterMs = 0): Promise<Stub> {
       if (url.endsWith('/results')) {
         if (refuseResults) return json({ error: 'request body too large' }, 413);
         if (answeredAtClose !== null) return json({ error: 'this run is finished' }, 409);
-        const list = (body['results'] ?? []) as unknown[];
+        const list = (body['results'] ?? []) as { resultKey: string }[];
         const answer = (): void => {
+          // The platform's answer (plune `src/server/results/v1-store.ts`): a verdict per result, and
+          // the id of each one it stored — what a file is uploaded to.
+          const items = list.map((r, index) => ({ index, resultKey: r.resultKey, status: 'accepted', id: `res-${answered + index}` }));
           answered += list.length;
-          json({ items: [], counts: { accepted: list.length, duplicate: 0, conflict: 0, rejected: 0 } });
+          json({ items, counts: { accepted: list.length, duplicate: 0, conflict: 0, rejected: 0 } });
         };
         if (answerAfterMs > 0) setTimeout(answer, answerAfterMs);
         else answer();
@@ -264,6 +277,37 @@ describe('a slow platform has every result before the run closes (#790 AC-15)', 
     expect(slow.stderr).toContain('plune: 100 accepted');
     expect(fs.existsSync(slow.fallback)).toBe(false);
     expect(slow.code).toBe(0);
+  });
+});
+
+/**
+ * plune-ai/plune#913 on the published bundle: a screenshot a test attached by path reaches its result.
+ * Playwright hands the reporter the copy it saved as `<name>-<sha1>.png`; what has to leave is one upload
+ * under the attachment's own name, as the PNG's bytes, to the id the batch was answered with — before
+ * the run is closed, since the platform takes no file on a closed run.
+ */
+describe('a screenshot a test kept reaches its result (plune#913)', () => {
+  // The PNG `fixture/shots/checkout.spec.ts` writes and attaches.
+  const PNG = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+    'base64',
+  );
+  let shots: FixtureRun;
+
+  beforeAll(async () => {
+    shots = await runFixture(false, [], { PLUNE_TEST_DIR: './shots' });
+  }, 240_000);
+
+  it('uploads it once, under the attachment’s name, as the PNG it is, before the run is closed', () => {
+    const uploads = shots.received.filter((r) => r.file !== undefined);
+    expect(uploads.map((r) => r.path)).toEqual(['/v1/results/res-0/files?name=checkout.png']);
+    expect(uploads[0]?.file?.type).toBe('image/png');
+    expect(uploads[0]?.file?.bytes).toEqual(PNG);
+
+    const order = shots.received.map((r) => r.path);
+    expect(order.indexOf('/v1/results/res-0/files?name=checkout.png')).toBeLessThan(order.indexOf('/v1/runs/r-e2e/events'));
+    expect(shots.stderr).toContain('plune: 1 accepted · 1 screenshot(s) uploaded');
+    expect(shots.code).toBe(0);
   });
 });
 

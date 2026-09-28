@@ -17,6 +17,8 @@ const TOKEN = 'tok-import';
 interface Seen {
   path: string;
   body: Record<string, unknown>;
+  /** An upload's type and bytes — its body is the file, not JSON. */
+  file?: { type: string; bytes: Buffer };
 }
 
 function platform(
@@ -26,6 +28,11 @@ function platform(
   const seen: Seen[] = [];
   const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
     const target = String(url).replace('https://api.test', '');
+    if (target.includes('/files?name=')) {
+      const bytes = Buffer.from(init?.body as Uint8Array);
+      seen.push({ path: target, body: {}, file: { type: (init?.headers as Record<string, string>)['content-type']!, bytes } });
+      return json(201, { id: 'f-1', size: bytes.length });
+    }
     const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
     seen.push({ path: target, body });
 
@@ -41,9 +48,9 @@ function platform(
       });
     }
     if (target.endsWith('/results')) {
-      const results = (body['results'] ?? []) as unknown[];
+      const results = (body['results'] ?? []) as { resultKey: string }[];
       return json(200, {
-        items: [],
+        items: results.map((r, index) => ({ index, resultKey: r.resultKey, status: 'accepted', id: `res-${index}` })),
         counts: { accepted: results.length, duplicate: 0, conflict: 0, rejected: 0 },
       });
     }
@@ -485,6 +492,80 @@ describe('plune run import', () => {
 
       expect(seen.find((s) => s.path === '/v1/runs')?.body['meta']).toEqual({ runner: 'playwright-json' });
       expect(out.runId).toBe('r-9');
+    });
+  });
+
+  /**
+   * plune-ai/plune#913. A Playwright JSON report names the files each attempt kept; the screenshots
+   * among them go to their result — a passed test's too — once the batch that carries it is stored.
+   */
+  describe('the screenshots a Playwright report keeps (plune#913)', () => {
+    // A 1×1 PNG.
+    const PNG = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+      'base64',
+    );
+    /** One test that passed, keeping these attachments. */
+    const keeping = (attachments: unknown[]) =>
+      JSON.stringify({
+        config: {},
+        suites: [
+          {
+            title: 'a.spec.ts',
+            file: 'a.spec.ts',
+            specs: [{ title: 't', file: 'a.spec.ts', line: 1, tests: [{ id: 'id-1', results: [{ status: 'passed', retry: 0, attachments }] }] }],
+          },
+        ],
+      });
+
+    it('uploads them to their results, a passed test’s included, and says how many', async () => {
+      const shot = path.join(dir, 'test-finished-1.png');
+      fs.writeFileSync(shot, PNG);
+      const { seen, fetchImpl } = platform();
+      const out = await handleRunImport({
+        ...deps(fetchImpl),
+        file: write(
+          'report.json',
+          keeping([
+            { name: 'screenshot', contentType: 'image/png', path: shot },
+            { name: 'trace', contentType: 'application/zip', path: path.join(dir, 'trace.zip') },
+          ]),
+        ),
+      });
+
+      const uploads = seen.filter((s) => s.file !== undefined);
+      // As Playwright's `screenshot` option names it: `screenshot`, at `test-finished-1.png`.
+      expect(uploads.map((s) => s.path)).toEqual(['/v1/results/res-0/files?name=screenshot.png']);
+      expect(uploads[0]?.file).toEqual({ type: 'image/png', bytes: PNG });
+      // After the batch that stored the result, before the run is closed.
+      const order = seen.map((s) => s.path);
+      expect(order.indexOf('/v1/runs/r-9/results')).toBeLessThan(order.indexOf(uploads[0]!.path));
+      expect(order.indexOf(uploads[0]!.path)).toBeLessThan(order.indexOf('/v1/runs/r-9/events'));
+      expect(out.screenshots).toEqual({ uploaded: 1, skipped: 0, failed: 0 });
+      expect(lines).toContain('1 screenshot(s) uploaded to their results.');
+      // The line the workflows read stays as it was.
+      expect(lines.find((l) => l.startsWith('Read '))).toBe(
+        'Read 1 result(s) from a playwright-json report: 1 accepted, 0 already there, 0 unmatched, 0 not delivered.',
+      );
+    });
+
+    it('counts a screenshot that is not on this machine as skipped, and still reports its result', async () => {
+      // A report copied from another job: the files stayed on the runner that wrote it.
+      const { fetchImpl } = platform();
+      const out = await handleRunImport({
+        ...deps(fetchImpl),
+        file: write('report.json', keeping([{ name: 'screenshot', contentType: 'image/png', path: path.join(dir, 'elsewhere.png') }])),
+      });
+
+      expect(out).toMatchObject({ accepted: 1, deferred: 0, screenshots: { uploaded: 0, skipped: 1, failed: 0 } });
+      expect(lines).toContain('0 screenshot(s) uploaded to their results, 1 skipped.');
+    });
+
+    it('says nothing about screenshots for a report that has none', async () => {
+      const { fetchImpl } = platform();
+      await handleRunImport({ ...deps(fetchImpl), file: write('results.xml', REPORT) });
+
+      expect(lines.some((l) => l.includes('screenshot'))).toBe(false);
     });
   });
 });

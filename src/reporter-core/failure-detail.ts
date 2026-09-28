@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, posix, resolve } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
-import type { AttemptError, DeclaredStep, FailedAttempt, FailureDetail, RunnerLocation } from './types.js';
+import type { AttemptError, DeclaredStep, FailedAttempt, FailureDetail, ResultFile, RunnerLocation } from './types.js';
 
 /**
  * The failure detail of one attempt (#790, ADR-0001 of the feature): what failed, the declared steps
@@ -60,6 +60,15 @@ export function errorContextOf(attempt: FailedAttempt, home: string = homedir())
     .filter((t) => t !== '')
     .join('\n\n');
   return cut(machineless(text, attempt.repoRoot, home));
+}
+
+/**
+ * The files the runner kept for one attempt, whatever its status: a screenshot of a test that passed
+ * is how a person sees what it checked (plune-ai/plune#913). Which of them the platform takes, the
+ * session decides as it uploads — once, for both roads.
+ */
+export function filesOf(attempt: FailedAttempt): ResultFile[] {
+  return attempt.attachments.filter((a): a is ResultFile => a.path !== undefined);
 }
 
 /**

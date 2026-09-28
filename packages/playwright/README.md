@@ -120,6 +120,19 @@ test('rejects a negative quantity', { annotation: { type: 'PluneId', description
 A result whose test matches no case is **not** sent and **not** invented — a made-up id would
 write into somebody else's history. The run summary says how many there were.
 
+## Screenshots
+
+Every screenshot a test keeps as a file — Playwright's `screenshot` option, `testInfo.attach` with a
+`path`, the images of a failed `toHaveScreenshot` — is uploaded to its result in Plune, for a test
+that passed as well as one that failed. So a run in Plune shows each test with what it looked at,
+under the name it was attached with: `testInfo.attach('checkout', { path })` arrives as
+`checkout.png`.
+
+Plune takes PNG, JPEG and WebP, up to 2 MB a file and 20 a result. An image outside those limits is
+skipped: the run summary counts it and says why, once per reason. Traces, videos and other files are
+not uploaded, and neither is an image attached as a `body` rather than a file — attach it with `path`.
+A screenshot that does not arrive never costs its result or your run's exit code.
+
 ## When Plune is unreachable
 
 Nothing is lost and nothing fails. An unreachable platform, a refused token or an already-closed

@@ -7,7 +7,7 @@ import * as path from 'node:path';
 import { handleRunReport } from '../../cli/commands/run-lifecycle.js';
 import { errorContextOf, failureOf } from '../failure-detail.js';
 import { startRun } from '../session.js';
-import type { FailedAttempt, KeyRef, PendingResult, ReporterConfig } from '../types.js';
+import type { FailedAttempt, KeyRef, PendingResult, ReporterConfig, ResultFile } from '../types.js';
 
 const TOKEN = 'plune_tok_never_print_me';
 
@@ -27,6 +27,10 @@ interface Seen {
   resultCalls: number[];
   events: { runId: string; body: Record<string, unknown> }[];
   discovered: { body: Record<string, unknown> }[];
+  /** Every upload to `/v1/results/:id/files`, the refused ones included. */
+  files: { url: string; headers: Record<string, string>; bytes: Buffer }[];
+  /** `results`, `file` (once answered) and `event:<name>`, in the order they happened. */
+  order: string[];
 }
 
 interface PlatformOptions {
@@ -49,10 +53,25 @@ interface PlatformOptions {
   discoverOutcomes?: string[];
   /** How many cases the platform says a `finish` detached (D20). Absent models a platform older than that. */
   detached?: number;
+  /** Result keys the platform already has: answered `duplicate`, with no id. */
+  duplicates?: string[];
+  /** Force a reply on every upload to `/v1/results/:id/files`. */
+  filesFailure?: { status: number; error: string };
+  /** How long each upload takes to be answered. */
+  fileMs?: number;
 }
 
 function platform(opts: PlatformOptions = {}) {
-  const seen: Seen = { starts: [], resolves: [], results: [], resultCalls: [], events: [], discovered: [] };
+  const seen: Seen = {
+    starts: [],
+    resolves: [],
+    results: [],
+    resultCalls: [],
+    events: [],
+    discovered: [],
+    files: [],
+    order: [],
+  };
   const known = opts.known ?? {};
 
   const json = (body: unknown, status = 200): Response =>
@@ -60,6 +79,15 @@ function platform(opts: PlatformOptions = {}) {
 
   const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
     const target = String(url);
+    // Before the JSON below: a file's body is its bytes.
+    if (/\/v1\/results\/[^/]+\/files\?name=/.test(target)) {
+      const bytes = Buffer.from(init?.body as Uint8Array);
+      seen.files.push({ url: target, headers: init?.headers as Record<string, string>, bytes });
+      if (opts.fileMs !== undefined) await new Promise((resolve) => setTimeout(resolve, opts.fileMs));
+      seen.order.push('file');
+      if (opts.filesFailure !== undefined) return json({ error: opts.filesFailure.error }, opts.filesFailure.status);
+      return json({ id: `f-${seen.files.length}`, size: bytes.length }, 201);
+    }
     const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
 
     if (target.endsWith('/v1/test-cases/resolve')) {
@@ -92,9 +120,18 @@ function platform(opts: PlatformOptions = {}) {
       }
       const list = body['results'] as Record<string, unknown>[];
       seen.results.push({ runId: results[1] as string, results: list });
+      seen.order.push('results');
+      // As the platform answers: a verdict per result, and an id for each one it stored.
+      const items = list.map((r, index) => {
+        const resultKey = String(r['resultKey']);
+        return opts.duplicates?.includes(resultKey) === true
+          ? { index, resultKey, status: 'duplicate' }
+          : { index, resultKey, status: 'accepted', id: `id-${resultKey.split('#')[0]}` };
+      });
+      const accepted = items.filter((i) => i.status === 'accepted').length;
       return json({
-        items: [],
-        counts: { accepted: list.length, duplicate: 0, conflict: 0, rejected: 0 },
+        items,
+        counts: { accepted, duplicate: list.length - accepted, conflict: 0, rejected: 0 },
       });
     }
     if (target.endsWith('/v1/review-items/discovered')) {
@@ -113,6 +150,7 @@ function platform(opts: PlatformOptions = {}) {
     const events = /\/v1\/runs\/([^/]+)\/events$/.exec(target);
     if (events) {
       seen.events.push({ runId: events[1] as string, body });
+      seen.order.push(`event:${String(body['event'])}`);
       return json({
         run: { id: events[1] },
         changed: true,
@@ -1158,5 +1196,193 @@ describe('a test name longer than a key (AC-13)', () => {
     const said = logOf(cfg).filter((l) => l.includes('shortened'));
     expect(said[0]).toContain('tests/a.spec.ts#xxxx');
     expect(said.at(-1)).toContain('1 test name(s) shortened');
+  });
+});
+
+/**
+ * plune-ai/plune#913, platform ADR 0040. A run in Plune shows every test with its screenshots, a passed
+ * one's too. No file rides in a batch — its path names this machine: once the platform has stored a
+ * result, the screenshots its attempt kept are uploaded to that result, all of them before anything can
+ * close the run, and nothing about them can cost a result.
+ */
+describe('screenshots go to the result they belong to (plune#913)', () => {
+  // A 1×1 PNG.
+  const PNG = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+    'base64',
+  );
+  const MIB2 = 2 * 1024 * 1024;
+  /** A file in this test's folder, and where it is. */
+  const put = (file: string, bytes: Buffer = PNG): string => {
+    const at = path.join(dir, file);
+    fs.writeFileSync(at, bytes);
+    return at;
+  };
+  /** What Playwright names the copy of a file attached by path: `<name>-<sha1 of the original's path><ext>`. */
+  const SHA1 = '87f15b965a84499fbcc46f54036099902e9a69d6';
+  /** A PNG attached by path, as Playwright reports it: under its own name, at the copy it saved. */
+  const shot = (name: string, over: Partial<ResultFile> = {}): ResultFile => ({
+    name,
+    contentType: 'image/png',
+    path: put(`${name}-${SHA1}.png`),
+    ...over,
+  });
+  /** The name an upload went by. */
+  const sentName = (url: string): string => decodeURIComponent(url.slice(url.indexOf('?name=') + '?name='.length));
+
+  async function report(results: PendingResult[], opts: PlatformOptions = {}, over: Partial<ReporterConfig> = {}) {
+    const known = Object.fromEntries(results.map((r) => [r.keys[0]!.value, `tc-${r.keys[0]!.value}`]));
+    const p = platform({ known, ...opts });
+    const cfg = config(p.fetchImpl, over);
+    const run = await startRun(cfg);
+    for (const r of results) await run.add(r);
+    await run.finish();
+    return { ...p, run, cfg };
+  }
+  /** Where each upload went, with the type and the size it went with — in path order, not arrival order. */
+  const uploads = (seen: Seen) =>
+    seen.files
+      .map((f) => ({ to: f.url.replace('https://api.test', ''), type: f.headers['content-type'], size: f.bytes.length }))
+      .sort((a, b) => (a.to < b.to ? -1 : 1));
+
+  it('uploads a screenshot to the result it belongs to: its id, the attachment’s name, its type, the bytes as they are', async () => {
+    // What Playwright's `screenshot` option keeps: named `screenshot`, at `test-failed-1.png`.
+    const kept: ResultFile = { name: 'screenshot', contentType: 'image/png', path: put('test-failed-1.png') };
+    const { seen, run, cfg } = await report([result('a', { rawStatus: 'failed', files: [kept] })]);
+
+    expect(uploads(seen)).toEqual([{ to: '/v1/results/id-a/files?name=screenshot.png', type: 'image/png', size: PNG.length }]);
+    expect(seen.files[0]?.bytes).toEqual(PNG);
+    expect(seen.files[0]?.headers['authorization']).toBe(`Bearer ${TOKEN}`);
+    expect(run.stats.screenshots).toEqual({ uploaded: 1, skipped: 0, failed: 0 });
+    expect(logOf(cfg).at(-1)).toBe('plune: 1 accepted · 1 screenshot(s) uploaded');
+  });
+
+  it('uploads a passed test’s screenshots as well, not only a failure’s', async () => {
+    const { seen, run } = await report([result('a', { rawStatus: 'passed', files: [shot('checkout')] })]);
+
+    expect(uploads(seen).map((u) => u.to)).toEqual(['/v1/results/id-a/files?name=checkout.png']);
+    expect(run.stats.screenshots.uploaded).toBe(1);
+  });
+
+  it('gives a result the platform already had no second copy of its files', async () => {
+    const { seen, run } = await report([result('a', { files: [shot('a')] }), result('b', { files: [shot('b')] })], {
+      duplicates: ['b#0'],
+    });
+
+    expect(uploads(seen).map((u) => u.to)).toEqual(['/v1/results/id-a/files?name=a.png']);
+    expect(run.stats).toMatchObject({ accepted: 1, duplicate: 1, screenshots: { uploaded: 1, skipped: 0, failed: 0 } });
+  });
+
+  it('keeps this machine’s paths out of every batch and every upload, a name that is a path included', async () => {
+    // `testInfo.attach(file, { path: file })`: the attachment is named by the machine's path to it.
+    const { seen } = await report([result('a', { files: [shot('proof', { name: put('proof.png') })] })]);
+
+    const sent = seen.results.flatMap((r) => r.results);
+    expect(sent.some((r) => 'files' in r)).toBe(false);
+    expect(JSON.stringify(sent)).not.toContain(path.basename(dir));
+    expect(seen.files.map((f) => f.url)).toEqual(['https://api.test/v1/results/id-a/files?name=proof.png']);
+  });
+
+  it('names a file by its attachment, with the file’s extension when the name has none of its own', async () => {
+    const { seen } = await report([
+      result('a', {
+        files: [
+          shot('03-results'),
+          // A dot in a sentence is not an extension.
+          shot('Step 1. Checkout'),
+          // Already an image's name: kept as it is.
+          shot('homepage-diff.png'),
+        ],
+      }),
+    ]);
+
+    expect(seen.files.map((f) => sentName(f.url)).sort()).toEqual(['03-results.png', 'Step 1. Checkout.png', 'homepage-diff.png']);
+  });
+
+  it('cuts a name past the 200 characters the platform takes, the extension kept and no character halved', async () => {
+    const { seen, run } = await report([
+      result('a', {
+        files: [
+          shot('long', { name: 'x'.repeat(250) }),
+          shot('longer', { name: `${'y'.repeat(300)}.png` }),
+          // Two UTF-16 units; cut between them, the half left could not go into a URL at all.
+          shot('emoji', { name: `${'a'.repeat(195)}😀${'b'.repeat(10)}` }),
+        ],
+      }),
+    ]);
+
+    expect(seen.files.map((f) => sentName(f.url)).sort()).toEqual([
+      `${'a'.repeat(195)}.png`,
+      `${'x'.repeat(196)}.png`,
+      `${'y'.repeat(196)}.png`,
+    ]);
+    expect(run.stats.screenshots).toEqual({ uploaded: 3, skipped: 0, failed: 0 });
+  });
+
+  it('sends only what the platform takes, counts what it skips, and says why once for each reason', async () => {
+    const { seen, run, cfg } = await report([
+      result('a', {
+        files: [
+          shot('ok'),
+          { name: 'untyped', path: put(`untyped-${SHA1}.JPEG`) }, // no type: the extension says
+          { name: 'edge', contentType: 'image/png', path: put(`edge-${SHA1}.png`, Buffer.alloc(MIB2)) },
+          { name: 'huge', contentType: 'image/png', path: put(`huge-${SHA1}.png`, Buffer.alloc(MIB2 + 1)) },
+          { name: 'anim.gif', contentType: 'image/gif', path: put(`anim.gif-${SHA1}.gif`) },
+          shot('_hidden'),
+          { name: 'gone', contentType: 'image/png', path: path.join(dir, `gone-${SHA1}.png`) },
+          // Not screenshots at all: neither sent nor counted.
+          { name: 'trace', contentType: 'application/zip', path: put('trace.zip') },
+          { name: 'error-context', contentType: 'text/markdown', path: put('error-context.md') },
+          { name: 'plune', contentType: 'application/plune.metadata+json', path: put('plune.json') },
+        ],
+      }),
+      result('b', { files: Array.from({ length: 22 }, (_, i) => shot(`b-${i}`)) }),
+    ]);
+
+    expect(uploads(seen).filter((u) => u.to.includes('/id-a/'))).toEqual([
+      { to: '/v1/results/id-a/files?name=edge.png', type: 'image/png', size: MIB2 },
+      { to: '/v1/results/id-a/files?name=ok.png', type: 'image/png', size: PNG.length },
+      { to: '/v1/results/id-a/files?name=untyped.JPEG', type: 'image/jpeg', size: PNG.length },
+    ]);
+    // The first twenty the runner kept; the two after them stay behind.
+    expect(uploads(seen).filter((u) => u.to.includes('/id-b/')).map((u) => u.to)).toEqual(
+      Array.from({ length: 20 }, (_, i) => `/v1/results/id-b/files?name=b-${i}.png`).sort(),
+    );
+    expect(run.stats.screenshots).toEqual({ uploaded: 23, skipped: 6, failed: 0 });
+    expect(logOf(cfg).filter((l) => l.includes(' not uploaded — ')).sort()).toEqual([
+      "plune: screenshot \"_hidden.png\" not uploaded — its name starts with an underscore, which hides an attachment in Playwright's own reports too.",
+      'plune: screenshot "anim.gif" not uploaded — Plune takes PNG, JPEG and WebP.',
+      'plune: screenshot "b-20.png" not uploaded — a result holds at most 20.',
+      'plune: screenshot "gone.png" not uploaded — the file cannot be read on this machine.',
+      'plune: screenshot "huge.png" not uploaded — Plune takes a file of at most 2 MB.',
+    ]);
+    expect(logOf(cfg).at(-1)).toBe('plune: 2 accepted · 23 screenshot(s) uploaded, 6 skipped');
+  });
+
+  it.each([
+    [409, 'the run is closed — its results stand'],
+    [500, 'internal error'],
+  ])('costs no result when an upload is answered %i: counted, said once, and the run still closes', async (status, error) => {
+    const { seen, run, cfg } = await report([result('a', { files: [shot('a')] }), result('b', { files: [shot('b')] })], {
+      filesFailure: { status, error },
+    });
+
+    expect(run.stats).toMatchObject({ accepted: 2, deferred: 0, screenshots: { uploaded: 0, skipped: 0, failed: 2 } });
+    expect(logOf(cfg).filter((l) => l.startsWith('plune: could not upload'))).toEqual([
+      `plune: could not upload a screenshot (${error}) — its result is reported without it.`,
+    ]);
+    expect(seen.events.map((e) => e.body['event'])).toEqual(['finish']);
+    expect(logOf(cfg).at(-1)).toBe('plune: 2 accepted · 0 screenshot(s) uploaded, 2 failed to upload');
+    expect(fs.existsSync(cfg.fallbackPath as string)).toBe(false);
+  });
+
+  it('has every upload answered before the next batch goes, and before the run is closed', async () => {
+    const { seen } = await report(
+      [result('a', { files: [shot('a')] }), result('b', { files: [shot('b-1'), shot('b-2')] })],
+      { fileMs: 25 },
+      { batchSize: 1 },
+    );
+
+    expect(seen.order).toEqual(['results', 'file', 'results', 'file', 'file', 'event:finish']);
   });
 });
