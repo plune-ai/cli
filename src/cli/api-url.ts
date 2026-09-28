@@ -43,6 +43,6 @@ export function dashboardUrl(apiUrl: string = resolveApiUrl()): string | undefin
 export function whereToGetAToken(apiUrl: string = resolveApiUrl()): string {
   const web = dashboardUrl(apiUrl);
   return web === undefined
-    ? `Get one from your Plune dashboard (the web app in front of ${apiUrl}), under Settings → API tokens.`
-    : `Get one at ${web} → Settings → API tokens.`;
+    ? `Get one from your Plune dashboard (the web app in front of ${apiUrl}), under Account → API tokens.`
+    : `Get one at ${web} → Account → API tokens.`;
 }

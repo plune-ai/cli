@@ -474,7 +474,7 @@ export function createProgram(): Command {
 
   program
     .command('login')
-    .description('Save your Plune API token (get one in the dashboard: Settings → API tokens)')
+    .description('Save your Plune API token (get one in the dashboard: Account → API tokens)')
     .option('--token <token>', 'API token (omit to paste it / pipe it via stdin)')
     .option(
       '--skip-verify',
