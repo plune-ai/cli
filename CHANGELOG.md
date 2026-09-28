@@ -11,6 +11,13 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Changed
+
+- **Where to get a token says Account → API tokens (plune-ai/plune#868).** The dashboard moved API
+  tokens out of a project's Settings into the person's account, where a token is minted for the
+  project picked beside Generate. `plune login`'s description, the messages for a missing or rejected
+  token and the README name the new place.
+
 ## [0.14.2] - 2026-09-24
 
 Also `@plune-ai/playwright` **0.2.8** - the adapter embeds `reporter-core`, so every fix below reaches

@@ -157,7 +157,7 @@ describe('the messages say where a token comes from (#330)', () => {
       'https://beta.plune.ai',
     );
     expect(new TokenRejectedError('https://beta-api.plune.ai').message).toContain(
-      'Settings → API tokens',
+      'Account → API tokens',
     );
   });
 
