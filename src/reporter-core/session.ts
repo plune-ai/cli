@@ -67,6 +67,33 @@ const TYPE_BY_EXTENSION: Record<string, string> = {
 };
 /** Uploads in flight at once. One at a time, a suite with a screenshot per test waits on every round trip. */
 const UPLOADS_AT_ONCE = 4;
+/** The longest name the platform takes for a result's file (ADR 0040) — in UTF-16 units, as it measures. */
+const NAME_MAX = 200;
+
+/**
+ * The name a person reads on the run page: the attachment's, not its file's. Playwright reports a file
+ * attached by path as the copy it saved, `<name>-<sha1>.png`, and the hash tells nobody anything. Read
+ * as the platform reads a name — the last segment, trimmed: a name can be a path of this machine,
+ * `attach(file, { path: file })` — with the file's extension when the name has no image extension of its
+ * own, and within the 200 characters the platform takes, the extension kept.
+ */
+function nameOf(file: ResultFile): string {
+  const own = file.name.split(/[\\/]/).pop()?.trim() || basename(file.path);
+  const fileExt = extname(file.path);
+  const ownExt = extname(own);
+  // `Step 1. Checkout` has an "extension" by `extname`; only an image's, or the file's own, counts.
+  const typed =
+    ownExt !== '' &&
+    (ownExt.toLowerCase() === fileExt.toLowerCase() || TYPE_BY_EXTENSION[ownExt.toLowerCase()] !== undefined);
+  const ext = typed ? ownExt : fileExt;
+  let stem = typed ? own.slice(0, -ownExt.length) : own;
+  if (stem.length + ext.length > NAME_MAX) {
+    stem = stem.slice(0, Math.max(0, NAME_MAX - ext.length));
+    if (/[\uD800-\uDBFF]$/.test(stem)) stem = stem.slice(0, -1); // half a pair would throw in the URL
+  }
+  return `${stem}${ext}`;
+}
+
 /** Why a screenshot stayed behind — said once per reason, every one counted. */
 const SKIPPED = {
   hidden: "its name starts with an underscore, which hides an attachment in Playwright's own reports too",
@@ -475,7 +502,7 @@ export async function startRun(
     log(`plune: screenshot "${name}" not uploaded — ${SKIPPED[why]}.`);
   }
 
-  /** One screenshot to its result, by the file's own name: the path names this machine, not the test. */
+  /** One screenshot to its result, under the name `nameOf` gave it — never the path, which names this machine. */
   async function uploadOne(shot: Shot): Promise<void> {
     let bytes: Buffer;
     try {
@@ -519,7 +546,7 @@ export async function startRun(
           file.contentType?.split(';')[0]?.trim().toLowerCase() || TYPE_BY_EXTENSION[extname(file.path).toLowerCase()];
         // A trace, a video, a page of text: not a screenshot, so neither sent nor counted.
         if (!type?.startsWith('image/')) continue;
-        const name = basename(file.path);
+        const name = nameOf(file);
         if (file.name.startsWith('_')) skip(name, 'hidden');
         else if (!SCREENSHOT_TYPES.has(type)) skip(name, 'type');
         else if (room === 0) skip(name, 'limit');

@@ -534,7 +534,8 @@ describe('plune run import', () => {
       });
 
       const uploads = seen.filter((s) => s.file !== undefined);
-      expect(uploads.map((s) => s.path)).toEqual(['/v1/results/res-0/files?name=test-finished-1.png']);
+      // As Playwright's `screenshot` option names it: `screenshot`, at `test-finished-1.png`.
+      expect(uploads.map((s) => s.path)).toEqual(['/v1/results/res-0/files?name=screenshot.png']);
       expect(uploads[0]?.file).toEqual({ type: 'image/png', bytes: PNG });
       // After the batch that stored the result, before the run is closed.
       const order = seen.map((s) => s.path);

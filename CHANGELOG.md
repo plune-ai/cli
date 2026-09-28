@@ -23,10 +23,14 @@ hands the core every attempt's files. Needs a platform that stores a result's fi
   test's as well as a failed one's — so a run in Plune shows every test with what it looked at. PNG,
   JPEG and WebP, up to 2 MB a file and 20 a result; the type is the attachment's, or the extension's
   when the attachment names none. Traces, videos and text files are not uploaded, nor is an image
-  attached as a `body` rather than a file. A file goes by its own name (`test-failed-1.png`), never by
-  its path, and never inside a results batch; a result the platform already had (`duplicate`) is not
-  sent its files again. Every upload is answered before the run is closed — the platform takes no file
-  on a closed run — four at a time, and a 429 waits out its `Retry-After` as every other call does.
+  attached as a `body` rather than a file. A file goes by its attachment's name, with the file's
+  extension when the name has no image extension of its own — `screenshot.png` for Playwright's
+  `screenshot` option, `03-results.png` for `testInfo.attach('03-results', { path })` — never by the
+  copy Playwright saves as `03-results-<sha1>.png`, never by a path (a name that is one keeps its last
+  segment), and cut to the 200 characters the platform takes, the extension kept. The files never ride
+  in a results batch, and a result the platform already had (`duplicate`) is not sent its files again.
+  Every upload is answered before the run is closed — the platform takes no file on a closed run —
+  four at a time, and a 429 waits out its `Retry-After` as every other call does.
 - **What stays behind is counted, and costs nothing else.** A screenshot over 2 MB, of another image
   type, past the 20th, named with a leading `_` (hidden in Playwright's own reports too) or not on this
   machine — a report copied from the job that wrote it — is skipped, with one line per reason; one the

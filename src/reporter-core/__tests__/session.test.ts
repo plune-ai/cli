@@ -1213,17 +1213,22 @@ describe('screenshots go to the result they belong to (plune#913)', () => {
   );
   const MIB2 = 2 * 1024 * 1024;
   /** A file in this test's folder, and where it is. */
-  const put = (name: string, bytes: Buffer = PNG): string => {
-    const file = path.join(dir, name);
-    fs.writeFileSync(file, bytes);
-    return file;
+  const put = (file: string, bytes: Buffer = PNG): string => {
+    const at = path.join(dir, file);
+    fs.writeFileSync(at, bytes);
+    return at;
   };
+  /** What Playwright names the copy of a file attached by path: `<name>-<sha1 of the original's path><ext>`. */
+  const SHA1 = '87f15b965a84499fbcc46f54036099902e9a69d6';
+  /** A PNG attached by path, as Playwright reports it: under its own name, at the copy it saved. */
   const shot = (name: string, over: Partial<ResultFile> = {}): ResultFile => ({
-    name: 'screenshot',
+    name,
     contentType: 'image/png',
-    path: put(name),
+    path: put(`${name}-${SHA1}.png`),
     ...over,
   });
+  /** The name an upload went by. */
+  const sentName = (url: string): string => decodeURIComponent(url.slice(url.indexOf('?name=') + '?name='.length));
 
   async function report(results: PendingResult[], opts: PlatformOptions = {}, over: Partial<ReporterConfig> = {}) {
     const known = Object.fromEntries(results.map((r) => [r.keys[0]!.value, `tc-${r.keys[0]!.value}`]));
@@ -1240,10 +1245,12 @@ describe('screenshots go to the result they belong to (plune#913)', () => {
       .map((f) => ({ to: f.url.replace('https://api.test', ''), type: f.headers['content-type'], size: f.bytes.length }))
       .sort((a, b) => (a.to < b.to ? -1 : 1));
 
-  it('uploads a screenshot to the result it belongs to: its id, the file’s own name and type, the bytes as they are', async () => {
-    const { seen, run, cfg } = await report([result('a', { rawStatus: 'failed', files: [shot('test-failed-1.png')] })]);
+  it('uploads a screenshot to the result it belongs to: its id, the attachment’s name, its type, the bytes as they are', async () => {
+    // What Playwright's `screenshot` option keeps: named `screenshot`, at `test-failed-1.png`.
+    const kept: ResultFile = { name: 'screenshot', contentType: 'image/png', path: put('test-failed-1.png') };
+    const { seen, run, cfg } = await report([result('a', { rawStatus: 'failed', files: [kept] })]);
 
-    expect(uploads(seen)).toEqual([{ to: '/v1/results/id-a/files?name=test-failed-1.png', type: 'image/png', size: PNG.length }]);
+    expect(uploads(seen)).toEqual([{ to: '/v1/results/id-a/files?name=screenshot.png', type: 'image/png', size: PNG.length }]);
     expect(seen.files[0]?.bytes).toEqual(PNG);
     expect(seen.files[0]?.headers['authorization']).toBe(`Bearer ${TOKEN}`);
     expect(run.stats.screenshots).toEqual({ uploaded: 1, skipped: 0, failed: 0 });
@@ -1251,14 +1258,14 @@ describe('screenshots go to the result they belong to (plune#913)', () => {
   });
 
   it('uploads a passed test’s screenshots as well, not only a failure’s', async () => {
-    const { seen, run } = await report([result('a', { rawStatus: 'passed', files: [shot('test-finished-1.png')] })]);
+    const { seen, run } = await report([result('a', { rawStatus: 'passed', files: [shot('checkout')] })]);
 
-    expect(uploads(seen).map((u) => u.to)).toEqual(['/v1/results/id-a/files?name=test-finished-1.png']);
+    expect(uploads(seen).map((u) => u.to)).toEqual(['/v1/results/id-a/files?name=checkout.png']);
     expect(run.stats.screenshots.uploaded).toBe(1);
   });
 
   it('gives a result the platform already had no second copy of its files', async () => {
-    const { seen, run } = await report([result('a', { files: [shot('a.png')] }), result('b', { files: [shot('b.png')] })], {
+    const { seen, run } = await report([result('a', { files: [shot('a')] }), result('b', { files: [shot('b')] })], {
       duplicates: ['b#0'],
     });
 
@@ -1266,33 +1273,70 @@ describe('screenshots go to the result they belong to (plune#913)', () => {
     expect(run.stats).toMatchObject({ accepted: 1, duplicate: 1, screenshots: { uploaded: 1, skipped: 0, failed: 0 } });
   });
 
-  it('keeps this machine’s paths out of every batch', async () => {
-    const { seen } = await report([result('a', { files: [shot('test-failed-1.png')] })]);
+  it('keeps this machine’s paths out of every batch and every upload, a name that is a path included', async () => {
+    // `testInfo.attach(file, { path: file })`: the attachment is named by the machine's path to it.
+    const { seen } = await report([result('a', { files: [shot('proof', { name: put('proof.png') })] })]);
 
     const sent = seen.results.flatMap((r) => r.results);
     expect(sent.some((r) => 'files' in r)).toBe(false);
     expect(JSON.stringify(sent)).not.toContain(path.basename(dir));
-    expect(seen.files.map((f) => f.url)).toEqual(['https://api.test/v1/results/id-a/files?name=test-failed-1.png']);
+    expect(seen.files.map((f) => f.url)).toEqual(['https://api.test/v1/results/id-a/files?name=proof.png']);
+  });
+
+  it('names a file by its attachment, with the file’s extension when the name has none of its own', async () => {
+    const { seen } = await report([
+      result('a', {
+        files: [
+          shot('03-results'),
+          // A dot in a sentence is not an extension.
+          shot('Step 1. Checkout'),
+          // Already an image's name: kept as it is.
+          shot('homepage-diff.png'),
+        ],
+      }),
+    ]);
+
+    expect(seen.files.map((f) => sentName(f.url)).sort()).toEqual(['03-results.png', 'Step 1. Checkout.png', 'homepage-diff.png']);
+  });
+
+  it('cuts a name past the 200 characters the platform takes, the extension kept and no character halved', async () => {
+    const { seen, run } = await report([
+      result('a', {
+        files: [
+          shot('long', { name: 'x'.repeat(250) }),
+          shot('longer', { name: `${'y'.repeat(300)}.png` }),
+          // Two UTF-16 units; cut between them, the half left could not go into a URL at all.
+          shot('emoji', { name: `${'a'.repeat(195)}😀${'b'.repeat(10)}` }),
+        ],
+      }),
+    ]);
+
+    expect(seen.files.map((f) => sentName(f.url)).sort()).toEqual([
+      `${'a'.repeat(195)}.png`,
+      `${'x'.repeat(196)}.png`,
+      `${'y'.repeat(196)}.png`,
+    ]);
+    expect(run.stats.screenshots).toEqual({ uploaded: 3, skipped: 0, failed: 0 });
   });
 
   it('sends only what the platform takes, counts what it skips, and says why once for each reason', async () => {
     const { seen, run, cfg } = await report([
       result('a', {
         files: [
-          shot('ok.png'),
-          { name: 'screenshot', path: put('untyped.JPEG') }, // no type: the extension says
-          { name: 'screenshot', contentType: 'image/png', path: put('edge.png', Buffer.alloc(MIB2)) },
-          { name: 'screenshot', contentType: 'image/png', path: put('huge.png', Buffer.alloc(MIB2 + 1)) },
-          shot('anim.gif', { contentType: 'image/gif' }),
-          shot('_hidden.png', { name: '_hidden' }),
-          { name: 'screenshot', contentType: 'image/png', path: path.join(dir, 'gone.png') },
+          shot('ok'),
+          { name: 'untyped', path: put(`untyped-${SHA1}.JPEG`) }, // no type: the extension says
+          { name: 'edge', contentType: 'image/png', path: put(`edge-${SHA1}.png`, Buffer.alloc(MIB2)) },
+          { name: 'huge', contentType: 'image/png', path: put(`huge-${SHA1}.png`, Buffer.alloc(MIB2 + 1)) },
+          { name: 'anim.gif', contentType: 'image/gif', path: put(`anim.gif-${SHA1}.gif`) },
+          shot('_hidden'),
+          { name: 'gone', contentType: 'image/png', path: path.join(dir, `gone-${SHA1}.png`) },
           // Not screenshots at all: neither sent nor counted.
           { name: 'trace', contentType: 'application/zip', path: put('trace.zip') },
           { name: 'error-context', contentType: 'text/markdown', path: put('error-context.md') },
           { name: 'plune', contentType: 'application/plune.metadata+json', path: put('plune.json') },
         ],
       }),
-      result('b', { files: Array.from({ length: 22 }, (_, i) => shot(`b-${i}.png`)) }),
+      result('b', { files: Array.from({ length: 22 }, (_, i) => shot(`b-${i}`)) }),
     ]);
 
     expect(uploads(seen).filter((u) => u.to.includes('/id-a/'))).toEqual([
@@ -1319,7 +1363,7 @@ describe('screenshots go to the result they belong to (plune#913)', () => {
     [409, 'the run is closed — its results stand'],
     [500, 'internal error'],
   ])('costs no result when an upload is answered %i: counted, said once, and the run still closes', async (status, error) => {
-    const { seen, run, cfg } = await report([result('a', { files: [shot('a.png')] }), result('b', { files: [shot('b.png')] })], {
+    const { seen, run, cfg } = await report([result('a', { files: [shot('a')] }), result('b', { files: [shot('b')] })], {
       filesFailure: { status, error },
     });
 
@@ -1334,7 +1378,7 @@ describe('screenshots go to the result they belong to (plune#913)', () => {
 
   it('has every upload answered before the next batch goes, and before the run is closed', async () => {
     const { seen } = await report(
-      [result('a', { files: [shot('a.png')] }), result('b', { files: [shot('b-1.png'), shot('b-2.png')] })],
+      [result('a', { files: [shot('a')] }), result('b', { files: [shot('b-1'), shot('b-2')] })],
       { fileMs: 25 },
       { batchSize: 1 },
     );
