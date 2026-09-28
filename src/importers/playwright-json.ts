@@ -13,7 +13,7 @@
  */
 
 import { existsSync } from 'node:fs';
-import { errorContextOf, failureOf, repoRootOf, webLink } from '../reporter-core/failure-detail.js';
+import { errorContextOf, failureOf, filesOf, repoRootOf, webLink } from '../reporter-core/failure-detail.js';
 import { resultKey } from '../reporter-core/result-key.js';
 import type { DeclaredStep, FailedAttempt, KeyRef, PendingResult, ResultStatus } from '../reporter-core/types.js';
 
@@ -138,6 +138,7 @@ function pendingFrom(
   const attempt = attemptOf(result, file, ctx);
   const errorContext = errorContextOf(attempt);
   const failure = NOT_FAILED.has(attempt.status) ? undefined : failureOf(attempt);
+  const files = filesOf(attempt);
   const keys: KeyRef[] = [
     ...(test.id !== undefined ? [{ kind: 'playwright-id' as const, value: test.id }] : []),
     { kind: 'path-title', value: pathTitle },
@@ -173,6 +174,7 @@ function pendingFrom(
       : {}),
     ...(errorContext !== '' ? { errorContext } : {}),
     ...(failure !== undefined ? { failure } : {}),
+    ...(files.length > 0 ? { files } : {}),
   };
 }
 

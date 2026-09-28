@@ -143,6 +143,11 @@ which reports as the run happens and needs no second step:
 reporter: [['list'], ['@plune-ai/playwright']],
 ```
 
+Either way a Playwright suite brings its screenshots: every image an attempt kept as a file — PNG,
+JPEG or WebP, up to 2 MB each, 20 per result — is uploaded to that result, a passed test's too, so a
+run in Plune shows each test with what it looked at. `plune run import` finds them where the report
+says they are, so run it where the report was written; the summary counts any it could not find.
+
 ### Several jobs, one run
 
 Two suites, or a sharded matrix, report into a single run when every job shares a key **and** knows
