@@ -22,11 +22,14 @@ interface CliResult {
 
 function runCli(
   args: string[],
-  opts: { cwd?: string; env?: Record<string, string> } = {},
+  // `undefined` removes a variable this machine happens to have exported — not the same as blank.
+  opts: { cwd?: string; env?: Record<string, string | undefined> } = {},
 ): CliResult {
+  const env = { ...process.env, ...opts.env };
+  for (const [name, value] of Object.entries(env)) if (value === undefined) delete env[name];
   const res = spawnSync(process.execPath, [cli, ...args], {
     cwd: opts.cwd ?? root,
-    env: { ...process.env, ...opts.env },
+    env,
     encoding: 'utf8',
   });
   return { status: res.status, stdout: res.stdout ?? '', stderr: res.stderr ?? '' };
@@ -110,11 +113,18 @@ describe('plune binary — full journey init --yes → run → report (AC-T07.1)
     expect(fs.existsSync(path.join(tmp, '.env'))).toBe(false);
   });
 
-  it('run --dry-run estimates without calling a provider (exit 0)', () => {
-    // Dry-run still resolves the provider for cost estimation; the mock provider lets it run
-    // without a real API key (AC-T04.5 + AC-T07.3).
-    const r = runCli(['run', '--dry-run'], { cwd: tmp, env: { PLUNE_MOCK_PROVIDER: '1' } });
+  it('run --dry-run prices the run without a provider key or a mock (exit 0, #49)', () => {
+    // A dry run never calls a provider, so it needs no key either. No mock here on purpose — the
+    // mock would price it at zero, which is not the estimate — and the key is blanked in case this
+    // machine has one exported.
+    const r = runCli(['run', '--dry-run'], {
+      cwd: tmp,
+      env: { ANTHROPIC_API_KEY: '', PLUNE_MOCK_PROVIDER: '' },
+    });
     expect(r.status).toBe(0);
+    expect(r.stderr).not.toContain('ANTHROPIC_API_KEY');
+    // The real model's price from the built-in table: the summary line carries a cost above zero.
+    expect(Number(/\$(\d+\.\d+)/.exec(r.stdout)?.[1])).toBeGreaterThan(0);
   });
 
   it('run with PLUNE_MOCK_PROVIDER=1 completes without network (exit 0 or 1, never 2)', () => {
@@ -127,6 +137,40 @@ describe('plune binary — full journey init --yes → run → report (AC-T07.1)
     const r = runCli(['report'], { cwd: tmp });
     expect(r.status).toBe(0);
     expect(r.stdout.length).toBeGreaterThan(0);
+  });
+});
+
+describe('plune binary — .env reaches every command (#46)', () => {
+  // `run start` is neither `run` nor `report`, which is why it never opened a .env. No server is
+  // needed to tell "read it" from "did not": with a token and an address from the file it gets as far
+  // as dialling (exit 1, nobody answers); without them it stops at once (exit 2, not logged in).
+  const nothingExported = {
+    PLUNE_TOKEN: undefined,
+    PLUNE_API_URL: undefined,
+    PLUNE_RUN: undefined,
+    // Points the saved login at an empty folder, so this machine's own token cannot answer for it.
+    XDG_CONFIG_HOME: fs.mkdtempSync(path.join(os.tmpdir(), 'plune-e2e-xdg-')),
+  };
+
+  it('stops at "Not logged in" when nothing gives run start a token', () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'plune-e2e-noenv-'));
+    const r = runCli(['run', 'start'], { cwd, env: nothingExported });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain('Not logged in');
+  });
+
+  it('takes the token and the address from the .env in the current directory', () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'plune-e2e-env-'));
+    fs.writeFileSync(
+      path.join(cwd, '.env'),
+      'PLUNE_TOKEN=token-from-the-file\nPLUNE_API_URL=http://127.0.0.1:9\n',
+    );
+    const r = runCli(['run', 'start'], { cwd, env: nothingExported });
+    expect(r.stderr).not.toContain('Not logged in');
+    expect(r.stderr).toContain('Could not start the run');
+    expect(r.status).toBe(1);
+    // Read from a file and used, never shown.
+    expect(r.stdout + r.stderr).not.toContain('token-from-the-file');
   });
 });
 

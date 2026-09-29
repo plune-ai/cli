@@ -58,7 +58,7 @@ passed with `-c <path>`). A minimal example:
 version: 1
 provider:
   type: anthropic            # anthropic | openai | openrouter
-  model: claude-3-5-sonnet-latest
+  model: claude-sonnet-5-5
 evals:
   - id: example
     prompt: "Answer concisely. {{question}}"   # {{vars}} come from each dataset row
@@ -76,6 +76,23 @@ provider API key is read from the environment based on `provider.type`:
 | Anthropic  | `anthropic`     | `ANTHROPIC_API_KEY`  |
 | OpenAI     | `openai`        | `OPENAI_API_KEY`     |
 | OpenRouter | `openrouter`    | `OPENROUTER_API_KEY` |
+
+`model` is any id the provider serves; `plune init` starts you on `claude-sonnet-5-5`. A run's cost
+is priced from a built-in table of current models — a model it does not list costs `0`, with a
+warning, until you add its rates under `pricing:` (`input_per_1k_usd`, `output_per_1k_usd`). Leave
+`temperature` out for Claude models released after Opus 4.6: they take none, and the API answers 400
+to any value but the default. Plune sends no `temperature` unless the config sets one.
+
+### Where the CLI reads its settings
+
+Every command reads them the same way: from the environment first — what your shell or CI job
+exported — then from a `.env` beside the config you named with `-c`, then from a `.env` in the
+current directory. The first place that sets a variable wins, so a `.env` never overrides what is
+already exported. That covers the provider keys above and every `PLUNE_*` variable (`PLUNE_TOKEN`,
+`PLUNE_API_URL`, `PLUNE_RUN`, …) for `run`, `report`, `sync`, `ingest`, `login` and `run import`,
+`start` and `finish` alike — no `dotenv` wrapper in your scripts. The token `plune login` saved is
+the last resort, used only when `PLUNE_TOKEN` is set nowhere else. Nothing writes a `.env` for you;
+`plune init` writes `.env.example`.
 
 ### Assertion types
 
@@ -96,7 +113,7 @@ provider API key is read from the environment based on `provider.type`:
 
 | Command | Summary |
 | ------- | ------- |
-| `plune run` | Run the suite. Flags: `--dry-run`, `--only <id\|tag>` (repeatable), `--bail`, `--no-cache`, `--concurrency <n>`, `--format console\|json\|markdown`, `-o, --output <file>`. |
+| `plune run` | Run the suite. Flags: `--dry-run` (price the run from the model's rates — no provider key, no network), `--only <id\|tag>` (repeatable), `--bail`, `--no-cache`, `--concurrency <n>`, `--format console\|json\|markdown`, `-o, --output <file>`. |
 | `plune report` | Re-render the most recent run. Flags: `--format`, `-o`. |
 | `plune diff <baseline> <current>` | Compare two `plune run --format json` outputs and report pass→fail regressions. Flags: `--fail-on-regression`, `--format`, `-o`. |
 | `plune init` | Scaffold `plune.yaml`, a sample dataset, and `.env.example`. Flags: `--yes` (non-interactive), `--force`. |
