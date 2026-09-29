@@ -11,6 +11,13 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-09-30
+
+Also `@plune-ai/playwright` **0.4.0** - the adapter embeds `reporter-core`, where the commit and the branch,
+the reason an offer was refused and the marker that ties a replayed run together live. A run panel shows
+the commit and the branch only on a platform that hands them out (plune-ai/plune#964); on an older one
+the results arrive as before and the panel shows none.
+
 ### Added
 
 - **`plune run import` reads a `@P<id>` in a JUnit test's name as the case the test is (#38).** The
@@ -809,7 +816,8 @@ First public release. Released from commit `ba43100`; no `v0.2.0` tag exists.
   `json-schema`, `llm-judge`, `semantic-similarity`, `faithfulness`, `answer-relevance`,
   `context-precision`.
 
-[Unreleased]: https://github.com/plune-ai/cli/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/plune-ai/cli/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/plune-ai/cli/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/plune-ai/cli/compare/v0.14.3...v0.15.0
 [0.14.3]: https://github.com/plune-ai/cli/compare/v0.14.2...v0.14.3
 [0.14.2]: https://github.com/plune-ai/cli/compare/v0.14.1...v0.14.2
