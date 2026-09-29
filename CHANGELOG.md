@@ -11,7 +11,7 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
-## [0.15.0] - 2026-09-28
+## [0.15.0] - 2026-09-29
 
 Also `@plune-ai/playwright` **0.3.0** - the adapter embeds `reporter-core`, where the upload below lives, and it
 hands the core every attempt's files. Needs a platform that stores a result's files
