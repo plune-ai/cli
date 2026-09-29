@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import { readJUnit, looksLikeJUnit } from '../junit.js';
 import { XmlParseError, parseXml } from '../xml.js';
@@ -139,6 +140,139 @@ describe('reading a JUnit report', () => {
     expect(results).toHaveLength(1);
     // The NEAREST suite is the one whose timestamp applies, not the outermost.
     expect(results[0]?.execution?.startedAt).toBe('2026-09-09T10:00:00.000Z');
+  });
+});
+
+/**
+ * The key a Playwright suite's own JUnit report gives a test has to be the one the reporter and the JSON
+ * import give it (plune-ai/cli#47) — or `--create` offers every test a second time.
+ *
+ * `fixtures/playwright-1.63.0-win32.xml` is not typed by hand. It is what Playwright 1.63.0's `junit`
+ * reporter wrote on Windows over two spec files — `login.spec.ts`, and `shop/checkout/cart.spec.ts` with a
+ * `describe('cart')` around a nested `describe('coupons')` — with the machine's absolute path in the failure's
+ * code frame swapped for `C:\repo`. Playwright fills `classname` with the file suite's title, the path from
+ * the test directory in the OS's own separators, and `name` with the describe titles and the test's, joined
+ * by ` › `. The adapter's e2e (`packages/playwright/e2e`) makes the same comparison against the live reporter,
+ * on Linux in CI.
+ */
+const WINDOWS_REPORT = readFileSync(new URL('./fixtures/playwright-1.63.0-win32.xml', import.meta.url), 'utf8');
+/** The same run as a POSIX machine writes it: only the separators differ. */
+const POSIX_REPORT = WINDOWS_REPORT.replaceAll('\\', '/');
+
+/** What the reporter's `path-title` is for each test of that run — `file#describe#…#title`, file with forward slashes. */
+const REPORTER_KEYS = [
+  'login.spec.ts#shows the sign-in form',
+  'shop/checkout/cart.spec.ts#starts with an empty cart',
+  'shop/checkout/cart.spec.ts#cart#adds an item',
+  'shop/checkout/cart.spec.ts#cart#rejects a negative quantity',
+  'shop/checkout/cart.spec.ts#cart#coupons#applies a coupon',
+  'shop/checkout/cart.spec.ts#cart#coupons#keeps its case when renamed @P42',
+  'shop/checkout/cart.spec.ts#cart#leaves the currency alone',
+];
+
+describe('a Playwright suite’s own report (plune-ai/cli#47)', () => {
+  it.each([
+    ['Windows', WINDOWS_REPORT],
+    ['POSIX', POSIX_REPORT],
+  ])('keys each test the way the reporter does, written on %s', (_os, report) => {
+    const results = readJUnit(report, 'reports/junit.xml');
+
+    expect(results.map((r) => r.keys)).toEqual(REPORTER_KEYS.map((value) => [{ kind: 'path-title', value }]));
+    expect(results.map((r) => r.resultKey)).toEqual(REPORTER_KEYS.map((value) => `${value}#0`));
+  });
+
+  it('still reads the rest of the real file: outcomes, the skipped test with no time, the failure’s text', () => {
+    const results = readJUnit(WINDOWS_REPORT, 'reports/junit.xml');
+
+    expect(results.map((r) => r.rawStatus)).toEqual(['pass', 'pass', 'pass', 'failure', 'pass', 'pass', 'skipped']);
+    expect(results[3]?.errorContext).toContain('expect(received).toBeGreaterThan(expected)');
+    expect(results[3]?.errorContext).toContain('> 13 |     expect(-1).toBeGreaterThan(0);');
+  });
+
+  it('leaves the key of any other runner as it was', () => {
+    // Neither half is enough alone: a ` › ` in a name means Playwright only beside a spec file in
+    // `classname` (the second and third cases), and a spec file there changes nothing while the name has
+    // no ` › ` and the slashes already run forward (the last, the shape of a Vitest report).
+    const others = `<testsuite name="s">
+      <testcase classname="tests.test_cart.TestCart" name="test_adds_an_item"/>
+      <testcase classname="com.acme.CartTest" name="cart › adds an item"/>
+      <testcase classname="cart" name="cart › adds an item"/>
+      <testcase classname="tests/cart.test.ts" name="cart &gt; adds an item"/>
+    </testsuite>`;
+
+    expect(readJUnit(others, 'r.xml').map((r) => r.keys[0]?.value)).toEqual([
+      'tests.test_cart.TestCart#test_adds_an_item',
+      'com.acme.CartTest#cart › adds an item',
+      'cart#cart › adds an item',
+      'tests/cart.test.ts#cart > adds an item',
+    ]);
+  });
+
+  it('takes any of the spec spellings Playwright matches by default', () => {
+    const spellings = ['a.spec.ts', 'a.test.ts', 'a.spec.js', 'a.test.tsx', 'a.spec.mjs', 'a.test.cts'];
+    const report = `<testsuite name="s">${spellings
+      .map((file) => `<testcase classname="dir\\${file}" name="d › t"/>`)
+      .join('')}</testsuite>`;
+
+    expect(readJUnit(report, 'r.xml').map((r) => r.keys[0]?.value)).toEqual(spellings.map((file) => `dir/${file}#d#t`));
+  });
+
+  it('is not slowed by a file or a title made of the characters its patterns look for', () => {
+    // Foreign text: the patterns above run over whatever the report holds. A class that ends in `$`
+    // is quadratic on `.`.repeat(n) + `x` in V8 — that is the size that shows it.
+    const nasty = ['.'.repeat(80_000) + 'x', ' › '.repeat(40_000), '@P'.repeat(40_000), '\\'.repeat(80_000)];
+    const started = performance.now();
+    for (const text of nasty) {
+      readJUnit(`<testsuite name="s"><testcase classname="${text}.spec.ts" name="${text}"/></testsuite>`, 'r.xml');
+      readJUnit(`<testsuite name="s"><testcase classname="${text}" name="${text}"/></testsuite>`, 'r.xml');
+    }
+    expect(performance.now() - started).toBeLessThan(2_000);
+  });
+});
+
+describe('the case a test says it is (plune-ai/cli#38)', () => {
+  it('reads a @P<id> token in the title as the case, and leaves the token and the key as the title gave them', () => {
+    const results = readJUnit(WINDOWS_REPORT, 'reports/junit.xml');
+    const stated = results.filter((r) => r.testCaseId !== undefined);
+
+    expect(stated).toHaveLength(1);
+    expect(stated[0]?.testCaseId).toBe('42');
+    // Not stripped: the token is part of the title, as it is for the adapter, and the key follows the title.
+    expect(stated[0]?.keys).toEqual([
+      { kind: 'path-title', value: 'shop/checkout/cart.spec.ts#cart#coupons#keeps its case when renamed @P42' },
+    ]);
+    expect(stated[0]?.title).toContain('@P42');
+  });
+
+  it('keeps a renamed test on its case: the key changes with the title, the token does not', () => {
+    const before = readJUnit('<testsuite name="s"><testcase classname="cart" name="adds an item @P42"/></testsuite>', 'a.xml');
+    const after = readJUnit('<testsuite name="s"><testcase classname="cart" name="puts an item in the basket @P42"/></testsuite>', 'b.xml');
+
+    expect(before[0]?.keys).not.toEqual(after[0]?.keys);
+    expect(before[0]?.testCaseId).toBe('42');
+    expect(after[0]?.testCaseId).toBe('42');
+  });
+
+  it('reads the token anywhere in a name, wherever another runner puts the describes', () => {
+    const jest = '<testsuite name="s"><testcase classname="cart @P8 adds an item" name="cart @P8 adds an item"/></testsuite>';
+
+    expect(readJUnit(jest, 'r.xml')[0]?.testCaseId).toBe('8');
+  });
+
+  it('reads a Playwright title the way the reporter does: the test’s own, not a describe’s', () => {
+    // The reporter reads `test.title` alone, so a token on a `describe` claims nothing for the tests in it.
+    const report = `<testsuite name="cart.spec.ts">
+      <testcase classname="cart.spec.ts" name="cart @P5 › adds an item"/>
+      <testcase classname="cart.spec.ts" name="cart › adds an item @P6"/>
+    </testsuite>`;
+
+    expect(readJUnit(report, 'r.xml').map((r) => r.testCaseId)).toEqual([undefined, '6']);
+  });
+
+  it('names no case when there is no id after the @P', () => {
+    const bare = '<testsuite name="s"><testcase classname="c" name="see @P for details"/></testsuite>';
+
+    expect(readJUnit(bare, 'r.xml')[0]).not.toHaveProperty('testCaseId');
   });
 });
 

@@ -11,6 +11,31 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **`plune run import` reads a `@P<id>` in a JUnit test's name as the case the test is (#38).** The
+  token ADR 0023 fixed — read by `@plune-ai/playwright` and by the Playwright JSON import — was ignored
+  on the JUnit road, so a renamed or moved test was offered as new while the case it used to be kept
+  the history. Now the same `@P<id>` in a test's name is that result's case. The key stays as the name
+  gives it: the token is not stripped, as the adapter does not strip it. In Playwright's own JUnit
+  report the token is read from the test's own title, not from the `describe` titles around it, as the
+  reporter reads it; from any other runner's report it is read from the whole name, which is all that
+  report holds.
+
+### Fixed
+
+- **A Playwright suite's own JUnit report is keyed the way the reporter keys it (#47).** Playwright's
+  `junit` reporter writes the spec file's path in `classname`, in the OS's separators, and the
+  `describe` titles and the test's, joined by ` › `, in `name`. Imported as `classname#name`, a test's key —
+  `tests\cart.spec.ts#cart › adds an item` — never equalled the reporter's or the JSON import's
+  `tests/cart.spec.ts#cart#adds an item`, so `--create` offered every test of the suite to the review
+  queue a second time. A `classname` that ends in a spec file's name (`.spec` or `.test`, then a js or
+  ts extension, as Playwright matches by default) now gives the key `file#describe#…#title`, the file
+  with forward slashes on every OS. A suite that matches other file names, and every other runner,
+  keeps `classname#name` as before. A case an earlier import created from such a report carries the old
+  key, so its test is offered to the review queue once more; the reporter and the JSON import are not
+  affected.
+
 ## [0.15.0] - 2026-09-29
 
 Also `@plune-ai/playwright` **0.3.0** - the adapter embeds `reporter-core`, where the upload below lives, and it

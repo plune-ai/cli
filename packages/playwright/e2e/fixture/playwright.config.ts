@@ -18,6 +18,9 @@ if (apiUrl === undefined || apiUrl === '') {
 // The same run as a JSON report as well, when a test asks for one — what `plune run import` reads (#790).
 const jsonReport = process.env['PLUNE_JSON_REPORT'];
 
+// And as Playwright's own JUnit report, for the import that reads that one (plune-ai/cli#47).
+const junitReport = process.env['PLUNE_JUNIT_REPORT'];
+
 // The results per batch, when a test asks — the core sends from inside `add` at every multiple (#790).
 const batchSize = process.env['PLUNE_BATCH_SIZE'];
 
@@ -39,5 +42,6 @@ export default defineConfig({
       },
     ],
     ...(jsonReport !== undefined ? [['json', { outputFile: jsonReport }] as const] : []),
+    ...(junitReport !== undefined ? [['junit', { outputFile: junitReport }] as const] : []),
   ],
 });

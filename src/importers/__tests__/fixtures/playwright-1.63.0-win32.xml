@@ -1,0 +1,51 @@
+<testsuites id="" name="" tests="7" failures="1" skipped="1" errors="0" time="1.9177129999999998">
+<testsuite name="login.spec.ts" timestamp="2026-09-29T19:19:58.118Z" hostname="" tests="1" failures="0" skipped="0" time="0.034" errors="0">
+<testcase name="shows the sign-in form" classname="login.spec.ts" time="0.034">
+</testcase>
+</testsuite>
+<testsuite name="shop\checkout\cart.spec.ts" timestamp="2026-09-29T19:19:58.118Z" hostname="" tests="6" failures="1" skipped="1" time="0.045" errors="0">
+<testcase name="starts with an empty cart" classname="shop\checkout\cart.spec.ts" time="0.021">
+</testcase>
+<testcase name="cart › adds an item" classname="shop\checkout\cart.spec.ts" time="0.007">
+</testcase>
+<testcase name="cart › rejects a negative quantity" classname="shop\checkout\cart.spec.ts" time="0.007">
+<system-out>
+<![CDATA[
+[[ATTACHMENT|..\test-results\shop-checkout-cart-cart-rejects-a-negative-quantity\error-context.md]]
+]]>
+</system-out>
+<failure message="expect(received).toBeGreaterThan(expected)" type="expect.toBeGreaterThan">
+<![CDATA[  shop\checkout\cart.spec.ts:12:7 › cart › rejects a negative quantity ─────────────────────────────
+
+    Error: expect(received).toBeGreaterThan(expected)
+
+    Expected: > 0
+    Received:   -1
+
+      11 |
+      12 |   test('rejects a negative quantity', () => {
+    > 13 |     expect(-1).toBeGreaterThan(0);
+         |                ^
+      14 |   });
+      15 |
+      16 |   test.describe('coupons', () => {
+        at C:\repo\tests\shop\checkout\cart.spec.ts:13:16
+
+    Error Context: ..\test-results\shop-checkout-cart-cart-rejects-a-negative-quantity\error-context.md
+]]>
+</failure>
+</testcase>
+<testcase name="cart › coupons › applies a coupon" classname="shop\checkout\cart.spec.ts" time="0.008">
+</testcase>
+<testcase name="cart › coupons › keeps its case when renamed @P42" classname="shop\checkout\cart.spec.ts" time="0.001">
+</testcase>
+<testcase name="cart › leaves the currency alone" classname="shop\checkout\cart.spec.ts">
+<properties>
+<property name="skip" value="not implemented yet">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+</testsuite>
+</testsuites>

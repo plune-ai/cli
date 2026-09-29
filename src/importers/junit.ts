@@ -19,6 +19,16 @@ import { parseXml, type XmlElement } from './xml.js';
 /** The key into the project's status map. */
 const SOURCE = 'junit';
 
+/** `@P<id>` anywhere in a title — the token the adapter and `playwright-json.ts` read, and the same non-stripping (ADR 0023). */
+const TOKEN = /@P([A-Za-z0-9_-]+)/;
+
+/**
+ * A spec file's name in Playwright's default `testMatch`: `.spec` or `.test`, then a js/ts extension.
+ * What tells its file suite, in `classname`, from another runner's class. A project that matches other
+ * names keeps the `classname#name` key — a duplicate for the review queue, never a result on the wrong case.
+ */
+const SPEC_FILE = /\.(?:spec|test)\.[cm]?[jt]sx?$/;
+
 /** The four words the platform's default map already spells for this format. */
 type JUnitStatus = 'pass' | 'failure' | 'error' | 'skipped';
 
@@ -59,6 +69,28 @@ function errorTextOf(detail: XmlElement | undefined): string {
   return [...head, detail.text.trim()].filter((s) => s !== '').join('\n\n');
 }
 
+/** A test as Playwright's own `junit` reporter writes it. */
+interface PlaywrightTest {
+  /** The spec file, spelled with forward slashes on every OS. */
+  file: string;
+  /** The `describe` titles around the test, outermost first, then the test's own. */
+  titles: string[];
+}
+
+/**
+ * Playwright's writer, told from any other by the file in `classname`.
+ *
+ * It fills `classname` with the file suite's title — the spec's path from the test directory, in the
+ * OS's own separators — and `name` with the describe titles and the test's, joined by ` › `
+ * (`JUnitReporter._addTestCase`). A title with a ` › ` of its own is split as well; the file cannot say
+ * which is which, and the reporter's key has the same `#` ambiguity. Not undone: the `[project] ` the
+ * writer puts before `name` under its `includeProjectInTestName` option, which stays in the first title.
+ */
+function playwrightOf(classname: string, name: string): PlaywrightTest | undefined {
+  if (!SPEC_FILE.test(classname)) return undefined;
+  return { file: classname.replaceAll('\\', '/'), titles: name.split(' › ') };
+}
+
 /**
  * How this test says who it is.
  *
@@ -67,8 +99,14 @@ function errorTextOf(detail: XmlElement | undefined): string {
  * always be byte-identical to what the Playwright adapter derives for the same test — the report
  * does not carry the fields the adapter reads — and that is a fact about the format rather than
  * something to paper over: the ranking that decides what matches stays server-side (C2).
+ *
+ * Playwright's own report is the one that does carry them: what its writer puts in the two fields is
+ * the adapter's file and titles. Keyed as `classname#name` it would never meet the reporter's or the
+ * JSON import's key for the same test, and `--create` would offer every test a second time
+ * (plune-ai/cli#47). So it is keyed as they are: `file#describe#…#title`, the file with forward slashes.
  */
-function keyOf(classname: string, name: string): KeyRef {
+function keyOf(classname: string, name: string, playwright: PlaywrightTest | undefined): KeyRef {
+  if (playwright !== undefined) return { kind: 'path-title', value: [playwright.file, ...playwright.titles].join('#') };
   return { kind: 'path-title', value: classname === '' ? name : `${classname}#${name}` };
 }
 
@@ -137,13 +175,19 @@ export function readJUnit(source: string, file: string): PendingResult[] {
     const name = test.attrs['name'] ?? '';
     const classname = test.attrs['classname'] ?? test.attrs['class'] ?? '';
     const { status, detail } = outcomeOf(test);
-    const key = keyOf(classname, name);
+    const playwright = playwrightOf(classname, name);
+    const key = keyOf(classname, name, playwright);
+    // A `@P<id>` names the case outright (ADR 0023), so a renamed test keeps it. The adapter reads the
+    // test's OWN title, not its describes': the last of Playwright's joined titles; for any other writer
+    // the whole name, since the file does not say where its describes end.
+    const stated = TOKEN.exec(playwright?.titles.at(-1) ?? name)?.[1];
     const specRef = specRefOf(test, suite, classname);
     const errorContext = errorTextOf(detail);
     const execution = executionOf(test, suite);
 
     return {
       resultKey: resultKey(key.value, 0),
+      ...(stated !== undefined ? { testCaseId: stated } : {}),
       keys: [key],
       source: SOURCE,
       rawStatus: status,
