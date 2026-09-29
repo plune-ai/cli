@@ -6,6 +6,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { loadConfig } from '../../config/loader.js';
 import { getProvider } from '../../providers/index.js';
+import { makeEstimateProvider } from '../../providers/estimate.js';
 import { makeMockProvider } from '../../providers/mock.js';
 import { getDefaultEmbedder } from '../../embeddings/index.js';
 import { openCache } from '../../cache/index.js';
@@ -35,13 +36,18 @@ export interface RunOptions {
   bail?: boolean;
 }
 
+function resolveProviderFor(config: Config, dryRun: boolean): RunDeps['resolveProvider'] {
+  if (isMockMode(process.env)) return () => makeMockProvider();
+  // A dry run prices a call and never makes one (FR-8), so it has no use for a provider key (#49).
+  if (dryRun) return (cfg) => makeEstimateProvider(cfg, config.pricing);
+  return (cfg) => getProvider(cfg, process.env, config.pricing);
+}
+
 function buildRealDeps(config: Config, baseDir: string, dryRun: boolean): RunDeps {
   const dir = path.join(baseDir, '.plune');
   fs.mkdirSync(dir, { recursive: true });
   return {
-    resolveProvider: isMockMode(process.env)
-      ? () => makeMockProvider()
-      : (cfg) => getProvider(cfg, process.env, config.pricing),
+    resolveProvider: resolveProviderFor(config, dryRun),
     embedder: getDefaultEmbedder(),
     cache: dryRun ? NOOP_CACHE : openCache(path.join(dir, 'cache.db')),
     now: Date.now,

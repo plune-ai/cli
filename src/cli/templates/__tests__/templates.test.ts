@@ -2,12 +2,14 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { parse } from 'yaml';
 import {
   writeTemplateFile,
   EXAMPLE_JSONL_TPL,
   ENV_EXAMPLE_TPL,
   PLUNE_YAML_TPL,
 } from '../index.js';
+import { PRICE_TABLE } from '../../../providers/prices.js';
 
 let tmp: string;
 beforeEach(() => {
@@ -64,5 +66,15 @@ describe('template content', () => {
     expect(PLUNE_YAML_TPL).toContain('version: 1');
     expect(PLUNE_YAML_TPL).toContain('provider:');
     expect(PLUNE_YAML_TPL).toContain('datasets/example.jsonl');
+  });
+
+  it('starts a project on a current model, and one whose cost is priced (#48)', () => {
+    // It used to be `claude-3-5-sonnet-latest`: an alias for a model Anthropic has retired, so a
+    // project that followed `plune init` to the letter started on a model the API no longer serves.
+    const { provider } = parse(PLUNE_YAML_TPL) as { provider: { type: string; model: string } };
+
+    expect(provider).toEqual({ type: 'anthropic', model: 'claude-sonnet-5-5' });
+    // The line the first run prints must be a price, not a zero and a warning.
+    expect(PRICE_TABLE[provider.model]).toBeDefined();
   });
 });

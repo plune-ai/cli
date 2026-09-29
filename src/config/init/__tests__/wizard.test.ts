@@ -9,6 +9,7 @@ vi.mock('@clack/prompts');
 import * as clack from '@clack/prompts';
 import { runInitWizard } from '../../init/wizard.js';
 import { NonTtyError } from '../../errors.js';
+import { PRICE_TABLE } from '../../../providers/prices.js';
 
 const CANCEL_SYMBOL = Symbol('clack-cancel');
 
@@ -74,6 +75,24 @@ describe('runInitWizard', () => {
     expect(content).toMatch(/^#/m);
     expect(content).toContain('provider');
     expect(content).toContain('version: 1');
+  });
+
+  describe('the model it offers (#48)', () => {
+    // Pressing Enter takes the default, so the default is what most projects start on. It used to be
+    // `claude-3-opus` — an id the API never had (`claude-3-opus-latest` was the alias, for a model
+    // since retired) — and `gpt-4o`, a flagship where a cheap model is what a first eval needs.
+    it.each([
+      ['anthropic', 'claude-sonnet-5-5'],
+      ['openai', 'gpt-4o-mini'],
+    ])('offers %s users %s, a model the cost table prices', async (provider, model) => {
+      vi.mocked(clack.select).mockResolvedValue(provider);
+
+      await runInitWizard(tmpDir);
+
+      const [question] = vi.mocked(clack.text).mock.calls[0]!;
+      expect(question).toMatchObject({ defaultValue: model, placeholder: model });
+      expect(PRICE_TABLE[model]).toBeDefined();
+    });
   });
 
   describe('file already exists', () => {

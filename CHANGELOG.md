@@ -11,6 +11,37 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Changed
+
+- **Every command reads `.env`, not only `run` and `report` (#46).** `plune run import`, `run start`,
+  `run finish`, `run exec`, `run delete`, `run report`, `sync`, `ingest`, `pull`, `push`, `plan grep`
+  and `login` never looked at a `.env`, so a `PLUNE_TOKEN` or `PLUNE_API_URL` written in one did not
+  exist for them — the demo project wrapped every script in `NODE_OPTIONS=--require=dotenv/config` to
+  get what `run` already had. There is one rule now, in the program and not in each command: the
+  `.env` beside the config named with `-c`, then the one in the current directory, are read before
+  the command looks at the environment. What is already exported wins over both files, and the
+  config's file wins over the directory's. With `-c`, `run` and `report` read the current directory's
+  file as well, where they read only the config's. The README says it in one paragraph.
+
+- **`plune init` starts a project on a current model, and the run prices it (#48).** The template and
+  the wizard offered `claude-3-5-sonnet-latest` and `claude-3-opus` — an alias for a model Anthropic
+  has retired, and an id the API never had — and the price table stopped at those and `gpt-4o`, so a
+  project on any current model read `cost_usd = 0` and a warning per call. `plune init` now writes
+  `claude-sonnet-5-5` (the wizard offers OpenAI users `gpt-4o-mini`), and the table prices
+  `claude-fable-5-1`, `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-4-5` (and its dated id)
+  and OpenAI's `gpt-6-astra`, `gpt-6.1-sol` and `gpt-6-luna`, with the source and the date beside
+  them. The older ids keep their rows. The README example is on a current model, and the README says
+  to leave `temperature` out for Claude models released after Opus 4.6.
+
+### Fixed
+
+- **`plune run --dry-run` needs no provider key (#49).** A dry run only prices the run and never
+  touches the network, but it built its provider the way a real run does, and the provider's
+  constructor asks for a key: `Missing ANTHROPIC_API_KEY`, exit 2, from the command that is meant to
+  cost nothing. It now runs on a provider that can only estimate, and prices each row for the model
+  the config names — `pricing` in `plune.yaml` first, the built-in table second — exactly as a real
+  run would. With `PLUNE_MOCK_PROVIDER=1` the mock still answers, at zero, as before.
+
 ## [0.15.0] - 2026-09-29
 
 Also `@plune-ai/playwright` **0.3.0** - the adapter embeds `reporter-core`, where the upload below lives, and it
