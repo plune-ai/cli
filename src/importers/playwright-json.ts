@@ -13,7 +13,14 @@
  */
 
 import { existsSync } from 'node:fs';
-import { errorContextOf, failureOf, filesOf, repoRootOf, webLink } from '../reporter-core/failure-detail.js';
+import {
+  errorContextOf,
+  failureOf,
+  filesOf,
+  isTextType,
+  repoRootOf,
+  webLink,
+} from '../reporter-core/failure-detail.js';
 import { resultKey } from '../reporter-core/result-key.js';
 import type { DeclaredStep, FailedAttempt, KeyRef, PendingResult, ResultStatus } from '../reporter-core/types.js';
 
@@ -39,7 +46,8 @@ interface JsonResult {
   errors?: { message?: string; value?: string; location?: { file?: string; line?: number; column?: number } }[];
   /** The declared steps only — the report filters hooks, fixtures and actions out at every level. */
   steps?: JsonStep[];
-  attachments?: { name?: string; contentType?: string; path?: string }[];
+  /** `body` is base64, as Playwright's JSON reporter writes the bytes of an attachment that has no file. */
+  attachments?: { name?: string; contentType?: string; path?: string; body?: unknown }[];
 }
 interface JsonStep {
   title?: string;
@@ -112,10 +120,13 @@ function attemptOf(result: JsonResult, file: string, ctx: ReportContext): Failed
         : {}),
     })),
     steps: steps(result.steps),
-    attachments: (result.attachments ?? []).map(({ name, contentType, path }) => ({
+    attachments: (result.attachments ?? []).map(({ name, contentType, path, body }) => ({
       name: name ?? '',
       ...(contentType !== undefined ? { contentType } : {}),
       ...(path !== undefined ? { path } : {}),
+      // Decoded only where the platform would take it (plune-ai/plune#928): a report of screenshots kept as
+      // bodies is megabytes of base64 that nothing here will read.
+      ...(typeof body === 'string' && isTextType(contentType) ? { body: Buffer.from(body, 'base64') } : {}),
     })),
     ...(ctx.buildHref !== undefined ? { buildHref: ctx.buildHref } : {}),
     // Spec files are posix and relative to the root dir; the core reads either slash.

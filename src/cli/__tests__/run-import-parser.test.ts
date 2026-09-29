@@ -115,3 +115,128 @@ describe('plune run import --create, when the platform refuses the offer (cli#71
     expect(out).not.toContain('test case limit');
   });
 });
+
+/**
+ * plune-ai/plune#928, through the command line. `plune run import report.json` typed into the program the
+ * binary runs, answered by a platform on a real socket over the transport the binary uses: the JSON and the
+ * text a Playwright report keeps reach the platform's file route (`POST /v1/results/:id/files?name=`,
+ * platform ADR 0040) as the bytes and the type it reads — not as a fake `fetch` was told to expect them.
+ */
+interface Upload {
+  url: string;
+  type: string;
+  bytes: Buffer;
+}
+
+/**
+ * A platform that knows every test, stores every result under an id, and takes a file for its result as
+ * the route does — the bytes as the body, the type as the header. `refuse` answers every file with that.
+ */
+async function takingFiles(refuse?: { status: number; error: string }): Promise<{ url: string; uploads: Upload[] }> {
+  const uploads: Upload[] = [];
+  server = createServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (c: Buffer) => chunks.push(c));
+    req.on('end', () => {
+      const raw = Buffer.concat(chunks);
+      const reply = (status: number, payload: unknown): void => {
+        res.writeHead(status, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(payload));
+      };
+      const url = req.url ?? '';
+      // Before the JSON below: a file's body is its bytes.
+      if (/^\/v1\/results\/[^/]+\/files\?name=/.test(url)) {
+        uploads.push({ url, type: String(req.headers['content-type']), bytes: raw });
+        if (refuse !== undefined) return reply(refuse.status, { error: refuse.error });
+        return reply(201, { id: `f-${uploads.length}`, size: raw.length });
+      }
+      const body = raw.length === 0 ? {} : (JSON.parse(raw.toString('utf8')) as Record<string, unknown>);
+      if (url === '/v1/runs') return reply(201, { run: { id: 'r-9' }, joined: false });
+      if (url === '/v1/test-cases/resolve') {
+        const keys = (body['keys'] ?? []) as { value: string }[];
+        return reply(200, { results: keys.map((key) => ({ key, testCaseId: 'tc-1' })) });
+      }
+      if (url.endsWith('/results')) {
+        const results = (body['results'] ?? []) as { resultKey: string }[];
+        return reply(200, {
+          items: results.map((r, index) => ({ index, resultKey: r.resultKey, status: 'accepted', id: `res-${index}` })),
+          counts: { accepted: results.length, duplicate: 0, conflict: 0, rejected: 0 },
+        });
+      }
+      if (url.endsWith('/events')) return reply(200, { run: { id: 'r-9' }, changed: true });
+      return reply(500, { error: `unexpected ${url}` });
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, uploads };
+}
+
+describe('plune run import of a Playwright report that keeps text files (plune#928)', () => {
+  const LOG = 'GET /cart 200 привіт 日本語 😀\nGET /cart/pay 402\n';
+  /** A report of one passed test, keeping a JSON as a file and a log as a body — the two shapes `testInfo.attach` leaves. */
+  function reportKeeping(): string {
+    const kept = path.join(dir, 'api-response-1a2b.json');
+    fs.writeFileSync(kept, '{"items":[1,2,3],"ok":true}');
+    const file = path.join(dir, 'report.json');
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        config: {},
+        suites: [
+          {
+            title: 'a.spec.ts',
+            file: 'a.spec.ts',
+            specs: [
+              {
+                title: 'keeps what it saw',
+                file: 'a.spec.ts',
+                line: 1,
+                tests: [
+                  {
+                    id: 'id-1',
+                    results: [
+                      {
+                        status: 'passed',
+                        retry: 0,
+                        attachments: [
+                          { name: 'api-response', contentType: 'application/json', path: kept },
+                          { name: 'console.log', contentType: 'text/plain', body: Buffer.from(LOG).toString('base64') },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+      'utf8',
+    );
+    return file;
+  }
+
+  it('uploads them to the result, under their names, as the bytes and the types the platform reads', async () => {
+    const platform = await takingFiles();
+    vi.stubEnv('PLUNE_API_URL', platform.url);
+    await createProgram().parseAsync(['node', 'plune', 'run', 'import', reportKeeping()]);
+
+    expect([...platform.uploads].sort((a, b) => (a.url < b.url ? -1 : 1))).toEqual([
+      { url: '/v1/results/res-0/files?name=api-response.json', type: 'application/json', bytes: Buffer.from('{"items":[1,2,3],"ok":true}') },
+      { url: '/v1/results/res-0/files?name=console.log', type: 'text/plain', bytes: Buffer.from(LOG) },
+    ]);
+    expect(printed.join('')).toContain('2 text file(s) uploaded to their results.');
+  });
+
+  it('when the platform refuses them, says so and still imports — the run is not failed for a file', async () => {
+    const platform = await takingFiles({ status: 415, error: 'text is accepted as UTF-8 only' });
+    vi.stubEnv('PLUNE_API_URL', platform.url);
+    // A refused file makes no exit of its own: `process.exit` is a failure here, and it was not called.
+    await createProgram().parseAsync(['node', 'plune', 'run', 'import', reportKeeping()]);
+
+    const out = printed.join('');
+    expect(out).toContain('1 accepted, 0 already there, 0 unmatched, 0 not delivered.');
+    expect(out).toContain('could not upload a text file (text is accepted as UTF-8 only) — its result is reported without it.');
+    expect(out).toContain('0 text file(s) uploaded to their results, 2 could not be uploaded.');
+  });
+});
