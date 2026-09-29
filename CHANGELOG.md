@@ -11,6 +11,18 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Changed
+
+- **Every command reads `.env`, not only `run` and `report` (#46).** `plune run import`, `run start`,
+  `run finish`, `run exec`, `run delete`, `run report`, `sync`, `ingest`, `pull`, `push`, `plan grep`
+  and `login` never looked at a `.env`, so a `PLUNE_TOKEN` or `PLUNE_API_URL` written in one did not
+  exist for them — the demo project wrapped every script in `NODE_OPTIONS=--require=dotenv/config` to
+  get what `run` already had. There is one rule now, in the program and not in each command: the
+  `.env` beside the config named with `-c`, then the one in the current directory, are read before
+  the command looks at the environment. What is already exported wins over both files, and the
+  config's file wins over the directory's. With `-c`, `run` and `report` read the current directory's
+  file as well, where they read only the config's. The README says it in one paragraph.
+
 ### Fixed
 
 - **`plune run --dry-run` needs no provider key (#49).** A dry run only prices the run and never

@@ -77,6 +77,17 @@ provider API key is read from the environment based on `provider.type`:
 | OpenAI     | `openai`        | `OPENAI_API_KEY`     |
 | OpenRouter | `openrouter`    | `OPENROUTER_API_KEY` |
 
+### Where the CLI reads its settings
+
+Every command reads them the same way: from the environment first — what your shell or CI job
+exported — then from a `.env` beside the config you named with `-c`, then from a `.env` in the
+current directory. The first place that sets a variable wins, so a `.env` never overrides what is
+already exported. That covers the provider keys above and every `PLUNE_*` variable (`PLUNE_TOKEN`,
+`PLUNE_API_URL`, `PLUNE_RUN`, …) for `run`, `report`, `sync`, `ingest`, `login` and `run import`,
+`start` and `finish` alike — no `dotenv` wrapper in your scripts. The token `plune login` saved is
+the last resort, used only when `PLUNE_TOKEN` is set nowhere else. Nothing writes a `.env` for you;
+`plune init` writes `.env.example`.
+
 ### Assertion types
 
 | Type                  | Passes when…                                                     |

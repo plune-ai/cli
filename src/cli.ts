@@ -95,6 +95,19 @@ export function createProgram(): Command {
     .option('-v, --verbose', 'Verbose output, including stack traces on unexpected errors', false)
     .option('--no-color', 'Disable colored output regardless of TTY');
 
+  // ONE rule for every command (#46): the `.env` beside the config named with -c, then the one in
+  // the current directory, are read before the command looks at process.env. dotenv never
+  // overrides a variable that is already set, so what the shell exported beats both files and the
+  // config's file beats the directory's. It lives here and not in each action so that a command
+  // added tomorrow gets it too — and it runs only when an action is about to, so `--version`,
+  // `--help` and an unknown command never pay for it (cold start, above).
+  program.hook('preAction', async (_program, action) => {
+    const { loadEnv } = await import('./cli/env.js');
+    const { config } = action.optsWithGlobals() as { config?: string };
+    if (config !== undefined) loadEnv(dirname(resolve(config)));
+    loadEnv(process.cwd());
+  });
+
   const runCommand = program
     .command('run')
     .description('Run assertions against a dataset')
@@ -135,23 +148,18 @@ export function createProgram(): Command {
         const configPath = globals.config;
         // Lazy-load the heavy run pipeline only now that `run` is actually executing.
         const [
-          { loadEnv },
           { handleRun },
           { exitCodeFor, RunConfigError },
           { renderReport },
           { ConfigNotFoundError, ConfigValidationError, YamlParseError },
           { AuthError },
         ] = await Promise.all([
-          import('./cli/env.js'),
           import('./cli/commands/run.js'),
           import('./orchestrator/index.js'),
           import('./reporters/index.js'),
           import('./config/errors.js'),
           import('./providers/errors.js'),
         ]);
-        // Auto-load `.env` from the config's directory before the provider reads any API key
-        // (ADR-S10-02). Never overrides an already-exported variable; missing file is ignored.
-        loadEnv(configPath !== undefined ? dirname(resolve(configPath)) : process.cwd());
         try {
           const result = await handleRun({
             dryRun: options.dryRun,
@@ -381,15 +389,12 @@ export function createProgram(): Command {
         config?: string;
         verbose?: boolean;
       };
-      const [{ loadEnv }, { handleReport, ReportNotFoundError }, { renderReport }] =
-        await Promise.all([
-          import('./cli/env.js'),
-          import('./cli/commands/report.js'),
-          import('./reporters/index.js'),
-        ]);
+      const [{ handleReport, ReportNotFoundError }, { renderReport }] = await Promise.all([
+        import('./cli/commands/report.js'),
+        import('./reporters/index.js'),
+      ]);
       // A global -c points report at the run saved beside that config (its .plune/), not cwd.
       const cwd = globals.config !== undefined ? dirname(resolve(globals.config)) : process.cwd();
-      loadEnv(cwd);
       try {
         const result = handleReport({ cwd });
         const text = renderReport(result, toFormat(options.format), {
