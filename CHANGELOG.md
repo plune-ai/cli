@@ -23,6 +23,16 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   config's file wins over the directory's. With `-c`, `run` and `report` read the current directory's
   file as well, where they read only the config's. The README says it in one paragraph.
 
+- **`plune init` starts a project on a current model, and the run prices it (#48).** The template and
+  the wizard offered `claude-3-5-sonnet-latest` and `claude-3-opus` — an alias for a model Anthropic
+  has retired, and an id the API never had — and the price table stopped at those and `gpt-4o`, so a
+  project on any current model read `cost_usd = 0` and a warning per call. `plune init` now writes
+  `claude-sonnet-5-5` (the wizard offers OpenAI users `gpt-4o-mini`), and the table prices
+  `claude-fable-5-1`, `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-4-5` (and its dated id)
+  and OpenAI's `gpt-6-astra`, `gpt-6.1-sol` and `gpt-6-luna`, with the source and the date beside
+  them. The older ids keep their rows. The README example is on a current model, and the README says
+  to leave `temperature` out for Claude models released after Opus 4.6.
+
 ### Fixed
 
 - **`plune run --dry-run` needs no provider key (#49).** A dry run only prices the run and never

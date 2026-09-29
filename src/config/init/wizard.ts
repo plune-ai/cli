@@ -25,7 +25,7 @@ export async function runInitWizard(cwd: string): Promise<void> {
     return;
   }
 
-  const defaultModel = provider === 'anthropic' ? 'claude-3-opus' : 'gpt-4o';
+  const defaultModel = provider === 'anthropic' ? 'claude-sonnet-5-5' : 'gpt-4o-mini';
 
   const model = await clack.text({
     message: 'Model name:',
