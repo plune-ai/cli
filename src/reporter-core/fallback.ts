@@ -29,10 +29,16 @@ export const DEFAULT_FALLBACK_PATH = path.join('.plune', 'pending-results.jsonl'
  * `meta` is where that run came from — the commit and branch, the CI run, the runner (plune-ai/plune#927).
  * Recorded so the run replay makes is the run the reporter would have made; replay reads it and nothing
  * else about the machine it runs on. A line written before the field existed has none.
+ *
+ * `session` marks the reporter session that wrote the line, made once by that session (plune-ai/cli#45).
+ * A run of 24 tests at a batch of 10 is three lines, and replay opens one run for the lines that share a
+ * marker rather than one for each. A line written before the field existed has none, and is one run's
+ * worth by itself — nothing in it says otherwise.
  */
 export interface DeferredBatch {
   runId: string | null;
   externalKey: string | null;
+  session?: string;
   meta?: RunMeta;
   results: DeferredResult[];
 }
@@ -54,6 +60,7 @@ export function appendBatch(file: string, batch: DeferredBatch): void {
     ts: new Date().toISOString(),
     runId: batch.runId,
     externalKey: batch.externalKey,
+    ...(batch.session !== undefined ? { session: batch.session } : {}),
     ...(batch.meta !== undefined ? { meta: batch.meta } : {}),
     results: batch.results,
   };

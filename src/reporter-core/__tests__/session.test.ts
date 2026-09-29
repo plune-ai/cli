@@ -700,6 +700,45 @@ describe('a deferred line says where its run came from (plune#927)', () => {
   });
 });
 
+/**
+ * plune-ai/cli#45. A reporter that cannot reach the platform writes one line per batch, and `plune run
+ * report` used to open a run for every one of them: a run of 24 tests at a batch of 10 became three open
+ * runs. The lines of one session are told apart from another's by a marker that session makes for itself.
+ */
+describe('every line a session defers carries its marker (cli#45)', () => {
+  /** Offline from the first call — no token — so the lines are written without a request being made. */
+  async function defers(...ids: string[]): Promise<Record<string, unknown>[]> {
+    const cfg = config(platform().fetchImpl, { token: '', batchSize: 1 });
+    const run = await startRun(cfg);
+    for (const id of ids) await run.add(result(id));
+    await run.flush();
+    return fs
+      .readFileSync(cfg.fallbackPath as string, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+  }
+
+  it('the same marker on every batch of one session', async () => {
+    const lines = await defers('a', 'b', 'c');
+
+    expect(lines).toHaveLength(3);
+    const [marker] = lines.map((line) => line['session']);
+    expect(typeof marker).toBe('string');
+    expect(marker).not.toBe('');
+    expect(lines.map((line) => line['session'])).toEqual([marker, marker, marker]);
+  });
+
+  it('another marker for another session, even in the same file', async () => {
+    const [first] = await defers('a');
+    // The file is the test's own and the second session appends to it: its line is the last.
+    const second = (await defers('a')).at(-1);
+
+    expect(second?.['session']).toEqual(expect.any(String));
+    expect(second?.['session']).not.toBe(first?.['session']);
+  });
+});
+
 describe('a refused token stops the asking (AC-06)', () => {
   it('says what to do once, and never calls again', async () => {
     const { seen, fetchImpl } = platform({

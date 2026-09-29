@@ -102,6 +102,33 @@ describe('fallback (AC-05)', () => {
     expect(without).not.toHaveProperty('meta');
   });
 
+  // plune-ai/cli#45. Every batch one reporter session defers carries that session's marker, so a replay
+  // can tell the batches of one run from the batches of another: 24 tests at a batch of 10 are three
+  // lines, and one run's worth.
+  it('records which reporter session wrote the batch, and no key for it when nobody says', () => {
+    const file = path.join(dir, 'pending.jsonl');
+    appendBatch(file, batch({ session: 's-1' }));
+    appendBatch(file, batch());
+
+    const [marked, unmarked] = lines(file) as Record<string, unknown>[];
+    expect(marked?.['session']).toBe('s-1');
+    expect(unmarked).not.toHaveProperty('session');
+  });
+
+  it('says no more about the connection when it says all it can: six fields, none of them a token', () => {
+    const file = path.join(dir, 'pending.jsonl');
+    appendBatch(file, batch({ session: 's-1', meta: { runner: 'playwright', sha: 'abc123' } }));
+
+    expect(Object.keys(lines(file)[0] as object).sort()).toEqual([
+      'externalKey',
+      'meta',
+      'results',
+      'runId',
+      'session',
+      'ts',
+    ]);
+  });
+
   it('defaults beside the run file the CLI already writes', () => {
     expect(DEFAULT_FALLBACK_PATH).toBe(path.join('.plune', 'pending-results.jsonl'));
   });

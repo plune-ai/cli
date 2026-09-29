@@ -11,6 +11,7 @@
 
 import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { resolveApiUrl, dashboardUrl } from '../api-url.js';
 import { loadToken } from '../credentials.js';
 import { createClient } from '../../reporter-core/client.js';
@@ -244,6 +245,14 @@ export interface ReportResult {
  * A line is replayed in whichever shape it was written. One that already has a run and resolved
  * results goes back to that run as it is; one that never reached the platform at all has to open a
  * run and look its tests up first — which is exactly what a session does, so it uses one.
+ *
+ * The lines one reporter session wrote are one run's worth, cut into batches by how the reporter sent
+ * them — 24 tests at a batch of 10 are three lines — so those that never reached a run open ONE, and
+ * leave it open once (plune-ai/cli#45). A line with no session marker is an older reporter's, and
+ * nothing in it says it belongs with the line beside it: it is a run of its own, as it always was.
+ *
+ * When everything went, the file is renamed beside itself (`pending-results.<time>.sent.jsonl`) so that
+ * a later replay does not send it all again; when anything did not, it stays exactly as it was.
  */
 export async function handleRunReport(options: ReportOptions = {}): Promise<ReportResult> {
   const file = options.file ?? DEFAULT_FALLBACK_PATH;
@@ -264,28 +273,47 @@ export async function handleRunReport(options: ReportOptions = {}): Promise<Repo
   const { client } = connect(options);
   const result: ReportResult = { batches: lines.length, sent: 0, failed: 0 };
 
+  // The lines of one session together, in the order each session first appears.
+  const groups: DeferredLine[][] = [];
+  const bySession = new Map<string, DeferredLine[]>();
   for (const line of lines) {
-    const pending = line.results.filter(isPending);
-    const ready = line.results.filter((r): r is ResultSubmission => !isPending(r));
+    const group = line.session === undefined ? undefined : bySession.get(line.session);
+    if (group !== undefined) {
+      group.push(line);
+      continue;
+    }
+    const alone = [line];
+    groups.push(alone);
+    if (line.session !== undefined) bySession.set(line.session, alone);
+  }
 
-    if (line.runId !== null && ready.length > 0) {
-      const out = await client.post(`/v1/runs/${line.runId}/results`, { results: ready });
-      if (out.ok) result.sent += ready.length;
-      else {
-        result.failed += ready.length;
-        write(`Could not send ${ready.length} result(s) to run ${line.runId} — ${out.detail || out.kind}.`);
+  for (const group of groups) {
+    for (const line of group) {
+      const ready = line.results.filter((r): r is ResultSubmission => !isPending(r));
+      if (line.runId !== null && ready.length > 0) {
+        const out = await client.post(`/v1/runs/${line.runId}/results`, { results: ready });
+        if (out.ok) result.sent += ready.length;
+        else {
+          result.failed += ready.length;
+          write(
+            `Could not send ${ready.length} result(s) to run ${line.runId} — ${out.detail || out.kind}.`,
+          );
+        }
       }
     }
 
+    const pending = group.flatMap((line) => line.results.filter(isPending));
     if (pending.length > 0) {
+      // The batches of one session share the run they belong to, so the first says which.
+      const first = group[0]!;
       // No run, or results that never got as far as a lookup: a session does the whole dance.
       const session = await startRun({
         ...(options.apiUrl !== undefined ? { apiUrl: options.apiUrl } : {}),
         ...(options.token !== undefined ? { token: options.token } : {}),
         ...(options.fetchImpl !== undefined ? { fetchImpl: options.fetchImpl } : {}),
-        ...(line.externalKey !== null ? { externalKey: line.externalKey } : {}),
+        ...(first.externalKey !== null ? { externalKey: first.externalKey } : {}),
         // Where the run came from, as the reporter recorded it (plune#927) — never this machine's own.
-        ...(line.meta !== undefined ? { meta: line.meta } : {}),
+        ...(first.meta !== undefined ? { meta: first.meta } : {}),
         // The replay does not know whether the run is complete, so it must not say that it is.
         log: write,
       });
@@ -296,8 +324,31 @@ export async function handleRunReport(options: ReportOptions = {}): Promise<Repo
     }
   }
 
-  // Kept, not deleted: a replay that partly failed must not be the reason the rest disappears.
-  // Removing it is the operator's call once the numbers say everything landed.
   write(`Replayed ${result.batches} batch(es) from ${file}: ${result.sent} sent, ${result.failed} not.`);
+
+  // Kept as it is when anything did not go: a replay that partly failed must not be the reason the rest
+  // disappears. Once everything has, it is set aside rather than left to be sent a second time — and
+  // renamed, not deleted, so that what was sent can still be read.
+  if (result.failed === 0) {
+    const sentAs = sentName(file, (options.now ?? Date.now)());
+    try {
+      fs.renameSync(file, sentAs);
+      write(
+        `Every result was sent — ${file} is now ${sentAs}, so a later replay does not send them twice.`,
+      );
+    } catch (err) {
+      // The results are delivered: not being able to say so on disk is not a failed replay.
+      const why = err instanceof Error ? err.message : String(err);
+      write(
+        `Every result was sent, but ${file} could not be renamed (${why}) — take it away by hand, or a later replay sends them again.`,
+      );
+    }
+  }
   return result;
+}
+
+/** `pending-results.jsonl` becomes `pending-results.2026-09-29T21-05-33-123Z.sent.jsonl`, beside it. */
+function sentName(file: string, at: number): string {
+  const { dir, name, ext } = path.parse(file);
+  return path.join(dir, `${name}.${new Date(at).toISOString().replace(/[:.]/g, '-')}.sent${ext}`);
 }

@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { promises as disk } from 'node:fs';
 import { basename, extname } from 'node:path';
 import { resolveApiUrl } from '../cli/api-url.js';
@@ -255,6 +255,8 @@ export async function startRun(
   const log = cfg.log ?? ((line: string) => void process.stderr.write(`${line}\n`));
   const fallbackPath = cfg.fallbackPath ?? DEFAULT_FALLBACK_PATH;
   const externalKey = cfg.externalKey ?? null;
+  /** Made once, and written on every line this session defers: what tells `plune run report` that they are one run's (cli#45). */
+  const sessionMarker = randomUUID();
   const batchSize = Math.min(cfg.batchSize ?? BATCH_DEFAULT, BATCH_MAX);
   const offerDiscovered = cfg.offerDiscovered ?? false;
 
@@ -329,6 +331,7 @@ export async function startRun(
     appendBatch(fallbackPath, {
       runId,
       externalKey,
+      session: sessionMarker,
       ...(cfg.meta !== undefined ? { meta: cfg.meta } : {}),
       results,
     });

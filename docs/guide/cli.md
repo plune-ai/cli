@@ -133,8 +133,17 @@ run is still a finished one, and leaving it open would say "we never found out".
 
 **`report`** replays `.plune/pending-results.jsonl`, which the reporter writes when the platform
 was unreachable, the token was refused, or the run was already closed. Without it "nothing is
-lost" would only mean the results are on disk in a shape nothing reads. The file is **not deleted**
-after a replay: a partly failed send must not be the reason the rest disappears.
+lost" would only mean the results are on disk in a shape nothing reads.
+
+The lines one reporter run wrote are **one run** when replayed. A hundred tests sent in batches of
+thirty are four lines, and `report` opens one run for them, not four — with the commit and branch
+the reporter recorded, not those of the job that replays them. A file an older reporter wrote,
+whose lines carry no mark of the run they belong to, replays one run to a line, as it always did.
+
+When every result has gone, the file is renamed to `pending-results.<time>.sent.jsonl` beside it,
+so that a second `plune run report` does not send it all again. It is set aside, **not deleted**.
+When anything did not go, the file stays exactly as it was: a partly failed send must not be the
+reason the rest disappears.
 
 `--json` on `start` prints one machine-readable line, for a CI step that needs the id.
 

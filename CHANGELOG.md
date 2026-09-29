@@ -97,6 +97,17 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   to delete cases or ask an operator to raise it; anything else — a throttle, an outage, a run that is
   not there — points at the `could not offer` line above and advises nothing.
 
+- **`plune run report` opens one run for the batches of one reporter run, and sets the file aside once
+  everything has been sent (plune-ai/cli#45).** It opened a run for every line of
+  `.plune/pending-results.jsonl` whose results never reached one, and a run sent in batches is several
+  lines — 24 tests at a batch of 10 came back as three runs, each holding a part of the results and none
+  of them the run. Every line the reporter writes now carries a marker made once per reporter session,
+  and the replay opens one run, and leaves it open, for the lines that share a marker. A file written
+  before this has no markers and replays one run to a line, as it did. When every result has been sent
+  the file is renamed to `pending-results.<time>.sent.jsonl` beside it, so that a second
+  `plune run report` does not send them all again; it is not deleted. When anything did not go, the file
+  stays exactly as it was.
+
 ## [0.15.0] - 2026-09-29
 
 Also `@plune-ai/playwright` **0.3.0** - the adapter embeds `reporter-core`, where the upload below lives, and it
