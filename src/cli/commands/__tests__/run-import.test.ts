@@ -94,9 +94,13 @@ const deps = (fetchImpl: typeof fetch) => ({
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plune-import-'));
   lines.length = 0;
+  // The run opens with the commit and branch of the CI it runs in (plune#927), so these tests are not
+  // to know which CI that is: on GitHub Actions every run here would open with the job's own.
+  for (const marker of ['GITHUB_ACTIONS', 'GITLAB_CI', 'JENKINS_URL']) vi.stubEnv(marker, '');
 });
 afterEach(() => {
   fs.rmSync(dir, { recursive: true, force: true });
+  vi.unstubAllEnvs();
 });
 
 describe('plune run import', () => {
@@ -297,8 +301,23 @@ describe('plune run import', () => {
       return `<testsuites><testsuite name="big" timestamp="2026-09-09T10:00:00.000Z" file="tests/big.spec.ts">${cases}</testsuite></testsuites>`;
     };
 
-    /** Nothing resolves, and the queue accepts one batch of offers before it is full. */
-    function fullQueue(acceptBatches: number) {
+    /**
+     * What the platform answers a refused offer with, word for word (`src/server/db/quota.ts`) — the
+     * queue's ceiling first, which is what this fake has always answered.
+     */
+    const QUEUE_FULL =
+      'review queue quota reached — at most 1000 items waiting. Approve or reject what is already in the queue to make room.';
+    const CASE_LIMIT =
+      'test case quota reached — at most 5000 cases per project. Delete cases you no longer need, or ask an operator to raise the limit.';
+
+    /**
+     * Nothing resolves, and the platform accepts `acceptBatches` batches of offers before it refuses
+     * the rest, as `refusal` says — a full queue unless told otherwise.
+     */
+    function fullQueue(
+      acceptBatches: number,
+      refusal: { status: number; error: string } = { status: 429, error: QUEUE_FULL },
+    ) {
       const seen: Seen[] = [];
       let offers = 0;
       const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
@@ -313,11 +332,7 @@ describe('plune run import', () => {
         }
         if (target === '/v1/review-items/discovered') {
           offers += 1;
-          if (offers > acceptBatches) {
-            return json(429, {
-              error: 'review queue quota reached — at most 1000 items waiting.',
-            });
-          }
+          if (offers > acceptBatches) return json(refusal.status, { error: refusal.error });
           const discovered = (body['discovered'] ?? []) as { keys: { value: string }[] }[];
           return json(200, {
             results: discovered.map((d) => ({ key: d.keys[0], outcome: 'queued', id: 'ri-1' })),
@@ -359,6 +374,60 @@ describe('plune run import', () => {
       expect(text).not.toContain('already in the review queue');
       expect(text).toContain('700');
       expect(text).toMatch(/import .* again|run .* again|again/i);
+    });
+
+    it('says the queue is full, with what to do about a queue, when the platform says the queue is', async () => {
+      const { fetchImpl } = fullQueue(0);
+      const out = await handleRunImport({
+        ...deps(fetchImpl),
+        file: write('big.xml', REPORT_OF(3)),
+        create: true,
+      });
+
+      expect(out).toMatchObject({ unoffered: 3, unofferedWhy: 'queue' });
+      expect(lines).toContain(
+        '3 more could not be offered — the review queue is full. Approve or reject what is waiting, then import this report again to offer the rest.',
+      );
+    });
+
+    /**
+     * plune-ai/cli#71. The line said the queue was full for every refusal — under the platform's own
+     * line saying the project had reached its case limit, where emptying a queue helps nothing:
+     * approving an entry makes a case, and the platform refuses that the same way.
+     */
+    it('at the case limit says so, and what to do about cases — not that the queue is full', async () => {
+      const { fetchImpl } = fullQueue(0, { status: 429, error: CASE_LIMIT });
+      const out = await handleRunImport({
+        ...deps(fetchImpl),
+        file: write('big.xml', REPORT_OF(3)),
+        create: true,
+      });
+
+      expect(out).toMatchObject({ unoffered: 3, unofferedWhy: 'cases' });
+      expect(lines.join('\n')).not.toContain('the review queue is full');
+      expect(lines).toContain(
+        '3 more could not be offered — the project is at its test case limit. Delete cases you no longer need, or ask an operator to raise the limit, then import this report again to offer the rest.',
+      );
+      // Above it, the platform's own words, which name the limit.
+      expect(lines.join('\n')).toContain(
+        `could not offer 3 unknown test(s) for review (${CASE_LIMIT})`,
+      );
+    });
+
+    it('for any other reason points at the reason above, and advises nothing about a queue or cases', async () => {
+      const { fetchImpl } = fullQueue(0, { status: 404, error: "no run 'r-9' — check the id" });
+      const out = await handleRunImport({
+        ...deps(fetchImpl),
+        file: write('big.xml', REPORT_OF(3)),
+        create: true,
+      });
+
+      expect(out).toMatchObject({ unoffered: 3, unofferedWhy: 'other' });
+      expect(lines).toContain(
+        '3 more could not be offered — the reason is in the "could not offer" line above.',
+      );
+      expect(lines.join('\n')).not.toContain('the review queue is full');
+      expect(lines.join('\n')).not.toContain('test case limit');
     });
 
     it('shows the suite moving while a long import is under way', async () => {
@@ -492,6 +561,144 @@ describe('plune run import', () => {
 
       expect(seen.find((s) => s.path === '/v1/runs')?.body['meta']).toEqual({ runner: 'playwright-json' });
       expect(out.runId).toBe('r-9');
+    });
+  });
+
+  /**
+   * plune-ai/plune#927. The run opens with the commit and branch it ran at, read from the CI's own
+   * variables — as `@plune-ai/playwright` reads them, and from the report's when it names a commit:
+   * whoever imports may be another job, and this job's branch is not that commit's.
+   */
+  describe('the commit and branch the run opens with (plune#927)', () => {
+    const SHA = '0123456789abcdef0123456789abcdef01234567';
+    const OTHER = 'fedcba9876543210fedcba9876543210fedcba98';
+    const BUILD = 'https://github.com/acme/shop/actions/runs/42';
+    /** Playwright's report of a run under GitHub Actions: a commit, and no branch. */
+    const playwrightReport = (commitHash: string) =>
+      JSON.stringify({
+        config: {
+          rootDir: '/nowhere/here',
+          metadata: {
+            ci: {
+              commitHref: `https://github.com/acme/shop/commit/${commitHash}`,
+              commitHash,
+              buildHref: BUILD,
+            },
+          },
+        },
+        suites: [
+          {
+            title: 'a.spec.ts',
+            file: 'a.spec.ts',
+            specs: [
+              {
+                title: 't',
+                file: 'a.spec.ts',
+                line: 1,
+                tests: [{ id: 'id-1', results: [{ status: 'passed', retry: 0 }] }],
+              },
+            ],
+          },
+        ],
+      });
+    const environment = (vars: Record<string, string>): void => {
+      for (const [name, value] of Object.entries(vars)) vi.stubEnv(name, value);
+    };
+    const opensWith = async (name: string, text: string): Promise<unknown> => {
+      const { seen, fetchImpl } = platform();
+      await handleRunImport({ ...deps(fetchImpl), file: write(name, text) });
+      return seen.find((s) => s.path === '/v1/runs')?.body['meta'];
+    };
+
+    it('on a GitHub push: GITHUB_SHA, and the ref name as the branch', async () => {
+      environment({
+        GITHUB_ACTIONS: 'true',
+        GITHUB_SHA: SHA,
+        GITHUB_HEAD_REF: '',
+        GITHUB_REF_NAME: 'main',
+      });
+
+      expect(await opensWith('results.xml', REPORT)).toEqual({
+        runner: 'junit',
+        sha: SHA,
+        branch: 'main',
+      });
+    });
+
+    it('on a GitHub pull request: the pull request’s own branch, not "12/merge"', async () => {
+      environment({
+        GITHUB_ACTIONS: 'true',
+        GITHUB_SHA: SHA,
+        GITHUB_HEAD_REF: 'feat/panel',
+        GITHUB_REF_NAME: '12/merge',
+      });
+
+      expect(await opensWith('results.xml', REPORT)).toEqual({
+        runner: 'junit',
+        sha: SHA,
+        branch: 'feat/panel',
+      });
+    });
+
+    it('on GitLab: CI_COMMIT_SHA and CI_COMMIT_REF_NAME', async () => {
+      environment({ GITLAB_CI: 'true', CI_COMMIT_SHA: SHA, CI_COMMIT_REF_NAME: 'release/1.4' });
+
+      expect(await opensWith('results.xml', REPORT)).toEqual({
+        runner: 'junit',
+        sha: SHA,
+        branch: 'release/1.4',
+      });
+    });
+
+    it('on Jenkins: GIT_COMMIT and GIT_BRANCH', async () => {
+      environment({
+        JENKINS_URL: 'https://ci.acme.test/',
+        GIT_COMMIT: SHA,
+        GIT_BRANCH: 'origin/main',
+      });
+
+      expect(await opensWith('results.xml', REPORT)).toEqual({
+        runner: 'junit',
+        sha: SHA,
+        branch: 'origin/main',
+      });
+    });
+
+    it('outside a CI: the format and nothing else — a stray GIT_COMMIT is not a commit', async () => {
+      environment({ GIT_COMMIT: SHA, GIT_BRANCH: 'main' });
+
+      expect(await opensWith('results.xml', REPORT)).toEqual({ runner: 'junit' });
+    });
+
+    it('a Playwright report of this very commit: the commit it names, and this job’s branch — GitHub gives the report none', async () => {
+      environment({
+        GITHUB_ACTIONS: 'true',
+        GITHUB_SHA: SHA,
+        GITHUB_HEAD_REF: '',
+        GITHUB_REF_NAME: 'main',
+      });
+
+      expect(await opensWith('report.json', playwrightReport(SHA))).toEqual({
+        runner: 'playwright-json',
+        ciUrl: BUILD,
+        sha: SHA,
+        branch: 'main',
+      });
+    });
+
+    it('a Playwright report another job wrote: its own commit, and no branch that belongs to this job’s', async () => {
+      environment({
+        GITHUB_ACTIONS: 'true',
+        GITHUB_SHA: SHA,
+        GITHUB_HEAD_REF: '',
+        GITHUB_REF_NAME: 'main',
+      });
+
+      expect(await opensWith('report.json', playwrightReport(OTHER))).toEqual({
+        runner: 'playwright-json',
+        ciUrl: BUILD,
+        sha: OTHER,
+      });
     });
   });
 

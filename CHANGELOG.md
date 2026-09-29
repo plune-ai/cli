@@ -22,6 +22,28 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   reporter reads it; from any other runner's report it is read from the whole name, which is all that
   report holds.
 
+- **A run says where it ran: the commit and the branch (plune-ai/plune#927).** `@plune-ai/playwright` and
+  `plune run import` open the run with `meta.sha` and `meta.branch` beside the `runner` and `ciUrl` they
+  already sent, so the platform's run panel has something to show; until now no client sent either.
+  - The reporter takes the commit from `metadata.ci.commitHash`, which Playwright writes itself, and the
+    branch from `metadata.ci.branch` (GitLab, Jenkins). Playwright gives no branch on GitHub Actions, so
+    there it is `GITHUB_HEAD_REF` — the pull request's own branch — and, when that is empty, as on a
+    push, `GITHUB_REF_NAME`.
+  - `plune run import` reads the same from the job's variables: `GITHUB_SHA`; `CI_COMMIT_SHA` and
+    `CI_COMMIT_REF_NAME`; `GIT_COMMIT` and `GIT_BRANCH` — each set only where its CI is recognised
+    (`GITHUB_ACTIONS`, `GITLAB_CI`, `JENKINS_URL`), so a stray `GIT_COMMIT` on a laptop is no commit. A
+    Playwright JSON report that names a commit gives that one, as it gives the CI run: whoever imports
+    may be another job, and its branch is not that commit's — so such a report gets its own commit and
+    no branch of the importing job's.
+  - Outside a CI both are absent: nothing is guessed. On GitHub a pull request's commit is the one
+    GitHub merged for the checks (`GITHUB_SHA`), which is what the tests ran on.
+  - A batch the platform did not take now records the run's `meta` on its line of
+    `.plune/pending-results.jsonl`, and `plune run report` opens the run it has to make with it — the
+    replayed run keeps its commit, branch, CI link and runner, and takes nothing from the machine that
+    replays. A line written before this has none, and gets none.
+  - `ciCommit(reported?, env?)` is exported from `@plune-ai/cli/reporter-core` for an adapter that reads
+    its runner's record of the CI.
+
 ### Changed
 
 - **Every command reads `.env`, not only `run` and `report` (#46).** `plune run import`, `run start`,
@@ -64,6 +86,27 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   `classname` is not a spec file's name, keeps `classname#name` as before. A case an earlier import
   created from such a report carries the old key, so its test is offered to the review queue once more;
   the reporter and the JSON import are not affected.
+
+- **`plune run import --create` no longer says the review queue is full when something else refused
+  the offer (plune-ai/cli#71).** The last line about tests that could not be offered was the same for
+  every refusal, so under the platform's own line saying the project had reached its case limit it told
+  people to approve or reject what was waiting — which frees nothing, since approving makes a case and
+  the platform refuses that the same way. The core now records why an offer was refused, told apart by
+  the platform's own words on a 429 (`RunStats.unofferedWhy`: `queue`, `cases` or `other`), and the line
+  follows it: a full queue keeps its advice; the case limit says the project is at its test case limit,
+  to delete cases or ask an operator to raise it; anything else — a throttle, an outage, a run that is
+  not there — points at the `could not offer` line above and advises nothing.
+
+- **`plune run report` opens one run for the batches of one reporter run, and sets the file aside once
+  everything has been sent (plune-ai/cli#45).** It opened a run for every line of
+  `.plune/pending-results.jsonl` whose results never reached one, and a run sent in batches is several
+  lines — 24 tests at a batch of 10 came back as three runs, each holding a part of the results and none
+  of them the run. Every line the reporter writes now carries a marker made once per reporter session,
+  and the replay opens one run, and leaves it open, for the lines that share a marker. A file written
+  before this has no markers and replays one run to a line, as it did. When every result has been sent
+  the file is renamed to `pending-results.<time>.sent.jsonl` beside it, so that a second
+  `plune run report` does not send them all again; it is not deleted. When anything did not go, the file
+  stays exactly as it was.
 
 ## [0.15.0] - 2026-09-29
 

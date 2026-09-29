@@ -1,5 +1,5 @@
 import * as path from 'node:path';
-import type { ReporterConfig } from './types.js';
+import type { ReporterConfig, RunMeta } from './types.js';
 
 /**
  * What a CI job can tell the reporter without editing a config file.
@@ -134,4 +134,57 @@ export function defaultRunTitle(
     `${two(now.getHours())}:${two(now.getMinutes())}`;
   const where = flag(env, 'CI') || flag(env, 'GITHUB_ACTIONS') ? 'ci' : 'local';
   return `${path.basename(cwd)} · ${stamp} · ${where}`;
+}
+
+/**
+ * Where a CI job says its commit and its branch are: the variables of the three CIs Playwright's own
+ * `metadata.ci` knows (`ciInfo()`), each found the way Playwright finds it. A variable counts only in a
+ * job that says which CI it is (`GITHUB_ACTIONS`, `GITLAB_CI`, `JENKINS_URL`): `GIT_COMMIT` and
+ * `GIT_BRANCH` are names any tool uses, and a laptop that exports them is not running a build.
+ *
+ * On GitHub a pull request's branch is `GITHUB_HEAD_REF`, which a push leaves empty — the branch is then
+ * the ref name; a pull request's `GITHUB_REF_NAME` is `12/merge`. Its `GITHUB_SHA` is the commit GitHub
+ * merged to run the checks on, which is what ran, and so what is reported.
+ */
+const PROVIDERS = [
+  { is: 'GITHUB_ACTIONS', sha: 'GITHUB_SHA', branch: ['GITHUB_HEAD_REF', 'GITHUB_REF_NAME'] },
+  { is: 'GITLAB_CI', sha: 'CI_COMMIT_SHA', branch: ['CI_COMMIT_REF_NAME'] },
+  { is: 'JENKINS_URL', sha: 'GIT_COMMIT', branch: ['GIT_BRANCH'] },
+] as const;
+
+/**
+ * The commit and the branch a run belongs to (plune-ai/plune#927), for `meta.sha` and `meta.branch`.
+ *
+ * `reported` is what the runner said about its CI — Playwright's `metadata.ci`, or the copy of it in
+ * its JSON report — and outranks the job's variables: it is a project's own word where the CI is one
+ * Playwright does not know, and it is where the tests ran when another job imports the report. So a
+ * report naming a commit other than this job's gets that commit and no branch of this job's: half of
+ * each would be a commit on a branch it is not on. Playwright gives no branch on GitHub at all, which
+ * is why the job's variables are read there.
+ *
+ * Each field is present only when something said it: outside a CI there is nothing to say, and nothing
+ * is guessed.
+ */
+export function ciCommit(
+  reported?: unknown,
+  env: NodeJS.ProcessEnv = process.env,
+): Pick<RunMeta, 'sha' | 'branch'> {
+  const said =
+    typeof reported === 'object' && reported !== null ? (reported as Record<string, unknown>) : {};
+  const text = (raw: unknown): string | undefined =>
+    typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : undefined;
+  const provider = PROVIDERS.find((p) => value(env, p.is) !== undefined);
+  const job = {
+    sha: provider === undefined ? undefined : value(env, provider.sha),
+    branch: provider?.branch.map((name) => value(env, name)).find((v) => v !== undefined),
+  };
+
+  const sha = text(said['commitHash']);
+  const sameCommit = sha === undefined || sha === job.sha;
+  const commit = sha ?? job.sha;
+  const branch = text(said['branch']) ?? (sameCommit ? job.branch : undefined);
+  return {
+    ...(commit !== undefined ? { sha: commit } : {}),
+    ...(branch !== undefined ? { branch } : {}),
+  };
 }

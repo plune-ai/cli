@@ -65,7 +65,10 @@ interface JsonSuite {
   suites?: JsonSuite[];
 }
 interface JsonReport {
-  config?: { rootDir?: string; metadata?: { ci?: { buildHref?: string } } };
+  config?: {
+    rootDir?: string;
+    metadata?: { ci?: { buildHref?: string; commitHash?: string; branch?: string } };
+  };
   suites: JsonSuite[];
 }
 
@@ -202,9 +205,13 @@ function walk(suite: JsonSuite, describes: string[], depth: number, ctx: ReportC
 /**
  * Read a Playwright JSON report: its results, and the CI run that wrote it (`metadata.ci.buildHref`,
  * an http(s) address or nothing) for the run to open with — from the report, never from the machine
- * that imports it (#790 AC-04b).
+ * that imports it (#790 AC-04b). Its `metadata.ci` goes up as written, for the commit and branch the
+ * run opens with (plune-ai/plune#927): the record is Playwright's, and `ciCommit` reads what it needs.
  */
-export function readPlaywrightJson(source: string, file: string): { results: PendingResult[]; ciUrl?: string } {
+export function readPlaywrightJson(
+  source: string,
+  file: string,
+): { results: PendingResult[]; ciUrl?: string; ci?: unknown } {
   let parsed: unknown;
   try {
     parsed = JSON.parse(source);
@@ -228,7 +235,12 @@ export function readPlaywrightJson(source: string, file: string): { results: Pen
   const out: PendingResult[] = [];
   for (const suite of suites) walk(suite, [], 0, ctx, out);
   const ciUrl = webLink(ctx.buildHref);
-  return ciUrl === undefined ? { results: out } : { results: out, ciUrl };
+  const ci: unknown = config?.metadata?.ci;
+  return {
+    results: out,
+    ...(ciUrl !== undefined ? { ciUrl } : {}),
+    ...(ci !== undefined ? { ci } : {}),
+  };
 }
 
 /**

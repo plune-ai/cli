@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawn } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
 import * as fs from 'node:fs';
@@ -50,10 +50,11 @@ interface Stub {
 
 /**
  * A stub that speaks the platform's shapes and keeps what it got; `refuseResults` answers every results
- * batch 413, and `answerAfterMs` answers each batch that much later. A result counts as stored when it
- * is answered, and a batch or a file arriving after the run closed is refused 409 — as the platform does.
+ * batch 413, `answerAfterMs` answers each batch that much later, and `refuseStart` answers every request
+ * to open a run 503. A result counts as stored when it is answered, and a batch or a file arriving after
+ * the run closed is refused 409 — as the platform does.
  */
-async function stub(refuseResults: boolean, answerAfterMs = 0): Promise<Stub> {
+async function stub(refuseResults: boolean, answerAfterMs = 0, refuseStart = false): Promise<Stub> {
   const received: Received[] = [];
   let answered = 0;
   let answeredAtClose: number | null = null;
@@ -78,7 +79,10 @@ async function stub(refuseResults: boolean, answerAfterMs = 0): Promise<Stub> {
       const body = raw.length === 0 ? {} : (JSON.parse(raw.toString('utf8')) as Record<string, unknown>);
       received.push({ path: url, body });
 
-      if (url === '/v1/runs') return json({ run: { id: 'r-e2e' }, joined: false }, 201);
+      if (url === '/v1/runs') {
+        if (refuseStart) return json({ error: 'the platform is down' }, 503);
+        return json({ run: { id: 'r-e2e' }, joined: false }, 201);
+      }
       if (url === '/v1/test-cases/resolve') {
         const keys = (body['keys'] ?? []) as { value: string }[];
         // Every key resolves, so nothing is dropped for a reason unrelated to what is being tested.
@@ -114,16 +118,17 @@ async function stub(refuseResults: boolean, answerAfterMs = 0): Promise<Stub> {
 
 /**
  * Run the fixture project once against a stub; `refuseResults` answers every results batch 413, `args`
- * go to the runner as they are, `env` over the environment it inherits, and `answerAfterMs` delays
- * every results answer.
+ * go to the runner as they are, `env` over the environment it inherits, `answerAfterMs` delays every
+ * results answer, and `refuseStart` has the platform refuse to open a run at all.
  */
 async function runFixture(
   refuseResults: boolean,
   args: string[] = [],
   env: Record<string, string> = {},
   answerAfterMs = 0,
+  refuseStart = false,
 ): Promise<FixtureRun> {
-  const platform = await stub(refuseResults, answerAfterMs);
+  const platform = await stub(refuseResults, answerAfterMs, refuseStart);
   const fallback = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'plune-e2e-')), 'pending.jsonl');
 
   try {
@@ -169,6 +174,35 @@ async function importReport(
       child.on('error', reject);
     });
     return platform.received;
+  } finally {
+    platform.close();
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+}
+
+/** `plune run report` of a fallback file by the built CLI against a stub that works, in a job whose environment is `env`. */
+async function replayFallback(
+  file: string,
+  env: Record<string, string>,
+): Promise<{ received: Received[]; stdout: string }> {
+  const platform = await stub(false);
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'plune-replay-'));
+  try {
+    const stdout = await new Promise<string>((resolve, reject) => {
+      const child = spawn(process.execPath, [cli, 'run', 'report', '--file', file], {
+        cwd,
+        env: { ...process.env, ...env, PLUNE_API_URL: platform.url, PLUNE_TOKEN: 'stub-token' },
+      });
+      let out = '';
+      let stderr = '';
+      child.stdout.on('data', (c) => (out += String(c)));
+      child.stderr.on('data', (c) => (stderr += String(c)));
+      child.on('close', (code) =>
+        code === 0 ? resolve(out) : reject(new Error(`exit ${String(code)}: ${stderr}${out}`)),
+      );
+      child.on('error', reject);
+    });
+    return { received: platform.received, stdout };
   } finally {
     platform.close();
     fs.rmSync(cwd, { recursive: true, force: true });
@@ -323,12 +357,17 @@ describe('a screenshot a test kept reaches its result (plune#913)', () => {
  */
 describe('both roads link the run and its failure to the CI run that ran the tests (#790)', () => {
   const LINK = 'https://github.com/acme/shop/actions/runs/42';
+  const SHA = '0123456789abcdef0123456789abcdef01234567';
   const CI_RUN = {
     GITHUB_ACTIONS: 'true',
     GITHUB_SERVER_URL: 'https://github.com',
     GITHUB_REPOSITORY: 'acme/shop',
     GITHUB_RUN_ID: '42',
-    GITHUB_SHA: '0123456789abcdef0123456789abcdef01234567',
+    GITHUB_SHA: SHA,
+    // A push to main. Named here, not left to the environment this test runs in: on GitHub Actions
+    // that one has a branch of its own, and the run opens with whichever it is (plune#927).
+    GITHUB_HEAD_REF: '',
+    GITHUB_REF_NAME: 'main',
     // No pull request: with one, Playwright fetches its base commit to diff against.
     GITHUB_EVENT_PATH: '',
   };
@@ -340,7 +379,14 @@ describe('both roads link the run and its failure to the CI run that ran the tes
     const report = path.join(dir, 'report.json');
     try {
       live = (await runFixture(false, [], { ...CI_RUN, PLUNE_JSON_REPORT: report })).received;
-      imported = await importReport(report, { ...CI_RUN, GITHUB_REPOSITORY: 'acme/replay', GITHUB_RUN_ID: '7' });
+      // Another job, of another commit on another branch: what the report names is what ran.
+      imported = await importReport(report, {
+        ...CI_RUN,
+        GITHUB_REPOSITORY: 'acme/replay',
+        GITHUB_RUN_ID: '7',
+        GITHUB_SHA: 'fedcba9876543210fedcba9876543210fedcba98',
+        GITHUB_REF_NAME: 'some-other-branch',
+      });
     } finally {
       // The report holds the commit's author as git knows them — nothing to leave behind.
       fs.rmSync(dir, { recursive: true, force: true });
@@ -360,12 +406,20 @@ describe('both roads link the run and its failure to the CI run that ran the tes
       .find((r) => r.rawStatus === 'failed');
 
   it('the reporter opens the run with the CI run, and links the failure to it (AC-04)', () => {
-    expect(openedWith(live)).toEqual({ runner: 'playwright', ciUrl: LINK });
+    // With the commit the real Playwright wrote into `metadata.ci`, and the branch it never gives on
+    // GitHub — read from the job (plune#927).
+    expect(openedWith(live)).toEqual({
+      runner: 'playwright',
+      ciUrl: LINK,
+      sha: SHA,
+      branch: 'main',
+    });
     expect(failedIn(live)?.failure?.ciUrl).toBe(LINK);
   });
 
   it('an import in another job links to the CI run that wrote the report, not to its own (AC-04b)', () => {
-    expect(openedWith(imported)).toEqual({ runner: 'playwright-json', ciUrl: LINK });
+    // And names the commit the report names — with no branch, since the job it runs in is of another.
+    expect(openedWith(imported)).toEqual({ runner: 'playwright-json', ciUrl: LINK, sha: SHA });
     expect(failedIn(imported)?.failure?.ciUrl).toBe(LINK);
   });
 
@@ -435,5 +489,112 @@ describe('the JUnit road names each test the way the reporter does (cli#47, cli#
     const [title, ...more] = titlesSentTo42(imported);
     expect(title).toMatch(/cart › coupons › keeps its case when renamed @P42$/);
     expect(more).toEqual([]);
+  });
+});
+
+/**
+ * cli#45 and plune#927 on the real chain: the real runner, with the platform unwilling to open a run, writes
+ * the fallback file; the built `plune run report` replays it. A hundred results at a batch of thirty are four
+ * lines. They are one run — opened once, with the commit and branch the reporter's own job named rather than
+ * those of the job replaying them — and once every result has gone the file is set aside, not left to be sent
+ * a second time.
+ */
+describe('the lines of one reporter run replay as one run (cli#45, plune#927)', () => {
+  const SHA = '89abcdef0123456789abcdef0123456789abcdef';
+  /** A pull request's job: its branch is the head's, and `GITHUB_REF_NAME` names the merge ref. */
+  const REPORTING_JOB = {
+    GITHUB_ACTIONS: 'true',
+    GITHUB_SERVER_URL: 'https://github.com',
+    GITHUB_REPOSITORY: 'acme/shop',
+    GITHUB_RUN_ID: '43',
+    GITHUB_SHA: SHA,
+    GITHUB_HEAD_REF: 'feature/checkout',
+    GITHUB_REF_NAME: '12/merge',
+    // No event file: with a pull request in it, Playwright fetches its base commit to diff against.
+    GITHUB_EVENT_PATH: '',
+  };
+  /** What the reporter's job says the run is — and so what the replay has to open its run with. */
+  const META = {
+    runner: 'playwright',
+    ciUrl: 'https://github.com/acme/shop/actions/runs/43',
+    sha: SHA,
+    branch: 'feature/checkout',
+  };
+  let fallback = '';
+  let live: FixtureRun | undefined;
+  let lines: Record<string, unknown>[] = [];
+  let replay: { received: Received[]; stdout: string } | undefined;
+
+  beforeAll(async () => {
+    live = await runFixture(
+      false,
+      [],
+      { ...REPORTING_JOB, PLUNE_TEST_DIR: './many', PLUNE_BATCH_SIZE: '30' },
+      0,
+      true,
+    );
+    fallback = live.fallback;
+    lines = fs
+      .readFileSync(fallback, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    // Some other job, of another commit on another branch: what the lines name is what ran.
+    replay = await replayFallback(fallback, {
+      ...REPORTING_JOB,
+      GITHUB_RUN_ID: '9',
+      GITHUB_SHA: 'fedcba9876543210fedcba9876543210fedcba98',
+      GITHUB_HEAD_REF: 'unrelated',
+      GITHUB_REF_NAME: 'main',
+    });
+  }, 240_000);
+
+  afterAll(() => {
+    if (fallback !== '') fs.rmSync(path.dirname(fallback), { recursive: true, force: true });
+  });
+
+  const opened = (): Received[] => (replay?.received ?? []).filter((r) => r.path === '/v1/runs');
+
+  it('are written one line per batch, every one marked with the same session and naming where the run came from', () => {
+    expect(live?.received.filter((r) => r.path.endsWith('/results'))).toEqual([]);
+    expect(lines.map((line) => (line['results'] as unknown[]).length)).toEqual([30, 30, 30, 10]);
+    expect(lines.map((line) => line['runId'])).toEqual([null, null, null, null]);
+    expect(typeof lines[0]?.['session']).toBe('string');
+    expect(new Set(lines.map((line) => line['session'])).size).toBe(1);
+    for (const line of lines) expect(line['meta']).toEqual(META);
+  });
+
+  it('are one run when replayed, opened with what the reporter recorded and nothing of the job replaying them', () => {
+    expect(opened()).toHaveLength(1);
+    expect(opened()[0]?.body['externalKey']).toBe('e2e-fixture');
+    expect(opened()[0]?.body['meta']).toEqual(META);
+
+    const sent = (replay?.received ?? [])
+      .filter((r) => r.path.endsWith('/results'))
+      .flatMap((r) => (r.body['results'] ?? []) as unknown[]);
+    expect(sent).toHaveLength(100);
+    // Left open: a replay cannot know that the run it makes is the whole of it.
+    expect((replay?.received ?? []).filter((r) => r.path.endsWith('/events'))).toEqual([]);
+    expect(replay?.stdout).toContain('Replayed 4 batch(es)');
+    expect(replay?.stdout).toContain('100 sent, 0 not');
+  });
+
+  it('leave the file set aside once every result has gone, where it can still be read', () => {
+    expect(fs.existsSync(fallback)).toBe(false);
+
+    const dir = path.dirname(fallback);
+    const aside = fs
+      .readdirSync(dir)
+      .filter((name) =>
+        /^pending\.\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z\.sent\.jsonl$/.test(name),
+      );
+    expect(aside).toHaveLength(1);
+    expect(
+      fs
+        .readFileSync(path.join(dir, aside[0] ?? ''), 'utf8')
+        .trim()
+        .split('\n'),
+    ).toHaveLength(4);
+    expect(replay?.stdout).toContain('Every result was sent');
   });
 });

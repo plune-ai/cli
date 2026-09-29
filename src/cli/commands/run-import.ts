@@ -15,7 +15,8 @@ import { readReport, type ImportFormat } from '../../importers/index.js';
 import { NoTokenError, RunCommandError, type RunCommandDeps } from './run-lifecycle.js';
 import { resolveApiUrl, dashboardUrl } from '../api-url.js';
 import { loadToken } from '../credentials.js';
-import { readEnv } from '../../reporter-core/env.js';
+import { ciCommit, readEnv } from '../../reporter-core/env.js';
+import type { UnofferedWhy } from '../../reporter-core/types.js';
 
 export interface ImportOptions extends RunCommandDeps {
   file: string;
@@ -40,8 +41,10 @@ export interface ImportResult {
   offered: number;
   /** Offered tests the platform made cases of outright, because the project trusts this source. */
   created: number;
-  /** Unmatched tests the queue had no room for — the work a second import still has to do. */
+  /** Unmatched tests the platform would not take — the work a second import still has to do. */
   unoffered: number;
+  /** Why, when there are any: the review queue is full, the project is at its case limit, or another reason. */
+  unofferedWhy?: UnofferedWhy;
   deferred: number;
   /** The screenshots the report's files hold, as they went to the accepted results (ADR 0040). */
   screenshots: { uploaded: number; skipped: number; failed: number };
@@ -70,7 +73,7 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
     throw new RunCommandError(`Cannot read ${options.file}.`);
   }
 
-  const { format, results, ciUrl } = readReport(source, options.file, options.format);
+  const { format, results, ciUrl, ci } = readReport(source, options.file, options.format);
   if (results.length === 0) {
     throw new RunCommandError(`No test cases in ${options.file} — it parsed, but there is nothing in it.`);
   }
@@ -89,7 +92,10 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
       ...(options.create === true ? { offerDiscovered: true } : {}),
       kind: 'automated',
       // The CI run the report names, never this machine's: whoever imports may be another job (#790).
-      meta: { runner: format, ...(ciUrl !== undefined ? { ciUrl } : {}) },
+      // The commit and branch likewise, where the report names a commit; a report that names none —
+      // JUnit's never does — takes this job's own, which is where the tests ran when import follows
+      // them in one job (plune-ai/plune#927).
+      meta: { runner: format, ...(ciUrl !== undefined ? { ciUrl } : {}), ...ciCommit(ci) },
       log: write,
     },
     // The file is the complete list of what ran, so the platform can resolve every test in one
@@ -121,6 +127,7 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
     offered: stats.offered,
     created: stats.created,
     unoffered: stats.unoffered,
+    ...(stats.unofferedWhy !== undefined ? { unofferedWhy: stats.unofferedWhy } : {}),
     deferred: stats.deferred,
     screenshots: { ...stats.screenshots },
     unlocatable: results.filter((r) => r.specRef === undefined).length,
@@ -129,6 +136,22 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
   for (const line of describe(result, apiUrl)) write(line);
   return result;
 }
+
+/**
+ * What to do about the tests that could not be offered, by what refused them (cli#71).
+ *
+ * A case limit is not a queue: approving an entry makes a case, and the platform refuses that the same
+ * way, so emptying the queue helps nothing — the way out is fewer cases or a higher limit, which is
+ * what the platform's own answer says too. For anything else the platform's reason is the line the
+ * session printed with the failure, and there is nothing to add to it that would not be a guess.
+ */
+const NEXT: Record<UnofferedWhy, string> = {
+  queue:
+    'the review queue is full. Approve or reject what is waiting, then import this report again to offer the rest.',
+  cases:
+    'the project is at its test case limit. Delete cases you no longer need, or ask an operator to raise the limit, then import this report again to offer the rest.',
+  other: 'the reason is in the "could not offer" line above.',
+};
 
 /** Where a person goes to look at what just landed. */
 function runUrl(apiUrl: string, id: string): string {
@@ -199,11 +222,12 @@ function describe(result: ImportResult, apiUrl: string): string[] {
   // still to do. A first import of a mature suite is bigger than the queue holds, so it stops
   // partway — and the number alone is not the message. Without the second sentence a person reads
   // "some did not fit", empties the queue, and never learns that the rest are waiting on a second
-  // import they were never asked for (#627).
+  // import they were never asked for (#627). What that sentence says is what refused them: advice
+  // about a queue, said over a project at its case limit, sent people to empty a queue that was not
+  // the problem (cli#71).
   if (result.unoffered > 0) {
     lines.push(
-      `${result.unoffered} more could not be offered — the review queue is full. Approve or reject ` +
-        'what is waiting, then import this report again to offer the rest.',
+      `${result.unoffered} more could not be offered — ${NEXT[result.unofferedWhy ?? 'other']}`,
     );
   }
   if (result.unlocatable > 0) {

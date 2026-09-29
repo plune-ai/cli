@@ -314,6 +314,17 @@ describe('a failed attempt in the report carries its failure detail (#790)', () 
     expect(refused.results[0]?.failure).not.toHaveProperty('ciUrl');
   });
 
+  // plune#927. The commit and branch the run opens with travel as the CI run does: the report's own
+  // word, whichever machine imports it. What is handed up is Playwright's `metadata.ci` as written.
+  it('hands up the runner’s own CI record too, for the commit and branch the run opens with (plune#927)', () => {
+    expect(readPlaywrightJson(report(), 'report.json').ci).toEqual({
+      buildHref: BUILD,
+      commitHash: 'abc',
+    });
+    // A report written on a laptop has none, and hands up nothing rather than an empty record.
+    expect(readPlaywrightJson('{"config":{},"suites":[]}', 'report.json')).not.toHaveProperty('ci');
+  });
+
   it('places a failure thrown outside the test’s own file where it was thrown', () => {
     const errors = [{ message: `Error: no test account\n    at Object.account (${at('e2e', 'helpers.ts')}:20:11)`, location: { file: at('e2e', 'helpers.ts'), line: 20, column: 11 } }];
     const [failed] = readPlaywrightJson(report({ errors }), 'report.json').results;
@@ -330,10 +341,16 @@ describe('a failed attempt in the report carries its failure detail (#790)', () 
     fs.mkdirSync(at('tests'));
     const source = fs.readFileSync(new URL('report.json', recorded), 'utf8').replaceAll('/repo', root.replaceAll('\\', '/'));
     const expected = JSON.parse(fs.readFileSync(new URL('expected.json', recorded), 'utf8')) as Record<string, { failure?: unknown; errorContext?: string }>;
-    const { results, ciUrl } = readPlaywrightJson(source, 'report.json');
+    const { results, ciUrl, ci } = readPlaywrightJson(source, 'report.json');
     expect(results.map((r) => r.title)).toEqual(Object.keys(expected));
     for (const r of results) expect({ failure: r.failure, errorContext: r.errorContext }, r.title).toEqual(expected[r.title]);
     expect(ciUrl).toBe(BUILD);
+    // The commit the recording's runner wrote (plune#927) — what a real 1.63 gives under GitHub: no branch.
+    expect(ci).toEqual({
+      commitHref: 'https://github.com/acme/shop/commit/0123456789abcdef0123456789abcdef01234567',
+      commitHash: '0123456789abcdef0123456789abcdef01234567',
+      buildHref: BUILD,
+    });
     // Not a baseline two roads could meet by both saying nothing: each code frame is there, its line marked.
     expect(expected['times out while a helper waits']?.errorContext).toContain('> 14 |   await request.get(url);');
     expect(expected['several soft assertions']?.errorContext).toContain("> 24 |       expect.soft('EUR', 'the currency').toBe('USD');");
