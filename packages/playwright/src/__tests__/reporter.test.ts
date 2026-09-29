@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import type { FullConfig, FullResult, Suite, TestCase, TestResult } from '@playwright/test/reporter';
 import type { PendingResult } from '@plune-ai/cli/reporter-core';
@@ -19,9 +19,10 @@ vi.mock('@plune-ai/cli/reporter-core', async () => {
     '@plune-ai/cli/reporter-core',
   );
   return {
-    // `resultKey` and `readEnv` are pure; stubbing them would test the stub.
+    // `resultKey`, `readEnv` and `ciCommit` are pure; stubbing them would test the stub.
     resultKey: actual.resultKey,
     readEnv: actual.readEnv,
+    ciCommit: actual.ciCommit,
     // The same for what the failure detail is made of (#790): the adapter's part is the attempt.
     errorContextOf: actual.errorContextOf,
     failureOf: actual.failureOf,
@@ -66,6 +67,12 @@ beforeEach(() => {
   addedAtClose.length = 0;
   addImpl = null;
   startThrows = false;
+  // The run opens with the commit and branch of the CI it runs in (plune#927), so these tests are
+  // not to know which CI that is: on GitHub Actions they would open every run with its own.
+  for (const marker of ['GITHUB_ACTIONS', 'GITLAB_CI', 'JENKINS_URL']) vi.stubEnv(marker, '');
+});
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 const fileSuite = { type: 'file', title: 'tests/cart.spec.ts', parent: undefined };
@@ -536,7 +543,13 @@ describe('what failed and where, from a recorded run (#790)', () => {
 
   it('opens the run with the CI run the git plugin wrote after onConfigure, and finds the root once (AC-04)', async () => {
     await replay();
-    expect(startConfigs[0]?.['meta']).toEqual({ runner: 'playwright', ciUrl: CI });
+    // With its commit too (plune#927): the same recording holds `commitHash`, and no branch — GitHub
+    // gives none, and there is no GitHub environment here to name one.
+    expect(startConfigs[0]?.['meta']).toEqual({
+      runner: 'playwright',
+      ciUrl: CI,
+      sha: recorded.ciAtBegin['commitHash'],
+    });
     expect(rootsAsked).toEqual([recorded.rootDir]);
   });
 
@@ -623,5 +636,108 @@ describe('what failed and where, from a recorded run (#790)', () => {
     const inHook = [{ title: 'Before Hooks', category: 'hook', error: { message: 'x' }, steps: [{ title: 'beforeEach hook', category: 'hook', error: { message: 'x' }, steps: [{ title: 'Log in', category: 'test.step', error: { message: 'x' }, steps: [] }] }] }];
     await run(new PluneReporter(), [fakeTest()], [fakeResult({ status: 'failed', errors: [{ message: 'Error: boom' }], steps: inHook })]);
     expect(added[0]?.failure).toEqual({ headline: 'Error: boom' });
+  });
+});
+
+/**
+ * plune-ai/plune#927. The run opens with the commit and the branch it ran at, so the panel of a run can
+ * say where it ran. The `ci` objects are what Playwright 1.63's `ciInfo()` builds under each CI's own
+ * variables (`lib/runner/index.js`): a commit and no branch on GitHub, both on GitLab and on Jenkins —
+ * where there is no `buildHref` either.
+ */
+describe('the commit and branch the run opens with (plune#927)', () => {
+  const SHA = '0123456789abcdef0123456789abcdef01234567';
+  const BUILD = 'https://github.com/acme/shop/actions/runs/42';
+  const onGitHub = {
+    commitHref: `https://github.com/acme/shop/commit/${SHA}`,
+    commitHash: SHA,
+    buildHref: BUILD,
+  };
+
+  /** One test reported with `ci` as `metadata.ci`, in a job whose environment is `vars`. */
+  async function metaOf(ci: unknown, vars: Record<string, string> = {}): Promise<unknown> {
+    for (const [name, value] of Object.entries(vars)) vi.stubEnv(name, value);
+    const config = {
+      shard: null,
+      metadata: ci === undefined ? {} : { ci },
+    } as unknown as FullConfig;
+    const reporter = new PluneReporter();
+    reporter.onConfigure(config);
+    reporter.onBegin(suiteOf(fakeTest()));
+    reporter.onTestEnd(fakeTest(), fakeResult());
+    await reporter.onEnd({} as FullResult);
+    return startConfigs[0]?.['meta'];
+  }
+
+  it('on a GitHub push: the commit Playwright wrote, and the ref name as the branch', async () => {
+    const vars = {
+      GITHUB_ACTIONS: 'true',
+      GITHUB_SHA: SHA,
+      GITHUB_HEAD_REF: '',
+      GITHUB_REF_NAME: 'main',
+    };
+
+    expect(await metaOf(onGitHub, vars)).toEqual({
+      runner: 'playwright',
+      ciUrl: BUILD,
+      sha: SHA,
+      branch: 'main',
+    });
+  });
+
+  it('on a GitHub pull request: the pull request’s own branch, not "12/merge"', async () => {
+    const pullRequest = {
+      ...onGitHub,
+      prHref: 'https://github.com/acme/shop/pull/12',
+      prTitle: 'A panel for a run',
+      prBaseHash: 'fedcba9876543210fedcba9876543210fedcba98',
+    };
+    const vars = {
+      GITHUB_ACTIONS: 'true',
+      GITHUB_SHA: SHA,
+      GITHUB_HEAD_REF: 'feat/panel',
+      GITHUB_REF_NAME: '12/merge',
+    };
+
+    expect(await metaOf(pullRequest, vars)).toEqual({
+      runner: 'playwright',
+      ciUrl: BUILD,
+      sha: SHA,
+      branch: 'feat/panel',
+    });
+  });
+
+  it('on GitLab: the commit and the branch Playwright wrote', async () => {
+    const onGitLab = {
+      commitHref: `https://gitlab.acme.test/acme/shop/-/commit/${SHA}`,
+      commitHash: SHA,
+      buildHref: 'https://gitlab.acme.test/acme/shop/-/jobs/7',
+      branch: 'release/1.4',
+    };
+
+    expect(await metaOf(onGitLab)).toEqual({
+      runner: 'playwright',
+      ciUrl: 'https://gitlab.acme.test/acme/shop/-/jobs/7',
+      sha: SHA,
+      branch: 'release/1.4',
+    });
+  });
+
+  it('on Jenkins: the commit and the branch, and no link — Playwright gives Jenkins none', async () => {
+    const onJenkins = {
+      commitHref: 'https://ci.acme.test/job/shop/9/',
+      commitHash: SHA,
+      branch: 'origin/main',
+    };
+
+    expect(await metaOf(onJenkins)).toEqual({
+      runner: 'playwright',
+      sha: SHA,
+      branch: 'origin/main',
+    });
+  });
+
+  it('outside a CI: the runner and nothing else — no commit is guessed', async () => {
+    expect(await metaOf(undefined)).toEqual({ runner: 'playwright' });
   });
 });

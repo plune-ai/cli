@@ -83,6 +83,25 @@ describe('fallback (AC-05)', () => {
     ]);
   });
 
+  // plune#927. The line holds who the run was — so the run a replay opens has the commit and branch the
+  // original would have. Nothing else about the connection: `meta` is where the run came from, not how
+  // it was reached.
+  it('records where the run came from, when the batch says, and no key for it when it does not', () => {
+    const file = path.join(dir, 'pending.jsonl');
+    const meta = {
+      runner: 'playwright',
+      ciUrl: 'https://ci.test/runs/1',
+      sha: 'abc123',
+      branch: 'main',
+    };
+    appendBatch(file, batch({ meta }));
+    appendBatch(file, batch());
+
+    const [withMeta, without] = lines(file) as Record<string, unknown>[];
+    expect(withMeta?.['meta']).toEqual(meta);
+    expect(without).not.toHaveProperty('meta');
+  });
+
   it('defaults beside the run file the CLI already writes', () => {
     expect(DEFAULT_FALLBACK_PATH).toBe(path.join('.plune', 'pending-results.jsonl'));
   });

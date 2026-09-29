@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { PendingResult, ResultSubmission } from './types.js';
+import type { PendingResult, ResultSubmission, RunMeta } from './types.js';
 
 /**
  * What ends up in a deferred batch.
@@ -25,10 +25,15 @@ export const DEFAULT_FALLBACK_PATH = path.join('.plune', 'pending-results.jsonl'
  *
  * `runId: null` is a real state, not a missing value — the platform was unreachable when the run
  * was supposed to be created, so these results have no run yet and replay has to make one.
+ *
+ * `meta` is where that run came from — the commit and branch, the CI run, the runner (plune-ai/plune#927).
+ * Recorded so the run replay makes is the run the reporter would have made; replay reads it and nothing
+ * else about the machine it runs on. A line written before the field existed has none.
  */
 export interface DeferredBatch {
   runId: string | null;
   externalKey: string | null;
+  meta?: RunMeta;
   results: DeferredResult[];
 }
 
@@ -49,6 +54,7 @@ export function appendBatch(file: string, batch: DeferredBatch): void {
     ts: new Date().toISOString(),
     runId: batch.runId,
     externalKey: batch.externalKey,
+    ...(batch.meta !== undefined ? { meta: batch.meta } : {}),
     results: batch.results,
   };
   fs.appendFileSync(file, `${JSON.stringify(line)}\n`, 'utf8');

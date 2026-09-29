@@ -323,12 +323,17 @@ describe('a screenshot a test kept reaches its result (plune#913)', () => {
  */
 describe('both roads link the run and its failure to the CI run that ran the tests (#790)', () => {
   const LINK = 'https://github.com/acme/shop/actions/runs/42';
+  const SHA = '0123456789abcdef0123456789abcdef01234567';
   const CI_RUN = {
     GITHUB_ACTIONS: 'true',
     GITHUB_SERVER_URL: 'https://github.com',
     GITHUB_REPOSITORY: 'acme/shop',
     GITHUB_RUN_ID: '42',
-    GITHUB_SHA: '0123456789abcdef0123456789abcdef01234567',
+    GITHUB_SHA: SHA,
+    // A push to main. Named here, not left to the environment this test runs in: on GitHub Actions
+    // that one has a branch of its own, and the run opens with whichever it is (plune#927).
+    GITHUB_HEAD_REF: '',
+    GITHUB_REF_NAME: 'main',
     // No pull request: with one, Playwright fetches its base commit to diff against.
     GITHUB_EVENT_PATH: '',
   };
@@ -340,7 +345,14 @@ describe('both roads link the run and its failure to the CI run that ran the tes
     const report = path.join(dir, 'report.json');
     try {
       live = (await runFixture(false, [], { ...CI_RUN, PLUNE_JSON_REPORT: report })).received;
-      imported = await importReport(report, { ...CI_RUN, GITHUB_REPOSITORY: 'acme/replay', GITHUB_RUN_ID: '7' });
+      // Another job, of another commit on another branch: what the report names is what ran.
+      imported = await importReport(report, {
+        ...CI_RUN,
+        GITHUB_REPOSITORY: 'acme/replay',
+        GITHUB_RUN_ID: '7',
+        GITHUB_SHA: 'fedcba9876543210fedcba9876543210fedcba98',
+        GITHUB_REF_NAME: 'some-other-branch',
+      });
     } finally {
       // The report holds the commit's author as git knows them — nothing to leave behind.
       fs.rmSync(dir, { recursive: true, force: true });
@@ -360,12 +372,20 @@ describe('both roads link the run and its failure to the CI run that ran the tes
       .find((r) => r.rawStatus === 'failed');
 
   it('the reporter opens the run with the CI run, and links the failure to it (AC-04)', () => {
-    expect(openedWith(live)).toEqual({ runner: 'playwright', ciUrl: LINK });
+    // With the commit the real Playwright wrote into `metadata.ci`, and the branch it never gives on
+    // GitHub — read from the job (plune#927).
+    expect(openedWith(live)).toEqual({
+      runner: 'playwright',
+      ciUrl: LINK,
+      sha: SHA,
+      branch: 'main',
+    });
     expect(failedIn(live)?.failure?.ciUrl).toBe(LINK);
   });
 
   it('an import in another job links to the CI run that wrote the report, not to its own (AC-04b)', () => {
-    expect(openedWith(imported)).toEqual({ runner: 'playwright-json', ciUrl: LINK });
+    // And names the commit the report names — with no branch, since the job it runs in is of another.
+    expect(openedWith(imported)).toEqual({ runner: 'playwright-json', ciUrl: LINK, sha: SHA });
     expect(failedIn(imported)?.failure?.ciUrl).toBe(LINK);
   });
 

@@ -312,7 +312,12 @@ export async function startRun(
   }
 
   function defer(results: DeferredResult[]): void {
-    appendBatch(fallbackPath, { runId, externalKey, results });
+    appendBatch(fallbackPath, {
+      runId,
+      externalKey,
+      ...(cfg.meta !== undefined ? { meta: cfg.meta } : {}),
+      results,
+    });
     stats.deferred += results.length;
   }
 

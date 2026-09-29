@@ -22,6 +22,28 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   reporter reads it; from any other runner's report it is read from the whole name, which is all that
   report holds.
 
+- **A run says where it ran: the commit and the branch (plune-ai/plune#927).** `@plune-ai/playwright` and
+  `plune run import` open the run with `meta.sha` and `meta.branch` beside the `runner` and `ciUrl` they
+  already sent, so the platform's run panel has something to show; until now no client sent either.
+  - The reporter takes the commit from `metadata.ci.commitHash`, which Playwright writes itself, and the
+    branch from `metadata.ci.branch` (GitLab, Jenkins). Playwright gives no branch on GitHub Actions, so
+    there it is `GITHUB_HEAD_REF` — the pull request's own branch — and, when that is empty, as on a
+    push, `GITHUB_REF_NAME`.
+  - `plune run import` reads the same from the job's variables: `GITHUB_SHA`; `CI_COMMIT_SHA` and
+    `CI_COMMIT_REF_NAME`; `GIT_COMMIT` and `GIT_BRANCH` — each set only where its CI is recognised
+    (`GITHUB_ACTIONS`, `GITLAB_CI`, `JENKINS_URL`), so a stray `GIT_COMMIT` on a laptop is no commit. A
+    Playwright JSON report that names a commit gives that one, as it gives the CI run: whoever imports
+    may be another job, and its branch is not that commit's — so such a report gets its own commit and
+    no branch of the importing job's.
+  - Outside a CI both are absent: nothing is guessed. On GitHub a pull request's commit is the one
+    GitHub merged for the checks (`GITHUB_SHA`), which is what the tests ran on.
+  - A batch the platform did not take now records the run's `meta` on its line of
+    `.plune/pending-results.jsonl`, and `plune run report` opens the run it has to make with it — the
+    replayed run keeps its commit, branch, CI link and runner, and takes nothing from the machine that
+    replays. A line written before this has none, and gets none.
+  - `ciCommit(reported?, env?)` is exported from `@plune-ai/cli/reporter-core` for an adapter that reads
+    its runner's record of the CI.
+
 ### Changed
 
 - **Every command reads `.env`, not only `run` and `report` (#46).** `plune run import`, `run start`,

@@ -15,7 +15,7 @@ import { resolveApiUrl, dashboardUrl } from '../api-url.js';
 import { loadToken } from '../credentials.js';
 import { createClient } from '../../reporter-core/client.js';
 import { defaultRunTitle, readEnv } from '../../reporter-core/env.js';
-import { DEFAULT_FALLBACK_PATH } from '../../reporter-core/fallback.js';
+import { DEFAULT_FALLBACK_PATH, type DeferredBatch } from '../../reporter-core/fallback.js';
 import { startRun } from '../../reporter-core/session.js';
 import type { PendingResult, ResultSubmission } from '../../reporter-core/types.js';
 
@@ -219,11 +219,8 @@ export async function handleRunExec(options: ExecOptions): Promise<number> {
   return code;
 }
 
-interface DeferredLine {
-  runId: string | null;
-  externalKey: string | null;
-  results: (ResultSubmission | PendingResult)[];
-}
+/** A line of the fallback file, as the reporter wrote it — the batch, whichever version wrote it. */
+type DeferredLine = DeferredBatch;
 
 const isPending = (r: ResultSubmission | PendingResult): r is PendingResult => 'keys' in r;
 
@@ -287,6 +284,8 @@ export async function handleRunReport(options: ReportOptions = {}): Promise<Repo
         ...(options.token !== undefined ? { token: options.token } : {}),
         ...(options.fetchImpl !== undefined ? { fetchImpl: options.fetchImpl } : {}),
         ...(line.externalKey !== null ? { externalKey: line.externalKey } : {}),
+        // Where the run came from, as the reporter recorded it (plune#927) — never this machine's own.
+        ...(line.meta !== undefined ? { meta: line.meta } : {}),
         // The replay does not know whether the run is complete, so it must not say that it is.
         log: write,
       });

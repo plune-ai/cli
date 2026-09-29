@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { defaultRunTitle, readEnv, UNSUPPORTED_VARS } from '../env.js';
+import { ciCommit, defaultRunTitle, readEnv, UNSUPPORTED_VARS } from '../env.js';
 
 const env = (vars: Record<string, string>): NodeJS.ProcessEnv => vars;
 
@@ -129,6 +129,132 @@ describe('PLUNE_FULL_RUN — the claim that this run is the whole suite (D20)', 
     // `0` in a matrix cell means off — and off is absent, so a committed `full: true` still wins.
     expect('full' in readEnv(env({ PLUNE_FULL_RUN: '0' })).config).toBe(false);
     expect('full' in readEnv(env({})).config).toBe(false);
+  });
+});
+
+/**
+ * plune-ai/plune#927. The panel of a run says where it ran: the branch and the commit. Neither
+ * reached the platform before, so every row read empty.
+ *
+ * The `ci` objects below are what Playwright 1.63's own `ciInfo()` builds (`lib/runner/index.js`): under
+ * GitHub Actions a commit and no branch, under GitLab and Jenkins both. The environments are each
+ * provider's own variables, and a pull request is told apart from a push the way GitHub tells them:
+ * `GITHUB_HEAD_REF` is the pull request's branch and empty on a push, where `GITHUB_REF_NAME` is it.
+ */
+describe('the commit and branch a CI job says it runs at (plune#927)', () => {
+  const SHA = '0123456789abcdef0123456789abcdef01234567';
+  const OTHER = 'fedcba9876543210fedcba9876543210fedcba98';
+  const github = (more: Record<string, string> = {}): NodeJS.ProcessEnv =>
+    env({ GITHUB_ACTIONS: 'true', GITHUB_SHA: SHA, ...more });
+  const playwrightOnGitHub = {
+    commitHref: `https://github.com/acme/shop/commit/${SHA}`,
+    commitHash: SHA,
+    buildHref: 'https://github.com/acme/shop/actions/runs/42',
+  };
+
+  it('reads a GitHub push: the commit, and the ref name as the branch', () => {
+    expect(ciCommit(undefined, github({ GITHUB_HEAD_REF: '', GITHUB_REF_NAME: 'main' }))).toEqual({
+      sha: SHA,
+      branch: 'main',
+    });
+  });
+
+  it('reads a GitHub pull request: the pull request’s own branch, not "12/merge"', () => {
+    expect(
+      ciCommit(undefined, github({ GITHUB_HEAD_REF: 'feat/panel', GITHUB_REF_NAME: '12/merge' })),
+    ).toEqual({
+      sha: SHA,
+      branch: 'feat/panel',
+    });
+  });
+
+  it('reads GitLab', () => {
+    expect(
+      ciCommit(
+        undefined,
+        env({ GITLAB_CI: 'true', CI_COMMIT_SHA: SHA, CI_COMMIT_REF_NAME: 'release/1.4' }),
+      ),
+    ).toEqual({ sha: SHA, branch: 'release/1.4' });
+  });
+
+  it('reads Jenkins', () => {
+    expect(
+      ciCommit(
+        undefined,
+        env({ JENKINS_URL: 'https://ci.acme.test/', GIT_COMMIT: SHA, GIT_BRANCH: 'origin/main' }),
+      ),
+    ).toEqual({ sha: SHA, branch: 'origin/main' });
+  });
+
+  // Where a variable is named the same everywhere (`GIT_COMMIT`), only the job saying which CI it is
+  // makes it a CI's: a laptop that exports one for some other tool is not running a build.
+  it('says nothing outside a CI — and does not make a commit of a stray variable', () => {
+    expect(ciCommit(undefined, env({}))).toEqual({});
+    expect(
+      ciCommit(
+        undefined,
+        env({ GIT_COMMIT: SHA, GIT_BRANCH: 'main', GITHUB_SHA: SHA, CI_COMMIT_SHA: SHA }),
+      ),
+    ).toEqual({});
+  });
+
+  it('takes the commit from what Playwright wrote, and the branch GitHub never gives from the job', () => {
+    expect(
+      ciCommit(
+        playwrightOnGitHub,
+        github({ GITHUB_HEAD_REF: 'feat/panel', GITHUB_REF_NAME: '12/merge' }),
+      ),
+    ).toEqual({
+      sha: SHA,
+      branch: 'feat/panel',
+    });
+    expect(ciCommit(playwrightOnGitHub, github({ GITHUB_REF_NAME: 'main' }))).toEqual({
+      sha: SHA,
+      branch: 'main',
+    });
+  });
+
+  it('keeps the branch Playwright wrote (GitLab, Jenkins), whatever the environment says', () => {
+    expect(
+      ciCommit(
+        { commitHash: SHA, branch: 'release/1.4' },
+        env({ GITLAB_CI: 'true', CI_COMMIT_SHA: SHA, CI_COMMIT_REF_NAME: 'somewhere-else' }),
+      ),
+    ).toEqual({ sha: SHA, branch: 'release/1.4' });
+  });
+
+  // A Playwright JSON report imported by another job: the report names the commit that ran, and this
+  // job's branch belongs to this job's commit. Half of each would be a commit on a branch it is not on.
+  it('gives a report another job wrote its own commit and no branch of this job’s', () => {
+    expect(
+      ciCommit(
+        { commitHash: OTHER },
+        github({ GITHUB_HEAD_REF: 'feat/panel', GITHUB_REF_NAME: '12/merge' }),
+      ),
+    ).toEqual({
+      sha: OTHER,
+    });
+  });
+
+  it('takes a commit a project wrote into `metadata.ci` itself, in a CI Playwright does not know', () => {
+    expect(ciCommit({ commitHash: SHA, branch: 'trunk' }, env({}))).toEqual({
+      sha: SHA,
+      branch: 'trunk',
+    });
+  });
+
+  it('ignores what is not a text, and trims what is', () => {
+    expect(ciCommit({ commitHash: 42, branch: '  ' }, env({}))).toEqual({});
+    expect(ciCommit('ci', env({}))).toEqual({});
+    expect(ciCommit(null, env({}))).toEqual({});
+    expect(ciCommit({ commitHash: ` ${SHA} `, branch: ' main ' }, env({}))).toEqual({
+      sha: SHA,
+      branch: 'main',
+    });
+    // A blank variable is what a template leaves when it had nothing to give.
+    expect(
+      ciCommit(undefined, github({ GITHUB_SHA: ' ', GITHUB_HEAD_REF: '', GITHUB_REF_NAME: '' })),
+    ).toEqual({});
   });
 });
 

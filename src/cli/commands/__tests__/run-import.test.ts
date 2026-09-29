@@ -94,9 +94,13 @@ const deps = (fetchImpl: typeof fetch) => ({
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plune-import-'));
   lines.length = 0;
+  // The run opens with the commit and branch of the CI it runs in (plune#927), so these tests are not
+  // to know which CI that is: on GitHub Actions every run here would open with the job's own.
+  for (const marker of ['GITHUB_ACTIONS', 'GITLAB_CI', 'JENKINS_URL']) vi.stubEnv(marker, '');
 });
 afterEach(() => {
   fs.rmSync(dir, { recursive: true, force: true });
+  vi.unstubAllEnvs();
 });
 
 describe('plune run import', () => {
@@ -492,6 +496,144 @@ describe('plune run import', () => {
 
       expect(seen.find((s) => s.path === '/v1/runs')?.body['meta']).toEqual({ runner: 'playwright-json' });
       expect(out.runId).toBe('r-9');
+    });
+  });
+
+  /**
+   * plune-ai/plune#927. The run opens with the commit and branch it ran at, read from the CI's own
+   * variables — as `@plune-ai/playwright` reads them, and from the report's when it names a commit:
+   * whoever imports may be another job, and this job's branch is not that commit's.
+   */
+  describe('the commit and branch the run opens with (plune#927)', () => {
+    const SHA = '0123456789abcdef0123456789abcdef01234567';
+    const OTHER = 'fedcba9876543210fedcba9876543210fedcba98';
+    const BUILD = 'https://github.com/acme/shop/actions/runs/42';
+    /** Playwright's report of a run under GitHub Actions: a commit, and no branch. */
+    const playwrightReport = (commitHash: string) =>
+      JSON.stringify({
+        config: {
+          rootDir: '/nowhere/here',
+          metadata: {
+            ci: {
+              commitHref: `https://github.com/acme/shop/commit/${commitHash}`,
+              commitHash,
+              buildHref: BUILD,
+            },
+          },
+        },
+        suites: [
+          {
+            title: 'a.spec.ts',
+            file: 'a.spec.ts',
+            specs: [
+              {
+                title: 't',
+                file: 'a.spec.ts',
+                line: 1,
+                tests: [{ id: 'id-1', results: [{ status: 'passed', retry: 0 }] }],
+              },
+            ],
+          },
+        ],
+      });
+    const environment = (vars: Record<string, string>): void => {
+      for (const [name, value] of Object.entries(vars)) vi.stubEnv(name, value);
+    };
+    const opensWith = async (name: string, text: string): Promise<unknown> => {
+      const { seen, fetchImpl } = platform();
+      await handleRunImport({ ...deps(fetchImpl), file: write(name, text) });
+      return seen.find((s) => s.path === '/v1/runs')?.body['meta'];
+    };
+
+    it('on a GitHub push: GITHUB_SHA, and the ref name as the branch', async () => {
+      environment({
+        GITHUB_ACTIONS: 'true',
+        GITHUB_SHA: SHA,
+        GITHUB_HEAD_REF: '',
+        GITHUB_REF_NAME: 'main',
+      });
+
+      expect(await opensWith('results.xml', REPORT)).toEqual({
+        runner: 'junit',
+        sha: SHA,
+        branch: 'main',
+      });
+    });
+
+    it('on a GitHub pull request: the pull request’s own branch, not "12/merge"', async () => {
+      environment({
+        GITHUB_ACTIONS: 'true',
+        GITHUB_SHA: SHA,
+        GITHUB_HEAD_REF: 'feat/panel',
+        GITHUB_REF_NAME: '12/merge',
+      });
+
+      expect(await opensWith('results.xml', REPORT)).toEqual({
+        runner: 'junit',
+        sha: SHA,
+        branch: 'feat/panel',
+      });
+    });
+
+    it('on GitLab: CI_COMMIT_SHA and CI_COMMIT_REF_NAME', async () => {
+      environment({ GITLAB_CI: 'true', CI_COMMIT_SHA: SHA, CI_COMMIT_REF_NAME: 'release/1.4' });
+
+      expect(await opensWith('results.xml', REPORT)).toEqual({
+        runner: 'junit',
+        sha: SHA,
+        branch: 'release/1.4',
+      });
+    });
+
+    it('on Jenkins: GIT_COMMIT and GIT_BRANCH', async () => {
+      environment({
+        JENKINS_URL: 'https://ci.acme.test/',
+        GIT_COMMIT: SHA,
+        GIT_BRANCH: 'origin/main',
+      });
+
+      expect(await opensWith('results.xml', REPORT)).toEqual({
+        runner: 'junit',
+        sha: SHA,
+        branch: 'origin/main',
+      });
+    });
+
+    it('outside a CI: the format and nothing else — a stray GIT_COMMIT is not a commit', async () => {
+      environment({ GIT_COMMIT: SHA, GIT_BRANCH: 'main' });
+
+      expect(await opensWith('results.xml', REPORT)).toEqual({ runner: 'junit' });
+    });
+
+    it('a Playwright report of this very commit: the commit it names, and this job’s branch — GitHub gives the report none', async () => {
+      environment({
+        GITHUB_ACTIONS: 'true',
+        GITHUB_SHA: SHA,
+        GITHUB_HEAD_REF: '',
+        GITHUB_REF_NAME: 'main',
+      });
+
+      expect(await opensWith('report.json', playwrightReport(SHA))).toEqual({
+        runner: 'playwright-json',
+        ciUrl: BUILD,
+        sha: SHA,
+        branch: 'main',
+      });
+    });
+
+    it('a Playwright report another job wrote: its own commit, and no branch that belongs to this job’s', async () => {
+      environment({
+        GITHUB_ACTIONS: 'true',
+        GITHUB_SHA: SHA,
+        GITHUB_HEAD_REF: '',
+        GITHUB_REF_NAME: 'main',
+      });
+
+      expect(await opensWith('report.json', playwrightReport(OTHER))).toEqual({
+        runner: 'playwright-json',
+        ciUrl: BUILD,
+        sha: OTHER,
+      });
     });
   });
 

@@ -190,6 +190,11 @@ describe('plune run report', () => {
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
   const submission = { resultKey: 'a#0', testCaseId: 'tc-1', source: 'playwright', rawStatus: 'passed' };
+  /** A platform that knows the test `a`, so a replayed result is sent rather than deferred again. */
+  const knowing = (url: string) =>
+    url.endsWith('/resolve')
+      ? { status: 200, body: { results: [{ key: { value: 'a' }, testCaseId: 'tc-1' }] } }
+      : undefined;
 
   it('sends a batch back to the run it was meant for', async () => {
     fs.writeFileSync(file, JSON.stringify({ runId: 'r-9', externalKey: 'ci-7', results: [submission] }) + '\n');
@@ -207,6 +212,39 @@ describe('plune run report', () => {
     await handleRunReport({ ...deps(fetchImpl), file });
 
     expect(seen.map((s) => s.path)).toContain('/v1/runs');
+  });
+
+  // plune#927. The run a replay opens is the run the reporter would have opened: with the commit and
+  // branch the line recorded, not with those of whatever machine replays it. A line written before the
+  // field existed has none, and is not given one — nothing is guessed at replay time.
+  it('opens the run with the meta the line recorded, and with none for a line that has none', async () => {
+    const meta = {
+      runner: 'playwright',
+      ciUrl: 'https://ci.test/runs/1',
+      sha: 'abc123',
+      branch: 'feat/panel',
+    };
+    const pending = {
+      resultKey: 'a#0',
+      keys: [{ value: 'a' }],
+      source: 'playwright',
+      rawStatus: 'passed',
+    };
+    fs.writeFileSync(
+      file,
+      [
+        JSON.stringify({ runId: null, externalKey: 'ci-7', meta, results: [pending] }),
+        JSON.stringify({ runId: null, externalKey: 'ci-8', results: [pending] }),
+      ].join('\n') + '\n',
+    );
+    const { seen, fetchImpl } = platform(knowing);
+    await handleRunReport({ ...deps(fetchImpl), file });
+
+    const starts = seen.filter((s) => s.path === '/v1/runs').map((s) => s.body);
+    expect(starts).toHaveLength(2);
+    expect(starts[0]).toMatchObject({ externalKey: 'ci-7', meta });
+    expect(starts[1]).toMatchObject({ externalKey: 'ci-8' });
+    expect(starts[1]).not.toHaveProperty('meta');
   });
 
   // The replay cannot know whether the run is complete, so it must not claim it is.

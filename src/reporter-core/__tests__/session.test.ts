@@ -648,6 +648,58 @@ describe('the platform is not there (AC-05)', () => {
   });
 });
 
+/**
+ * plune-ai/plune#927. A batch the platform did not take is replayed by `plune run report`, which opens
+ * a run for it when none was — and a run opened there is to be the run the reporter would have opened,
+ * with the commit and branch it ran at. So the line says where the run came from.
+ */
+describe('a deferred line says where its run came from (plune#927)', () => {
+  const meta = {
+    runner: 'playwright',
+    ciUrl: 'https://ci.test/runs/1',
+    sha: 'abc123',
+    branch: 'main',
+  };
+  const written = (cfg: ReporterConfig): Record<string, unknown>[] =>
+    fs
+      .readFileSync(cfg.fallbackPath as string, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+
+  it('on a batch the platform refused', async () => {
+    const { fetchImpl } = platform({ known: { a: 'tc-a' }, resultsFailure: 'network' });
+    const cfg = config(fetchImpl, { meta });
+    const run = await startRun(cfg);
+    await run.add(result('a'));
+    await run.flush();
+
+    expect(written(cfg).map((line) => line['meta'])).toEqual([meta]);
+  });
+
+  it('on a run that never started, where the replay has to open one', async () => {
+    const fetchImpl = (async () => {
+      throw new TypeError('fetch failed');
+    }) as unknown as typeof fetch;
+    const cfg = config(fetchImpl, { meta });
+    const run = await startRun(cfg);
+    await run.add(result('a'));
+    await run.flush();
+
+    expect(written(cfg).map((line) => [line['runId'], line['meta']])).toEqual([[null, meta]]);
+  });
+
+  it('and has no `meta` when the run was given none', async () => {
+    const { fetchImpl } = platform({ known: { a: 'tc-a' }, resultsFailure: 'network' });
+    const cfg = config(fetchImpl);
+    const run = await startRun(cfg);
+    await run.add(result('a'));
+    await run.flush();
+
+    expect(written(cfg)[0]).not.toHaveProperty('meta');
+  });
+});
+
 describe('a refused token stops the asking (AC-06)', () => {
   it('says what to do once, and never calls again', async () => {
     const { seen, fetchImpl } = platform({

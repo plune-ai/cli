@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { stripVTControlCharacters } from 'node:util';
 import type { FullConfig, FullResult, Suite, TestCase, TestError, TestResult, TestStep } from '@playwright/test/reporter';
 import {
+  ciCommit,
   errorContextOf,
   failureOf,
   filesOf,
@@ -306,7 +307,9 @@ export default class PluneReporter {
           ...(this.options.fallbackPath !== undefined
             ? { fallbackPath: this.options.fallbackPath }
             : {}),
-          meta: { runner: SOURCE, ...(ciUrl !== undefined ? { ciUrl } : {}) },
+          // Where it ran (plune#927): the commit Playwright wrote into `metadata.ci`, and its branch —
+          // which Playwright gives on GitLab and Jenkins, and the core reads from the job on GitHub.
+          meta: { runner: SOURCE, ...(ciUrl !== undefined ? { ciUrl } : {}), ...ciCommit(ci) },
         },
         this.declared,
       );

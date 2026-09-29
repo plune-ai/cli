@@ -15,7 +15,7 @@ import { readReport, type ImportFormat } from '../../importers/index.js';
 import { NoTokenError, RunCommandError, type RunCommandDeps } from './run-lifecycle.js';
 import { resolveApiUrl, dashboardUrl } from '../api-url.js';
 import { loadToken } from '../credentials.js';
-import { readEnv } from '../../reporter-core/env.js';
+import { ciCommit, readEnv } from '../../reporter-core/env.js';
 
 export interface ImportOptions extends RunCommandDeps {
   file: string;
@@ -70,7 +70,7 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
     throw new RunCommandError(`Cannot read ${options.file}.`);
   }
 
-  const { format, results, ciUrl } = readReport(source, options.file, options.format);
+  const { format, results, ciUrl, ci } = readReport(source, options.file, options.format);
   if (results.length === 0) {
     throw new RunCommandError(`No test cases in ${options.file} — it parsed, but there is nothing in it.`);
   }
@@ -89,7 +89,10 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
       ...(options.create === true ? { offerDiscovered: true } : {}),
       kind: 'automated',
       // The CI run the report names, never this machine's: whoever imports may be another job (#790).
-      meta: { runner: format, ...(ciUrl !== undefined ? { ciUrl } : {}) },
+      // The commit and branch likewise, where the report names a commit; a report that names none —
+      // JUnit's never does — takes this job's own, which is where the tests ran when import follows
+      // them in one job (plune-ai/plune#927).
+      meta: { runner: format, ...(ciUrl !== undefined ? { ciUrl } : {}), ...ciCommit(ci) },
       log: write,
     },
     // The file is the complete list of what ran, so the platform can resolve every test in one
