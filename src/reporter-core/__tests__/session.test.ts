@@ -1176,6 +1176,88 @@ describe('offering tests the platform has no case for (D14)', () => {
     // The count is also kept, not only printed: the command turns it into the sentence that says
     // another import is needed, and a number that lives only inside a log line cannot do that.
     expect(run.stats.unoffered).toBe(1);
+    expect(run.stats).toMatchObject({ unoffered: 1, unofferedWhy: 'other' });
+  });
+
+  /**
+   * plune-ai/cli#71. What was not offered is one number, and what a person does next depends on WHY:
+   * a full queue is emptied, a project at its case limit sheds cases, anything else is read above. The
+   * platform names the ceiling it met in its words and in nothing else (`src/server/db/quota.ts`), so
+   * its words are what tells them apart — these are its own, not ones written to suit the match.
+   */
+  it.each([
+    [
+      'the review queue is full',
+      'review queue quota reached — at most 1000 items waiting. Approve or reject what is already in the queue to make room.',
+      'queue',
+    ],
+    [
+      'the project is at its case limit',
+      'test case quota reached — at most 20000 cases per project. Delete cases you no longer need, or ask an operator to raise the limit.',
+      'cases',
+    ],
+  ])('names it when %s', async (_what, error, why) => {
+    const { fetchImpl } = platform({ discoverFailure: { status: 429, error } });
+    const cfg = config(fetchImpl, { offerDiscovered: true });
+    const run = await startRun(cfg);
+    await run.add(found('pw-1'));
+    await run.finish();
+
+    expect(run.stats).toMatchObject({ unoffered: 1, unofferedWhy: why });
+    // The line above the summary is the platform's own reason, whatever it was.
+    expect(logOf(cfg).join('\n')).toContain(
+      `could not offer 1 unknown test(s) for review (${error})`,
+    );
+  });
+
+  it.each([
+    ['a throttle, which is not a quota', 429, 'rate limit exceeded — slow down'],
+    [
+      'the run quota, which no offer spends',
+      429,
+      'run quota reached — at most 1000 runs per 24h. The window is rolling.',
+    ],
+    ['a server error', 500, 'nope'],
+    [
+      'a run that is not there',
+      404,
+      "no run 'r-1' — check the id, or whether the token belongs to the same project",
+    ],
+    // Words are not enough: a queue's words on an answer that is not a quota's are somebody else's.
+    [
+      'the queue’s words on a bad gateway',
+      502,
+      'review queue quota reached — at most 1000 items waiting.',
+    ],
+  ])('says only that it is something else when it is %s', async (_what, status, error) => {
+    const { fetchImpl } = platform({ discoverFailure: { status, error } });
+    const run = await startRun(config(fetchImpl, { offerDiscovered: true }));
+    await run.add(found('pw-1'));
+    await run.finish();
+
+    expect(run.stats).toMatchObject({ unoffered: 1, unofferedWhy: 'other' });
+  });
+
+  it('says something else too when the answer is no answer, and nothing when every test was offered', async () => {
+    const p = platform();
+    const empty = await startRun(
+      config(
+        (async (url: string | URL | Request, init?: RequestInit) =>
+          /\/v1\/review-items\/discovered$/.test(String(url))
+            ? new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+            : p.fetchImpl(url, init)) as unknown as typeof fetch,
+        { offerDiscovered: true },
+      ),
+    );
+    await empty.add(found('pw-1'));
+    await empty.finish();
+    expect(empty.stats).toMatchObject({ unoffered: 1, unofferedWhy: 'other' });
+
+    const whole = await startRun(config(platform().fetchImpl, { offerDiscovered: true }));
+    await whole.add(found('pw-1'));
+    await whole.finish();
+    expect(whole.stats.unoffered).toBe(0);
+    expect(whole.stats).not.toHaveProperty('unofferedWhy');
   });
 
   // Whoever closes the run is not whoever found the test. A shard that only ever leaves the run open

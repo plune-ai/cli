@@ -246,6 +246,13 @@ export interface ExpectedEntry {
   externalKey?: KeyRef;
 }
 
+/**
+ * Why the platform would not take the tests offered to it (plune-ai/cli#71): its review queue is at its
+ * ceiling, the project is at its case limit, or anything else — a throttle, an outage, a run that is not
+ * there. What a person does next depends on which, and only the first two have advice of their own.
+ */
+export type UnofferedWhy = 'queue' | 'cases' | 'other';
+
 /** The run as the platform answers with it. Only `id` is load-bearing for the client. */
 export interface RunRecord {
   id: string;
@@ -288,6 +295,12 @@ export interface RunStats extends SubmitCounts {
    * queue at capacity means "empty it and import again"; nothing else here means that.
    */
   unoffered: number;
+  /**
+   * Why they were not, said by the platform's own words and present only when `unoffered` is not zero:
+   * that is what carries the reason the paragraph above says a subtraction cannot. The platform's line
+   * about it is printed with the failure; this is what a command turns into the advice that fits.
+   */
+  unofferedWhy?: UnofferedWhy;
   /**
    * Results not delivered, written to the fallback file instead of the platform (#790): a batch
    * refused for any reason — its size, the network, the token, a closed run — or a result whose keys

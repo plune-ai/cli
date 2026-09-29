@@ -3,7 +3,7 @@ import { promises as disk } from 'node:fs';
 import { basename, extname } from 'node:path';
 import { resolveApiUrl } from '../cli/api-url.js';
 import { loadToken } from '../cli/credentials.js';
-import { createClient, type PlatformClient } from './client.js';
+import { createClient, type ClientOutcome, type PlatformClient } from './client.js';
 import { defaultRunTitle, readEnv } from './env.js';
 import { appendBatch, DEFAULT_FALLBACK_PATH, type DeferredResult } from './fallback.js';
 import type {
@@ -16,6 +16,7 @@ import type {
   ResultFile,
   ResultSubmission,
   RunStats,
+  UnofferedWhy,
 } from './types.js';
 
 /** The platform's ceiling on one resolve request. */
@@ -121,6 +122,19 @@ function boundKey(key: KeyRef): KeyRef {
   let head = key.value.slice(0, KEY_MAX - digest.length - 1);
   if (/[\uD800-\uDBFF]$/.test(head)) head = head.slice(0, -1); // never half a surrogate pair
   return { ...key, value: `${head}#${digest}` };
+}
+
+/**
+ * Why the platform would not take an offer (cli#71). It names the ceiling it met in its own words and in
+ * nothing else — both are a 429 (`src/server/db/quota.ts`) — so the words are what tells a full queue
+ * from a project at its case limit. An answer that says neither, or says it with another status, is
+ * something else: the line printed with the failure carries the platform's reason, whatever it was.
+ */
+function whyUnoffered(out: ClientOutcome<unknown>): UnofferedWhy {
+  if (out.ok || out.status !== 429) return 'other';
+  if (/review queue quota reached/i.test(out.detail)) return 'queue';
+  if (/test case quota reached/i.test(out.detail)) return 'cases';
+  return 'other';
 }
 
 /** A title is a label, not an identity — the head is enough for a reviewer to judge the entry. */
@@ -482,6 +496,7 @@ export async function startRun(
         // Naming only the batch understates the work left by however many batches remain, and the
         // reader has no way to see the difference: the rest were never mentioned at all (#627).
         stats.unoffered = batches.slice(index).reduce((n, rest) => n + rest.length, 0);
+        stats.unofferedWhy = whyUnoffered(out);
         log(
           `plune: could not offer ${stats.unoffered} unknown test(s) for review ` +
             `(${out.ok ? 'the answer had no results' : out.detail || out.kind}).`,

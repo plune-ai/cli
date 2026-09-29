@@ -301,8 +301,23 @@ describe('plune run import', () => {
       return `<testsuites><testsuite name="big" timestamp="2026-09-09T10:00:00.000Z" file="tests/big.spec.ts">${cases}</testsuite></testsuites>`;
     };
 
-    /** Nothing resolves, and the queue accepts one batch of offers before it is full. */
-    function fullQueue(acceptBatches: number) {
+    /**
+     * What the platform answers a refused offer with, word for word (`src/server/db/quota.ts`) — the
+     * queue's ceiling first, which is what this fake has always answered.
+     */
+    const QUEUE_FULL =
+      'review queue quota reached — at most 1000 items waiting. Approve or reject what is already in the queue to make room.';
+    const CASE_LIMIT =
+      'test case quota reached — at most 5000 cases per project. Delete cases you no longer need, or ask an operator to raise the limit.';
+
+    /**
+     * Nothing resolves, and the platform accepts `acceptBatches` batches of offers before it refuses
+     * the rest, as `refusal` says — a full queue unless told otherwise.
+     */
+    function fullQueue(
+      acceptBatches: number,
+      refusal: { status: number; error: string } = { status: 429, error: QUEUE_FULL },
+    ) {
       const seen: Seen[] = [];
       let offers = 0;
       const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
@@ -317,11 +332,7 @@ describe('plune run import', () => {
         }
         if (target === '/v1/review-items/discovered') {
           offers += 1;
-          if (offers > acceptBatches) {
-            return json(429, {
-              error: 'review queue quota reached — at most 1000 items waiting.',
-            });
-          }
+          if (offers > acceptBatches) return json(refusal.status, { error: refusal.error });
           const discovered = (body['discovered'] ?? []) as { keys: { value: string }[] }[];
           return json(200, {
             results: discovered.map((d) => ({ key: d.keys[0], outcome: 'queued', id: 'ri-1' })),
@@ -363,6 +374,60 @@ describe('plune run import', () => {
       expect(text).not.toContain('already in the review queue');
       expect(text).toContain('700');
       expect(text).toMatch(/import .* again|run .* again|again/i);
+    });
+
+    it('says the queue is full, with what to do about a queue, when the platform says the queue is', async () => {
+      const { fetchImpl } = fullQueue(0);
+      const out = await handleRunImport({
+        ...deps(fetchImpl),
+        file: write('big.xml', REPORT_OF(3)),
+        create: true,
+      });
+
+      expect(out).toMatchObject({ unoffered: 3, unofferedWhy: 'queue' });
+      expect(lines).toContain(
+        '3 more could not be offered — the review queue is full. Approve or reject what is waiting, then import this report again to offer the rest.',
+      );
+    });
+
+    /**
+     * plune-ai/cli#71. The line said the queue was full for every refusal — under the platform's own
+     * line saying the project had reached its case limit, where emptying a queue helps nothing:
+     * approving an entry makes a case, and the platform refuses that the same way.
+     */
+    it('at the case limit says so, and what to do about cases — not that the queue is full', async () => {
+      const { fetchImpl } = fullQueue(0, { status: 429, error: CASE_LIMIT });
+      const out = await handleRunImport({
+        ...deps(fetchImpl),
+        file: write('big.xml', REPORT_OF(3)),
+        create: true,
+      });
+
+      expect(out).toMatchObject({ unoffered: 3, unofferedWhy: 'cases' });
+      expect(lines.join('\n')).not.toContain('the review queue is full');
+      expect(lines).toContain(
+        '3 more could not be offered — the project is at its test case limit. Delete cases you no longer need, or ask an operator to raise the limit, then import this report again to offer the rest.',
+      );
+      // Above it, the platform's own words, which name the limit.
+      expect(lines.join('\n')).toContain(
+        `could not offer 3 unknown test(s) for review (${CASE_LIMIT})`,
+      );
+    });
+
+    it('for any other reason points at the reason above, and advises nothing about a queue or cases', async () => {
+      const { fetchImpl } = fullQueue(0, { status: 404, error: "no run 'r-9' — check the id" });
+      const out = await handleRunImport({
+        ...deps(fetchImpl),
+        file: write('big.xml', REPORT_OF(3)),
+        create: true,
+      });
+
+      expect(out).toMatchObject({ unoffered: 3, unofferedWhy: 'other' });
+      expect(lines).toContain(
+        '3 more could not be offered — the reason is in the "could not offer" line above.',
+      );
+      expect(lines.join('\n')).not.toContain('the review queue is full');
+      expect(lines.join('\n')).not.toContain('test case limit');
     });
 
     it('shows the suite moving while a long import is under way', async () => {

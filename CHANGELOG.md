@@ -87,6 +87,16 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   created from such a report carries the old key, so its test is offered to the review queue once more;
   the reporter and the JSON import are not affected.
 
+- **`plune run import --create` no longer says the review queue is full when something else refused
+  the offer (plune-ai/cli#71).** The last line about tests that could not be offered was the same for
+  every refusal, so under the platform's own line saying the project had reached its case limit it told
+  people to approve or reject what was waiting — which frees nothing, since approving makes a case and
+  the platform refuses that the same way. The core now records why an offer was refused, told apart by
+  the platform's own words on a 429 (`RunStats.unofferedWhy`: `queue`, `cases` or `other`), and the line
+  follows it: a full queue keeps its advice; the case limit says the project is at its test case limit,
+  to delete cases or ask an operator to raise it; anything else — a throttle, an outage, a run that is
+  not there — points at the `could not offer` line above and advises nothing.
+
 ## [0.15.0] - 2026-09-29
 
 Also `@plune-ai/playwright` **0.3.0** - the adapter embeds `reporter-core`, where the upload below lives, and it

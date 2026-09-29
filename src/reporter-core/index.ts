@@ -52,4 +52,5 @@ export type {
   RunStats,
   RunnerLocation,
   SubmitCounts,
+  UnofferedWhy,
 } from './types.js';
