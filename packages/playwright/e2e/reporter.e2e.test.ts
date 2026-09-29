@@ -150,12 +150,16 @@ async function runFixture(
 }
 
 /** `plune run import` of a report by the built CLI against a stub, in a job whose environment is `env`. */
-async function importReport(file: string, env: Record<string, string>): Promise<Received[]> {
+async function importReport(
+  file: string,
+  env: Record<string, string>,
+  format: 'playwright-json' | 'junit' = 'playwright-json',
+): Promise<Received[]> {
   const platform = await stub(false);
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'plune-import-'));
   try {
     await new Promise<void>((resolve, reject) => {
-      const child = spawn(process.execPath, [cli, 'run', 'import', file, '--format', 'playwright-json'], {
+      const child = spawn(process.execPath, [cli, 'run', 'import', file, '--format', format], {
         cwd,
         env: { ...process.env, ...env, PLUNE_API_URL: platform.url, PLUNE_TOKEN: 'stub-token' },
       });
@@ -371,5 +375,65 @@ describe('both roads link the run and its failure to the CI run that ran the tes
     expect(importer?.failure).toEqual(reporter?.failure);
     expect(importer?.errorContext).toBe(reporter?.errorContext);
     expect(reporter?.errorContext).toContain('> 12 |     expect(-1).toBeGreaterThan(0);');
+  });
+});
+
+/**
+ * plune-ai/cli#47 and #38, on the real runner: one run written as Playwright's own JUnit report as well,
+ * and `plune run import` of that report. The file suite's title comes in the OS's separators — a
+ * backslash here on Windows — and the reporter's key is spelled with forward slashes on every OS, so
+ * the two roads meet only if the import spells it the same way. Where the import reads a `@P<id>` from
+ * a title, it has to be the reporter's case too.
+ */
+describe('the JUnit road names each test the way the reporter does (cli#47, cli#38)', () => {
+  let live: Received[] = [];
+  let imported: Received[] = [];
+
+  beforeAll(async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plune-junit-'));
+    const report = path.join(dir, 'junit.xml');
+    try {
+      live = (await runFixture(false, [], { PLUNE_TEST_DIR: './nested', PLUNE_JUNIT_REPORT: report })).received;
+      imported = await importReport(report, {}, 'junit');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }, 240_000);
+
+  /** Every `path-title` a road asked the platform to resolve, sorted. */
+  const pathTitles = (received: Received[]): string[] =>
+    received
+      .filter((r) => r.path === '/v1/test-cases/resolve')
+      .flatMap((r) => (r.body['keys'] ?? []) as { kind?: string; value: string }[])
+      .filter((k) => k.kind === 'path-title')
+      .map((k) => k.value)
+      .sort();
+
+  /** The titles of the results a road sent to case 42. */
+  const titlesSentTo42 = (received: Received[]): string[] =>
+    received
+      .filter((r) => r.path.endsWith('/results'))
+      .flatMap((r) => (r.body['results'] ?? []) as { title: string; testCaseId?: string }[])
+      .filter((r) => r.testCaseId === '42')
+      .map((r) => r.title);
+
+  it('asks for the same path-title of every test as the reporter did in the run that wrote the report', () => {
+    expect(pathTitles(imported)).toEqual(pathTitles(live));
+    // Spelled out, so two roads that both said nothing, or the same wrong thing, would not pass.
+    expect(pathTitles(live)).toEqual([
+      'checkout/cart.spec.ts#cart#adds an item',
+      'checkout/cart.spec.ts#cart#coupons#applies a coupon',
+      'checkout/cart.spec.ts#cart#coupons#keeps its case when renamed @P42',
+      'checkout/cart.spec.ts#starts with an empty cart',
+      'login.spec.ts#shows the sign-in form',
+    ]);
+  });
+
+  it('sends the @P<id> of a title as the case on both roads, and no other test as one', () => {
+    expect(titlesSentTo42(live)).toEqual(['cart › coupons › keeps its case when renamed @P42']);
+    // The import's title leads with the file, as the OS spelled it — only where it ends is the same.
+    const [title, ...more] = titlesSentTo42(imported);
+    expect(title).toMatch(/cart › coupons › keeps its case when renamed @P42$/);
+    expect(more).toEqual([]);
   });
 });
