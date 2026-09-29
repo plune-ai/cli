@@ -65,11 +65,17 @@ export interface Attachment {
   contentType?: string;
 }
 
-/** A file the runner kept for an attempt, where it lies on this machine. */
+/**
+ * A file the runner kept for an attempt: where it lies on this machine, or — for a text a test attached as
+ * a `body`, which leaves no file — the bytes themselves. Playwright gives one of the two; were both here,
+ * the bytes are what is sent.
+ */
 export interface ResultFile {
   name: string;
   contentType?: string;
-  path: string;
+  path?: string;
+  /** Only a JSON or a plain text — the types the platform keeps as a text; see `filesOf`. */
+  body?: Buffer;
 }
 
 /** One assertion's outcome, in the shape the platform already stores for its own runner. */
@@ -134,7 +140,8 @@ export interface PendingResult {
   /**
    * The files the runner kept for this attempt, passed or not — built by `filesOf`. Never part of a
    * batch: the paths are this machine's. Once the platform has accepted the result, the core uploads
-   * the screenshots among them to it (platform ADR 0040).
+   * the screenshots and the text files among them to it (platform ADR 0040) — never a body to the
+   * fallback file either, which keeps a file by its path and leaves the bytes out.
    */
   files?: ResultFile[];
 }
@@ -151,8 +158,8 @@ export interface FailureDetail {
   steps?: string[];
   /** Where it failed, from the repository root, posix. */
   location?: { file: string; line: number; column?: number };
-  /** The files the runner kept for the attempt, by name. The screenshots among them are uploaded to the
-   * result besides (`files`); the rest stay in the CI run. */
+  /** The files the runner kept for the attempt, by name. The screenshots and text files among them are
+   * uploaded to the result besides (`files`); the rest stay in the CI run. */
   artifacts?: { name: string; contentType?: string }[];
   /** The CI run that produced the report, http(s) only. */
   ciUrl?: string;
@@ -192,8 +199,9 @@ export interface FailedAttempt {
   errors: AttemptError[];
   /** The declared steps, outermost first — as the JSON report keeps them. */
   steps: DeclaredStep[];
-  /** What the runner kept; `path` is what makes one a file. */
-  attachments: { name: string; contentType?: string; path?: string }[];
+  /** What the runner kept; `path` is what makes one a file, and a `body` — the bytes of a test's own
+   * attachment — is one to the platform only as a text. */
+  attachments: { name: string; contentType?: string; path?: string; body?: Buffer }[];
   /** `metadata.ci.buildHref` of the run — the CI run that produced the report. */
   buildHref?: string;
   /** The test's own file, absolute. */
@@ -313,6 +321,12 @@ export interface RunStats extends SubmitCounts {
    * None of them costs a result — a result is reported whether its screenshots arrive or not.
    */
   screenshots: { uploaded: number; skipped: number; failed: number };
+  /**
+   * The same for the JSON and plain-text files of the accepted results (plune-ai/plune#928): counted
+   * apart from the screenshots because the two have limits of their own — 512 KiB and ten a result against
+   * 2 MB and twenty — and a person reading "3 skipped" has to know which kind it was.
+   */
+  textFiles: { uploaded: number; skipped: number; failed: number };
 }
 
 /** Everything the core needs to talk to a deployment. */
