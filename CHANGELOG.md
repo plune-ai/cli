@@ -11,6 +11,43 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **A test's JSON and text files reach Plune with their results (plune-ai/plune#928).** When
+  `@plune-ai/playwright` reports a run, or `plune run import` reads a Playwright JSON report, what each
+  attempt attached as `application/json` or `text/plain` — a log is `text/plain` — is uploaded to its
+  result once the platform has stored it, as the screenshots are: a passed test's as well as a failed
+  one's, every upload answered before the run is closed. Both ways of attaching are read: by `path`
+  (`testInfo.attach('server.log', { path })`) and as a `body`
+  (`testInfo.attach('api-response', { body: JSON.stringify(data), contentType: 'application/json' })`),
+  which leaves no file — the reporter hands the core the bytes Playwright gives it, and the import
+  decodes the report's base64. Up to 512 KiB a file and 10 a result, apart from the screenshots' 20.
+  The type is the attachment's, in any case and with any parameters (`Text/Plain; charset=UTF-8`); it is
+  not guessed from a file's extension, so an attachment that names none is not sent. A charset goes to
+  the platform only when it is UTF-8, the one it takes, and the bytes are checked as UTF-8 before
+  they leave. Markdown, HTML, CSV, XML, traces and videos are not uploaded, nor is an image attached as
+  a `body`. The name is the attachment's, cut to the 200 characters the platform takes, and the
+  extension of its file follows a name that has none of its own — `testInfo.attach('api-response', { path })`
+  arrives as `api-response.json`; a body goes by its name as it is. Nothing is cleaned or cut on this
+  side: the platform cleans a text before it keeps it. Needs a platform that keeps text files
+  (plune-ai/plune#928); with an older one each is refused, counted, and said once.
+- **What stays behind is counted, and costs nothing else.** A text over 512 KiB, one that is not UTF-8 or
+  holds a NUL byte, an empty one, one past the 10th of its result, one named with a leading `_` (hidden in
+  Playwright's own reports too) or not on this machine is skipped, with one line for each reason —
+  `plune: text file "…" not uploaded — …`; one the platform refuses is counted, with one line for the
+  first. Neither costs a result or changes an exit code. The summary says it:
+  `plune: 12 accepted · 10 screenshot(s) uploaded · 3 text file(s) uploaded, 1 skipped`, and
+  `plune run import` prints `3 text file(s) uploaded to their results, 1 skipped.` after the
+  screenshots' line, which is unchanged, and nothing for a report with no text files.
+  `RunStats.textFiles` and the import's result carry the three numbers, apart from `screenshots`.
+- **A text attached as a `body` is never written to the fallback file.** It exists only in memory, and
+  JSON would write it as one number for every byte: `.plune/pending-results.jsonl` keeps what it kept
+  before and no bytes of a body, so a result sent again with `plune run report` goes without it. The files
+  it names by path are uploaded then if they are still on disk, as before.
+- **`filesOf` in `@plune-ai/cli/reporter-core` also hands over a JSON or a text kept as a `body`.**
+  `ResultFile.path` is optional now and `ResultFile.body` holds the bytes; an image, a trace or a page
+  kept as a body is not handed over.
+
 ## [0.16.0] - 2026-09-30
 
 Also `@plune-ai/playwright` **0.4.0** - the adapter embeds `reporter-core`, where the commit and the branch,
