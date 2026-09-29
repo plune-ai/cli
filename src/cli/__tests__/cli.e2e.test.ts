@@ -110,11 +110,18 @@ describe('plune binary — full journey init --yes → run → report (AC-T07.1)
     expect(fs.existsSync(path.join(tmp, '.env'))).toBe(false);
   });
 
-  it('run --dry-run estimates without calling a provider (exit 0)', () => {
-    // Dry-run still resolves the provider for cost estimation; the mock provider lets it run
-    // without a real API key (AC-T04.5 + AC-T07.3).
-    const r = runCli(['run', '--dry-run'], { cwd: tmp, env: { PLUNE_MOCK_PROVIDER: '1' } });
+  it('run --dry-run prices the run without a provider key or a mock (exit 0, #49)', () => {
+    // A dry run never calls a provider, so it needs no key either. No mock here on purpose — the
+    // mock would price it at zero, which is not the estimate — and the key is blanked in case this
+    // machine has one exported.
+    const r = runCli(['run', '--dry-run'], {
+      cwd: tmp,
+      env: { ANTHROPIC_API_KEY: '', PLUNE_MOCK_PROVIDER: '' },
+    });
     expect(r.status).toBe(0);
+    expect(r.stderr).not.toContain('ANTHROPIC_API_KEY');
+    // The real model's price from the built-in table: the summary line carries a cost above zero.
+    expect(Number(/\$(\d+\.\d+)/.exec(r.stdout)?.[1])).toBeGreaterThan(0);
   });
 
   it('run with PLUNE_MOCK_PROVIDER=1 completes without network (exit 0 or 1, never 2)', () => {

@@ -11,6 +11,15 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Fixed
+
+- **`plune run --dry-run` needs no provider key (#49).** A dry run only prices the run and never
+  touches the network, but it built its provider the way a real run does, and the provider's
+  constructor asks for a key: `Missing ANTHROPIC_API_KEY`, exit 2, from the command that is meant to
+  cost nothing. It now runs on a provider that can only estimate, and prices each row for the model
+  the config names — `pricing` in `plune.yaml` first, the built-in table second — exactly as a real
+  run would. With `PLUNE_MOCK_PROVIDER=1` the mock still answers, at zero, as before.
+
 ## [0.15.0] - 2026-09-29
 
 Also `@plune-ai/playwright` **0.3.0** - the adapter embeds `reporter-core`, where the upload below lives, and it

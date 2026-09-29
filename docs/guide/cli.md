@@ -37,7 +37,7 @@ plune run [options]
 |--------|---------|
 | `--config <path>` | Use a specific config file (default: `plune.yaml` in the current directory). |
 | `--only <selector>` | Run a subset. `<selector>` is an eval `id` or `tag:<name>`. **Repeatable**: `--only a --only tag:rag`. |
-| `--dry-run` | Estimate cost/tokens without calling the model or touching the cache. Always exits `0`. |
+| `--dry-run` | Estimate cost/tokens without calling the model or touching the cache — so it needs no provider key. Always exits `0`. |
 | `--concurrency <n>` | Override how many rows run in parallel (default: the config's `provider.concurrency`, or 4). |
 | `--no-cache` | Ignore the cache for this run — always call the model, don't read or write cached completions. |
 | `--bail` | Stop after the first eval that fails. |
