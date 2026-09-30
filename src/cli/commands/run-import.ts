@@ -48,6 +48,8 @@ export interface ImportResult {
   deferred: number;
   /** The screenshots the report's files hold, as they went to the accepted results (ADR 0040). */
   screenshots: { uploaded: number; skipped: number; failed: number };
+  /** Its JSON and plain-text files, kept by path or as a body, counted the same way and apart (plune-ai/plune#928). */
+  textFiles: { uploaded: number; skipped: number; failed: number };
   /** Tests the report gives no location for, so the queue could never show a reviewer where to look. */
   unlocatable: number;
   /** Whether offering was asked for at all — the difference between «nothing was offered» and
@@ -130,6 +132,7 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
     ...(stats.unofferedWhy !== undefined ? { unofferedWhy: stats.unofferedWhy } : {}),
     deferred: stats.deferred,
     screenshots: { ...stats.screenshots },
+    textFiles: { ...stats.textFiles },
     unlocatable: results.filter((r) => r.specRef === undefined).length,
     offering: options.create === true,
   };
@@ -181,16 +184,20 @@ function describe(result: ImportResult, apiUrl: string): string[] {
   if (result.conflict > 0 || result.rejected > 0) {
     lines.push(`${result.conflict} conflicted and ${result.rejected} were refused.`);
   }
-  // Only for a report that had screenshots at all: a JUnit file never does, and a line of zeros under
-  // every such import would say nothing. Why one stayed behind is the session's line, said above.
-  const shots = result.screenshots;
-  if (shots.uploaded + shots.skipped + shots.failed > 0) {
-    lines.push(
-      `${shots.uploaded} screenshot(s) uploaded to their results` +
-        (shots.skipped > 0 ? `, ${shots.skipped} skipped` : '') +
-        (shots.failed > 0 ? `, ${shots.failed} could not be uploaded` : '') +
-        '.',
-    );
+  // Only for a report that had screenshots — or text files — at all: a JUnit file never does, and a line of
+  // zeros under every such import would say nothing. Why one stayed behind is the session's line, said above.
+  for (const [counts, noun] of [
+    [result.screenshots, 'screenshot'],
+    [result.textFiles, 'text file'],
+  ] as const) {
+    if (counts.uploaded + counts.skipped + counts.failed > 0) {
+      lines.push(
+        `${counts.uploaded} ${noun}(s) uploaded to their results` +
+          (counts.skipped > 0 ? `, ${counts.skipped} skipped` : '') +
+          (counts.failed > 0 ? `, ${counts.failed} could not be uploaded` : '') +
+          '.',
+      );
+    }
   }
   if (result.deferred > 0) {
     lines.push(

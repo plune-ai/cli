@@ -130,8 +130,33 @@ under the name it was attached with: `testInfo.attach('checkout', { path })` arr
 
 Plune takes PNG, JPEG and WebP, up to 2 MB a file and 20 a result. An image outside those limits is
 skipped: the run summary counts it and says why, once per reason. Traces, videos and other files are
-not uploaded, and neither is an image attached as a `body` rather than a file — attach it with `path`.
-A screenshot that does not arrive never costs its result or your run's exit code.
+not uploaded (a JSON or a text is: see below), and neither is an image attached as a `body` rather
+than a file — attach it with `path`. A screenshot that does not arrive never costs its result or your
+run's exit code.
+
+## JSON and text files
+
+What a test attaches as JSON or plain text — the answer of an API, a log — is uploaded to its result
+as well, beside the screenshots and for a test that passed as much as one that failed. Attach it with
+a `body` or with a `path`; both are read:
+
+```ts
+await testInfo.attach('api-response', { body: JSON.stringify(data), contentType: 'application/json' });
+await testInfo.attach('server.log', { path: 'logs/server.log', contentType: 'text/plain' });
+```
+
+Name the type: `application/json` or `text/plain` (a log is `text/plain`, whatever its file is
+called). An attachment that names none is not uploaded, and its extension is not guessed at;
+Markdown, HTML, CSV, traces and videos are not uploaded either. Plune takes UTF-8 text without NUL
+bytes, up to 512 KiB a file and 10 a result — apart from the screenshots' 20. A text outside those
+limits, an empty one, or one whose name starts with an underscore is skipped: the run summary counts
+it and says why, once per reason. The reporter sends a file as it is; Plune cleans the credentials it
+recognises out of a text before it keeps it. A file that does not arrive never costs its result or
+your run's exit code.
+
+A text attached as a `body` exists only in memory: it is uploaded once Plune has stored the result,
+and is never written to `.plune/pending-results.jsonl`, so a result sent again with `plune run report`
+goes without it.
 
 ## When Plune is unreachable
 

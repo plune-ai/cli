@@ -1,10 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { promises as disk } from 'node:fs';
 import { basename, extname } from 'node:path';
+import { TextDecoder } from 'node:util';
 import { resolveApiUrl } from '../cli/api-url.js';
 import { loadToken } from '../cli/credentials.js';
 import { createClient, type ClientOutcome, type PlatformClient } from './client.js';
 import { defaultRunTitle, readEnv } from './env.js';
+import { mediaTypeOf, TEXT_TYPES } from './failure-detail.js';
 import { appendBatch, DEFAULT_FALLBACK_PATH, type DeferredResult } from './fallback.js';
 import type {
   DiscoveredTest,
@@ -42,12 +44,20 @@ interface BatchItem {
   id?: string;
 }
 
-/** A screenshot on its way: the result it goes to, the name and type it goes by, where it is read from. */
-interface Shot {
+/** What a result's file is to the platform: a picture, or a text — each with limits of its own. */
+type Kind = 'screenshot' | 'text';
+
+/**
+ * A file on its way: the result it goes to, its kind, the name and type it goes by, and where the bytes
+ * are — on this machine at `path`, or in `body` where a test attached them from memory.
+ */
+interface Upload {
   id: string;
+  kind: Kind;
   name: string;
   type: string;
-  path: string;
+  path?: string;
+  body?: Buffer;
 }
 
 /**
@@ -59,7 +69,18 @@ interface Shot {
 const SCREENSHOT_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 const SCREENSHOT_BYTES = 2 * 1024 * 1024;
 const SCREENSHOTS_PER_RESULT = 20;
-/** The type of a file whose attachment names none — only the ones the platform takes. */
+/**
+ * And a text: JSON or plain text, in UTF-8, without a NUL, up to 512 KiB and ten to a result — apart from
+ * the twenty pictures (its 2026-09-29 review). The types are `TEXT_TYPES`, one list for both roads.
+ */
+const TEXT_BYTES = 512 * 1024;
+const TEXTS_PER_RESULT = 10;
+/** Throws on what UTF-8 does not spell: a lone byte, an overlong form, half a surrogate pair. */
+const UTF8 = new TextDecoder('utf-8', { fatal: true });
+/**
+ * The type of a picture whose attachment names none — only the ones the platform takes. A text's is never
+ * guessed: a `.json` whose attachment names no type is not sent.
+ */
 const TYPE_BY_EXTENSION: Record<string, string> = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
@@ -79,8 +100,8 @@ const NAME_MAX = 200;
  * own, and within the 200 characters the platform takes, the extension kept.
  */
 function nameOf(file: ResultFile): string {
-  const own = file.name.split(/[\\/]/).pop()?.trim() || basename(file.path);
-  const fileExt = extname(file.path);
+  const own = file.name.split(/[\\/]/).pop()?.trim() || (file.path === undefined ? '' : basename(file.path));
+  const fileExt = file.path === undefined ? '' : extname(file.path);
   const ownExt = extname(own);
   // `Step 1. Checkout` has an "extension" by `extname`; only an image's, or the file's own, counts.
   const typed =
@@ -95,14 +116,76 @@ function nameOf(file: ResultFile): string {
   return `${stem}${ext}`;
 }
 
-/** Why a screenshot stayed behind — said once per reason, every one counted. */
+/** Why a file stayed behind — said once per reason and kind, every one counted. */
 const SKIPPED = {
   hidden: "its name starts with an underscore, which hides an attachment in Playwright's own reports too",
   type: 'Plune takes PNG, JPEG and WebP',
   limit: `a result holds at most ${SCREENSHOTS_PER_RESULT}`,
   missing: 'the file cannot be read on this machine',
   size: 'Plune takes a file of at most 2 MB',
+  textLimit: `a result holds at most ${TEXTS_PER_RESULT} text files`,
+  textSize: 'Plune takes a text file of at most 512 KiB',
+  empty: 'the file is empty',
+  binary: 'the file holds a NUL byte, and Plune takes UTF-8 text without one',
+  encoding: 'Plune takes UTF-8 text only',
 } as const;
+
+/** What differs between the two kinds: how they are called, and their limits and the reasons for them. */
+const KINDS = {
+  screenshot: { label: 'screenshot', bytes: SCREENSHOT_BYTES, room: SCREENSHOTS_PER_RESULT, limit: 'limit', size: 'size' },
+  text: { label: 'text file', bytes: TEXT_BYTES, room: TEXTS_PER_RESULT, limit: 'textLimit', size: 'textSize' },
+} as const;
+
+/** Which kind of upload an attachment is by its type — or neither: a trace, a video, a page of text. */
+function kindOf(type: string): Kind | undefined {
+  if (type.startsWith('image/')) return 'screenshot';
+  return TEXT_TYPES.has(type) ? 'text' : undefined;
+}
+
+/**
+ * The type a text goes under: what the attachment names, without its parameters, and a charset only when it
+ * is UTF-8. The platform refuses any other charset — and the bytes are checked as UTF-8 before they go, so
+ * a wrong label on right bytes costs nothing.
+ */
+function textTypeOf(contentType: string, type: string): string {
+  const charset = /;\s*charset\s*=\s*"?([^\s";]+)"?/i.exec(contentType)?.[1];
+  return charset?.toLowerCase() === 'utf-8' ? `${type}; charset=utf-8` : type;
+}
+
+/** Why the platform would refuse these bytes as a text — known here, so they need not cross the wire to learn it. */
+function textRefusal(bytes: Buffer): keyof typeof SKIPPED | undefined {
+  if (bytes.length > TEXT_BYTES) return 'textSize';
+  if (bytes.length === 0) return 'empty';
+  if (bytes.includes(0)) return 'binary';
+  try {
+    UTF8.decode(bytes);
+  } catch {
+    return 'encoding';
+  }
+  return undefined;
+}
+
+/**
+ * A result as the fallback file keeps it: its files by their paths, as it always has, and no body. JSON
+ * writes a Buffer as one number for every byte, which a replay could not tell from the text it was — and
+ * a text attached from memory is uploaded once its result is stored or not at all, like every file.
+ */
+function onDisk(result: DeferredResult): DeferredResult {
+  if (!('files' in result) || result.files === undefined) return result;
+  const { files, ...rest } = result;
+  const kept = files.filter((f) => f.path !== undefined).map(({ body: _body, ...file }) => file);
+  return kept.length === 0 ? rest : { ...rest, files: kept };
+}
+
+/** `3 screenshot(s) uploaded, 1 skipped, 1 failed to upload` — or nothing for a kind the run had none of. */
+function tally(counts: RunStats['screenshots'], noun: string): string | undefined {
+  if (counts.uploaded + counts.skipped + counts.failed === 0) return undefined;
+  return (
+    `${counts.uploaded} ${noun}(s) uploaded` +
+    (counts.skipped > 0 ? `, ${counts.skipped} skipped` : '') +
+    (counts.failed > 0 ? `, ${counts.failed} failed to upload` : '')
+  );
+}
 
 /**
  * A foreign test name is not a key until it fits one.
@@ -278,6 +361,7 @@ export async function startRun(
     unoffered: 0,
     deferred: 0,
     screenshots: { uploaded: 0, skipped: 0, failed: 0 },
+    textFiles: { uploaded: 0, skipped: 0, failed: 0 },
   };
   /** `null` records a key we already asked about and the platform did not know — asking twice
    * would cost a request to learn the same thing. */
@@ -298,8 +382,9 @@ export async function startRun(
   let done = false;
   /** Names shortened to fit a key or a title, by original value — said once, counted once. */
   const shortened = new Set<string>();
-  /** Why screenshots stayed behind, as far as it has been said — once per reason; the summary counts them all. */
-  const skipsSaid = new Set<keyof typeof SKIPPED>();
+  /** Why files stayed behind, as far as it has been said — once per reason and kind; the summary counts them all. */
+  const skipsSaid = new Set<string>();
+  const countsOf = (kind: Kind) => (kind === 'text' ? stats.textFiles : stats.screenshots);
 
   function bound(keys: readonly KeyRef[]): KeyRef[] {
     return keys.map((key) => {
@@ -333,7 +418,7 @@ export async function startRun(
       externalKey,
       session: sessionMarker,
       ...(cfg.meta !== undefined ? { meta: cfg.meta } : {}),
-      results,
+      results: results.map(onDisk),
     });
     stats.deferred += results.length;
   }
@@ -518,71 +603,90 @@ export async function startRun(
     }
   }
 
-  function skip(name: string, why: keyof typeof SKIPPED): void {
-    stats.screenshots.skipped += 1;
-    if (skipsSaid.has(why)) return;
-    skipsSaid.add(why);
-    log(`plune: screenshot "${name}" not uploaded — ${SKIPPED[why]}.`);
+  function skip(kind: Kind, name: string, why: keyof typeof SKIPPED): void {
+    countsOf(kind).skipped += 1;
+    if (skipsSaid.has(`${kind}/${why}`)) return;
+    skipsSaid.add(`${kind}/${why}`);
+    log(`plune: ${KINDS[kind].label} "${name}" not uploaded — ${SKIPPED[why]}.`);
   }
 
-  /** One screenshot to its result, under the name `nameOf` gave it — never the path, which names this machine. */
-  async function uploadOne(shot: Shot): Promise<void> {
+  /** One file to its result, under the name `nameOf` gave it — never the path, which names this machine. */
+  async function uploadOne(job: Upload): Promise<void> {
+    const { kind } = job;
+    const { label, bytes: ceiling, size } = KINDS[kind];
     let bytes: Buffer;
-    try {
-      if ((await disk.stat(shot.path)).size > SCREENSHOT_BYTES) return skip(shot.name, 'size');
-      bytes = await disk.readFile(shot.path);
-    } catch {
-      return skip(shot.name, 'missing');
+    if (job.body !== undefined) bytes = job.body;
+    else if (job.path === undefined) return skip(kind, job.name, 'missing');
+    else {
+      try {
+        if ((await disk.stat(job.path)).size > ceiling) return skip(kind, job.name, size);
+        bytes = await disk.readFile(job.path);
+      } catch {
+        return skip(kind, job.name, 'missing');
+      }
     }
+    const refusal = kind === 'text' ? textRefusal(bytes) : undefined;
+    if (refusal !== undefined) return skip(kind, job.name, refusal);
     const out = await client.upload(
-      `/v1/results/${encodeURIComponent(shot.id)}/files?name=${encodeURIComponent(shot.name)}`,
+      `/v1/results/${encodeURIComponent(job.id)}/files?name=${encodeURIComponent(job.name)}`,
       bytes,
-      shot.type,
+      job.type,
     );
+    const counts = countsOf(kind);
     if (out.ok) {
-      stats.screenshots.uploaded += 1;
+      counts.uploaded += 1;
       return;
     }
     // Said once: a closed run or a lost network refuses every file after the first the same way.
-    stats.screenshots.failed += 1;
-    if (stats.screenshots.failed === 1) {
-      log(`plune: could not upload a screenshot (${out.detail || out.kind}) — its result is reported without it.`);
+    counts.failed += 1;
+    if (counts.failed === 1) {
+      log(`plune: could not upload a ${label} (${out.detail || out.kind}) — its result is reported without it.`);
     }
   }
 
   /**
-   * The screenshots of the results a batch just stored, each to its own result (platform ADR 0040).
+   * The screenshots and the text files of the results a batch just stored, each to its own result
+   * (platform ADR 0040).
    *
    * Only `accepted`: a `duplicate` was stored by an earlier report, files and all, and sending them
-   * again would fill its twenty places with copies. Awaited before the next batch, and so before
-   * anything closes the run — the platform takes no file on a closed run. Never deferred: the fallback
-   * file replays results, and a result that arrived without its screenshots has still arrived.
+   * again would fill its places with copies. Awaited before the next batch, and so before anything
+   * closes the run — the platform takes no file on a closed run. Never deferred: the fallback file
+   * replays results, and a result that arrived without its files has still arrived.
    */
   async function upload(items: BatchItem[] | undefined, filesByKey: ReadonlyMap<string, ResultFile[]>): Promise<void> {
     if (filesByKey.size === 0 || !Array.isArray(items)) return;
-    const shots: Shot[] = [];
+    const jobs: Upload[] = [];
     for (const item of items) {
       if (item?.status !== 'accepted' || typeof item.id !== 'string' || typeof item.resultKey !== 'string') continue;
-      let room = SCREENSHOTS_PER_RESULT;
+      const room: Record<Kind, number> = { screenshot: KINDS.screenshot.room, text: KINDS.text.room };
       for (const file of filesByKey.get(item.resultKey) ?? []) {
         const type =
-          file.contentType?.split(';')[0]?.trim().toLowerCase() || TYPE_BY_EXTENSION[extname(file.path).toLowerCase()];
-        // A trace, a video, a page of text: not a screenshot, so neither sent nor counted.
-        if (!type?.startsWith('image/')) continue;
+          mediaTypeOf(file.contentType) ??
+          (file.path === undefined ? undefined : TYPE_BY_EXTENSION[extname(file.path).toLowerCase()]);
+        const kind = type === undefined ? undefined : kindOf(type);
+        // A trace, a video, a page of text, an image kept as a body: not a file to send, so neither sent nor counted.
+        if (type === undefined || kind === undefined || (kind === 'screenshot' && file.path === undefined)) continue;
         const name = nameOf(file);
-        if (file.name.startsWith('_')) skip(name, 'hidden');
-        else if (!SCREENSHOT_TYPES.has(type)) skip(name, 'type');
-        else if (room === 0) skip(name, 'limit');
+        if (file.name.startsWith('_')) skip(kind, name, 'hidden');
+        else if (kind === 'screenshot' && !SCREENSHOT_TYPES.has(type)) skip(kind, name, 'type');
+        else if (room[kind] === 0) skip(kind, name, KINDS[kind].limit);
         else {
-          room -= 1;
-          shots.push({ id: item.id, name, type, path: file.path });
+          room[kind] -= 1;
+          jobs.push({
+            id: item.id,
+            kind,
+            name,
+            type: kind === 'text' ? textTypeOf(file.contentType ?? '', type) : type,
+            ...(file.body !== undefined ? { body: file.body } : {}),
+            ...(file.path !== undefined ? { path: file.path } : {}),
+          });
         }
       }
     }
     let next = 0;
     await Promise.all(
-      Array.from({ length: Math.min(UPLOADS_AT_ONCE, shots.length) }, async () => {
-        while (next < shots.length) await uploadOne(shots[next++]!);
+      Array.from({ length: Math.min(UPLOADS_AT_ONCE, jobs.length) }, async () => {
+        while (next < jobs.length) await uploadOne(jobs[next++]!);
       }),
     );
   }
@@ -689,13 +793,8 @@ export async function startRun(
     if (stats.unresolved > 0) parts.push(`${stats.unresolved} with no matching test case`);
     if (stats.offered > 0) parts.push(`${stats.offered} offered for review`);
     if (stats.created > 0) parts.push(`${stats.created} added as cases (trusted source)`);
-    const shots = stats.screenshots;
-    if (shots.uploaded + shots.skipped + shots.failed > 0) {
-      parts.push(
-        `${shots.uploaded} screenshot(s) uploaded` +
-          (shots.skipped > 0 ? `, ${shots.skipped} skipped` : '') +
-          (shots.failed > 0 ? `, ${shots.failed} failed to upload` : ''),
-      );
+    for (const said of [tally(stats.screenshots, 'screenshot'), tally(stats.textFiles, 'text file')]) {
+      if (said !== undefined) parts.push(said);
     }
     if (stats.deferred > 0) parts.push(`${stats.deferred} not delivered — written to ${fallbackPath}`);
     if (shortened.size > 0) parts.push(`${shortened.size} test name(s) shortened to fit a key`);

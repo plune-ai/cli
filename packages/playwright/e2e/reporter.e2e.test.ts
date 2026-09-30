@@ -350,6 +350,60 @@ describe('a screenshot a test kept reaches its result (plune#913)', () => {
 });
 
 /**
+ * plune-ai/plune#928 on the published bundle and on the real runner. A JSON a test attached as a body and a
+ * log it attached as a file reach the result — from the reporter as the run happens, and from `plune run
+ * import` of the JSON report of the same run, whose `body` is base64 — and a text a byte over what Plune
+ * keeps stays behind, with a line that says so and no word to the runner's exit code.
+ */
+describe('a JSON and a log a test kept reach its result (plune#928)', () => {
+  const API = JSON.stringify({ items: [1, 2, 3], ok: true });
+  const LOG = 'GET /cart 200 привіт\nGET /cart/pay 402\n';
+  let live: FixtureRun;
+  let imported: Received[] = [];
+
+  beforeAll(async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plune-texts-'));
+    const report = path.join(dir, 'report.json');
+    try {
+      live = await runFixture(false, [], { PLUNE_TEST_DIR: './texts', PLUNE_JSON_REPORT: report });
+      imported = await importReport(report, {});
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }, 240_000);
+
+  /** What reached the platform's file route, in path order: where, as what type, with which bytes. */
+  const uploadsOf = (received: Received[]) =>
+    received
+      .filter((r) => r.file !== undefined)
+      .map((r) => ({ to: r.path, type: r.file?.type, text: r.file?.bytes.toString('utf8').slice(0, 64) }))
+      .sort((a, b) => (a.to < b.to ? -1 : 1));
+  const BOTH = [
+    { to: '/v1/results/res-0/files?name=api-response', type: 'application/json', text: API },
+    { to: '/v1/results/res-0/files?name=console.log', type: 'text/plain', text: LOG },
+  ];
+
+  it('the reporter uploads both to the result, under their names, as their types and bytes — before the run is closed', () => {
+    expect(uploadsOf(live.received)).toEqual(BOTH);
+
+    const order = live.received.map((r) => r.path);
+    for (const { to } of BOTH) expect(order.indexOf(to)).toBeLessThan(order.indexOf('/v1/runs/r-e2e/events'));
+    expect(live.stderr).toContain('plune: 1 accepted · 2 text file(s) uploaded, 1 skipped');
+  });
+
+  it('leaves the one a byte over 512 KiB behind, says so once, and leaves the run green', () => {
+    expect(live.received.filter((r) => r.path.includes('too-long'))).toEqual([]);
+    expect(live.stderr).toContain('plune: text file "too-long" not uploaded — Plune takes a text file of at most 512 KiB.');
+    expect(live.code).toBe(0);
+    expect(fs.existsSync(live.fallback)).toBe(false);
+  });
+
+  it('plune run import of the JSON report of the same run uploads the same two, and not the long one', () => {
+    expect(uploadsOf(imported)).toEqual(BOTH);
+  });
+});
+
+/**
  * #790 T18, the CI link's contract on the pinned runner. Under GitHub's variables Playwright writes
  * `metadata.ci` itself (`ciInfo()` in playwright 1.63 `lib/runner/index.js`), and both roads link the
  * run and its failure to that CI run: the reporter live, and `plune run import` of the JSON report of

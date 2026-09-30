@@ -775,4 +775,150 @@ describe('plune run import', () => {
       expect(lines.some((l) => l.includes('screenshot'))).toBe(false);
     });
   });
+
+  /**
+   * plune-ai/plune#928. The same report names JSON and text files: kept by `path`, or as the base64 of a
+   * `body` when the test attached the bytes themselves. They go to their result as the screenshots do, and
+   * are counted apart from them.
+   */
+  describe('the text files a Playwright report keeps (plune#928)', () => {
+    // A 1×1 PNG.
+    const PNG = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+      'base64',
+    );
+    /** One test that passed, keeping these attachments. */
+    const keeping = (attachments: unknown[]) =>
+      JSON.stringify({
+        config: {},
+        suites: [
+          {
+            title: 'a.spec.ts',
+            file: 'a.spec.ts',
+            specs: [{ title: 't', file: 'a.spec.ts', line: 1, tests: [{ id: 'id-1', results: [{ status: 'passed', retry: 0, attachments }] }] }],
+          },
+        ],
+      });
+    const b64 = (text: string | Buffer): string => Buffer.from(text).toString('base64');
+    /** The uploads, in path order: they go four at a time, and which is answered first is not something to read into. */
+    const uploadsOf = (seen: Seen[]) =>
+      seen.filter((s) => s.file !== undefined).sort((a, b) => (a.path < b.path ? -1 : 1));
+
+    it('uploads a JSON kept as a file and a text kept as a body to their result, and says how many', async () => {
+      const kept = path.join(dir, 'api-response-1a2b.json');
+      fs.writeFileSync(kept, '{"items":[1,2,3]}');
+      const { seen, fetchImpl } = platform();
+      const out = await handleRunImport({
+        ...deps(fetchImpl),
+        file: write(
+          'report.json',
+          keeping([
+            { name: 'api-response', contentType: 'application/json', path: kept },
+            { name: 'console.log', contentType: 'text/plain', body: b64('GET /cart 200 привіт\n') },
+            { name: 'trace', contentType: 'application/zip', path: path.join(dir, 'trace.zip') },
+          ]),
+        ),
+      });
+
+      const uploads = uploadsOf(seen);
+      expect(uploads.map((s) => s.path)).toEqual([
+        '/v1/results/res-0/files?name=api-response.json',
+        '/v1/results/res-0/files?name=console.log',
+      ]);
+      expect(uploads[0]?.file).toEqual({ type: 'application/json', bytes: Buffer.from('{"items":[1,2,3]}') });
+      expect(uploads[1]?.file).toEqual({ type: 'text/plain', bytes: Buffer.from('GET /cart 200 привіт\n') });
+      // After the batch that stored the result, before the run is closed.
+      const order = seen.map((s) => s.path);
+      expect(order.indexOf('/v1/runs/r-9/results')).toBeLessThan(order.indexOf(uploads[0]!.path));
+      expect(order.indexOf(uploads[1]!.path)).toBeLessThan(order.indexOf('/v1/runs/r-9/events'));
+      expect(out.textFiles).toEqual({ uploaded: 2, skipped: 0, failed: 0 });
+      expect(out.screenshots).toEqual({ uploaded: 0, skipped: 0, failed: 0 });
+      expect(lines).toContain('2 text file(s) uploaded to their results.');
+      expect(lines.some((l) => l.includes('screenshot'))).toBe(false);
+      // The line the workflows read stays as it was.
+      expect(lines.find((l) => l.startsWith('Read '))).toBe(
+        'Read 1 result(s) from a playwright-json report: 1 accepted, 0 already there, 0 unmatched, 0 not delivered.',
+      );
+    });
+
+    it('counts the text files apart from the screenshots of the same result, one line for each', async () => {
+      const shot = path.join(dir, 'test-finished-1.png');
+      fs.writeFileSync(shot, PNG);
+      const { fetchImpl } = platform();
+      const out = await handleRunImport({
+        ...deps(fetchImpl),
+        file: write(
+          'report.json',
+          keeping([
+            { name: 'screenshot', contentType: 'image/png', path: shot },
+            { name: 'api-response', contentType: 'application/json', body: b64('{}') },
+          ]),
+        ),
+      });
+
+      expect(out).toMatchObject({
+        screenshots: { uploaded: 1, skipped: 0, failed: 0 },
+        textFiles: { uploaded: 1, skipped: 0, failed: 0 },
+      });
+      expect(lines).toContain('1 screenshot(s) uploaded to their results.');
+      expect(lines).toContain('1 text file(s) uploaded to their results.');
+    });
+
+    it('counts what it leaves behind — over 512 KiB, not on this machine — and still reports the result', async () => {
+      const { seen, fetchImpl } = platform();
+      const out = await handleRunImport({
+        ...deps(fetchImpl),
+        file: write(
+          'report.json',
+          keeping([
+            { name: 'fine', contentType: 'text/plain', body: b64('x') },
+            { name: 'huge', contentType: 'text/plain', body: b64(Buffer.alloc(512 * 1024 + 1, 'a')) },
+            { name: 'elsewhere', contentType: 'application/json', path: path.join(dir, 'elsewhere.json') },
+          ]),
+        ),
+      });
+
+      expect(uploadsOf(seen).map((s) => s.path)).toEqual(['/v1/results/res-0/files?name=fine']);
+      expect(out).toMatchObject({ accepted: 1, deferred: 0, textFiles: { uploaded: 1, skipped: 2, failed: 0 } });
+      expect(lines).toContain('1 text file(s) uploaded to their results, 2 skipped.');
+      // Why, once for each reason, is the session’s own line.
+      expect(lines).toContain('plune: text file "huge" not uploaded — Plune takes a text file of at most 512 KiB.');
+      expect(lines).toContain('plune: text file "elsewhere.json" not uploaded — the file cannot be read on this machine.');
+    });
+
+    it('counts a refused upload as one that could not be uploaded, and reports the result all the same', async () => {
+      const { fetchImpl } = platform();
+      const refusing = (async (url: string | URL | Request, init?: RequestInit) =>
+        String(url).includes('/files?name=')
+          ? json(415, { error: 'text is accepted as UTF-8 only' })
+          : fetchImpl(url, init)) as typeof fetch;
+      const out = await handleRunImport({
+        ...deps(refusing),
+        file: write('report.json', keeping([{ name: 'api-response', contentType: 'application/json', body: b64('{}') }])),
+      });
+
+      expect(out).toMatchObject({ accepted: 1, deferred: 0, textFiles: { uploaded: 0, skipped: 0, failed: 1 } });
+      expect(lines).toContain('0 text file(s) uploaded to their results, 1 could not be uploaded.');
+      expect(lines).toContain('plune: could not upload a text file (text is accepted as UTF-8 only) — its result is reported without it.');
+    });
+
+    it('leaves an image kept as a body alone, as before — nothing is uploaded, counted or said', async () => {
+      const { seen, fetchImpl } = platform();
+      const out = await handleRunImport({
+        ...deps(fetchImpl),
+        file: write('report.json', keeping([{ name: 'screenshot', contentType: 'image/png', body: b64(PNG) }])),
+      });
+
+      expect(uploadsOf(seen)).toEqual([]);
+      expect(out).toMatchObject({ screenshots: { uploaded: 0, skipped: 0, failed: 0 }, textFiles: { uploaded: 0, skipped: 0, failed: 0 } });
+      expect(lines.some((l) => l.includes('screenshot') || l.includes('text file'))).toBe(false);
+    });
+
+    it('says nothing about text files for a report that has none', async () => {
+      const { fetchImpl } = platform();
+      await handleRunImport({ ...deps(fetchImpl), file: write('results.xml', REPORT) });
+
+      expect(lines.some((l) => l.includes('text file'))).toBe(false);
+    });
+  });
 });

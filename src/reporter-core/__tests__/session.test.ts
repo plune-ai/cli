@@ -1559,3 +1559,486 @@ describe('screenshots go to the result they belong to (plune#913)', () => {
     expect(seen.order).toEqual(['results', 'file', 'results', 'file', 'file', 'event:finish']);
   });
 });
+
+/**
+ * plune-ai/plune#928, platform ADR 0040 (its 2026-09-29 review). A test attaches more than pictures — the
+ * answer of an API, a log — and the platform now keeps JSON and plain text beside screenshots: up to 512 KiB
+ * a file and 10 a result, UTF-8 only. They travel as screenshots do: to their result once the batch that
+ * stores it is answered, before anything closes the run, and nothing about them can cost a result. What the
+ * platform would refuse stays behind, counted and said — a refusal known here has no business crossing the
+ * wire, and the platform's answer is not the only place a limit is written down.
+ */
+describe('text files go to the result they belong to (plune#928)', () => {
+  const KIB512 = 512 * 1024;
+  /** What Playwright names the copy of a file attached by path: `<name>-<sha1 of the original's path><ext>`. */
+  const SHA1 = '87f15b965a84499fbcc46f54036099902e9a69d6';
+  // A 1×1 PNG, for the screenshots that share a result with text.
+  const PNG = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+    'base64',
+  );
+  /** A file in this test's folder, and where it is. */
+  const put = (file: string, bytes: Buffer | string): string => {
+    const at = path.join(dir, file);
+    fs.writeFileSync(at, bytes);
+    return at;
+  };
+  /** A JSON attached by path, as Playwright reports it: under its own name, at the copy it saved. */
+  const jsonAt = (name: string, bytes: Buffer | string = '{"ok":true}'): ResultFile => ({
+    name,
+    contentType: 'application/json',
+    path: put(`${name}-${SHA1}.json`, bytes),
+  });
+  /** A text attached as a body, as Playwright reports it: the bytes, and no path. */
+  const inMemory = (name: string, text: Buffer | string, contentType = 'text/plain'): ResultFile => ({
+    name,
+    contentType,
+    body: typeof text === 'string' ? Buffer.from(text) : text,
+  });
+  const pngAt = (name: string): ResultFile => ({ name, contentType: 'image/png', path: put(`${name}-${SHA1}.png`, PNG) });
+  /** The name an upload went by. */
+  const sentName = (url: string): string => decodeURIComponent(url.slice(url.indexOf('?name=') + '?name='.length));
+  const HIDDEN = "its name starts with an underscore, which hides an attachment in Playwright's own reports too";
+
+  async function report(results: PendingResult[], opts: PlatformOptions = {}, over: Partial<ReporterConfig> = {}) {
+    const known = Object.fromEntries(results.map((r) => [r.keys[0]!.value, `tc-${r.keys[0]!.value}`]));
+    const p = platform({ known, ...opts });
+    const cfg = config(p.fetchImpl, over);
+    const run = await startRun(cfg);
+    for (const r of results) await run.add(r);
+    await run.finish();
+    return { ...p, run, cfg };
+  }
+  /** Where each upload went, with the type and the size it went with — in path order, not arrival order. */
+  const uploads = (seen: Seen) =>
+    seen.files
+      .map((f) => ({ to: f.url.replace('https://api.test', ''), type: f.headers['content-type'], size: f.bytes.length }))
+      .sort((a, b) => (a.to < b.to ? -1 : 1));
+  const zero = { uploaded: 0, skipped: 0, failed: 0 };
+
+  it('uploads a JSON kept as a file to the result it belongs to: its id, the attachment’s name with the file’s extension, its type, the bytes as they are', async () => {
+    const { seen, run, cfg } = await report([result('a', { rawStatus: 'failed', files: [jsonAt('api-response')] })]);
+
+    expect(uploads(seen)).toEqual([{ to: '/v1/results/id-a/files?name=api-response.json', type: 'application/json', size: 11 }]);
+    expect(seen.files[0]?.bytes.toString()).toBe('{"ok":true}');
+    expect(seen.files[0]?.headers['authorization']).toBe(`Bearer ${TOKEN}`);
+    expect(run.stats.textFiles).toEqual({ uploaded: 1, skipped: 0, failed: 0 });
+    // Not a screenshot: nothing of it is counted there.
+    expect(run.stats.screenshots).toEqual(zero);
+    expect(logOf(cfg).at(-1)).toBe('plune: 1 accepted · 1 text file(s) uploaded');
+  });
+
+  it('uploads a text a test attached as a body — Playwright reports no file for it — under its name, as the bytes it holds', async () => {
+    const text = 'GET /cart — 200 привіт 日本語 😀\n';
+    const { seen, run } = await report([result('a', { rawStatus: 'passed', files: [inMemory('console.log', text)] })]);
+
+    expect(uploads(seen)).toEqual([
+      { to: '/v1/results/id-a/files?name=console.log', type: 'text/plain', size: Buffer.byteLength(text) },
+    ]);
+    expect(seen.files[0]?.bytes.toString('utf8')).toBe(text);
+    expect(run.stats.textFiles).toEqual({ uploaded: 1, skipped: 0, failed: 0 });
+  });
+
+  it.each([
+    ['Application/JSON', 'application/json'],
+    ['text/plain; charset=UTF-8', 'text/plain; charset=utf-8'],
+    ['TEXT/PLAIN;charset="utf-8"', 'text/plain; charset=utf-8'],
+    ['text/plain; charset=iso-8859-1', 'text/plain'],
+    ['application/json; charset=utf8', 'application/json'],
+    ['text/plain; format=flowed', 'text/plain'],
+  ])('knows the type %s by what it says, in any case, and sends %s — a charset only when it is UTF-8', async (declared, sent) => {
+    const { seen, run } = await report([result('a', { files: [inMemory('n', 'hello', declared)] })]);
+
+    expect(seen.files.map((f) => f.headers['content-type'])).toEqual([sent]);
+    expect(run.stats.textFiles.uploaded).toBe(1);
+  });
+
+  it('does not guess a text file’s type from its extension: a file that names none is neither sent nor counted', async () => {
+    const { seen, run, cfg } = await report([
+      result('a', {
+        files: [
+          { name: 'data', path: put(`data-${SHA1}.json`, '{}') },
+          { name: 'server', path: put(`server-${SHA1}.log`, 'x') },
+          { name: 'notes', path: put(`notes-${SHA1}.txt`, 'x') },
+        ],
+      }),
+    ]);
+
+    expect(seen.files).toEqual([]);
+    expect(run.stats).toMatchObject({ textFiles: zero, screenshots: zero });
+    expect(logOf(cfg).at(-1)).toBe('plune: 1 accepted');
+  });
+
+  it('leaves what is not JSON or plain text alone, kept as a file or as a body: neither sent nor counted', async () => {
+    const { seen, run, cfg } = await report([
+      result('a', {
+        files: [
+          { name: 'error-context', contentType: 'text/markdown', path: put('error-context.md', '# x') },
+          inMemory('page', '<p>x</p>', 'text/html'),
+          inMemory('rows', 'a,b', 'text/csv'),
+          inMemory('feed', '<a/>', 'application/xml'),
+          inMemory('plune', '{"id":"tc-1"}', 'application/plune.metadata+json'),
+          { name: 'trace', contentType: 'application/zip', path: put('trace.zip', 'PK') },
+          inMemory('blob', 'x', 'application/octet-stream'),
+        ],
+      }),
+    ]);
+
+    expect(seen.files).toEqual([]);
+    expect(run.stats).toMatchObject({ textFiles: zero, screenshots: zero });
+    expect(logOf(cfg).at(-1)).toBe('plune: 1 accepted');
+  });
+
+  it('takes a file of exactly 512 KiB and leaves one byte more behind, whether it is a file or a body', async () => {
+    const { seen, run, cfg } = await report([
+      result('a', {
+        files: [
+          jsonAt('edge-file', Buffer.alloc(KIB512, 'a')),
+          jsonAt('over-file', Buffer.alloc(KIB512 + 1, 'a')),
+          inMemory('edge-body', Buffer.alloc(KIB512, 'a')),
+          inMemory('over-body', Buffer.alloc(KIB512 + 1, 'a')),
+        ],
+      }),
+    ]);
+
+    expect(uploads(seen)).toEqual([
+      { to: '/v1/results/id-a/files?name=edge-body', type: 'text/plain', size: KIB512 },
+      { to: '/v1/results/id-a/files?name=edge-file.json', type: 'application/json', size: KIB512 },
+    ]);
+    expect(run.stats.textFiles).toEqual({ uploaded: 2, skipped: 2, failed: 0 });
+    // Said once, for whichever came first: the second file over the ceiling is counted and not said again.
+    const said = logOf(cfg).filter((l) => l.includes(' not uploaded — '));
+    expect(said).toHaveLength(1);
+    expect(said[0]).toMatch(/^plune: text file "over-(file\.json|body)" not uploaded — Plune takes a text file of at most 512 KiB\.$/);
+    expect(logOf(cfg).at(-1)).toBe('plune: 1 accepted · 2 text file(s) uploaded, 2 skipped');
+  });
+
+  it('takes UTF-8 whatever it says — multi-byte characters, a byte order mark — and leaves anything else behind', async () => {
+    const bom = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('{"a":1}')]);
+    const { seen, run, cfg } = await report([
+      result('a', {
+        files: [
+          inMemory('utf8', 'привіт — 日本語 😀'),
+          inMemory('bom', bom, 'application/json'),
+          // Latin-1 `café`: the é is one byte, 0xE9, which UTF-8 never writes alone.
+          inMemory('latin1', Buffer.from('café', 'latin1')),
+          // Half a surrogate pair, written out as three bytes — what UTF-8 refuses to spell.
+          inMemory('surrogate', Buffer.from([0xed, 0xa0, 0x80])),
+          inMemory('utf16', Buffer.from([0xff, 0xfe, 0x61])),
+        ],
+      }),
+    ]);
+
+    expect(uploads(seen).map((u) => u.to)).toEqual([
+      '/v1/results/id-a/files?name=bom',
+      '/v1/results/id-a/files?name=utf8',
+    ]);
+    expect(run.stats.textFiles).toEqual({ uploaded: 2, skipped: 3, failed: 0 });
+    expect(logOf(cfg).filter((l) => l.includes(' not uploaded — '))).toEqual([
+      'plune: text file "latin1" not uploaded — Plune takes UTF-8 text only.',
+    ]);
+  });
+
+  it('leaves a file with a NUL byte behind — a binary file is no text — wherever the byte stands', async () => {
+    const { seen, run, cfg } = await report([
+      result('a', {
+        files: [
+          inMemory('first', Buffer.from('\0{"a":1}')),
+          inMemory('middle', Buffer.from('log\0line')),
+          inMemory('last', Buffer.from('{"a":1}\0')),
+          inMemory('only', Buffer.from([0])),
+        ],
+      }),
+    ]);
+
+    expect(seen.files).toEqual([]);
+    expect(run.stats.textFiles).toEqual({ uploaded: 0, skipped: 4, failed: 0 });
+    expect(logOf(cfg).filter((l) => l.includes(' not uploaded — '))).toEqual([
+      'plune: text file "first" not uploaded — the file holds a NUL byte, and Plune takes UTF-8 text without one.',
+    ]);
+  });
+
+  // A log can weigh gigabytes: the size is asked of the disk, and a file over the ceiling is never read to find out.
+  it('does not read a file over 512 KiB into memory to learn that it is too big', async () => {
+    const read = vi.spyOn(fs.promises, 'readFile');
+    try {
+      const { run } = await report([result('a', { files: [jsonAt('huge', Buffer.alloc(KIB512 + 1, 'a')), jsonAt('fine')] })]);
+
+      expect(run.stats.textFiles).toEqual({ uploaded: 1, skipped: 1, failed: 0 });
+      // Only the small one was read, from the disk; the other one was measured and left where it was.
+      expect(read.mock.calls.map(([file]) => path.basename(String(file)))).toEqual([`fine-${SHA1}.json`]);
+    } finally {
+      read.mockRestore();
+    }
+  });
+
+  it('sends the bytes when a file has both a path and a body — the body is what the test attached', async () => {
+    const { seen } = await report([
+      result('a', { files: [{ name: 'both', contentType: 'text/plain', path: path.join(dir, 'gone.txt'), body: Buffer.from('from memory') }] }),
+    ]);
+
+    expect(seen.files.map((f) => f.bytes.toString())).toEqual(['from memory']);
+  });
+
+  it('leaves an empty file behind, kept as a file or as a body', async () => {
+    const { seen, run, cfg } = await report([
+      result('a', { files: [jsonAt('blank-file', ''), inMemory('blank-body', '')] }),
+    ]);
+
+    expect(seen.files).toEqual([]);
+    expect(run.stats.textFiles).toEqual({ uploaded: 0, skipped: 2, failed: 0 });
+    const said = logOf(cfg).filter((l) => l.includes(' not uploaded — '));
+    expect(said).toHaveLength(1);
+    expect(said[0]).toMatch(/^plune: text file "blank-(file\.json|body)" not uploaded — the file is empty\.$/);
+  });
+
+  it('holds ten text files to a result and leaves the eleventh behind, apart from the screenshots’ twenty', async () => {
+    const { seen, run, cfg } = await report([
+      result('a', {
+        files: [
+          ...Array.from({ length: 21 }, (_, i) => pngAt(`s-${i}`)),
+          ...Array.from({ length: 12 }, (_, i) => inMemory(`t-${i}`, `line ${i}`)),
+        ],
+      }),
+      // Another result has its own ten: what one result left behind is nobody else's room.
+      result('b', { files: Array.from({ length: 10 }, (_, i) => inMemory(`u-${i}`, `line ${i}`)) }),
+    ]);
+
+    const texts = seen.files.filter((f) => f.headers['content-type'] === 'text/plain');
+    expect(texts.filter((f) => f.url.includes('/id-a/')).map((f) => sentName(f.url)).sort()).toEqual(
+      Array.from({ length: 10 }, (_, i) => `t-${i}`).sort(),
+    );
+    expect(texts.filter((f) => f.url.includes('/id-b/'))).toHaveLength(10);
+    expect(run.stats.textFiles).toEqual({ uploaded: 20, skipped: 2, failed: 0 });
+    expect(run.stats.screenshots).toEqual({ uploaded: 20, skipped: 1, failed: 0 });
+    expect(logOf(cfg).filter((l) => l.startsWith('plune: text file'))).toEqual([
+      'plune: text file "t-10" not uploaded — a result holds at most 10 text files.',
+    ]);
+  });
+
+  it('hides a text file whose name starts with an underscore, as Playwright’s own reports do', async () => {
+    const { seen, run, cfg } = await report([
+      result('a', { files: [inMemory('_scratch', 'x'), inMemory('_more', 'x'), inMemory('shown', 'x'), pngAt('_shot')] }),
+    ]);
+
+    expect(seen.files.map((f) => sentName(f.url))).toEqual(['shown']);
+    expect(run.stats.textFiles).toEqual({ uploaded: 1, skipped: 2, failed: 0 });
+    // One line for each kind, each naming its own.
+    expect(logOf(cfg).filter((l) => l.includes(' not uploaded — '))).toEqual([
+      `plune: text file "_scratch" not uploaded — ${HIDDEN}.`,
+      `plune: screenshot "_shot.png" not uploaded — ${HIDDEN}.`,
+    ]);
+  });
+
+  it('counts a text file that is not on this machine as skipped', async () => {
+    const { seen, run, cfg } = await report([
+      result('a', { files: [{ name: 'gone', contentType: 'application/json', path: path.join(dir, `gone-${SHA1}.json`) }] }),
+    ]);
+
+    expect(seen.files).toEqual([]);
+    expect(run.stats.textFiles).toEqual({ uploaded: 0, skipped: 1, failed: 0 });
+    expect(logOf(cfg).filter((l) => l.includes(' not uploaded — '))).toEqual([
+      'plune: text file "gone.json" not uploaded — the file cannot be read on this machine.',
+    ]);
+  });
+
+  it('says why once for each reason, and counts every file left behind', async () => {
+    const { seen, run, cfg } = await report([
+      result('a', {
+        files: [
+          inMemory('_hidden', 'x'),
+          inMemory('huge', Buffer.alloc(KIB512 + 1, 'a')),
+          inMemory('latin1', Buffer.from('café', 'latin1')),
+          inMemory('nul', Buffer.from('a\0')),
+          inMemory('blank', ''),
+          { name: 'gone', contentType: 'text/plain', path: path.join(dir, `gone-${SHA1}.txt`) },
+          // Five places are left of the ten, and these are six.
+          ...Array.from({ length: 6 }, (_, i) => inMemory(`ok-${i}`, `line ${i}`)),
+        ],
+      }),
+    ]);
+
+    expect(seen.files.map((f) => sentName(f.url)).sort()).toEqual(['ok-0', 'ok-1', 'ok-2', 'ok-3', 'ok-4']);
+    expect(run.stats.textFiles).toEqual({ uploaded: 5, skipped: 7, failed: 0 });
+    expect(logOf(cfg).filter((l) => l.includes(' not uploaded — ')).sort()).toEqual([
+      `plune: text file "_hidden" not uploaded — ${HIDDEN}.`,
+      'plune: text file "blank" not uploaded — the file is empty.',
+      'plune: text file "gone.txt" not uploaded — the file cannot be read on this machine.',
+      'plune: text file "huge" not uploaded — Plune takes a text file of at most 512 KiB.',
+      'plune: text file "latin1" not uploaded — Plune takes UTF-8 text only.',
+      'plune: text file "nul" not uploaded — the file holds a NUL byte, and Plune takes UTF-8 text without one.',
+      'plune: text file "ok-5" not uploaded — a result holds at most 10 text files.',
+    ]);
+    expect(logOf(cfg).at(-1)).toBe('plune: 1 accepted · 5 text file(s) uploaded, 7 skipped');
+  });
+
+  it.each([
+    [409, 'the run is closed — its results stand'],
+    [413, 'request body too large — this route accepts at most 524288 bytes'],
+    [415, 'text is accepted as UTF-8 only'],
+    [500, 'internal error'],
+  ])('costs no result when an upload is answered %i: counted, said once, and the run still closes', async (status, error) => {
+    const { seen, run, cfg } = await report(
+      [result('a', { files: [jsonAt('a')] }), result('b', { files: [inMemory('b', 'text')] })],
+      { filesFailure: { status, error } },
+    );
+
+    expect(run.stats).toMatchObject({ accepted: 2, deferred: 0, textFiles: { uploaded: 0, skipped: 0, failed: 2 } });
+    expect(logOf(cfg).filter((l) => l.startsWith('plune: could not upload'))).toEqual([
+      `plune: could not upload a text file (${error}) — its result is reported without it.`,
+    ]);
+    expect(seen.events.map((e) => e.body['event'])).toEqual(['finish']);
+    expect(logOf(cfg).at(-1)).toBe('plune: 2 accepted · 0 text file(s) uploaded, 2 failed to upload');
+    expect(fs.existsSync(cfg.fallbackPath as string)).toBe(false);
+  });
+
+  it('counts screenshots and text files apart in one result, and says a refusal once for each kind', async () => {
+    const both = result('a', { files: [pngAt('checkout'), jsonAt('api'), inMemory('console.log', 'x')] });
+    const { run, cfg } = await report([both]);
+
+    expect(run.stats.screenshots).toEqual({ uploaded: 1, skipped: 0, failed: 0 });
+    expect(run.stats.textFiles).toEqual({ uploaded: 2, skipped: 0, failed: 0 });
+    expect(logOf(cfg).at(-1)).toBe('plune: 1 accepted · 1 screenshot(s) uploaded · 2 text file(s) uploaded');
+
+    const refused = await report([both], { filesFailure: { status: 500, error: 'boom' } });
+    // Uploads run four at a time, so which kind is refused first is not something to read into.
+    expect(logOf(refused.cfg).filter((l) => l.startsWith('plune: could not upload')).sort()).toEqual([
+      'plune: could not upload a screenshot (boom) — its result is reported without it.',
+      'plune: could not upload a text file (boom) — its result is reported without it.',
+    ]);
+    expect(refused.run.stats).toMatchObject({ screenshots: { failed: 1 }, textFiles: { failed: 2 } });
+  });
+
+  it('gives a result the platform already had no second copy of its text', async () => {
+    const { seen, run } = await report(
+      [result('a', { files: [inMemory('a', 'x')] }), result('b', { files: [inMemory('b', 'x')] })],
+      { duplicates: ['b#0'] },
+    );
+
+    expect(seen.files.map((f) => f.url)).toEqual(['https://api.test/v1/results/id-a/files?name=a']);
+    expect(run.stats).toMatchObject({ accepted: 1, duplicate: 1, textFiles: { uploaded: 1, skipped: 0, failed: 0 } });
+  });
+
+  it('keeps this machine’s paths and the text itself out of every batch', async () => {
+    const { seen } = await report([
+      result('a', { files: [jsonAt('api', '{"token":"KEEP-OUT"}'), inMemory('console.log', 'KEEP-OUT-TOO')] }),
+    ]);
+
+    const sent = seen.results.flatMap((r) => r.results);
+    expect(sent.some((r) => 'files' in r)).toBe(false);
+    expect(JSON.stringify(sent)).not.toMatch(/KEEP-OUT|console\.log/);
+    expect(JSON.stringify(sent)).not.toContain(path.basename(dir));
+  });
+
+  it('names a text by its attachment, a path of this machine by its last segment, within the 200 characters the platform takes', async () => {
+    const { seen } = await report([
+      result('a', {
+        files: [
+          inMemory('C:\\logs\\run.log', 'x'),
+          inMemory('/tmp/out/response.json', '{}', 'application/json'),
+          inMemory('y'.repeat(250), 'x'),
+          // Two UTF-16 units; cut between them, the half left could not go into a URL at all.
+          inMemory(`${'e'.repeat(199)}😀`, 'x'),
+          // Its own extension, the file's the same: kept as it is.
+          { name: 'server.log', contentType: 'text/plain', path: put(`server.log-${SHA1}.log`, 'x') },
+          // A name that is not a file name: the file's extension follows it.
+          { name: 'trace output', contentType: 'text/plain', path: put(`trace output-${SHA1}.txt`, 'x') },
+        ],
+      }),
+    ]);
+
+    expect(seen.files.map((f) => sentName(f.url)).sort()).toEqual(
+      ['run.log', 'response.json', 'y'.repeat(200), 'e'.repeat(199), 'server.log', 'trace output.txt'].sort(),
+    );
+  });
+
+  it('counts a text that holds nothing — no file, no body — as one that is not here, for an adapter that forgot to read it', async () => {
+    const { seen, run, cfg } = await report([result('a', { files: [{ name: 'oops', contentType: 'text/plain' }] })]);
+
+    expect(seen.files).toEqual([]);
+    expect(run.stats.textFiles).toEqual({ uploaded: 0, skipped: 1, failed: 0 });
+    expect(logOf(cfg).filter((l) => l.includes(' not uploaded — '))).toEqual([
+      'plune: text file "oops" not uploaded — the file cannot be read on this machine.',
+    ]);
+  });
+
+  it('still leaves an image kept as a body behind, uncounted — only a text is read from memory', async () => {
+    const { seen, run, cfg } = await report([
+      result('a', { files: [{ name: 'shot', contentType: 'image/png', body: PNG }] }),
+    ]);
+
+    expect(seen.files).toEqual([]);
+    expect(run.stats).toMatchObject({ screenshots: zero, textFiles: zero });
+    expect(logOf(cfg).at(-1)).toBe('plune: 1 accepted');
+  });
+
+  it('has every upload answered before the next batch goes, and before the run is closed', async () => {
+    const { seen } = await report(
+      [result('a', { files: [inMemory('a', 'x')] }), result('b', { files: [inMemory('b-1', 'x'), jsonAt('b-2')] })],
+      { fileMs: 25 },
+      { batchSize: 1 },
+    );
+
+    expect(seen.order).toEqual(['results', 'file', 'results', 'file', 'file', 'event:finish']);
+  });
+
+  describe('and never through the fallback file', () => {
+    const KEEP_OUT = 'TEXT-THAT-IS-NOT-FOR-A-FILE';
+    /** The fallback file's lines, as they were written. */
+    const lines = (cfg: ReporterConfig): { results: { files?: unknown[] }[] }[] =>
+      fs
+        .readFileSync(cfg.fallbackPath as string, 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as { results: { files?: unknown[] }[] });
+
+    it('when the platform is never reached: a file is named there, a body is left out, and no byte of either is written', async () => {
+      const p = platform();
+      const cfg = config(p.fetchImpl, { token: '' });
+      const run = await startRun(cfg);
+      const kept = jsonAt('api', `{"note":"${KEEP_OUT}"}`);
+      await run.add(result('a', { files: [kept, inMemory('console.log', KEEP_OUT)] }));
+      await run.finish();
+
+      const raw = fs.readFileSync(cfg.fallbackPath as string, 'utf8');
+      // The default JSON of a Buffer is a list of numbers, one for every byte: not a thing to leave in a file.
+      expect(raw).not.toContain('"Buffer"');
+      expect(raw).not.toContain(KEEP_OUT);
+      expect(lines(cfg)[0]?.results[0]?.files).toEqual([{ name: 'api', contentType: 'application/json', path: kept.path }]);
+      expect(p.seen.files).toEqual([]);
+      expect(run.stats.textFiles).toEqual(zero);
+    });
+
+    it('when a batch is refused: the text is not sent for a result that was not stored, and is not written down', async () => {
+      const { seen, run, cfg } = await report(
+        [result('a', { files: [jsonAt('api', `{"note":"${KEEP_OUT}"}`), inMemory('console.log', KEEP_OUT)] })],
+        { resultsFailure: { status: 413, error: 'request body too large' } },
+      );
+
+      expect(seen.files).toEqual([]);
+      expect(run.stats).toMatchObject({ accepted: 0, deferred: 1, textFiles: zero });
+      expect(fs.readFileSync(cfg.fallbackPath as string, 'utf8')).not.toContain(KEEP_OUT);
+      expect(lines(cfg)[0]?.results[0]).not.toHaveProperty('files');
+    });
+
+    it('so "plune run report" sends the result again, and the text kept as a file with it — the body is gone', async () => {
+      const p = platform();
+      const cfg = config(p.fetchImpl, { token: '' });
+      const run = await startRun(cfg);
+      await run.add(result('a', { files: [jsonAt('api'), inMemory('console.log', KEEP_OUT)] }));
+      await run.finish();
+
+      const again = platform({ known: { a: 'tc-a' } });
+      const replay = await handleRunReport({
+        file: cfg.fallbackPath as string,
+        apiUrl: 'https://api.test',
+        token: TOKEN,
+        fetchImpl: again.fetchImpl,
+        write: () => {},
+      });
+
+      expect(replay).toEqual({ batches: 1, sent: 1, failed: 0 });
+      expect(again.seen.files.map((f) => f.url)).toEqual(['https://api.test/v1/results/id-a/files?name=api.json']);
+    });
+  });
+});

@@ -185,10 +185,12 @@ function attemptOf(test: TestCase, result: TestResult, ctx: RunContext): FailedA
     status: result.status,
     errors: result.errors.map((e) => ({ text: textOf(e), ...(e.location !== undefined ? { location: e.location } : {}) })),
     steps: declared(result.steps ?? []),
-    attachments: result.attachments.map(({ name, contentType, path }) => ({
+    attachments: result.attachments.map(({ name, contentType, path, body }) => ({
       name,
       contentType,
       ...(path !== undefined ? { path } : {}),
+      // What a test attached from memory has no file: the bytes are the reporter's only copy (plune#928).
+      ...(body !== undefined ? { body } : {}),
     })),
     ...(ctx.buildHref !== undefined ? { buildHref: ctx.buildHref } : {}),
     testFile: test.location.file,
@@ -234,7 +236,7 @@ function pendingFrom(test: TestCase, result: TestResult, ctx: RunContext): Pendi
     },
     ...(errorContext !== '' ? { errorContext } : {}),
     ...(failure !== undefined ? { failure } : {}),
-    // Every attempt's, a passed one's too; the core uploads the screenshots once the result is stored.
+    // Every attempt's, a passed one's too; the core uploads the screenshots and the text files once the result is stored.
     ...(files.length > 0 ? { files } : {}),
   };
 }

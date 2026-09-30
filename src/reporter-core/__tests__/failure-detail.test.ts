@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { errorContextOf, failureOf, repoRootOf, webLink } from '../failure-detail.js';
+import { errorContextOf, failureOf, filesOf, repoRootOf, webLink } from '../failure-detail.js';
 import type { FailedAttempt } from '../types.js';
 
 /**
@@ -248,6 +248,7 @@ describe('failureOf — what the runner kept, and the CI run (AC-04, AC-05)', ()
           { name: '_internal', contentType: 'text/plain', path: '/repo/test-results/a/x.txt' },
           { name: 'plune', contentType: 'application/plune.metadata+json', path: '/repo/test-results/a/m.json' },
           { name: 'note', contentType: 'text/plain' },
+          { name: 'api-response', contentType: 'application/json', body: Buffer.from('{}') },
           { name: '', path: '/repo/test-results/a/unnamed.bin' },
           { name: 'trace', path: '/repo/test-results/a/trace.zip' },
         ],
@@ -684,5 +685,60 @@ describe('errorContextOf — the text of every error (AC-01, AC-01c, AC-05, AC-1
   it('leaves a text at the limit whole', () => {
     const body = 'x'.repeat(LIMIT - 'Error: '.length);
     expect(errorContextOf(attempt({ errors: [{ text: `Error: ${body}` }] }), HOME)).toBe(`Error: ${body}`);
+  });
+});
+
+/**
+ * plune-ai/plune#913 and #928. What the core is handed to upload, for both roads: the files an attempt kept
+ * — and, since the platform keeps text besides pictures, a JSON or a plain text kept as a `body`, which is
+ * no file at all. A body of any other type is not handed over: the platform takes no image, trace or page
+ * from memory, and a suite full of screenshots kept as bodies must not sit in memory until a batch is sent.
+ */
+describe('filesOf — what the core uploads from (plune#913, plune#928)', () => {
+  const files = (attachments: FailedAttempt['attachments']) => filesOf(attempt({ attachments }));
+
+  it('keeps every attachment kept as a file, whatever its type — which of them go is the session’s to say', () => {
+    const kept = [
+      { name: 'screenshot', contentType: 'image/png', path: '/repo/test-results/a/test-failed-1.png' },
+      { name: 'trace', contentType: 'application/zip', path: '/repo/test-results/a/trace.zip' },
+      { name: 'error-context', contentType: 'text/markdown', path: '/repo/test-results/a/error-context.md' },
+      { name: 'untyped', path: '/repo/test-results/a/x.bin' },
+    ];
+
+    expect(files(kept)).toEqual(kept);
+  });
+
+  it('keeps a JSON or a plain text kept as a body, whatever the case of its type or its parameters', () => {
+    const kept = [
+      { name: 'a', contentType: 'application/json', body: Buffer.from('{}') },
+      { name: 'b', contentType: 'text/plain', body: Buffer.from('b') },
+      { name: 'c', contentType: 'Application/JSON', body: Buffer.from('{}') },
+      { name: 'd', contentType: 'TEXT/PLAIN; charset=utf-8', body: Buffer.from('d') },
+    ];
+
+    expect(files(kept)).toEqual(kept);
+  });
+
+  it('drops a body that is not a text — an image, a trace, markdown, the metadata, no type — and an attachment holding nothing', () => {
+    expect(
+      files([
+        { name: 'shot', contentType: 'image/png', body: Buffer.from('png') },
+        { name: 'trace', contentType: 'application/zip', body: Buffer.from('PK') },
+        { name: 'page', contentType: 'text/markdown', body: Buffer.from('# x') },
+        { name: 'plune', contentType: 'application/plune.metadata+json', body: Buffer.from('{}') },
+        { name: 'untyped', body: Buffer.from('x') },
+        { name: 'note', contentType: 'text/plain' },
+      ]),
+    ).toEqual([]);
+  });
+
+  it('keeps the order the runner listed them in, the two kinds together', () => {
+    const kept = [
+      { name: 'a', contentType: 'text/plain', body: Buffer.from('a') },
+      { name: 'b', contentType: 'image/png', path: '/repo/b.png' },
+      { name: 'c', contentType: 'application/json', body: Buffer.from('{}') },
+    ];
+
+    expect(files(kept).map((f) => f.name)).toEqual(['a', 'b', 'c']);
   });
 });

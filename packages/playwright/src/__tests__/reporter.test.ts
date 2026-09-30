@@ -183,13 +183,17 @@ describe('what the adapter tells the core about a test', () => {
 
   /**
    * plune-ai/plune#913. The core uploads the screenshots among them once the result is stored, so a
-   * person sees what a green test looked at, not only a red one. A body kept in memory is no file.
+   * person sees what a green test looked at, not only a red one. An image or a trace kept in memory is
+   * no file, and an attachment with nothing in it (`attach(name)`) has nothing to hand over; only a text
+   * is read from memory (#928, below).
    */
   it('hands the core every file the attempt kept, a passed one’s too', async () => {
     const attachments = [
       { name: 'screenshot', contentType: 'image/png', path: '/repo/test-results/cart/test-finished-1.png' },
       { name: 'trace', contentType: 'application/zip', path: '/repo/test-results/cart/trace.zip' },
-      { name: 'note', contentType: 'text/plain', body: Buffer.from('hi') },
+      { name: 'shot', contentType: 'image/png', body: Buffer.from('png') },
+      { name: 'blob', contentType: 'application/octet-stream', body: Buffer.from('x') },
+      { name: 'nothing', contentType: 'text/plain' },
     ];
     await run(new PluneReporter(), [fakeTest()], [fakeResult({ status: 'passed', attachments })]);
 
@@ -198,6 +202,57 @@ describe('what the adapter tells the core about a test', () => {
       { name: 'trace', contentType: 'application/zip', path: '/repo/test-results/cart/trace.zip' },
     ]);
     expect(added[0]).not.toHaveProperty('failure');
+  });
+
+  /**
+   * plune-ai/plune#928. What a test attaches as a `body` — `testInfo.attach('api-response', { body:
+   * JSON.stringify(…), contentType: 'application/json' })` — is not a file: Playwright hands the reporter
+   * the bytes, and this callback is the only place they are. The adapter passes them on as they are, for
+   * the core to upload once the result is stored.
+   */
+  it('hands the core a JSON or a text a test attached as a body, with the bytes it holds', async () => {
+    const json = Buffer.from(JSON.stringify({ ok: true, items: [1, 2] }));
+    const log = Buffer.from('GET /cart 200 привіт\n');
+    const attachments = [
+      { name: 'api-response', contentType: 'application/json', body: json },
+      { name: 'console.log', contentType: 'text/plain', body: log },
+      { name: 'Report', contentType: 'Text/Plain; charset=UTF-8', body: Buffer.from('x') },
+    ];
+    await run(new PluneReporter(), [fakeTest()], [fakeResult({ status: 'passed', attachments })]);
+
+    expect(added[0]?.files).toEqual([
+      { name: 'api-response', contentType: 'application/json', body: json },
+      { name: 'console.log', contentType: 'text/plain', body: log },
+      { name: 'Report', contentType: 'Text/Plain; charset=UTF-8', body: Buffer.from('x') },
+    ]);
+    expect(Buffer.isBuffer(added[0]?.files?.[0]?.body)).toBe(true);
+  });
+
+  it('hands over a text kept as a file by its path as before, and the two kinds together in the order they were attached', async () => {
+    const attachments = [
+      { name: 'console.log', contentType: 'text/plain', body: Buffer.from('log') },
+      { name: 'api-response', contentType: 'application/json', path: '/repo/test-results/cart/attachments/api-response-1a2b.json' },
+      { name: 'screenshot', contentType: 'image/png', path: '/repo/test-results/cart/test-finished-1.png' },
+    ];
+    await run(new PluneReporter(), [fakeTest()], [fakeResult({ attachments })]);
+
+    expect(added[0]?.files).toEqual([
+      { name: 'console.log', contentType: 'text/plain', body: Buffer.from('log') },
+      { name: 'api-response', contentType: 'application/json', path: '/repo/test-results/cart/attachments/api-response-1a2b.json' },
+      { name: 'screenshot', contentType: 'image/png', path: '/repo/test-results/cart/test-finished-1.png' },
+    ]);
+  });
+
+  // The run page says of `artifacts` that the rest of them "stay in the CI run" — true of a file the runner
+  // kept, and not of a body, which no CI run holds. A text kept as a body is uploaded, not listed there.
+  it('lists no text kept as a body among a failure’s artifacts — only the files, as before', async () => {
+    const attachments = [
+      { name: 'api-response', contentType: 'application/json', body: Buffer.from('{}') },
+      { name: 'server.log', contentType: 'text/plain', path: '/repo/test-results/cart/attachments/server.log-1a2b.log' },
+    ];
+    await run(new PluneReporter(), [fakeTest()], [fakeResult({ status: 'failed', errors: [{ message: 'Error: boom' }], attachments })]);
+
+    expect(added[0]?.failure?.artifacts).toEqual([{ name: 'server.log', contentType: 'text/plain' }]);
   });
 
   it('hands the whole test list over at the start, so the lookup is one request', async () => {

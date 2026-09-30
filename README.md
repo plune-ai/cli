@@ -165,6 +165,11 @@ JPEG or WebP, up to 2 MB each, 20 per result — is uploaded to that result, a p
 run in Plune shows each test with what it looked at. `plune run import` finds them where the report
 says they are, so run it where the report was written; the summary counts any it could not find.
 
+JSON and plain text come the same way — the answer of an API, a log — whether a test attached them
+with a `path` or as a `body` (a report holds a body itself, so `plune run import` needs no file for
+it). Only `application/json` and `text/plain`, as the attachment names them; UTF-8 without NUL
+bytes, up to 512 KiB each and 10 per result. The summary counts them apart from the screenshots.
+
 ### Several jobs, one run
 
 Two suites, or a sharded matrix, report into a single run when every job shares a key **and** knows

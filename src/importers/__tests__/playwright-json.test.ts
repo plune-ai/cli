@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -360,5 +360,148 @@ describe('a failed attempt in the report carries its failure detail (#790)', () 
     const [failed] = readPlaywrightJson(report({ rootDir: at('gone') }), 'report.json').results;
     expect(failed?.failure?.headline).toBe('Error: apiRequestContext.get: Request context disposed.');
     expect(failed?.failure).not.toHaveProperty('location');
+  });
+});
+
+/**
+ * plune-ai/plune#913 and #928. A Playwright JSON report names what each attempt kept: a file by its `path`,
+ * or — what `testInfo.attach(name, { body })` leaves — the bytes themselves, as base64 in `body`. Both go to
+ * the core as the files of the result; a body is decoded only where the platform would take it, since
+ * a report full of screenshots kept as bodies is megabytes of base64 nothing will read.
+ */
+describe('the files a report keeps (plune#913, plune#928)', () => {
+  const report = (attachments: unknown[]): string =>
+    JSON.stringify({
+      config: {},
+      suites: [
+        {
+          title: 'a.spec.ts',
+          file: 'a.spec.ts',
+          specs: [{ title: 't', file: 'a.spec.ts', line: 1, tests: [{ id: 'id-1', results: [{ status: 'passed', retry: 0, attachments }] }] }],
+        },
+      ],
+    });
+  const filesOfReport = (attachments: unknown[]) => readPlaywrightJson(report(attachments), 'report.json').results[0]?.files;
+  const b64 = (text: string | Buffer): string => Buffer.from(text).toString('base64');
+
+  it('hands over what was kept as a file, whatever its type, as it always has', () => {
+    const kept = [
+      { name: 'screenshot', contentType: 'image/png', path: '/repo/test-results/a/test-finished-1.png' },
+      { name: 'trace', contentType: 'application/zip', path: '/repo/test-results/a/trace.zip' },
+      { name: 'api-response', contentType: 'application/json', path: '/repo/test-results/a/attachments/api-response-1a2b.json' },
+    ];
+
+    expect(filesOfReport(kept)).toEqual(kept);
+  });
+
+  it('decodes a JSON or a text kept as a body into the bytes it held', () => {
+    const json = '{"items":[1,2,3],"ok":true}';
+    const log = 'GET /cart 200 привіт 日本語 😀\n';
+    const files = filesOfReport([
+      { name: 'api-response', contentType: 'application/json', body: b64(json) },
+      { name: 'console.log', contentType: 'text/plain', body: b64(log) },
+      { name: 'Report', contentType: 'TEXT/PLAIN; charset=UTF-8', body: b64('x') },
+    ]);
+
+    expect(files?.map((f) => ({ name: f.name, contentType: f.contentType, text: f.body?.toString('utf8') }))).toEqual([
+      { name: 'api-response', contentType: 'application/json', text: json },
+      { name: 'console.log', contentType: 'text/plain', text: log },
+      { name: 'Report', contentType: 'TEXT/PLAIN; charset=UTF-8', text: 'x' },
+    ]);
+    expect(Buffer.isBuffer(files?.[0]?.body)).toBe(true);
+    expect(files?.[0]).not.toHaveProperty('path');
+  });
+
+  it('keeps the bytes of a text as they are — a Latin-1 one too, which is for the core to refuse, not for this to repair', () => {
+    const latin1 = Buffer.from('café', 'latin1');
+
+    expect(filesOfReport([{ name: 'legacy', contentType: 'text/plain', body: b64(latin1) }])?.[0]?.body).toEqual(latin1);
+  });
+
+  it('does not decode a body that is not a text: an image, a trace, markdown, an unnamed type', () => {
+    const files = filesOfReport([
+      { name: 'screenshot', contentType: 'image/png', body: b64('png') },
+      { name: 'trace', contentType: 'application/zip', body: b64('PK') },
+      { name: 'error-context', contentType: 'text/markdown', body: b64('# x') },
+      { name: 'plune', contentType: 'application/plune.metadata+json', body: b64('{"id":"tc-1"}') },
+      { name: 'untyped', body: b64('x') },
+    ]);
+
+    expect(files).toBeUndefined();
+  });
+
+  it('decodes only the bodies it will hand over — a screenshot kept as a body is megabytes nothing here reads', () => {
+    const source = report([
+      { name: 'screenshot', contentType: 'image/png', body: b64('png') },
+      { name: 'trace', contentType: 'application/zip', body: b64('PK') },
+      { name: 'log', contentType: 'text/plain', body: b64('x') },
+    ]);
+    const from = vi.spyOn(Buffer, 'from');
+    try {
+      readPlaywrightJson(source, 'report.json');
+
+      expect(from.mock.calls.filter(([, encoding]) => encoding === 'base64').map(([text]) => text)).toEqual([b64('x')]);
+    } finally {
+      from.mockRestore();
+    }
+  });
+
+  it('hands over nothing for an attachment that holds neither a file nor a body, and ignores a body that is no string', () => {
+    const files = filesOfReport([
+      { name: 'note', contentType: 'text/plain' },
+      { name: 'odd', contentType: 'text/plain', body: 42 },
+      { name: 'kept', contentType: 'text/plain', body: b64('x') },
+    ]);
+
+    expect(files?.map((f) => f.name)).toEqual(['kept']);
+  });
+
+  it('keeps the two kinds in the order the report lists them', () => {
+    const files = filesOfReport([
+      { name: 'a', contentType: 'text/plain', body: b64('a') },
+      { name: 'b', contentType: 'image/png', path: '/repo/b.png' },
+      { name: 'c', contentType: 'application/json', body: b64('{}') },
+    ]);
+
+    expect(files?.map((f) => f.name)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('adds no text kept as a body to the failure’s artifacts — the CI run does not hold one', () => {
+    const failed = JSON.stringify({
+      config: {},
+      suites: [
+        {
+          title: 'a.spec.ts',
+          file: 'a.spec.ts',
+          specs: [
+            {
+              title: 't',
+              file: 'a.spec.ts',
+              line: 1,
+              tests: [
+                {
+                  id: 'id-1',
+                  results: [
+                    {
+                      status: 'failed',
+                      retry: 0,
+                      errors: [{ message: 'Error: boom' }],
+                      attachments: [
+                        { name: 'api-response', contentType: 'application/json', body: b64('{}') },
+                        { name: 'server.log', contentType: 'text/plain', path: '/repo/test-results/a/server.log' },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(readPlaywrightJson(failed, 'report.json').results[0]?.failure?.artifacts).toEqual([
+      { name: 'server.log', contentType: 'text/plain' },
+    ]);
   });
 });

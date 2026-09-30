@@ -63,12 +63,33 @@ export function errorContextOf(attempt: FailedAttempt, home: string = homedir())
 }
 
 /**
+ * The media type an attachment names, without its parameters and in lower case — `Text/Plain; charset=UTF-8`
+ * is `text/plain` — or nothing when it names none.
+ */
+export const mediaTypeOf = (contentType: string | undefined): string | undefined =>
+  contentType?.split(';')[0]?.trim().toLowerCase() || undefined;
+
+/**
+ * The types the platform keeps as a text file (platform ADR 0040, its 2026-09-29 review). A log is
+ * `text/plain`: `.log`, `stdout` and `stderr` are names, not types.
+ */
+export const TEXT_TYPES: ReadonlySet<string> = new Set(['application/json', 'text/plain']);
+
+/** Whether an attachment of this type is a text file to the platform. */
+export const isTextType = (contentType: string | undefined): boolean => TEXT_TYPES.has(mediaTypeOf(contentType) ?? '');
+
+/**
  * The files the runner kept for one attempt, whatever its status: a screenshot of a test that passed
  * is how a person sees what it checked (plune-ai/plune#913). Which of them the platform takes, the
  * session decides as it uploads — once, for both roads.
+ *
+ * A file is what has a `path`. What a test attached as a `body` leaves none — Playwright hands the bytes
+ * over and keeps nothing — so a JSON or a text is kept with its bytes (plune-ai/plune#928), and nothing
+ * else is: an image, a trace or a page is not taken from memory, and a suite whose screenshots are
+ * bodies must not hold them all until a batch is sent.
  */
 export function filesOf(attempt: FailedAttempt): ResultFile[] {
-  return attempt.attachments.filter((a): a is ResultFile => a.path !== undefined);
+  return attempt.attachments.filter((a) => a.path !== undefined || (a.body !== undefined && isTextType(a.contentType)));
 }
 
 /**
