@@ -11,6 +11,13 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-09-30
+
+Also `@plune-ai/playwright` **0.5.0** - the adapter embeds `reporter-core`, where the upload of a result's
+text files lives, and it now hands the core the bytes of an attachment kept as a `body`. Plune's dashboard
+opens what is uploaded in the result's panel (plune-ai/plune#981); a platform that does not keep text files
+refuses them, and the results arrive as before.
+
 ### Added
 
 - **A test's JSON and text files reach Plune with their results (plune-ai/plune#928).** When
@@ -853,7 +860,8 @@ First public release. Released from commit `ba43100`; no `v0.2.0` tag exists.
   `json-schema`, `llm-judge`, `semantic-similarity`, `faithfulness`, `answer-relevance`,
   `context-precision`.
 
-[Unreleased]: https://github.com/plune-ai/cli/compare/v0.16.0...HEAD
+[Unreleased]: https://github.com/plune-ai/cli/compare/v0.17.0...HEAD
+[0.17.0]: https://github.com/plune-ai/cli/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/plune-ai/cli/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/plune-ai/cli/compare/v0.14.3...v0.15.0
 [0.14.3]: https://github.com/plune-ai/cli/compare/v0.14.2...v0.14.3
