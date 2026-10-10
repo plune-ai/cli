@@ -33,6 +33,19 @@ function platform(
       seen.push({ path: target, body: {}, file: { type: (init?.headers as Record<string, string>)['content-type']!, bytes } });
       return json(201, { id: 'f-1', size: bytes.length });
     }
+    // A project without a bucket (ADR 0041): what the database takes goes the old way, the rest has nowhere to go.
+    if (target.endsWith('/files/uploads')) {
+      const { files } = JSON.parse(String(init?.body)) as { files: { name: string; contentType: string; size: number }[] };
+      return json(200, {
+        files: files.map((f) => {
+          const type = f.contentType.split(';')[0]!.trim();
+          const takes = ['image/png', 'image/jpeg', 'image/webp', 'application/json', 'text/plain'].includes(type);
+          return takes && f.size <= (type.startsWith('image/') ? 2 * 1024 * 1024 : 512 * 1024)
+            ? { name: f.name, direct: true }
+            : { name: f.name, skipped: 'no_storage' };
+        }),
+      });
+    }
     const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
     seen.push({ path: target, body });
 
@@ -749,7 +762,7 @@ describe('plune run import', () => {
       expect(order.indexOf('/v1/runs/r-9/results')).toBeLessThan(order.indexOf(uploads[0]!.path));
       expect(order.indexOf(uploads[0]!.path)).toBeLessThan(order.indexOf('/v1/runs/r-9/events'));
       expect(out.screenshots).toEqual({ uploaded: 1, skipped: 0, failed: 0 });
-      expect(lines).toContain('1 screenshot(s) uploaded to their results.');
+      expect(lines.join('\n')).toContain('1 screenshot(s) uploaded');
       // The line the workflows read stays as it was.
       expect(lines.find((l) => l.startsWith('Read '))).toBe(
         'Read 1 result(s) from a playwright-json report: 1 accepted, 0 already there, 0 unmatched, 0 not delivered.',
@@ -765,7 +778,7 @@ describe('plune run import', () => {
       });
 
       expect(out).toMatchObject({ accepted: 1, deferred: 0, screenshots: { uploaded: 0, skipped: 1, failed: 0 } });
-      expect(lines).toContain('0 screenshot(s) uploaded to their results, 1 skipped.');
+      expect(lines.join('\n')).toContain('0 screenshot(s) uploaded, 1 skipped');
     });
 
     it('says nothing about screenshots for a report that has none', async () => {
@@ -833,7 +846,7 @@ describe('plune run import', () => {
       expect(order.indexOf(uploads[1]!.path)).toBeLessThan(order.indexOf('/v1/runs/r-9/events'));
       expect(out.textFiles).toEqual({ uploaded: 2, skipped: 0, failed: 0 });
       expect(out.screenshots).toEqual({ uploaded: 0, skipped: 0, failed: 0 });
-      expect(lines).toContain('2 text file(s) uploaded to their results.');
+      expect(lines.join('\n')).toContain('2 text file(s) uploaded');
       expect(lines.some((l) => l.includes('screenshot'))).toBe(false);
       // The line the workflows read stays as it was.
       expect(lines.find((l) => l.startsWith('Read '))).toBe(
@@ -860,8 +873,7 @@ describe('plune run import', () => {
         screenshots: { uploaded: 1, skipped: 0, failed: 0 },
         textFiles: { uploaded: 1, skipped: 0, failed: 0 },
       });
-      expect(lines).toContain('1 screenshot(s) uploaded to their results.');
-      expect(lines).toContain('1 text file(s) uploaded to their results.');
+      expect(lines.join('\n')).toContain('1 screenshot(s) uploaded · 1 text file(s) uploaded');
     });
 
     it('counts what it leaves behind — over 512 KiB, not on this machine — and still reports the result', async () => {
@@ -880,7 +892,7 @@ describe('plune run import', () => {
 
       expect(uploadsOf(seen).map((s) => s.path)).toEqual(['/v1/results/res-0/files?name=fine']);
       expect(out).toMatchObject({ accepted: 1, deferred: 0, textFiles: { uploaded: 1, skipped: 2, failed: 0 } });
-      expect(lines).toContain('1 text file(s) uploaded to their results, 2 skipped.');
+      expect(lines.join('\n')).toContain('1 text file(s) uploaded, 2 skipped');
       // Why, once for each reason, is the session’s own line.
       expect(lines).toContain('plune: text file "huge" not uploaded — Plune takes a text file of at most 512 KiB.');
       expect(lines).toContain('plune: text file "elsewhere.json" not uploaded — the file cannot be read on this machine.');
@@ -898,7 +910,7 @@ describe('plune run import', () => {
       });
 
       expect(out).toMatchObject({ accepted: 1, deferred: 0, textFiles: { uploaded: 0, skipped: 0, failed: 1 } });
-      expect(lines).toContain('0 text file(s) uploaded to their results, 1 could not be uploaded.');
+      expect(lines.join('\n')).toContain('0 text file(s) uploaded, 1 failed to upload');
       expect(lines).toContain('plune: could not upload a text file (text is accepted as UTF-8 only) — its result is reported without it.');
     });
 

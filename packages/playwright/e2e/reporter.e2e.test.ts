@@ -52,9 +52,12 @@ interface Stub {
  * A stub that speaks the platform's shapes and keeps what it got; `refuseResults` answers every results
  * batch 413, `answerAfterMs` answers each batch that much later, and `refuseStart` answers every request
  * to open a run 503. A result counts as stored when it is answered, and a batch or a file arriving after
- * the run closed is refused 409 — as the platform does.
+ * the run closed is refused 409 — as the platform does. It answers `POST /v1/results/:id/files/uploads` as the
+ * platform does (plune `src/server/results/files-routes.ts`): without a bucket, `direct` for a picture or a text
+ * within the ceilings of the old route and `skipped: no_storage` for the rest; with one (`bucket`), a link
+ * back to this server for every file, a `PUT` there, and `POST /v1/files/:id/complete`.
  */
-async function stub(refuseResults: boolean, answerAfterMs = 0, refuseStart = false): Promise<Stub> {
+async function stub(refuseResults: boolean, answerAfterMs = 0, refuseStart = false, bucket = false): Promise<Stub> {
   const received: Received[] = [];
   let answered = 0;
   let answeredAtClose: number | null = null;
@@ -70,6 +73,31 @@ async function stub(refuseResults: boolean, answerAfterMs = 0, refuseStart = fal
         res.end(JSON.stringify(payload));
       };
 
+      // The bucket's side of a link: the bytes are the body.
+      if (req.method === 'PUT' && url.startsWith('/bucket/')) {
+        received.push({ path: url.split('?')[0] as string, body: {}, file: { type: req.headers['content-type'] ?? '', bytes: raw } });
+        return json({});
+      }
+      if (url.endsWith('/files/uploads')) {
+        if (answeredAtClose !== null) return json({ error: 'the run is closed — its results stand' }, 409);
+        const { files } = JSON.parse(raw.toString('utf8')) as { files: { name: string; contentType: string; size: number }[] };
+        return json({
+          files: files.map((f, index) => {
+            if (bucket) {
+              const id = `f-${f.name}-${index}`;
+              return { id, name: f.name, url: `http://${req.headers.host}/bucket/${encodeURIComponent(id)}?sig=x`, method: 'PUT', headers: { 'content-type': f.contentType }, expiresAt: '2026-10-10T12:00:00.000Z' };
+            }
+            const type = f.contentType.split(';')[0]!.trim().toLowerCase();
+            const takes = ['image/png', 'image/jpeg', 'image/webp', 'application/json', 'text/plain'].includes(type);
+            const room = type.startsWith('image/') ? 2 * 1024 * 1024 : 512 * 1024;
+            return takes && f.size <= room ? { name: f.name, direct: true } : { name: f.name, skipped: 'no_storage' };
+          }),
+        });
+      }
+      if (/^\/v1\/files\/[^/]+\/complete$/.test(url)) {
+        received.push({ path: url, body: {} });
+        return json({ id: url.split('/')[3], storage: 'bucket' });
+      }
       // Before the JSON below: a file's body is its bytes (platform ADR 0040).
       if (url.includes('/files?name=')) {
         received.push({ path: url, body: {}, file: { type: req.headers['content-type'] ?? '', bytes: raw } });
@@ -127,8 +155,9 @@ async function runFixture(
   env: Record<string, string> = {},
   answerAfterMs = 0,
   refuseStart = false,
+  bucket = false,
 ): Promise<FixtureRun> {
-  const platform = await stub(refuseResults, answerAfterMs, refuseStart);
+  const platform = await stub(refuseResults, answerAfterMs, refuseStart, bucket);
   const fallback = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'plune-e2e-')), 'pending.jsonl');
 
   try {
@@ -355,6 +384,24 @@ describe('a screenshot a test kept reaches its result (plune#913)', () => {
  * import` of the JSON report of the same run, whose `body` is base64 — and a text a byte over what Plune
  * keeps stays behind, with a line that says so and no word to the runner's exit code.
  */
+describe('a project with a bucket (plune#946)', () => {
+  let shots: FixtureRun;
+
+  beforeAll(async () => {
+    shots = await runFixture(false, [], { PLUNE_TEST_DIR: './shots' }, 0, false, true);
+  }, 240_000);
+
+  it('PUTs the screenshot to its link, completes it, and says so without a link', () => {
+    expect(shots.received.filter((r) => r.path.startsWith('/bucket/')).map((r) => r.file?.type)).toEqual(['image/png']);
+    expect(shots.received.filter((r) => r.path.endsWith('/complete'))).toHaveLength(1);
+    expect(shots.received.some((r) => r.path.includes('/files?name='))).toBe(false);
+    expect(shots.stderr).toContain('storage bucket found for this project');
+    expect(shots.stderr).toContain('plune: 1 accepted · 1 file(s) uploaded to your bucket');
+    expect(shots.stderr).not.toContain('/bucket/');
+    expect(shots.code).toBe(0);
+  });
+});
+
 describe('a JSON and a log a test kept reach its result (plune#928)', () => {
   const API = JSON.stringify({ items: [1, 2, 3], ok: true });
   const LOG = 'GET /cart 200 привіт\nGET /cart/pay 402\n';

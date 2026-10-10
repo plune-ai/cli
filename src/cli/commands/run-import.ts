@@ -184,21 +184,8 @@ function describe(result: ImportResult, apiUrl: string): string[] {
   if (result.conflict > 0 || result.rejected > 0) {
     lines.push(`${result.conflict} conflicted and ${result.rejected} were refused.`);
   }
-  // Only for a report that had screenshots — or text files — at all: a JUnit file never does, and a line of
-  // zeros under every such import would say nothing. Why one stayed behind is the session's line, said above.
-  for (const [counts, noun] of [
-    [result.screenshots, 'screenshot'],
-    [result.textFiles, 'text file'],
-  ] as const) {
-    if (counts.uploaded + counts.skipped + counts.failed > 0) {
-      lines.push(
-        `${counts.uploaded} ${noun}(s) uploaded to their results` +
-          (counts.skipped > 0 ? `, ${counts.skipped} skipped` : '') +
-          (counts.failed > 0 ? `, ${counts.failed} could not be uploaded` : '') +
-          '.',
-      );
-    }
-  }
+  // The files have one line, the session's own summary above (screenshots, text, and with a bucket every
+  // file): a second count here would say "to their results" of files that went to a bucket.
   if (result.deferred > 0) {
     lines.push(
       `${result.deferred} could not be sent and are in the fallback file — "plune run report" retries them.`,

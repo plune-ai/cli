@@ -170,6 +170,18 @@ with a `path` or as a `body` (a report holds a body itself, so `plune run import
 it). Only `application/json` and `text/plain`, as the attachment names them; UTF-8 without NUL
 bytes, up to 512 KiB each and 10 per result. The summary counts them apart from the screenshots.
 
+A project that has connected its own storage bucket in Plune takes more. Every file an attempt kept
+— screenshots, text, a Playwright trace, a video — goes straight from this machine into that bucket
+over short-lived links Plune hands out per file, so a trace of up to 100 MB is streamed from disk,
+never read into memory. Up to four files go at once. The limits there are larger: 10 MiB for an
+image, 5 MiB for a text, 50 MiB for any other file and 100 MiB for a video or a trace, 30 files a
+result. The links are write keys to your bucket, so they are never printed — not in the log, not with
+`--verbose`, not in an error; a line names the file and a code. The first time a run finds the
+bucket it says so, and the summary reads `N file(s) uploaded to your bucket`, with the number
+skipped or failed when there are any. A file that does not arrive is a warning, never a failed
+import. Without a bucket, screenshots and text go as before, and a trace or a video is not stored —
+the log says so once and the summary counts them.
+
 ### Several jobs, one run
 
 Two suites, or a sharded matrix, report into a single run when every job shares a key **and** knows

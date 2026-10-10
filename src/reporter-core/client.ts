@@ -11,6 +11,8 @@
  * than a rule someone has to remember.
  */
 
+import { createReadStream, openAsBlob } from 'node:fs';
+import { pipeline } from 'node:stream';
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 
@@ -86,7 +88,17 @@ export type ClientFailureKind =
 
 export type ClientOutcome<T> =
   | { ok: true; status: number; body: T }
-  | { ok: false; kind: ClientFailureKind; status: number | null; detail: string };
+  | { ok: false; kind: ClientFailureKind; status: number | null; detail: string; code?: string };
+
+/** What a PUT to a bucket carries: a file on disk, streamed at a length known beforehand, or bytes in memory. */
+export type PutSource = { path: string; size: number } | { body: Buffer };
+
+/**
+ * How a PUT ended. Never a URL, never a message: the link is a write key to someone's bucket, and the
+ * errors of the transports (`getaddrinfo ENOTFOUND <host>`, `no answer from <origin>`) name the host. All
+ * that survives is a status and a short code.
+ */
+export type PutOutcome = { ok: true } | { ok: false; status: number | null; code: string };
 
 export interface ClientOptions {
   apiUrl: string;
@@ -110,7 +122,66 @@ export interface PlatformClient {
    * a proxy error page that echoes the request would put a token in a CI log.
    */
   del<T>(path: string): Promise<ClientOutcome<T>>;
+  /**
+   * The bytes to a short-lived link of the customer's bucket (plune-ai/plune#946): exactly the headers the
+   * link came with, no token of ours. Network failures and 5xx wait and try again, up to three times; a 403
+   * (the link has expired) comes back at once, for the caller to ask for a new one.
+   */
+  put(url: string, headers: Record<string, string>, source: PutSource): Promise<PutOutcome>;
 }
+
+/** Pauses before the retries of a PUT — by their number, how many there are. */
+const PUT_DELAYS_MS = [500, 1500, 4000] as const;
+
+const withoutLength = (headers: Record<string, string>): Record<string, string> =>
+  Object.fromEntries(Object.entries(headers).filter(([name]) => name.toLowerCase() !== 'content-length'));
+
+/**
+ * A PUT over `node:http(s)` with the length stated up front (the link is signed on it) and the file piped from
+ * disk, never read whole. Why not `fetch`: see `nodeTransport` (#58). Resolves with the status and `Retry-After`.
+ *
+ * What the bucket SAID wins over what the socket then did: a 403 sent while the body was still going out
+ * arrives as a status first and a reset after, and it must be read as the 403 it is (a new link), not as a
+ * network failure (three more tries of 100 MB). The file is closed whichever way it ends.
+ */
+function nodePut(
+  url: string,
+  headers: Record<string, string>,
+  source: PutSource,
+  idleMs: number,
+): Promise<{ status: number; retryAfter: string | null }> {
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const send = target.protocol === 'https:' ? httpsRequest : httpRequest;
+    const length = 'body' in source ? source.body.length : source.size;
+    let answered: { status: number; retryAfter: string | null } | undefined;
+    const settle = (err?: unknown): void => (answered !== undefined ? resolve(answered) : reject(err));
+    const req = send(
+      target,
+      { method: 'PUT', headers: { ...withoutLength(headers), 'content-length': String(length) } },
+      (res) => {
+        const retry = res.headers['retry-after'];
+        answered = { status: res.statusCode ?? 0, retryAfter: Array.isArray(retry) ? (retry[0] ?? null) : (retry ?? null) };
+        res.on('error', settle);
+        res.on('close', () => {
+          resolve(answered as NonNullable<typeof answered>);
+          req.destroy(); // the answer is in: no more of the file is wanted
+        });
+        res.resume();
+      },
+    );
+    req.setTimeout(idleMs, () => req.destroy(Object.assign(new Error('idle'), { code: 'ETIMEDOUT' })));
+    req.on('error', settle);
+    if ('body' in source) req.end(source.body);
+    else pipeline(createReadStream(source.path), req, (err) => (err ? settle(err) : undefined));
+  });
+}
+
+/** The error's own code (`ECONNRESET`), or `network` — its message may hold the host. */
+const codeOfError = (err: unknown): string => {
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && /^[A-Z0-9_]{2,40}$/.test(code) ? code : 'network';
+};
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -121,12 +192,15 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
  * blocks a clean process exit and — on Windows — trips a libuv teardown assertion. `plune sync`
  * learned this one in production.
  */
-async function detailOf(res: Reply): Promise<string> {
+async function detailOf(res: Reply): Promise<{ detail: string; code?: string }> {
   try {
-    const body = (await res.json()) as { error?: unknown };
-    return typeof body.error === 'string' ? body.error : '';
+    const body = (await res.json()) as { error?: unknown; code?: unknown };
+    return {
+      detail: typeof body.error === 'string' ? body.error : '',
+      ...(typeof body.code === 'string' && /^[a-z0-9_]{1,60}$/.test(body.code) ? { code: body.code } : {}),
+    };
   } catch {
-    return '';
+    return { detail: '' };
   }
 }
 
@@ -166,7 +240,7 @@ export function createClient(opts: ClientOptions): PlatformClient {
     path: string,
     payload?: { body: string | Buffer; type: string },
   ): Promise<ClientOutcome<T>> {
-    let last: { kind: ClientFailureKind; status: number | null; detail: string } = {
+    let last: { kind: ClientFailureKind; status: number | null; detail: string; code?: string } = {
       kind: 'unavailable',
       status: null,
       detail: 'no attempt was made',
@@ -203,9 +277,9 @@ export function createClient(opts: ClientOptions): PlatformClient {
         }
       }
 
-      const detail = scrub(await detailOf(res));
+      const said = await detailOf(res);
       const kind = classify(res.status);
-      last = { kind, status: res.status, detail };
+      last = { kind, status: res.status, detail: scrub(said.detail), ...(said.code !== undefined ? { code: said.code } : {}) };
       if (kind !== 'unavailable') break;
 
       if (attempt < RETRY_DELAYS_MS.length) {
@@ -222,5 +296,36 @@ export function createClient(opts: ClientOptions): PlatformClient {
     upload: <T>(path: string, bytes: Buffer, contentType: string) =>
       send<T>('POST', path, { body: bytes, type: contentType }),
     del: <T>(path: string) => send<T>('DELETE', path),
+    async put(url, headers, source) {
+      let last: PutOutcome = { ok: false, status: null, code: 'network' };
+      for (let attempt = 0; attempt <= PUT_DELAYS_MS.length; attempt += 1) {
+        try {
+          let status: number;
+          let retryAfter: string | null;
+          if (opts.fetchImpl === undefined) ({ status, retryAfter } = await nodePut(url, headers, source, IDLE_MS));
+          else {
+            // The length is the Blob's own: `fetch` refuses a `content-length` it did not write.
+            const body = 'body' in source ? source.body : await openAsBlob(source.path);
+            const res = await opts.fetchImpl(url, { method: 'PUT', headers: withoutLength(headers), body });
+            await res.arrayBuffer().catch(() => undefined);
+            status = res.status;
+            retryAfter = res.headers.get('retry-after');
+          }
+          if (status >= 200 && status <= 299) return { ok: true };
+          last = { ok: false, status, code: `bucket_${status}` };
+          // A 429 is a bucket asking for patience, like a 5xx.
+          if (status < 500 && status !== 429) return last;
+          const seconds = retryAfter === null ? NaN : Number(retryAfter.trim());
+          if (attempt < PUT_DELAYS_MS.length) {
+            await wait(Number.isFinite(seconds) && seconds >= 0 ? Math.min(seconds, 60) * 1000 : (PUT_DELAYS_MS[attempt] as number));
+          }
+          continue;
+        } catch (err) {
+          last = { ok: false, status: null, code: codeOfError(err) };
+        }
+        if (attempt < PUT_DELAYS_MS.length) await wait(PUT_DELAYS_MS[attempt] as number);
+      }
+      return last;
+    },
   };
 }

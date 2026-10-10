@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createServer, type IncomingHttpHeaders, type Server, type ServerResponse } from 'node:http';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createClient, nodeTransport } from '../client.js';
 
 const TOKEN = 'plune_tok_do_not_leak_me';
@@ -253,5 +256,106 @@ describe('client — its own transport (cli#58)', () => {
   it('gives up on a platform that stops answering, rather than holding the run open', async () => {
     // No answer queued: the server reads the request and says nothing.
     await expect(nodeTransport(`${url}/v1/runs`, { method: 'POST', headers: {}, body: '{}' }, 50)).rejects.toThrow(/answer/);
+  });
+});
+
+describe('put — a file to a short-lived link of the project’s bucket (plune-ai/plune#946)', () => {
+  let bucket: Server;
+  let base: string;
+  let got: { headers: IncomingHttpHeaders; bytes: Buffer } | undefined;
+  let answer = 200;
+  let dir: string;
+
+  beforeEach(async () => {
+    got = undefined;
+    answer = 200;
+    dir = mkdtempSync(join(tmpdir(), 'plune-put-'));
+    bucket = createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (c: Buffer) => chunks.push(c));
+      req.on('end', () => {
+        got = { headers: req.headers, bytes: Buffer.concat(chunks) };
+        res.writeHead(answer).end();
+      });
+    });
+    await new Promise<void>((resolve) => bucket.listen(0, '127.0.0.1', resolve));
+    base = `http://127.0.0.1:${(bucket.address() as AddressInfo).port}`;
+  });
+  afterEach(async () => {
+    await new Promise((resolve) => bucket.close(resolve));
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const real = () => createClient({ apiUrl: 'https://api.test', token: TOKEN, wait: async () => undefined });
+
+  it('streams a file from disk with the length written beforehand, the link’s headers and no token', async () => {
+    const bytes = Buffer.alloc(3 * 1024 * 1024 + 7, 'z');
+    const at = join(dir, 'trace.zip');
+    writeFileSync(at, bytes);
+    const out = await real().put(`${base}/o?sig=1`, { 'content-type': 'application/zip', 'Content-Length': '1' }, { path: at, size: bytes.length });
+
+    expect(out).toEqual({ ok: true });
+    expect(got?.bytes.equals(bytes)).toBe(true);
+    // The size of the file, not the link's header (which fetch would refuse) and not chunked.
+    expect(got?.headers['content-length']).toBe(String(bytes.length));
+    expect(got?.headers['transfer-encoding']).toBeUndefined();
+    expect(got?.headers['content-type']).toBe('application/zip');
+    expect(got?.headers['authorization']).toBeUndefined();
+  });
+
+  it('sends bytes held in memory the same way', async () => {
+    const out = await real().put(`${base}/o`, { 'content-type': 'text/plain' }, { body: Buffer.from('hello') });
+
+    expect(out).toEqual({ ok: true });
+    expect(got?.bytes.toString()).toBe('hello');
+    expect(got?.headers['content-length']).toBe('5');
+  });
+
+  it('answers a 403 at once, for the caller to ask for a new link, and a 4xx with its status', async () => {
+    answer = 403;
+    expect(await real().put(`${base}/o`, {}, { body: Buffer.from('x') })).toEqual({ ok: false, status: 403, code: 'bucket_403' });
+  });
+
+  it('reads the 403 the bucket sent while the body was still going out as that 403, not as a broken connection, and lets the file go', async () => {
+    await new Promise((resolve) => bucket.close(resolve));
+    const refusing = createServer((req, res) => {
+      // The link is dead: say so at once, and cut the connection under a body that is still arriving.
+      res.writeHead(403, { connection: 'close' });
+      res.end(() => setTimeout(() => req.socket.destroy(), 100));
+    });
+    await new Promise<void>((resolve) => refusing.listen(0, '127.0.0.1', resolve));
+    const at = join(dir, 'trace.zip');
+    writeFileSync(at, Buffer.alloc(40 * 1024 * 1024, 'z'));
+    const out = await real().put(`http://127.0.0.1:${(refusing.address() as AddressInfo).port}/o`, {}, { path: at, size: 40 * 1024 * 1024 });
+    await new Promise((resolve) => refusing.close(resolve));
+
+    expect(out).toEqual({ ok: false, status: 403, code: 'bucket_403' });
+    // A file still held open cannot be removed on Windows.
+    rmSync(at);
+  });
+
+  it('tries a 429 again after the pause the bucket asked for', async () => {
+    const waited: number[] = [];
+    let n = 0;
+    await new Promise((resolve) => bucket.close(resolve));
+    const slow = createServer((_req, res) => {
+      n += 1;
+      res.writeHead(n === 1 ? 429 : 200, n === 1 ? { 'retry-after': '3' } : {}).end();
+    });
+    await new Promise<void>((resolve) => slow.listen(0, '127.0.0.1', resolve));
+    const client = createClient({ apiUrl: 'https://api.test', token: TOKEN, wait: async (ms) => void waited.push(ms) });
+    const out = await client.put(`http://127.0.0.1:${(slow.address() as AddressInfo).port}/o`, {}, { body: Buffer.from('x') });
+    await new Promise((resolve) => slow.close(resolve));
+
+    expect(out).toEqual({ ok: true });
+    expect(waited).toEqual([3000]);
+  });
+
+  it('gives a refused connection a code and nothing of the address', async () => {
+    await new Promise((resolve) => bucket.close(resolve));
+    const out = await real().put(`${base}/o?sig=SECRET`, {}, { body: Buffer.from('x') });
+
+    expect(out).toEqual({ ok: false, status: null, code: 'ECONNREFUSED' });
+    expect(JSON.stringify(out)).not.toContain('127.0.0.1');
   });
 });

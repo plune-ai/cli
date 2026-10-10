@@ -11,6 +11,20 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **Trace, video, screenshots and text go to the project's bucket (plune-ai/plune#946).** When the project has
+  a storage bucket connected, every file an attempt kept is uploaded straight to it over short-lived links
+  Plune hands out per file: streamed from disk, four at a time, retried on network failures, 5xx and 429, with one
+  new link on a 403. The links are never printed; a warning names the file and a code, and never fails the import.
+  The run says once that the bucket was found, and the summary reads `N file(s) uploaded to your bucket`.
+  Without a bucket nothing changes for screenshots and text; a trace or a video is counted as not stored.
+
+### Changed
+
+- `plune run import` no longer prints its own screenshot and text-file count lines; the session's summary line
+  carries them.
+
 ## [0.17.0] - 2026-09-30
 
 Also `@plune-ai/playwright` **0.5.0** - the adapter embeds `reporter-core`, where the upload of a result's

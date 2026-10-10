@@ -129,10 +129,10 @@ under the name it was attached with: `testInfo.attach('checkout', { path })` arr
 `checkout.png`.
 
 Plune takes PNG, JPEG and WebP, up to 2 MB a file and 20 a result. An image outside those limits is
-skipped: the run summary counts it and says why, once per reason. Traces, videos and other files are
-not uploaded (a JSON or a text is: see below), and neither is an image attached as a `body` rather
-than a file — attach it with `path`. A screenshot that does not arrive never costs its result or your
-run's exit code.
+skipped: the run summary counts it and says why, once per reason. Traces, videos and other files
+need a storage bucket (see below); an image attached as a `body` rather than a file is not uploaded
+— attach it with `path`. A screenshot that does not arrive never costs its result or your run's exit
+code.
 
 ## JSON and text files
 
@@ -147,7 +147,7 @@ await testInfo.attach('server.log', { path: 'logs/server.log', contentType: 'tex
 
 Name the type: `application/json` or `text/plain` (a log is `text/plain`, whatever its file is
 called). An attachment that names none is not uploaded, and its extension is not guessed at;
-Markdown, HTML, CSV, traces and videos are not uploaded either. Plune takes UTF-8 text without NUL
+Markdown, HTML and CSV are not uploaded as text either. Plune takes UTF-8 text without NUL
 bytes, up to 512 KiB a file and 10 a result — apart from the screenshots' 20. A text outside those
 limits, an empty one, or one whose name starts with an underscore is skipped: the run summary counts
 it and says why, once per reason. The reporter sends a file as it is; Plune cleans the credentials it
@@ -157,6 +157,40 @@ your run's exit code.
 A text attached as a `body` exists only in memory: it is uploaded once Plune has stored the result,
 and is never written to `.plune/pending-results.jsonl`, so a result sent again with `plune run report`
 goes without it.
+
+## Traces and videos: your own bucket
+
+A trace or a video is too big for Plune's own storage. Once your project has a storage bucket
+connected in Plune, the reporter uploads them, and every other file a test kept, straight into it.
+Ask Playwright to keep them in `playwright.config.ts`:
+
+```ts
+import { defineConfig } from '@playwright/test';
+
+export default defineConfig({
+  retries: 1,
+  reporter: [['list'], ['@plune-ai/playwright']],
+  use: {
+    trace: 'on-first-retry', // the trace of the first retry of a failed test
+    video: 'retain-on-failure', // the video of a failed test, dropped when it passes
+  },
+});
+```
+
+A trace is kept only when the test is retried, so `retries` must be at least 1 for `on-first-retry`
+to produce one; `trace: 'retain-on-failure'` keeps one for every failed attempt without retries.
+
+Each file goes to its own short-lived link Plune hands out, from disk, up to four at a time; a file of
+100 MB is never read into memory. The links are write keys to your bucket, so they are never
+printed: not in the log, not in an error. The first time a run finds the bucket it says so in one
+line, and the summary reads `N file(s) uploaded to your bucket`, with `, K skipped` and
+`, M failed to upload` when there are any.
+
+The limits in a bucket are larger than in Plune's storage: 10 MiB for an image, 5 MiB for a text,
+50 MiB for any other file, 100 MiB for a trace or a video, and 30 files a result. A file over its
+limit, or one the bucket refuses, is a warning that names the file and a code. It never costs the
+result or your run's exit code. Without a bucket, a trace or a video is not stored: the log says so
+once, naming the first one, and the summary counts them.
 
 ## When Plune is unreachable
 
