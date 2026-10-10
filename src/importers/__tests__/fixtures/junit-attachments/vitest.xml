@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- Real output: vitest 1.6 --reporter=junit; only the hostname is replaced. The tests console.log the two markers. -->
+
+<testsuites name="vitest tests" tests="2" failures="1" errors="0" time="1.85">
+    <testsuite name="t/shop.vt.test.js" timestamp="2026-10-10T11:04:05.702Z" hostname="ci" tests="2" failures="1" errors="0" skipped="0" time="0.006">
+        <testcase classname="t/shop.vt.test.js" name="cart &gt; adds an item" time="0">
+            <system-out>
+adding an item
+[[ATTACHMENT|artifacts/cart.png]]
+
+            </system-out>
+        </testcase>
+        <testcase classname="t/shop.vt.test.js" name="cart &gt; rejects a negative quantity" time="0.003">
+            <system-out>
+[[ATTACHMENT|artifacts/missing-trace.zip]]
+
+            </system-out>
+            <failure message="expected -1 to be &gt; 0" type="Error">
+Error: expected -1 to be &gt; 0
+ ❯ t/shop.vt.test.js:9:11
+            </failure>
+        </testcase>
+    </testsuite>
+</testsuites>

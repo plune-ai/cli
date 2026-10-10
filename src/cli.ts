@@ -328,10 +328,15 @@ export function createProgram(): Command {
     .option('--format <fmt>', 'junit | playwright-json; detected from the file when omitted')
     .option('--key <externalKey>', 'The key several jobs share so their reports land in one run')
     .option('--create', 'Offer tests nothing matched to the review queue', false)
+    .option(
+      '--fail-on-missing-attachments',
+      'Exit 1 when a file the report names with [[ATTACHMENT|path]] is not there; the results are sent either way',
+      false,
+    )
     .action(
       async (
         file: string,
-        options: { format?: string; key?: string; create: boolean },
+        options: { format?: string; key?: string; create: boolean; failOnMissingAttachments: boolean },
         command: Command,
       ) => {
         const [
@@ -355,12 +360,14 @@ export function createProgram(): Command {
           return;
         }
         try {
-          await handleRunImport({
+          const imported = await handleRunImport({
             file,
             ...(format !== undefined ? { format: format as (typeof IMPORT_FORMATS)[number] } : {}),
             ...(options.key !== undefined ? { key: options.key } : {}),
             ...(options.create ? { create: true } : {}),
           });
+          // After the run is sent and the summary printed: the flag changes the exit code, never what is reported.
+          if (options.failOnMissingAttachments && imported.missingAttachments.length > 0) process.exitCode = 1;
         } catch (err) {
           // A report we could not read is the user's to fix, and the message already names the file
           // and the line — exit 2, not the generic failure path.

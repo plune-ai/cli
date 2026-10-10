@@ -13,6 +13,18 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ### Added
 
+- **`plune run import` of a JUnit report sends the files its tests announce (plune-ai/plune#1220).** A test that
+  prints `[[ATTACHMENT|path]]` on a line of its own to `system-out` or `system-err` (pytest, Maven Surefire, Vitest,
+  PHPUnit, .NET's JunitXml.TestLogger and Cypress's `mocha-junit-reporter` all carry it into the report) has that
+  file uploaded to its result by the path the Playwright reporter's files take: the project's bucket, the
+  platform's own route for a picture or a text, a skip otherwise. Any extension; a relative path counts from the
+  folder of the report. A file that is not there never fails the import: each gets a line with the test and the
+  path from the report, always, and the output ends with `Imported N results · M files uploaded · K files not found`.
+  `--fail-on-missing-attachments` turns K > 0 into exit code 1, after every result is sent. A path that leaves the
+  folder of the report, by `..`, an absolute path or a link, is refused with the same line and never read (a report
+  reached through a link may name its files by the folder's real path). Test names and paths from the report are
+  printed without control characters. Output
+  `jest-junit` writes once per suite names no test, so nothing is read from it.
 - **Trace, video, screenshots and text go to the project's bucket (plune-ai/plune#946).** When the project has
   a storage bucket connected, every file an attempt kept is uploaded straight to it over short-lived links
   Plune hands out per file: streamed from disk, four at a time, retried on network failures, 5xx and 429, with one

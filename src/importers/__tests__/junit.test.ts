@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import { readJUnit, looksLikeJUnit } from '../junit.js';
 import { XmlParseError, parseXml } from '../xml.js';
+import type { MissingAttachment } from '../attachments.js';
 
 /**
  * JUnit XML is the format that decides whether Plune is usable without a provider key.
@@ -322,5 +323,32 @@ describe('reading the XML itself', () => {
     expect(looksLikeJUnit('<?xml version="1.0"?>\n<testsuites>')).toBe(true);
     expect(looksLikeJUnit('<testsuite name="s">')).toBe(true);
     expect(looksLikeJUnit('{"suites":[]}')).toBe(false);
+  });
+});
+
+describe('CLI · run import · JUnit · what a missing file and a bad tag carry', () => {
+  it('a file that is not there keeps the key of the result it belonged to', () => {
+    const xml = '<testsuite name="s"><testcase classname="c" name="t"><system-out>[[ATTACHMENT|gone.png]]</system-out></testcase></testsuite>';
+    const missing: MissingAttachment[] = [];
+
+    const results = readJUnit(xml, 'r.xml', missing);
+
+    expect(missing).toHaveLength(1);
+    expect(missing[0]?.resultKey).toBeDefined();
+    expect(missing[0]?.resultKey).toBe(results[0]?.resultKey);
+  });
+
+  it('a tag with an escape code in its name keeps the escape code out of the message', () => {
+    for (const source of ['<a></\u001b[31m></a>', '</\u001b[31m>', '<a\u001b[31m']) {
+      let message = '';
+      try {
+        parseXml(source, 'r.xml');
+      } catch (error) {
+        expect(error).toBeInstanceOf(XmlParseError);
+        message = (error as Error).message;
+      }
+      expect(message, source).not.toBe('');
+      expect(message, source).not.toContain('\u001b');
+    }
   });
 });

@@ -126,6 +126,13 @@ sets), it leaves the run open for the next job instead of closing it — so two 
 produce one report still produce one run. Without either variable it closes the run it finished,
 which is right for the single-job case and was wrong for every other one until 0.9.1.
 
+**`import` also sends the files a JUnit report announces.** A test that prints `[[ATTACHMENT|path]]` on a
+line of its own (to `system-out` or `system-err`) has that file uploaded to its result, the path counted from
+the folder of the report. A file that is not there is named in the output, always, and counted in the last
+line (`Imported 120 results · 34 files uploaded · 2 files not found`); the import still succeeds. Pass
+`--fail-on-missing-attachments` to exit 1 in that case, with the results already sent. A path outside the
+folder of the report is refused the same way and never read. Examples for pytest and Java are in the README.
+
 **`exec`** is the whole thing in one line: it opens a run, gives the command `PLUNE_RUN` and
 `PLUNE_PROCEED` so any reporter inside joins without closing it, waits, then closes the run and
 exits with the **command's** code. The run is closed even when the command failed — a failed test

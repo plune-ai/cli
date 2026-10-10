@@ -62,6 +62,9 @@ export function errorContextOf(attempt: FailedAttempt, home: string = homedir())
   return cut(machineless(text, attempt.repoRoot, home));
 }
 
+/** Text from a report that is safe on a line of our output: no control character (C0 or C1), so no new line and no escape code. */
+export const printable = (text: string): string => text.replace(/[\u0000-\u001f\u007f-\u009f]/g, '?');
+
 /**
  * The media type an attachment names, without its parameters and in lower case — `Text/Plain; charset=UTF-8`
  * is `text/plain` — or nothing when it names none.

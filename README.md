@@ -120,7 +120,7 @@ the last resort, used only when `PLUNE_TOKEN` is set nowhere else. Nothing write
 | `plune login` | Save a [Plune platform](https://plune.ai/platform) API token so `sync` and `ingest` can reach it. The token is **checked against the API before it is saved**, so a wrong one fails here rather than two commands later. Get one at `https://beta.plune.ai` → Account → API tokens. Flags: `--token <token>` (omit to paste it or pipe it via stdin), `--skip-verify` (save without checking, for offline setup). In CI, skip this step: every platform command reads `PLUNE_TOKEN` from the environment first, and the saved login only when it is not set. |
 | `plune logout` | Remove the saved token. |
 | `plune sync` | Upload the latest local run to the platform. Flags: `--file <path>` to send a specific run JSON. |
-| `plune run import <file>` | Turn a **JUnit XML** or **Playwright JSON** report into a run in Plune. Needs no provider key — nothing is generated. Flags: `--format junit\|playwright-json` (detected from the file when omitted), `--key <externalKey>` to land several reports in one run (with `PLUNE_SHARED_RUN=1` — see below), `--create` to offer unmatched tests to the review queue. |
+| `plune run import <file>` | Turn a **JUnit XML** or **Playwright JSON** report into a run in Plune. Needs no provider key — nothing is generated. Flags: `--format junit\|playwright-json` (detected from the file when omitted), `--key <externalKey>` to land several reports in one run (with `PLUNE_SHARED_RUN=1` — see below), `--create` to offer unmatched tests to the review queue, `--fail-on-missing-attachments` to exit 1 when a file a JUnit report names with `[[ATTACHMENT\|path]]` is not there (the results are sent either way). |
 | `plune run start` | Open a platform run — or join the one already carrying `--key` — and print its id. Flags: `--key <externalKey>` (generated when absent), `--json` for one machine-readable line. |
 | `plune run finish <id>` | Close a platform run. This is what the reporter tells you to do for a run it had to leave open. Flags: `--terminate` to record it as cut short, `--reason <text>`. |
 | `plune run exec -- <command>` | Open a run, run the command inside it, close the run — and exit with whatever the command returned. Sets `PLUNE_SHARED_RUN` for you, so anything reporting inside joins that run. Flags: `--key <externalKey>`. |
@@ -181,6 +181,57 @@ bucket it says so, and the summary reads `N file(s) uploaded to your bucket`, wi
 skipped or failed when there are any. A file that does not arrive is a warning, never a failed
 import. Without a bucket, screenshots and text go as before, and a trace or a video is not stored —
 the log says so once and the summary counts them.
+
+### Files from a JUnit report
+
+JUnit has no field for a file, so the runners that keep one print a line of their own in the test's
+output, as Jenkins and GitLab read it: `[[ATTACHMENT|path]]` on a line by itself, in `system-out` or
+`system-err` of the test. `plune run import` reads that line in every test case and sends the file the
+way the Playwright reporter sends one: into your bucket if the project has one, to the result if it is a
+PNG, JPEG, WebP, JSON or plain text; any other file (a trace, a video) needs the bucket and is counted as
+not stored without one. Any extension is read. A relative path
+counts from the folder of the report, so run the import where the report and its files were written.
+
+pytest (`junit_logging=system-out` is what puts the output into the report):
+
+```python
+def test_checkout(page):
+    page.screenshot(path="artifacts/checkout.png")
+    print("[[ATTACHMENT|artifacts/checkout.png]]")
+```
+
+```bash
+pytest --junitxml=report.xml -o junit_logging=system-out
+plune run import report.xml
+```
+
+Java, JUnit 5 (Maven Surefire writes the test's output into its testcase):
+
+```java
+@Test
+void checkout() {
+    // ...
+    System.out.println("[[ATTACHMENT|target/artifacts/checkout.png]]");
+}
+```
+
+A file that is not there (a cleaned-up workspace, a typo, a screenshot that was never taken) does not
+fail the import: every result still goes to Plune. Each one gets a line, always, not only with
+`--verbose`, and the end of the output counts them:
+
+```
+plune: attachment not found — "shop.Cart › rejects a negative quantity": artifacts/missing-trace.zip
+Imported 120 results · 34 files uploaded · 2 files not found
+```
+
+A CI step that should go red for it passes `--fail-on-missing-attachments`: exit code 1, with the
+results already sent. A path that leaves the folder of the report (`../../etc/passwd`, an absolute path
+elsewhere, a link that points outside) is refused with the same line, and the file is never read.
+Console output kept per suite rather than per test (`jest-junit`) names no test, so nothing is read from it.
+
+Check that the output reaches the report: Gradle writes it only with `reports.junitXml.outputPerTestCase = true`,
+and Maven Surefire moves it out of the XML when `redirectTestOutputToFile` is `true`. As in the Playwright
+reporter, a file whose name starts with an underscore is skipped, and a file several tests name is uploaded once per test.
 
 ### Several jobs, one run
 

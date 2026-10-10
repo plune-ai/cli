@@ -12,6 +12,8 @@
  * error message is a large part of why this exists at all.
  */
 
+import { printable } from '../reporter-core/failure-detail.js';
+
 export interface XmlElement {
   name: string;
   attrs: Record<string, string>;
@@ -131,9 +133,9 @@ export function parseXml(source: string, file: string): XmlElement {
       if (end === -1) throw new XmlParseError(file, line, 'a closing tag is never closed');
       const name = source.slice(i + 2, end).trim();
       const open = top();
-      if (open === root) throw new XmlParseError(file, line, `</${name}> closes nothing`);
+      if (open === root) throw new XmlParseError(file, line, `</${printable(name)}> closes nothing`);
       if (open.name !== name) {
-        throw new XmlParseError(file, line, `</${name}> closes <${open.name}>, opened on line ${open.line}`);
+        throw new XmlParseError(file, line, `</${printable(name)}> closes <${printable(open.name)}>, opened on line ${open.line}`);
       }
       stack.pop();
       advance(end + 1);
@@ -154,7 +156,7 @@ export function parseXml(source: string, file: string): XmlElement {
     let selfClosing = false;
     for (;;) {
       while (j < source.length && SPACE.test(source[j] as string)) j += 1;
-      if (j >= source.length) throw new XmlParseError(file, startLine, `<${name}> is never closed`);
+      if (j >= source.length) throw new XmlParseError(file, startLine, `<${printable(name)}> is never closed`);
       if (source[j] === '/' && source[j + 1] === '>') {
         selfClosing = true;
         j += 2;
@@ -167,19 +169,19 @@ export function parseXml(source: string, file: string): XmlElement {
       const attrStart = j;
       while (j < source.length && !ATTR_NAME_END.test(source[j] as string)) j += 1;
       const attr = source.slice(attrStart, j);
-      if (attr === '') throw new XmlParseError(file, startLine, `<${name}> has an attribute with no name`);
+      if (attr === '') throw new XmlParseError(file, startLine, `<${printable(name)}> has an attribute with no name`);
       while (j < source.length && SPACE.test(source[j] as string)) j += 1;
       if (source[j] !== '=') {
-        throw new XmlParseError(file, startLine, `<${name}> attribute "${attr}" has no value`);
+        throw new XmlParseError(file, startLine, `<${printable(name)}> attribute "${printable(attr)}" has no value`);
       }
       j += 1;
       while (j < source.length && SPACE.test(source[j] as string)) j += 1;
       const quote = source[j];
       if (quote !== '"' && quote !== "'") {
-        throw new XmlParseError(file, startLine, `<${name}> attribute "${attr}" is not quoted`);
+        throw new XmlParseError(file, startLine, `<${printable(name)}> attribute "${printable(attr)}" is not quoted`);
       }
       const close = source.indexOf(quote, j + 1);
-      if (close === -1) throw new XmlParseError(file, startLine, `<${name}> attribute "${attr}" is never closed`);
+      if (close === -1) throw new XmlParseError(file, startLine, `<${printable(name)}> attribute "${printable(attr)}" is never closed`);
       el.attrs[attr] = decode(source.slice(j + 1, close));
       j = close + 1;
     }
@@ -191,7 +193,7 @@ export function parseXml(source: string, file: string): XmlElement {
 
   if (stack.length > 1) {
     const open = top();
-    throw new XmlParseError(file, open.line, `<${open.name}> is never closed`);
+    throw new XmlParseError(file, open.line, `<${printable(open.name)}> is never closed`);
   }
   if (root.children.length === 0) throw new XmlParseError(file, 1, 'no elements — is this an XML report?');
   return root;

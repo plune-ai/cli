@@ -9,11 +9,13 @@
  */
 
 import type { PendingResult } from '../reporter-core/types.js';
+import type { MissingAttachment } from './attachments.js';
 import { looksLikeJUnit, readJUnit } from './junit.js';
 import { looksLikePlaywrightJson, readPlaywrightJson } from './playwright-json.js';
 
 export { XmlParseError } from './xml.js';
 export { JsonReportError } from './playwright-json.js';
+export type { MissingAttachment } from './attachments.js';
 
 export const IMPORT_FORMATS = ['junit', 'playwright-json'] as const;
 export type ImportFormat = (typeof IMPORT_FORMATS)[number];
@@ -50,8 +52,11 @@ export function readReport(
   source: string,
   file: string,
   format?: ImportFormat,
-): { format: ImportFormat; results: PendingResult[]; ciUrl?: string; ci?: unknown } {
+): { format: ImportFormat; results: PendingResult[]; missing: MissingAttachment[]; notes: string[]; ciUrl?: string; ci?: unknown } {
   const chosen = format ?? detectFormat(source, file);
-  if (chosen === 'junit') return { format: chosen, results: readJUnit(source, file) };
-  return { format: chosen, ...readPlaywrightJson(source, file) };
+  const missing: MissingAttachment[] = [];
+  const notes: string[] = [];
+  if (chosen === 'junit') return { format: chosen, results: readJUnit(source, file, missing, notes), missing, notes };
+  // A Playwright JSON report names its files itself; nothing in it can be announced and then absent.
+  return { format: chosen, ...readPlaywrightJson(source, file), missing, notes };
 }

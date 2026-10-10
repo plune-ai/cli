@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- NOT a live run: PHP is not installed on the machine that wrote this. The shape follows PHPUnit's
+     --log-junit output (PHPUnit 10/11): a testsuite per class inside the outer one, a testcase per test with
+     file/line/class attributes, and the output the test echoed in its own system-out. -->
+<testsuites>
+  <testsuite name="Acme" tests="2" assertions="2" errors="0" failures="1" skipped="0" time="0.052000">
+    <testsuite name="Acme\Tests\CartTest" file="/src/tests/CartTest.php" tests="2" assertions="2" errors="0" failures="1" skipped="0" time="0.052000">
+      <testcase name="testAddsAnItem" file="/src/tests/CartTest.php" line="12" class="Acme\Tests\CartTest" classname="Acme.Tests.CartTest" assertions="1" time="0.021000">
+        <system-out>adding an item
+[[ATTACHMENT|artifacts/cart.png]]
+</system-out>
+      </testcase>
+      <testcase name="testRejectsANegativeQuantity" file="/src/tests/CartTest.php" line="19" class="Acme\Tests\CartTest" classname="Acme.Tests.CartTest" assertions="1" time="0.012000">
+        <failure type="PHPUnit\Framework\ExpectationFailedException">Acme\Tests\CartTest::testRejectsANegativeQuantity
+Failed asserting that false is true.
+
+/src/tests/CartTest.php:21</failure>
+        <system-out>[[ATTACHMENT|artifacts/missing-trace.zip]]
+</system-out>
+      </testcase>
+    </testsuite>
+  </testsuite>
+</testsuites>
