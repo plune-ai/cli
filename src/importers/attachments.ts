@@ -10,6 +10,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { printable } from '../reporter-core/failure-detail.js';
 import type { ResultFile } from '../reporter-core/types.js';
 import type { XmlElement } from './xml.js';
 
@@ -74,9 +75,6 @@ export function reportFolders(report: string): { lexical: string; real: string }
   return { lexical: path.dirname(path.resolve(report)), real: reportFolder(report) };
 }
 
-/** Text from a report that is safe on a line of our output: no control character, so no new line and no escape code. */
-export const printable = (text: string): string => text.replace(/[\u0000-\u001f\u007f-\u009f]/g, '?');
-
 /** At most this many markers of a test are read; the rest are counted and said once. */
 export const MARKERS_PER_TEST = 100;
 
@@ -86,18 +84,33 @@ function within(folder: string, target: string): boolean {
   return rel === '' || (rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
 }
 
-/** The real file a marker names, or nothing: absent, a folder, or outside the report's folder by its face or after links. */
-function resolveInside(folder: string, ref: string, lexical: string): string | undefined {
+/** Why a marker's path gives no file: `outside` the report's folder (by its face or after links), `absent`, or `not-a-file`. */
+export type NotFoundWhy = 'outside' | 'absent' | 'not-a-file';
+
+/**
+ * The whole check of one marker path (the same for every format that carries one): the real file it names
+ * inside the report's folder, or why it is "not found". `folder` is the report's real folder, `lexical` it
+ * as written (default: the same).
+ */
+export function resolveAttachment(folder: string, ref: string, lexical: string = folder): { file: string } | { why: NotFoundWhy } {
   // Judged on its face first, with no I/O: opening `\\host\share\x` makes a Windows machine talk SMB (and hand
   // over an NTLM hash) and `\\.\pipe\x` opens a pipe. A UNC or device path, another drive and `..` fail here.
-  if (/^[\\/]{2}/.test(ref) || ref.includes('\0')) return undefined;
-  if (!within(lexical, path.resolve(lexical, ref))) return undefined;
+  if (/^[\\/]{2}/.test(ref) || ref.includes('\0')) return { why: 'outside' };
+  // Inside the folder as written or as it really is: a report reached through a link names its files either way.
+  const face = path.resolve(lexical, ref);
+  if (!within(lexical, face) && !within(folder, face)) return { why: 'outside' };
+  let real: string;
   try {
     // Then where it really points: a link inside the folder can lead out.
-    const real = fs.realpathSync(path.resolve(folder, ref));
-    return within(folder, real) && fs.statSync(real).isFile() ? real : undefined;
+    real = fs.realpathSync(path.resolve(folder, ref));
   } catch {
-    return undefined;
+    return { why: 'absent' };
+  }
+  if (!within(folder, real)) return { why: 'outside' };
+  try {
+    return fs.statSync(real).isFile() ? { file: real } : { why: 'not-a-file' };
+  } catch {
+    return { why: 'absent' };
   }
 }
 
@@ -130,14 +143,17 @@ export function filesOfTest(
   const all = markersOf(test);
   if (all.length > MARKERS_PER_TEST) {
     options.notes?.push(
-      `plune: ${JSON.stringify(title)}: ${all.length - MARKERS_PER_TEST} more markers ignored (at most ${MARKERS_PER_TEST} per test)`,
+      `plune: ${JSON.stringify(printable(title))}: ${all.length - MARKERS_PER_TEST} more markers ignored (at most ${MARKERS_PER_TEST} per test)`,
     );
   }
   for (const ref of all.slice(0, MARKERS_PER_TEST)) {
-    const real = resolveInside(folder, ref, options.lexical ?? folder);
-    if (real === undefined) {
+    const found = resolveAttachment(folder, ref, options.lexical);
+    if (!('file' in found)) {
       missing.push({ title, path: ref, ...(options.resultKey !== undefined ? { resultKey: options.resultKey } : {}) });
-    } else if (!files.some((f) => f.path === real)) {
+      continue;
+    }
+    const real = found.file;
+    if (!files.some((f) => f.path === real)) {
       files.push({ name: printable(ref.split(/[\\/]/).pop() || path.basename(real)), contentType: typeOfFile(real), path: real });
     }
   }

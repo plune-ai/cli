@@ -11,7 +11,7 @@
 
 import * as fs from 'node:fs';
 import { startRun } from '../../reporter-core/session.js';
-import { printable } from '../../importers/attachments.js';
+import { printable } from '../../reporter-core/failure-detail.js';
 import { readReport, type ImportFormat, type MissingAttachment } from '../../importers/index.js';
 import { NoTokenError, RunCommandError, type RunCommandDeps } from './run-lifecycle.js';
 import { resolveApiUrl, dashboardUrl } from '../api-url.js';
@@ -98,7 +98,7 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
   // The title and the path are the report's words: the title as a JSON string and the path without control
   // characters, so a name with a new line in it cannot start a line of ours (a `::warning::` is a command to
   // GitHub Actions) and an escape code cannot reach a terminal.
-  for (const m of missing) write(`plune: attachment not found — ${JSON.stringify(m.title)}: ${printable(m.path)}`);
+  for (const m of missing) write(`plune: attachment not found — ${JSON.stringify(printable(m.title))}: ${printable(m.path)}`);
   for (const note of notes) write(note);
 
   // JUnit only: a Playwright report's files have their counts in the session's own line.

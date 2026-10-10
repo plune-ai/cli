@@ -6,7 +6,7 @@ import { resolveApiUrl } from '../cli/api-url.js';
 import { loadToken } from '../cli/credentials.js';
 import { createClient, type ClientOutcome, type PlatformClient } from './client.js';
 import { defaultRunTitle, readEnv } from './env.js';
-import { mediaTypeOf, TEXT_TYPES } from './failure-detail.js';
+import { mediaTypeOf, printable, TEXT_TYPES } from './failure-detail.js';
 import { appendBatch, DEFAULT_FALLBACK_PATH, type DeferredResult } from './fallback.js';
 import type {
   DiscoveredTest,
@@ -428,7 +428,7 @@ export async function startRun(
         if (shortened.size === 1) {
           log(
             `plune: a test name longer than ${KEY_MAX} characters was shortened to fit its key — ` +
-              `"${key.value.slice(0, 80)}…". Give the test a shorter name; until then this is its identity.`,
+              `${JSON.stringify(printable(key.value.slice(0, 80)))}… Give the test a shorter name; until then this is its identity.`,
           );
         }
       }

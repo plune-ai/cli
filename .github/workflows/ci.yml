@@ -46,7 +46,8 @@ jobs:
 
       # Drives the built binary (dist/cli.cjs) against stub servers on localhost; needs no secrets or network.
       - name: End-to-end — built binary
-        run: pnpm test:e2e
+        # Not `pnpm test:e2e`: that runs tsup again, right after Build.
+        run: pnpm exec vitest run -c vitest.e2e.config.ts
 
       # After Build: the adapter typechecks against the root's emitted .d.ts and bundles the
       # reporter core out of the root's dist. Its own `test` script builds it first, which is

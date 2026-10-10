@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createProgram } from '../../cli.js';
+import { resolveAttachment } from '../../importers/attachments.js';
 import { sha256, startBucketPlatform, type BucketPlatform } from './bucket-platform.js';
 
 // The real `fs`, with `realpathSync` counted: a test below needs to know which paths the disk was asked about.
@@ -24,10 +25,12 @@ const fixtures = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '
 let dir = '';
 let platform: BucketPlatform;
 let printed: string[] = [];
+let printedErr: string[] = [];
 
 beforeEach(async () => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plune-junit-attachments-'));
   printed = [];
+  printedErr = [];
   platform = await startBucketPlatform();
   vi.stubEnv('PLUNE_TOKEN', 'tok-junit');
   vi.stubEnv('PLUNE_API_URL', platform.url);
@@ -35,6 +38,10 @@ beforeEach(async () => {
   for (const marker of ['GITHUB_ACTIONS', 'GITLAB_CI', 'JENKINS_URL']) vi.stubEnv(marker, '');
   vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array): boolean => {
     printed.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString());
+    return true;
+  });
+  vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array): boolean => {
+    printedErr.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString());
     return true;
   });
   vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
@@ -331,6 +338,7 @@ describe('CLI · run import · JUnit · a marker is words from the report, not o
       '<testsuites><testsuite name="s">' +
       '<testcase classname="c" name="x&#10;::warning title=PWN::INJECTED"><system-out>[[ATTACHMENT|gone.png]]</system-out></testcase>' +
       '<testcase classname="c" name="y&#27;[31m red"><system-out>[[ATTACHMENT|gone&#27;[0m.png]]</system-out></testcase>' +
+      '<testcase classname="c" name="z&#155;&#133;::warning::C1"><system-out>[[ATTACHMENT|gone&#155;&#133;.png]]</system-out></testcase>' +
       '</testsuite></testsuites>';
 
     const out = await importIt(lay(path.join(dir, 'ci'), xml));
@@ -339,7 +347,9 @@ describe('CLI · run import · JUnit · a marker is words from the report, not o
     expect(lines.filter((l) => l.startsWith('::'))).toEqual([]);
     expect(lines.filter((l) => !l.startsWith('plune: ') && !l.startsWith('Read ') && !l.startsWith('Imported ') && !l.startsWith('http'))).toEqual([]);
     expect(out).not.toContain('\u001b');
-    expect(notFound(out)).toHaveLength(2);
+    // C1 controls too: U+009B is an escape code's introducer on a terminal and U+0085 a line break to some.
+    expect(out + printedErr.join('')).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/);
+    expect(notFound(out)).toHaveLength(3);
   });
 
   it('a sibling folder that shares the name of the report folder as a prefix is outside, in any letter case', async () => {
@@ -390,5 +400,117 @@ describe('CLI · run import · JUnit · the summary tells what did not travel', 
     expect(platform.direct[0]?.type).toBe('image/png');
     expect(out).toContain('1 file(s) not stored (no bucket connected)');
     expect(out).toContain('Imported 1 results · 1 files uploaded · 0 files not found');
+  });
+});
+
+describe('CLI · run import · JUnit · a long test name is words from the report too', () => {
+  it('the shortened-name warning shows the name as a JSON string without control characters, and no line of ours starts with ::', async () => {
+    const name = `x&#10;::warning::PWN&#155;&#133;${'a'.repeat(1100)}`;
+
+    const out = await importIt(lay(path.join(dir, 'ci'), suite([[name, ['no marker']]])));
+
+    const said = out.split('\n').filter((l) => l.includes('was shortened to fit its key'));
+    expect(said).toHaveLength(1);
+    expect(said[0]).toContain('"shop.Cart#');
+    expect(out.split('\n').filter((l) => l.startsWith('::'))).toEqual([]);
+    expect(out + printedErr.join('')).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/);
+  });
+});
+
+describe('CLI · run import · JUnit · a flooded test with a hostile name', () => {
+  it('the «more markers ignored» line shows the name as a JSON string without control characters', async () => {
+    const marks = Array.from({ length: 101 }, (_, i) => mark(`f${i}.txt`));
+
+    const out = await importIt(lay(path.join(dir, 'ci'), suite([['f&#10;::warning::PWN&#155;', marks]])));
+
+    expect(out.split('\n').filter((l) => l.includes('more markers ignored'))).toHaveLength(1);
+    expect(out.split('\n').filter((l) => l.startsWith('::'))).toEqual([]);
+    expect(out + printedErr.join('')).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/);
+  });
+});
+
+describe('CLI · run import · JUnit · what is judged without asking the disk', () => {
+  it('a path above the folder and a path on another drive are refused before any link is followed', async () => {
+    const real = vi.mocked(fs.realpathSync);
+    const elsewhere = process.platform === 'win32' ? 'Q:\\nowhere\\x.txt' : '/etc/nowhere-x';
+    const report = lay(path.join(dir, 'ci'), suite([['away', [mark('../outside.txt'), mark(elsewhere), mark('/etc/nowhere-x')]]]));
+    real.mockClear();
+
+    const out = await importIt(report);
+
+    const asked = real.mock.calls.map((c) => String(c[0]));
+    expect(asked.filter((p) => /outside\.txt|nowhere/.test(p))).toEqual([]);
+    expect(notFound(out)).toHaveLength(3);
+  });
+});
+
+describe('CLI · run import · JUnit · a report reached through a link', () => {
+  function linked(ctx: { skip: () => void }): string | undefined {
+    const real = path.join(dir, 'ci-real');
+    lay(real, suite([['linked report', [mark('a.png'), mark(path.join(real, 'b.png')), mark('../outside.txt')]]]), ['a.png', 'b.png']);
+    fs.writeFileSync(path.join(dir, 'outside.txt'), 'OUTSIDE');
+    try {
+      // A junction needs no privilege on Windows; on the others it is a plain symlink.
+      fs.symlinkSync(real, path.join(dir, 'build-link'), 'junction');
+    } catch {
+      ctx.skip();
+      return undefined;
+    }
+    return path.join(dir, 'build-link', 'report.xml');
+  }
+
+  it('a path inside the folder as written or as it really is is taken, one outside both is refused', async (ctx) => {
+    const report = linked(ctx);
+    if (report === undefined) return;
+
+    const out = await importIt(report);
+
+    expect(putNames()).toEqual(['a.png', 'b.png']);
+    expect(notFound(out)).toHaveLength(1);
+    expect(notFound(out)[0]).toContain('../outside.txt');
+  });
+});
+
+describe('CLI · run import · JUnit · the summary line is for JUnit', () => {
+  it('a Playwright JSON report with a file has no «Imported … files» line', async () => {
+    const shot = path.join(dir, 'shot.png');
+    fs.writeFileSync(shot, 'png');
+    const json = JSON.stringify({
+      config: {},
+      suites: [
+        {
+          title: 'a.spec.ts',
+          file: 'a.spec.ts',
+          specs: [
+            {
+              title: 't',
+              file: 'a.spec.ts',
+              line: 1,
+              tests: [{ id: 'id-1', results: [{ status: 'passed', retry: 0, attachments: [{ name: 'shot', contentType: 'image/png', path: shot }] }] }],
+            },
+          ],
+        },
+      ],
+    });
+    const report = path.join(dir, 'report.json');
+    fs.writeFileSync(report, json);
+
+    const out = await importIt(report);
+
+    expect(platform.results).toHaveLength(1);
+    expect(out).not.toMatch(/Imported \d+ results · \d+ files uploaded/);
+  });
+});
+
+describe('CLI · run import · JUnit · resolveAttachment says why a path is not a file', () => {
+  it('a file, an absent path, a folder, and a path that leaves the folder', () => {
+    const base = fs.realpathSync(fs.mkdtempSync(path.join(dir, 'r-')));
+    fs.mkdirSync(path.join(base, 'shots'));
+    fs.writeFileSync(path.join(base, 'a.png'), 'x');
+
+    expect(resolveAttachment(base, 'a.png')).toEqual({ file: path.join(base, 'a.png') });
+    expect(resolveAttachment(base, 'gone.png')).toEqual({ why: 'absent' });
+    expect(resolveAttachment(base, 'shots')).toEqual({ why: 'not-a-file' });
+    expect(resolveAttachment(base, '../a.png')).toEqual({ why: 'outside' });
   });
 });

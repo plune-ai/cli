@@ -21,7 +21,9 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   folder of the report. A file that is not there never fails the import: each gets a line with the test and the
   path from the report, always, and the output ends with `Imported N results · M files uploaded · K files not found`.
   `--fail-on-missing-attachments` turns K > 0 into exit code 1, after every result is sent. A path that leaves the
-  folder of the report, by `..`, an absolute path or a link, is refused with the same line and never read. Output
+  folder of the report, by `..`, an absolute path or a link, is refused with the same line and never read (a report
+  reached through a link may name its files by the folder's real path). Test names and paths from the report are
+  printed without control characters. Output
   `jest-junit` writes once per suite names no test, so nothing is read from it.
 - **Trace, video, screenshots and text go to the project's bucket (plune-ai/plune#946).** When the project has
   a storage bucket connected, every file an attempt kept is uploaded straight to it over short-lived links
