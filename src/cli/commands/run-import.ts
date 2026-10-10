@@ -12,12 +12,12 @@
 import * as fs from 'node:fs';
 import { startRun } from '../../reporter-core/session.js';
 import { printable } from '../../reporter-core/failure-detail.js';
-import { readReport, type ImportFormat, type MissingAttachment } from '../../importers/index.js';
+import { isFolder, readFolder, readReport, type ImportFormat, type MissingAttachment } from '../../importers/index.js';
 import { NoTokenError, RunCommandError, type RunCommandDeps } from './run-lifecycle.js';
 import { resolveApiUrl, dashboardUrl } from '../api-url.js';
 import { loadToken } from '../credentials.js';
 import { ciCommit, readEnv } from '../../reporter-core/env.js';
-import type { UnofferedWhy } from '../../reporter-core/types.js';
+import type { PendingResult, UnofferedWhy } from '../../reporter-core/types.js';
 
 export interface ImportOptions extends RunCommandDeps {
   file: string;
@@ -81,14 +81,20 @@ export interface ImportResult {
 export async function handleRunImport(options: ImportOptions): Promise<ImportResult> {
   const write = options.write ?? ((line: string) => void process.stdout.write(`${line}\n`));
 
-  let source: string;
-  try {
-    source = fs.readFileSync(options.file, 'utf8');
-  } catch {
-    throw new RunCommandError(`Cannot read ${options.file}.`);
+  // A folder is an allure-results report (plune-ai/plune#1221); anything else is a file.
+  let read: { format: ImportFormat; results: PendingResult[]; missing: MissingAttachment[]; notes: string[]; ciUrl?: string; ci?: unknown };
+  if (isFolder(options.file)) {
+    read = readFolder(options.file, options.format);
+  } else {
+    let source: string;
+    try {
+      source = fs.readFileSync(options.file, 'utf8');
+    } catch {
+      throw new RunCommandError(`Cannot read ${options.file}.`);
+    }
+    read = readReport(source, options.file, options.format);
   }
-
-  const { format, results, missing, notes, ciUrl, ci } = readReport(source, options.file, options.format);
+  const { format, results, missing, notes, ciUrl, ci } = read;
   if (results.length === 0) {
     throw new RunCommandError(`No test cases in ${options.file} — it parsed, but there is nothing in it.`);
   }
@@ -101,8 +107,8 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
   for (const m of missing) write(`plune: attachment not found — ${JSON.stringify(printable(m.title))}: ${printable(m.path)}`);
   for (const note of notes) write(note);
 
-  // JUnit only: a Playwright report's files have their counts in the session's own line.
-  const announced = format === 'junit' && (missing.length > 0 || results.some((r) => (r.files?.length ?? 0) > 0));
+  // JUnit and Allure announce files that can be absent: a Playwright report's files have their counts in the session's own line.
+  const announced = (format === 'junit' || format === 'allure') && (missing.length > 0 || results.some((r) => (r.files?.length ?? 0) > 0));
 
   const env = readEnv();
   const apiUrl = resolveApiUrl(options.apiUrl ?? env.config.apiUrl);
@@ -208,7 +214,7 @@ function describe(result: ImportResult, apiUrl: string): string[] {
     // worked (#622).
     // `not delivered` always, zero included (#790): a number that only appears when it is bad is one
     // nobody learns to look for. The `[0-9]+ unmatched` the workflows read stays whole.
-    `Read ${result.parsed} result(s) from a ${result.format} report: ` +
+    `Read ${result.parsed} result(s) from ${result.format === 'allure' ? 'an' : 'a'} ${result.format} report: ` +
       `${result.accepted} accepted, ${result.duplicate} already there, ${result.unresolved} unmatched, ` +
       `${result.deferred} not delivered.`,
   ];

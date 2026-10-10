@@ -13,6 +13,15 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ### Added
 
+- **`plune run import <folder>` reads an Allure `allure-results` folder (plune-ai/plune#1221).** One reader for
+  every Allure adapter (pytest, JUnit 5, TestNG, Playwright, Cypress, Jest, Vitest, WebdriverIO, .NET): each
+  `*-result.json` is a test with its status (`passed`, `failed`, `broken`, `skipped`, sent as written), time,
+  failure message and trace, and steps; `*-container.json` names the suite. The files in `attachments[]` of the
+  test, of its steps and of its fixtures go the path a JUnit file does, with the `type` from the JSON or the
+  extension; a `source` is checked and read by the same code as a JUnit `[[ATTACHMENT|path]]`, so a missing one
+  is listed and counted and `--fail-on-missing-attachments` applies, and one outside the folder is refused. The
+  same test run again (same `historyId`) is one test with attempts, the last to stop counting. A folder with no
+  `*-result.json` exits 2 with a message. This is how Jest gets files per test, which `jest-junit` cannot give.
 - **`plune run import` of a JUnit report sends the files its tests announce (plune-ai/plune#1220).** A test that
   prints `[[ATTACHMENT|path]]` on a line of its own to `system-out` or `system-err` (pytest, Maven Surefire, Vitest,
   PHPUnit, .NET's JunitXml.TestLogger and Cypress's `mocha-junit-reporter` all carry it into the report) has that

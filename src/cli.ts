@@ -323,14 +323,14 @@ export function createProgram(): Command {
 
   runCommand
     .command('import')
-    .argument('<file>', 'A JUnit XML or Playwright JSON report')
+    .argument('<file>', 'A JUnit XML or Playwright JSON report, or an Allure allure-results folder')
     .description('Turn a report another runner wrote into a run in Plune — no provider key needed')
-    .option('--format <fmt>', 'junit | playwright-json; detected from the file when omitted')
+    .option('--format <fmt>', 'junit | playwright-json | allure; detected from the file (a folder is allure) when omitted')
     .option('--key <externalKey>', 'The key several jobs share so their reports land in one run')
     .option('--create', 'Offer tests nothing matched to the review queue', false)
     .option(
       '--fail-on-missing-attachments',
-      'Exit 1 when a file the report names with [[ATTACHMENT|path]] is not there; the results are sent either way',
+      'Exit 1 when a file the report names ([[ATTACHMENT|path]] in JUnit, a source in allure-results) is not there; the results are sent either way',
       false,
     )
     .action(
@@ -341,7 +341,7 @@ export function createProgram(): Command {
       ) => {
         const [
           { handleRunImport },
-          { IMPORT_FORMATS, UnknownFormatError, XmlParseError, JsonReportError },
+          { IMPORT_FORMATS, UnknownFormatError, XmlParseError, JsonReportError, AllureReportError },
         ] = await Promise.all([
           import('./cli/commands/run-import.js'),
           import('./importers/index.js'),
@@ -374,7 +374,8 @@ export function createProgram(): Command {
           if (
             err instanceof UnknownFormatError ||
             err instanceof XmlParseError ||
-            err instanceof JsonReportError
+            err instanceof JsonReportError ||
+            err instanceof AllureReportError
           ) {
             process.stderr.write(err.message + '\n');
             process.exit(2);
