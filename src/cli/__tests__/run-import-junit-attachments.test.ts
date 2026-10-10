@@ -433,7 +433,7 @@ describe('CLI · run import · JUnit · what is judged without asking the disk',
   it('a path above the folder and a path on another drive are refused before any link is followed', async () => {
     const real = vi.mocked(fs.realpathSync);
     const elsewhere = process.platform === 'win32' ? 'Q:\\nowhere\\x.txt' : '/etc/nowhere-x';
-    const report = lay(path.join(dir, 'ci'), suite([['away', [mark('../outside.txt'), mark(elsewhere), mark('/etc/nowhere-x')]]]));
+    const report = lay(path.join(dir, 'ci'), suite([['away', [mark('../outside.txt'), mark(elsewhere), mark('/etc/nowhere-z')]]]));
     real.mockClear();
 
     const out = await importIt(report);
