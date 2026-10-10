@@ -327,6 +327,11 @@ export interface RunStats extends SubmitCounts {
    * 2 MB and twenty — and a person reading "3 skipped" has to know which kind it was.
    */
   textFiles: { uploaded: number; skipped: number; failed: number };
+  /**
+   * Every other file (a trace, a video, a page): only a project's bucket takes them (plune-ai/plune#946), so
+   * without one they are counted as skipped. With one, the summary adds all three kinds up.
+   */
+  otherFiles: { uploaded: number; skipped: number; failed: number };
 }
 
 /** Everything the core needs to talk to a deployment. */

@@ -126,14 +126,22 @@ interface Upload {
   url: string;
   type: string;
   bytes: Buffer;
+  /** The `content-length` it came with: a link is signed on it. */
+  length?: string;
 }
 
 /**
  * A platform that knows every test, stores every result under an id, and takes a file for its result as
  * the route does — the bytes as the body, the type as the header. `refuse` answers every file with that.
  */
-async function takingFiles(refuse?: { status: number; error: string }): Promise<{ url: string; uploads: Upload[] }> {
+async function takingFiles(
+  refuse?: { status: number; error: string },
+  /** A project with a bucket (ADR 0041): `uploads` answers links back to this server, which stands in for the bucket. */
+  bucket = false,
+): Promise<{ url: string; uploads: Upload[]; puts: Upload[]; completed: string[] }> {
   const uploads: Upload[] = [];
+  const puts: Upload[] = [];
+  const completed: string[] = [];
   server = createServer((req, res) => {
     const chunks: Buffer[] = [];
     req.on('data', (c: Buffer) => chunks.push(c));
@@ -144,6 +152,10 @@ async function takingFiles(refuse?: { status: number; error: string }): Promise<
         res.end(JSON.stringify(payload));
       };
       const url = req.url ?? '';
+      if (req.method === 'PUT' && url.startsWith('/bucket/')) {
+        puts.push({ url, type: String(req.headers['content-type']), bytes: raw, length: req.headers['content-length'] });
+        return reply(200, {});
+      }
       // Before the JSON below: a file's body is its bytes.
       if (/^\/v1\/results\/[^/]+\/files\?name=/.test(url)) {
         uploads.push({ url, type: String(req.headers['content-type']), bytes: raw });
@@ -151,6 +163,27 @@ async function takingFiles(refuse?: { status: number; error: string }): Promise<
         return reply(201, { id: `f-${uploads.length}`, size: raw.length });
       }
       const body = raw.length === 0 ? {} : (JSON.parse(raw.toString('utf8')) as Record<string, unknown>);
+      if (url.endsWith('/files/uploads')) {
+        const { files } = body as { files: { name: string; contentType: string; size: number }[] };
+        return reply(200, {
+          files: files.map((f) =>
+            bucket
+              ? {
+                  id: `f-${f.name}`,
+                  name: f.name,
+                  url: `http://${req.headers.host}/bucket/${encodeURIComponent(f.name)}?sig=SECRET_SIG`,
+                  method: 'PUT',
+                  headers: { 'content-type': f.contentType },
+                  expiresAt: '2026-10-10T12:00:00.000Z',
+                }
+              : { name: f.name, direct: true },
+          ),
+        });
+      }
+      if (/^\/v1\/files\/[^/]+\/complete$/.test(url)) {
+        completed.push(url);
+        return reply(200, {});
+      }
       if (url === '/v1/runs') return reply(201, { run: { id: 'r-9' }, joined: false });
       if (url === '/v1/test-cases/resolve') {
         const keys = (body['keys'] ?? []) as { value: string }[];
@@ -168,13 +201,13 @@ async function takingFiles(refuse?: { status: number; error: string }): Promise<
     });
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, uploads };
+  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, uploads, puts, completed };
 }
 
 describe('plune run import of a Playwright report that keeps text files (plune#928)', () => {
   const LOG = 'GET /cart 200 привіт 日本語 😀\nGET /cart/pay 402\n';
   /** A report of one passed test, keeping a JSON as a file and a log as a body — the two shapes `testInfo.attach` leaves. */
-  function reportKeeping(): string {
+  function reportKeeping(extra: object[] = []): string {
     const kept = path.join(dir, 'api-response-1a2b.json');
     fs.writeFileSync(kept, '{"items":[1,2,3],"ok":true}');
     const file = path.join(dir, 'report.json');
@@ -201,6 +234,7 @@ describe('plune run import of a Playwright report that keeps text files (plune#9
                         attachments: [
                           { name: 'api-response', contentType: 'application/json', path: kept },
                           { name: 'console.log', contentType: 'text/plain', body: Buffer.from(LOG).toString('base64') },
+                          ...extra,
                         ],
                       },
                     ],
@@ -226,6 +260,28 @@ describe('plune run import of a Playwright report that keeps text files (plune#9
       { url: '/v1/results/res-0/files?name=console.log', type: 'text/plain', bytes: Buffer.from(LOG) },
     ]);
     expect(printed.join('')).toContain('2 text file(s) uploaded to their results.');
+  });
+
+  it('a project with a bucket: the trace and the text are PUT to their links over the real transport, at the length of the file, and no link is printed', async () => {
+    const platform = await takingFiles(undefined, true);
+    vi.stubEnv('PLUNE_API_URL', platform.url);
+    const trace = path.join(dir, 'trace.zip');
+    const bytes = Buffer.alloc(2 * 1024 * 1024 + 3, 'z');
+    fs.writeFileSync(trace, bytes);
+    await createProgram().parseAsync(['node', 'plune', 'run', 'import', reportKeeping([{ name: 'trace', contentType: 'application/zip', path: trace }])]);
+
+    expect(platform.uploads).toEqual([]);
+    expect(platform.puts.map((p) => p.url.split('?')[0]).sort()).toEqual(['/bucket/api-response.json', '/bucket/console.log', '/bucket/trace.zip']);
+    const put = platform.puts.find((p) => p.url.startsWith('/bucket/trace.zip'));
+    expect(put?.bytes.equals(bytes)).toBe(true);
+    expect(put?.type).toBe('application/zip');
+    expect(put?.length).toBe(String(bytes.length));
+    expect(platform.completed).toHaveLength(3);
+    const out = printed.join('');
+    expect(out).toContain('storage bucket found for this project');
+    expect(out).toContain('3 file(s) uploaded to your bucket');
+    expect(out).not.toContain('/bucket/');
+    expect(out).not.toContain('SECRET_SIG');
   });
 
   it('when the platform refuses them, says so and still imports — the run is not failed for a file', async () => {

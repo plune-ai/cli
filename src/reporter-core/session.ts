@@ -44,8 +44,8 @@ interface BatchItem {
   id?: string;
 }
 
-/** What a result's file is to the platform: a picture, or a text — each with limits of its own. */
-type Kind = 'screenshot' | 'text';
+/** What a result's file is to the platform: a picture, a text — each with limits of its own — or any other file (a trace, a video), which only a bucket takes. */
+type Kind = 'screenshot' | 'text' | 'file';
 
 /**
  * A file on its way: the result it goes to, its kind, the name and type it goes by, and where the bytes
@@ -87,6 +87,8 @@ const TYPE_BY_EXTENSION: Record<string, string> = {
   '.jpeg': 'image/jpeg',
   '.webp': 'image/webp',
 };
+/** The attachment that tells the reporter which test case a test is: read by it, and not a file of the test. */
+const METADATA_TYPE = 'application/plune.metadata+json';
 /** Uploads in flight at once. One at a time, a suite with a screenshot per test waits on every round trip. */
 const UPLOADS_AT_ONCE = 4;
 /** The longest name the platform takes for a result's file (ADR 0040) — in UTF-16 units, as it measures. */
@@ -128,18 +130,37 @@ const SKIPPED = {
   empty: 'the file is empty',
   binary: 'the file holds a NUL byte, and Plune takes UTF-8 text without one',
   encoding: 'Plune takes UTF-8 text only',
+  noStorage: 'no storage bucket is connected to this project',
 } as const;
+
+/** Said once per run, when the first link comes back: the project has a bucket, and the files go straight to it. */
+const BUCKET_FOUND =
+  'plune: storage bucket found for this project — screenshots, text, trace and video go straight to it over short-lived links.';
 
 /** What differs between the two kinds: how they are called, and their limits and the reasons for them. */
 const KINDS = {
   screenshot: { label: 'screenshot', bytes: SCREENSHOT_BYTES, room: SCREENSHOTS_PER_RESULT, limit: 'limit', size: 'size' },
   text: { label: 'text file', bytes: TEXT_BYTES, room: TEXTS_PER_RESULT, limit: 'textLimit', size: 'textSize' },
+  // Only the label is used: a file of this kind has no home in the database, so no ceiling of its own is known here.
+  file: { label: 'file', bytes: 0, room: 0, limit: 'limit', size: 'size' },
 } as const;
 
-/** Which kind of upload an attachment is by its type — or neither: a trace, a video, a page of text. */
-function kindOf(type: string): Kind | undefined {
+/** Which kind of upload an attachment is by its type. */
+function kindOf(type: string): Kind {
   if (type.startsWith('image/')) return 'screenshot';
-  return TEXT_TYPES.has(type) ? 'text' : undefined;
+  return TEXT_TYPES.has(type) ? 'text' : 'file';
+}
+
+/** What a failed call says about itself, without a word of its text: the platform's code, or the status. */
+const codeOf = (out: { status: number | null; code?: string }): string =>
+  out.code ?? (out.status === null ? 'network' : `http_${out.status}`);
+
+/** A link as `uploads` hands it out — or nothing, when the answer is not one. */
+function linkOf(item: unknown): { id: string; url: string; headers: Record<string, string> } | undefined {
+  const link = item as { id?: unknown; url?: unknown; headers?: unknown } | null | undefined;
+  if (typeof link?.id !== 'string' || typeof link.url !== 'string') return undefined;
+  const headers = typeof link.headers === 'object' && link.headers !== null ? (link.headers as Record<string, string>) : {};
+  return { id: link.id, url: link.url, headers };
 }
 
 /**
@@ -362,6 +383,7 @@ export async function startRun(
     deferred: 0,
     screenshots: { uploaded: 0, skipped: 0, failed: 0 },
     textFiles: { uploaded: 0, skipped: 0, failed: 0 },
+    otherFiles: { uploaded: 0, skipped: 0, failed: 0 },
   };
   /** `null` records a key we already asked about and the platform did not know — asking twice
    * would cost a request to learn the same thing. */
@@ -384,7 +406,13 @@ export async function startRun(
   const shortened = new Set<string>();
   /** Why files stayed behind, as far as it has been said — once per reason and kind; the summary counts them all. */
   const skipsSaid = new Set<string>();
-  const countsOf = (kind: Kind) => (kind === 'text' ? stats.textFiles : stats.screenshots);
+  const countsOf = (kind: Kind) => (kind === 'text' ? stats.textFiles : kind === 'file' ? stats.otherFiles : stats.screenshots);
+  /** Whether a link has come back: the project has a bucket. Set before the line is said, so two files say it once. */
+  let bucketSeen = false;
+  /** The codes of a bucket's trouble that have been said. */
+  const codesSaid = new Set<string>();
+  /** How many more files of a kind the route of the database takes for a result — by result and kind. */
+  const rooms = new Map<string, number>();
 
   function bound(keys: readonly KeyRef[]): KeyRef[] {
     return keys.map((key) => {
@@ -605,43 +633,131 @@ export async function startRun(
 
   function skip(kind: Kind, name: string, why: keyof typeof SKIPPED): void {
     countsOf(kind).skipped += 1;
-    if (skipsSaid.has(`${kind}/${why}`)) return;
-    skipsSaid.add(`${kind}/${why}`);
-    log(`plune: ${KINDS[kind].label} "${name}" not uploaded — ${SKIPPED[why]}.`);
+    // A project without a bucket is told once for the run, whichever file it was: the reason is the same.
+    const said = why === 'noStorage' ? why : `${kind}/${why}`;
+    if (skipsSaid.has(said)) return;
+    skipsSaid.add(said);
+    if (why === 'noStorage') log(`plune: "${name}" not stored — ${SKIPPED[why]}.`);
+    else log(`plune: ${KINDS[kind].label} "${name}" not uploaded — ${SKIPPED[why]}.`);
   }
 
-  /** One file to its result, under the name `nameOf` gave it — never the path, which names this machine. */
-  async function uploadOne(job: Upload): Promise<void> {
+  /**
+   * Ask where one file goes (plune-ai/plune#945): into the customer's bucket by a link, to the route that has
+   * always taken a picture or a text, or nowhere. One file to a call: a refusal of one (a file over the
+   * bucket's ceiling refuses the whole call) costs no other, and a renewed link is the same call again.
+   */
+  function ask(job: Upload, size: number) {
+    return client.post<{ files?: unknown[] }>(`/v1/results/${encodeURIComponent(job.id)}/files/uploads`, {
+      files: [{ name: job.name, contentType: job.type, size }],
+    });
+  }
+
+  /** The old warning, said once per kind, for a refusal of the platform's own routes. */
+  function failed(job: Upload, why: string): void {
+    const counts = countsOf(job.kind);
+    counts.failed += 1;
+    if (counts.failed === 1) {
+      log(`plune: could not upload a ${KINDS[job.kind].label} (${why}) — its result is reported without it.`);
+    }
+  }
+
+  /** A bucket's trouble: counted for every file, said once for each code — the name and the code, nothing else. */
+  function failedToBucket(job: Upload, code: string): void {
+    countsOf(job.kind).failed += 1;
+    if (codesSaid.has(code)) return;
+    codesSaid.add(code);
+    log(`plune: "${job.name}" not uploaded to your bucket (${code}) — its result is reported without it.`);
+  }
+
+  /** Why the platform's own routes would not have this file, when it is known here — better than "no bucket". */
+  function refusedHere(job: Upload, size: number): keyof typeof SKIPPED | undefined {
+    if (job.kind === 'screenshot') {
+      if (!SCREENSHOT_TYPES.has(job.type)) return 'type';
+      if (size > SCREENSHOT_BYTES) return 'size';
+    }
+    if (job.kind === 'text' && size > TEXT_BYTES) return 'textSize';
+    return undefined;
+  }
+
+  /** The way it always was: the bytes as the body of the route of the result, after the checks only that route needs. */
+  async function uploadDirect(job: Upload, size: number): Promise<void> {
     const { kind } = job;
-    const { label, bytes: ceiling, size } = KINDS[kind];
+    if (kind === 'file') return skip(kind, job.name, 'noStorage');
+    const { bytes: ceiling, size: tooBig, room, limit } = KINDS[kind];
+    if (size > ceiling) return skip(kind, job.name, tooBig);
     let bytes: Buffer;
     if (job.body !== undefined) bytes = job.body;
-    else if (job.path === undefined) return skip(kind, job.name, 'missing');
     else {
       try {
-        if ((await disk.stat(job.path)).size > ceiling) return skip(kind, job.name, size);
-        bytes = await disk.readFile(job.path);
+        bytes = await disk.readFile(job.path as string);
       } catch {
         return skip(kind, job.name, 'missing');
       }
     }
     const refusal = kind === 'text' ? textRefusal(bytes) : undefined;
     if (refusal !== undefined) return skip(kind, job.name, refusal);
+    // A place is taken by a file that is sent, not by one that was turned away here.
+    const roomKey = `${job.id}/${kind}`;
+    const left = rooms.get(roomKey) ?? room;
+    if (left === 0) return skip(kind, job.name, limit);
+    rooms.set(roomKey, left - 1);
     const out = await client.upload(
       `/v1/results/${encodeURIComponent(job.id)}/files?name=${encodeURIComponent(job.name)}`,
       bytes,
       job.type,
     );
-    const counts = countsOf(kind);
-    if (out.ok) {
-      counts.uploaded += 1;
-      return;
-    }
+    if (out.ok) countsOf(kind).uploaded += 1;
     // Said once: a closed run or a lost network refuses every file after the first the same way.
-    counts.failed += 1;
-    if (counts.failed === 1) {
-      log(`plune: could not upload a ${label} (${out.detail || out.kind}) — its result is reported without it.`);
+    else failed(job, out.detail || out.kind);
+  }
+
+  /** The three steps of ADR 0041: the link is the platform's, the PUT the bucket's, and `complete` is the platform asking the bucket. */
+  async function uploadToBucket(job: Upload, size: number, first: { id: string; url: string; headers: Record<string, string> }): Promise<void> {
+    if (!bucketSeen) {
+      bucketSeen = true;
+      log(BUCKET_FOUND);
     }
+    const source = job.body !== undefined ? { body: job.body } : { path: job.path as string, size };
+    let link = first;
+    for (let renewed = false; ; ) {
+      const put = await client.put(link.url, link.headers, source);
+      if (put.ok) break;
+      // The link has expired: one new one for this file, then it is a warning (a file that is refused twice is not slow).
+      if (put.status !== 403 || renewed) return failedToBucket(job, put.code);
+      renewed = true;
+      const again = await ask(job, size);
+      if (!again.ok) return failedToBucket(job, codeOf(again));
+      const fresh = linkOf(again.body?.files?.[0]);
+      if (fresh === undefined) return failedToBucket(job, 'bad_answer');
+      link = fresh;
+    }
+    const done = await client.post(`/v1/files/${encodeURIComponent(link.id)}/complete`, {});
+    if (!done.ok) return failedToBucket(job, codeOf(done));
+    countsOf(job.kind).uploaded += 1;
+  }
+
+  /** One file to its result, under the name `nameOf` gave it — never the path, which names this machine, and never a link. */
+  async function uploadOne(job: Upload): Promise<void> {
+    const { kind } = job;
+    let size: number;
+    if (job.body !== undefined) size = job.body.length;
+    else if (job.path === undefined) return skip(kind, job.name, 'missing');
+    else {
+      try {
+        size = (await disk.stat(job.path)).size;
+      } catch {
+        return skip(kind, job.name, 'missing');
+      }
+    }
+    if (size === 0) return skip(kind, job.name, 'empty');
+    const out = await ask(job, size);
+    if (!out.ok) return failed(job, out.code ?? (out.detail || out.kind));
+    const item = out.body?.files?.[0] as { skipped?: unknown; direct?: unknown } | undefined;
+    if (item?.skipped === 'no_storage') return skip(kind, job.name, refusedHere(job, size) ?? 'noStorage');
+    if (item?.direct === true) return uploadDirect(job, size);
+    const link = linkOf(item);
+    if (link === undefined) return failed(job, 'bad_answer');
+    return uploadToBucket(job, size, link);
   }
 
   /**
@@ -658,20 +774,18 @@ export async function startRun(
     const jobs: Upload[] = [];
     for (const item of items) {
       if (item?.status !== 'accepted' || typeof item.id !== 'string' || typeof item.resultKey !== 'string') continue;
-      const room: Record<Kind, number> = { screenshot: KINDS.screenshot.room, text: KINDS.text.room };
       for (const file of filesByKey.get(item.resultKey) ?? []) {
         const type =
           mediaTypeOf(file.contentType) ??
           (file.path === undefined ? undefined : TYPE_BY_EXTENSION[extname(file.path).toLowerCase()]);
-        const kind = type === undefined ? undefined : kindOf(type);
-        // A trace, a video, a page of text, an image kept as a body: not a file to send, so neither sent nor counted.
-        if (type === undefined || kind === undefined || (kind === 'screenshot' && file.path === undefined)) continue;
+        // A type nobody named, the test-case id the reporter reads (not the test's file), an image or a trace kept as
+        // a body: not a file to send, so neither sent nor counted.
+        if (type === undefined || type === METADATA_TYPE) continue;
+        const kind = kindOf(type);
+        if (kind !== 'text' && file.path === undefined) continue;
         const name = nameOf(file);
         if (file.name.startsWith('_')) skip(kind, name, 'hidden');
-        else if (kind === 'screenshot' && !SCREENSHOT_TYPES.has(type)) skip(kind, name, 'type');
-        else if (room[kind] === 0) skip(kind, name, KINDS[kind].limit);
         else {
-          room[kind] -= 1;
           jobs.push({
             id: item.id,
             kind,
@@ -793,8 +907,23 @@ export async function startRun(
     if (stats.unresolved > 0) parts.push(`${stats.unresolved} with no matching test case`);
     if (stats.offered > 0) parts.push(`${stats.offered} offered for review`);
     if (stats.created > 0) parts.push(`${stats.created} added as cases (trusted source)`);
-    for (const said of [tally(stats.screenshots, 'screenshot'), tally(stats.textFiles, 'text file')]) {
-      if (said !== undefined) parts.push(said);
+    const kinds = [stats.screenshots, stats.textFiles, stats.otherFiles];
+    const sum = (what: 'uploaded' | 'skipped' | 'failed') => kinds.reduce((n, counts) => n + counts[what], 0);
+    if (bucketSeen) {
+      // One count for the files of a project with a bucket: every kind goes the same way there.
+      parts.push(
+        `${sum('uploaded')} file(s) uploaded to your bucket` +
+          (sum('skipped') > 0 ? `, ${sum('skipped')} skipped (no bucket connected)` : '') +
+          (sum('failed') > 0 ? `, ${sum('failed')} failed to upload` : ''),
+      );
+    } else {
+      for (const said of [tally(stats.screenshots, 'screenshot'), tally(stats.textFiles, 'text file')]) {
+        if (said !== undefined) parts.push(said);
+      }
+      // A trace or a video has nowhere to go without a bucket: counted, so that nobody finds them missing by surprise.
+      const other = stats.otherFiles;
+      if (other.skipped > 0) parts.push(`${other.skipped} file(s) not stored (no bucket connected)`);
+      if (other.failed > 0) parts.push(`${other.failed} file(s) failed to upload`);
     }
     if (stats.deferred > 0) parts.push(`${stats.deferred} not delivered — written to ${fallbackPath}`);
     if (shortened.size > 0) parts.push(`${shortened.size} test name(s) shortened to fit a key`);

@@ -31,6 +31,14 @@ interface Seen {
   files: { url: string; headers: Record<string, string>; bytes: Buffer }[];
   /** `results`, `file` (once answered) and `event:<name>`, in the order they happened. */
   order: string[];
+  /** Every `POST /v1/results/:id/files/uploads`: the files asked about. */
+  asked: { url: string; files: { name: string; contentType: string; size: number }[] }[];
+  /** Every PUT to the bucket, the refused ones included: the link it went to, its headers, its bytes. */
+  puts: { url: string; headers: Record<string, string>; bytes: Buffer }[];
+  /** Every `POST /v1/files/:id/complete`. */
+  completes: string[];
+  /** The most PUTs that were ever waiting for an answer at once. */
+  maxPuts: number;
 }
 
 interface PlatformOptions {
@@ -59,7 +67,23 @@ interface PlatformOptions {
   filesFailure?: { status: number; error: string };
   /** How long each upload takes to be answered. */
   fileMs?: number;
+  /**
+   * The project has a bucket: `uploads` answers a link for every file (ADR 0041). Absent models one without —
+   * the route of the database for a picture or a text within its ceilings, `skipped` for the rest.
+   */
+  bucket?: boolean;
+  /** Force a reply on `…/files/uploads`. */
+  uploadsFailure?: { status: number; error: string; code?: string };
+  /** The status each PUT to the bucket is answered with, in order; the last one repeats. Absent: 200. */
+  putStatuses?: (number | 'network')[];
+  /** Every PUT waits for this before it is answered — to count how many are waiting at once. */
+  putHold?: Promise<void>;
+  /** Force a reply on `…/complete`. */
+  completeFailure?: { status: number; error: string; code?: string };
 }
+
+/** What a link of the platform's looks like: the address of a bucket, and a signature in it that must never be printed. */
+const SIGNED = 'X-Amz-Signature=SIGNATURE_NEVER_PRINT_ME';
 
 function platform(opts: PlatformOptions = {}) {
   const seen: Seen = {
@@ -71,14 +95,71 @@ function platform(opts: PlatformOptions = {}) {
     discovered: [],
     files: [],
     order: [],
+    asked: [],
+    puts: [],
+    completes: [],
+    maxPuts: 0,
   };
   const known = opts.known ?? {};
+  let linkCount = 0;
+  let putsInFlight = 0;
 
   const json = (body: unknown, status = 200): Response =>
     new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
   const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
     const target = String(url);
+    // The bucket's, not the platform's: a file's body is its bytes, and the token is not for it.
+    if (target.startsWith('https://bucket.test/')) {
+      const sent = init?.body;
+      const bytes = Buffer.isBuffer(sent) ? sent : Buffer.from(await (sent as Blob).arrayBuffer());
+      seen.puts.push({ url: target, headers: init?.headers as Record<string, string>, bytes });
+      putsInFlight += 1;
+      seen.maxPuts = Math.max(seen.maxPuts, putsInFlight);
+      await opts.putHold;
+      putsInFlight -= 1;
+      const planned = opts.putStatuses ?? [200];
+      const status = planned[Math.min(seen.puts.length - 1, planned.length - 1)] as number | 'network';
+      if (status === 'network') throw new TypeError(`fetch failed: getaddrinfo ENOTFOUND bucket.test ${target}`);
+      return new Response(null, { status });
+    }
+    const uploadsAt = /\/v1\/results\/([^/]+)\/files\/uploads$/.exec(target);
+    if (uploadsAt) {
+      const asked = JSON.parse(String(init?.body)) as { files: { name: string; contentType: string; size: number }[] };
+      seen.asked.push({ url: target, files: asked.files });
+      if (opts.uploadsFailure !== undefined) {
+        const { status, error, code } = opts.uploadsFailure;
+        return json({ error, ...(code !== undefined ? { code } : {}) }, status);
+      }
+      const files = asked.files.map((f) => {
+        if (opts.bucket === true) {
+          linkCount += 1;
+          return {
+            id: `file-${linkCount}`,
+            name: f.name,
+            url: `https://bucket.test/results/${uploadsAt[1]}/file-${linkCount}?${SIGNED}`,
+            method: 'PUT',
+            headers: { 'content-type': f.contentType },
+            expiresAt: '2026-10-10T12:00:00.000Z',
+          };
+        }
+        // As the route answers without a bucket: what the database takes within its ceilings goes the old way.
+        const type = f.contentType.split(';')[0]!.trim().toLowerCase();
+        const takes = ['image/png', 'image/jpeg', 'image/webp', 'application/json', 'text/plain'].includes(type);
+        const room = type.startsWith('image/') ? 2 * 1024 * 1024 : 512 * 1024;
+        return takes && f.size <= room ? { name: f.name, direct: true } : { name: f.name, skipped: 'no_storage' };
+      });
+      return json({ files });
+    }
+    const completeAt = /\/v1\/files\/([^/]+)\/complete$/.exec(target);
+    if (completeAt) {
+      seen.completes.push(completeAt[1] as string);
+      if (opts.completeFailure !== undefined) {
+        const { status, error, code } = opts.completeFailure;
+        return json({ error, ...(code !== undefined ? { code } : {}) }, status);
+      }
+      return json({ id: completeAt[1], storage: 'bucket' });
+    }
     // Before the JSON below: a file's body is its bytes.
     if (/\/v1\/results\/[^/]+\/files\?name=/.test(target)) {
       const bytes = Buffer.from(init?.body as Uint8Array);
@@ -1503,7 +1584,7 @@ describe('screenshots go to the result they belong to (plune#913)', () => {
           { name: 'anim.gif', contentType: 'image/gif', path: put(`anim.gif-${SHA1}.gif`) },
           shot('_hidden'),
           { name: 'gone', contentType: 'image/png', path: path.join(dir, `gone-${SHA1}.png`) },
-          // Not screenshots at all: neither sent nor counted.
+          // Not screenshots at all: asked about, and without a bucket nowhere to go.
           { name: 'trace', contentType: 'application/zip', path: put('trace.zip') },
           { name: 'error-context', contentType: 'text/markdown', path: put('error-context.md') },
           { name: 'plune', contentType: 'application/plune.metadata+json', path: put('plune.json') },
@@ -1517,19 +1598,24 @@ describe('screenshots go to the result they belong to (plune#913)', () => {
       { to: '/v1/results/id-a/files?name=ok.png', type: 'image/png', size: PNG.length },
       { to: '/v1/results/id-a/files?name=untyped.JPEG', type: 'image/jpeg', size: PNG.length },
     ]);
-    // The first twenty the runner kept; the two after them stay behind.
-    expect(uploads(seen).filter((u) => u.to.includes('/id-b/')).map((u) => u.to)).toEqual(
-      Array.from({ length: 20 }, (_, i) => `/v1/results/id-b/files?name=b-${i}.png`).sort(),
-    );
+    // Twenty of the twenty-two; which two stay behind is for whoever is answered last.
+    expect(new Set(uploads(seen).filter((u) => u.to.includes('/id-b/')).map((u) => u.to)).size).toBe(20);
     expect(run.stats.screenshots).toEqual({ uploaded: 23, skipped: 6, failed: 0 });
-    expect(logOf(cfg).filter((l) => l.includes(' not uploaded — ')).sort()).toEqual([
+    const said = logOf(cfg).filter((l) => l.includes(' not uploaded — '));
+    expect(said.filter((l) => /^plune: screenshot "b-\d+\.png" not uploaded — a result holds at most 20\.$/.test(l))).toHaveLength(1);
+    expect(said.filter((l) => !l.includes('"b-')).sort()).toEqual([
       "plune: screenshot \"_hidden.png\" not uploaded — its name starts with an underscore, which hides an attachment in Playwright's own reports too.",
       'plune: screenshot "anim.gif" not uploaded — Plune takes PNG, JPEG and WebP.',
-      'plune: screenshot "b-20.png" not uploaded — a result holds at most 20.',
       'plune: screenshot "gone.png" not uploaded — the file cannot be read on this machine.',
       'plune: screenshot "huge.png" not uploaded — Plune takes a file of at most 2 MB.',
     ]);
-    expect(logOf(cfg).at(-1)).toBe('plune: 2 accepted · 23 screenshot(s) uploaded, 6 skipped');
+    // The `plune` metadata attachment is the reporter's own, and no file of the test: not asked about, not counted.
+    expect(run.stats.otherFiles).toEqual({ uploaded: 0, skipped: 2, failed: 0 });
+    // Said once for the run, however many files it holds.
+    expect(logOf(cfg).filter((l) => l.includes(' not stored — '))).toHaveLength(1);
+    expect(logOf(cfg).at(-1)).toBe(
+      'plune: 2 accepted · 23 screenshot(s) uploaded, 6 skipped · 2 file(s) not stored (no bucket connected)',
+    );
   });
 
   it.each([
@@ -1669,7 +1755,7 @@ describe('text files go to the result they belong to (plune#928)', () => {
     expect(logOf(cfg).at(-1)).toBe('plune: 1 accepted');
   });
 
-  it('leaves what is not JSON or plain text alone, kept as a file or as a body: neither sent nor counted', async () => {
+  it('asks about a file that is neither a picture nor a text and counts it as not stored; a body that is not a text is neither sent nor counted', async () => {
     const { seen, run, cfg } = await report([
       result('a', {
         files: [
@@ -1685,8 +1771,9 @@ describe('text files go to the result they belong to (plune#928)', () => {
     ]);
 
     expect(seen.files).toEqual([]);
-    expect(run.stats).toMatchObject({ textFiles: zero, screenshots: zero });
-    expect(logOf(cfg).at(-1)).toBe('plune: 1 accepted');
+    expect(seen.asked.flatMap((a) => a.files.map((f) => f.name)).sort()).toEqual(['error-context.md', 'trace.zip']);
+    expect(run.stats).toMatchObject({ textFiles: zero, screenshots: zero, otherFiles: { uploaded: 0, skipped: 2, failed: 0 } });
+    expect(logOf(cfg).at(-1)).toBe('plune: 1 accepted · 2 file(s) not stored (no bucket connected)');
   });
 
   it('takes a file of exactly 512 KiB and leaves one byte more behind, whether it is a file or a body', async () => {
@@ -1852,24 +1939,26 @@ describe('text files go to the result they belong to (plune#928)', () => {
           inMemory('nul', Buffer.from('a\0')),
           inMemory('blank', ''),
           { name: 'gone', contentType: 'text/plain', path: path.join(dir, `gone-${SHA1}.txt`) },
-          // Five places are left of the ten, and these are six.
-          ...Array.from({ length: 6 }, (_, i) => inMemory(`ok-${i}`, `line ${i}`)),
+          // Ten places, and these are eleven.
+          ...Array.from({ length: 11 }, (_, i) => inMemory(`ok-${i}`, `line ${i}`)),
         ],
       }),
     ]);
 
-    expect(seen.files.map((f) => sentName(f.url)).sort()).toEqual(['ok-0', 'ok-1', 'ok-2', 'ok-3', 'ok-4']);
-    expect(run.stats.textFiles).toEqual({ uploaded: 5, skipped: 7, failed: 0 });
-    expect(logOf(cfg).filter((l) => l.includes(' not uploaded — ')).sort()).toEqual([
+    expect(seen.files).toHaveLength(10);
+    expect(run.stats.textFiles).toEqual({ uploaded: 10, skipped: 7, failed: 0 });
+    const said = logOf(cfg).filter((l) => l.includes(' not uploaded — '));
+    // Which of the eleven is the one without a place depends on who asked first.
+    expect(said.filter((l) => /"ok-\d+" not uploaded — a result holds at most 10 text files\.$/.test(l))).toHaveLength(1);
+    expect(said.filter((l) => !l.includes('"ok-')).sort()).toEqual([
       `plune: text file "_hidden" not uploaded — ${HIDDEN}.`,
       'plune: text file "blank" not uploaded — the file is empty.',
       'plune: text file "gone.txt" not uploaded — the file cannot be read on this machine.',
       'plune: text file "huge" not uploaded — Plune takes a text file of at most 512 KiB.',
       'plune: text file "latin1" not uploaded — Plune takes UTF-8 text only.',
       'plune: text file "nul" not uploaded — the file holds a NUL byte, and Plune takes UTF-8 text without one.',
-      'plune: text file "ok-5" not uploaded — a result holds at most 10 text files.',
     ]);
-    expect(logOf(cfg).at(-1)).toBe('plune: 1 accepted · 5 text file(s) uploaded, 7 skipped');
+    expect(logOf(cfg).at(-1)).toBe('plune: 1 accepted · 10 text file(s) uploaded, 7 skipped');
   });
 
   it.each([
@@ -2040,5 +2129,371 @@ describe('text files go to the result they belong to (plune#928)', () => {
       expect(replay).toEqual({ batches: 1, sent: 1, failed: 0 });
       expect(again.seen.files.map((f) => f.url)).toEqual(['https://api.test/v1/results/id-a/files?name=api.json']);
     });
+  });
+});
+
+describe('files go to the project’s bucket by short-lived links (plune-ai/plune#946)', () => {
+  const FOUND =
+    'plune: storage bucket found for this project — screenshots, text, trace and video go straight to it over short-lived links.';
+  const NOT_STORED = 'not stored — no storage bucket is connected to this project.';
+  const SHA1 = '87f15b965a84499fbcc46f54036099902e9a69d6';
+  const PNG = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+    'base64',
+  );
+  /** A file in this test's folder, and where it is. */
+  const put = (file: string, bytes: Buffer | string): string => {
+    const at = path.join(dir, file);
+    fs.writeFileSync(at, bytes);
+    return at;
+  };
+  const trace = (name = 'trace', bytes: Buffer | string = 'PK-trace'): ResultFile => ({
+    name,
+    contentType: 'application/zip',
+    path: put(`${name}-${SHA1}.zip`, bytes),
+  });
+  const video = (name = 'video'): ResultFile => ({
+    name,
+    contentType: 'video/webm',
+    path: put(`${name}-${SHA1}.webm`, 'webm-bytes'),
+  });
+  const shot = (name: string, bytes: Buffer = PNG): ResultFile => ({
+    name,
+    contentType: 'image/png',
+    path: put(`${name}-${SHA1}.png`, bytes),
+  });
+  const json = (name: string): ResultFile => ({
+    name,
+    contentType: 'application/json',
+    path: put(`${name}-${SHA1}.json`, '{"ok":true}'),
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  /** Drives the pauses of the retries by a fake timer; the disk and the fake network still take real turns. */
+  async function settled<T>(work: Promise<T>): Promise<T> {
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    let done = false;
+    const ended = work.finally(() => {
+      done = true;
+    });
+    for (let turn = 0; turn < 2000 && !done; turn += 1) {
+      await vi.advanceTimersByTimeAsync(5_000);
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    return ended;
+  }
+
+  async function report(results: PendingResult[], opts: PlatformOptions = {}) {
+    const known = Object.fromEntries(results.map((r) => [r.keys[0]!.value, `tc-${r.keys[0]!.value}`]));
+    const p = platform({ known, ...opts });
+    const cfg = config(p.fetchImpl);
+    const run = await startRun(cfg);
+    for (const r of results) await run.add(r);
+    await run.finish();
+    return { ...p, run, cfg };
+  }
+  const found = (cfg: ReporterConfig): number => logOf(cfg).filter((l) => l === FOUND).length;
+  const zero = { uploaded: 0, skipped: 0, failed: 0 };
+
+  it('puts a file to its link with the headers the link came with, then says it is there', async () => {
+    const { seen, run, cfg } = await report([result('a', { files: [trace('trace', 'PK-trace')] })], { bucket: true });
+
+    expect(seen.asked.map((a) => a.files)).toEqual([[{ name: 'trace.zip', contentType: 'application/zip', size: 8 }]]);
+    expect(seen.puts).toHaveLength(1);
+    expect(seen.puts[0]?.url).toContain('https://bucket.test/results/id-a/file-1');
+    expect(seen.puts[0]?.bytes.toString()).toBe('PK-trace');
+    // Exactly the link's: the type it is signed on, no length of ours (fetch writes the body's), and not our token.
+    expect(seen.puts[0]?.headers).toEqual({ 'content-type': 'application/zip' });
+    expect(seen.completes).toEqual(['file-1']);
+    expect(seen.files).toEqual([]);
+    expect(run.stats.otherFiles).toEqual({ uploaded: 1, skipped: 0, failed: 0 });
+    expect(seen.order.at(-1)).toBe('event:finish');
+    expect(logOf(cfg).at(-1)).toBe('plune: 1 accepted · 1 file(s) uploaded to your bucket');
+  });
+
+  it('takes every kind there, a picture over the database’s 2 MB and a text it would not hold included, and counts them together', async () => {
+    const big = Buffer.alloc(3 * 1024 * 1024);
+    const { seen, run, cfg } = await report(
+      [result('a', { files: [shot('big', big), json('api'), trace(), video()] })],
+      { bucket: true },
+    );
+
+    expect(seen.puts.map((p) => p.bytes.length).sort((x, y) => x - y)).toEqual([8, 10, 11, big.length]);
+    expect(seen.completes).toHaveLength(4);
+    expect(seen.files).toEqual([]);
+    expect(run.stats).toMatchObject({
+      screenshots: { uploaded: 1, skipped: 0, failed: 0 },
+      textFiles: { uploaded: 1, skipped: 0, failed: 0 },
+      otherFiles: { uploaded: 2, skipped: 0, failed: 0 },
+    });
+    expect(logOf(cfg).at(-1)).toBe('plune: 1 accepted · 4 file(s) uploaded to your bucket');
+  });
+
+  it('sends a text a test attached as a body as those bytes', async () => {
+    const { seen } = await report(
+      [result('a', { files: [{ name: 'console.log', contentType: 'text/plain; charset=utf-8', body: Buffer.from('привіт') }] })],
+      { bucket: true },
+    );
+
+    expect(seen.asked[0]?.files).toEqual([
+      { name: 'console.log', contentType: 'text/plain; charset=utf-8', size: Buffer.byteLength('привіт') },
+    ]);
+    expect(seen.puts[0]?.bytes.toString()).toBe('привіт');
+  });
+
+  describe('says that the bucket was found', () => {
+    it('once for the run, however many files and results go to it', async () => {
+      const { cfg } = await report(
+        [result('a', { files: [trace('t1'), trace('t2')] }), result('b', { files: [video()] })],
+        { bucket: true },
+      );
+
+      expect(found(cfg)).toBe(1);
+      // Before the summary, and not in it.
+      expect(logOf(cfg).indexOf(FOUND)).toBeLessThan(logOf(cfg).length - 1);
+    });
+
+    it('not at all for a run that has nothing to upload, bucket or not', async () => {
+      const { cfg } = await report([result('a')], { bucket: true });
+
+      expect(found(cfg)).toBe(0);
+      expect(logOf(cfg).at(-1)).toBe('plune: 1 accepted');
+    });
+
+    it('not at all without a bucket, whatever goes to the database', async () => {
+      const { cfg, seen } = await report([result('a', { files: [shot('a'), json('b')] })]);
+
+      expect(seen.files).toHaveLength(2);
+      expect(found(cfg)).toBe(0);
+      expect(logOf(cfg).at(-1)).toBe('plune: 1 accepted · 1 screenshot(s) uploaded · 1 text file(s) uploaded');
+    });
+  });
+
+  describe('without a bucket', () => {
+    it('sends a picture and a text the way it always did, and puts nothing anywhere else', async () => {
+      const { seen, run } = await report([result('a', { files: [shot('a'), json('b')] })]);
+
+      expect(seen.files.map((f) => f.url).sort()).toEqual([
+        'https://api.test/v1/results/id-a/files?name=a.png',
+        'https://api.test/v1/results/id-a/files?name=b.json',
+      ]);
+      expect(seen.puts).toEqual([]);
+      expect(seen.completes).toEqual([]);
+      expect(run.stats).toMatchObject({
+        screenshots: { uploaded: 1, skipped: 0, failed: 0 },
+        textFiles: { uploaded: 1, skipped: 0, failed: 0 },
+      });
+    });
+
+    it('says once for the run that a trace or a video is not stored, and counts every one', async () => {
+      const { seen, run, cfg } = await report([
+        result('a', { files: [trace('t1'), trace('t2')] }),
+        result('b', { files: [video()] }),
+      ]);
+
+      expect(seen.puts).toEqual([]);
+      expect(logOf(cfg).filter((l) => l.endsWith(NOT_STORED))).toHaveLength(1);
+      expect(logOf(cfg).find((l) => l.endsWith(NOT_STORED))).toMatch(/^plune: "(t1\.zip|t2\.zip|video\.webm)" not stored — /);
+      expect(run.stats.otherFiles).toEqual({ uploaded: 0, skipped: 3, failed: 0 });
+      expect(logOf(cfg).at(-1)).toBe('plune: 2 accepted · 3 file(s) not stored (no bucket connected)');
+    });
+  });
+
+  describe('a bucket that is there but does not take a file', () => {
+    it('is a warning with the platform’s code and no link, and the result stays', async () => {
+      const { seen, run, cfg } = await report([result('a', { files: [trace()] }), result('b', { files: [video()] })], {
+        uploadsFailure: { status: 409, error: 'the bucket was disconnected', code: 'storage_disconnected' },
+      });
+
+      expect(seen.puts).toEqual([]);
+      expect(run.stats).toMatchObject({ accepted: 2, deferred: 0, otherFiles: { uploaded: 0, skipped: 0, failed: 2 } });
+      expect(logOf(cfg).filter((l) => l.startsWith('plune: could not upload'))).toEqual([
+        'plune: could not upload a file (storage_disconnected) — its result is reported without it.',
+      ]);
+      expect(seen.events.map((e) => e.body['event'])).toEqual(['finish']);
+      expect(logOf(cfg).at(-1)).toBe('plune: 2 accepted · 2 file(s) failed to upload');
+    });
+
+    it.each([
+      [410, 'upload_expired'],
+      [422, 'file_missing'],
+      [503, 'bucket_unreachable'],
+    ])('is a warning when the bucket is asked and answers %i, and the import does not fail', async (status, code) => {
+      const { seen, run, cfg } = await settled(
+        report([result('a', { files: [trace()] })], { bucket: true, completeFailure: { status, error: 'no', code } }),
+      );
+
+      expect(seen.puts).toHaveLength(1);
+      expect(run.stats).toMatchObject({ accepted: 1, deferred: 0, otherFiles: { uploaded: 0, skipped: 0, failed: 1 } });
+      expect(logOf(cfg)).toContain(`plune: "trace.zip" not uploaded to your bucket (${code}) — its result is reported without it.`);
+      expect(seen.events.map((e) => e.body['event'])).toEqual(['finish']);
+      expect(logOf(cfg).at(-1)).toBe('plune: 1 accepted · 0 file(s) uploaded to your bucket, 1 failed to upload');
+    });
+  });
+
+  describe('the summary of a project with a bucket', () => {
+    it('adds skipped and failed only when there are some', async () => {
+      const { run, cfg } = await report(
+        [result('a', { files: [trace(), { name: '_hidden', contentType: 'application/zip', path: put('hidden.zip', 'x') }] })],
+        { bucket: true },
+      );
+
+      expect(run.stats.otherFiles).toEqual({ uploaded: 1, skipped: 1, failed: 0 });
+      expect(logOf(cfg).at(-1)).toBe('plune: 1 accepted · 1 file(s) uploaded to your bucket, 1 skipped (no bucket connected)');
+    });
+
+    it('names a file that could not be put, and counts it', async () => {
+      const { run, cfg } = await settled(
+        report([result('a', { files: [trace(), video()] })], { bucket: true, putStatuses: [200, 400] }),
+      );
+
+      expect(run.stats.otherFiles).toEqual({ uploaded: 1, skipped: 0, failed: 1 });
+      expect(logOf(cfg).at(-1)).toBe('plune: 1 accepted · 1 file(s) uploaded to your bucket, 1 failed to upload');
+    });
+  });
+
+  describe('a link that expired (403 on the PUT)', () => {
+    it('is asked for again, once, and the file goes to the new one', async () => {
+      const { seen, run } = await report([result('a', { files: [trace()] })], { bucket: true, putStatuses: [403, 200] });
+
+      expect(seen.asked).toHaveLength(2);
+      expect(seen.puts.map((p) => p.url.split('?')[0])).toEqual([
+        'https://bucket.test/results/id-a/file-1',
+        'https://bucket.test/results/id-a/file-2',
+      ]);
+      expect(seen.completes).toEqual(['file-2']);
+      expect(run.stats.otherFiles).toEqual({ uploaded: 1, skipped: 0, failed: 0 });
+    });
+
+    it('is a warning when the new one is refused too: no third link, no complete', async () => {
+      const { seen, run, cfg } = await report([result('a', { files: [trace()] })], { bucket: true, putStatuses: [403] });
+
+      expect(seen.asked).toHaveLength(2);
+      expect(seen.puts).toHaveLength(2);
+      expect(seen.completes).toEqual([]);
+      expect(run.stats.otherFiles).toEqual({ uploaded: 0, skipped: 0, failed: 1 });
+      expect(logOf(cfg)).toContain('plune: "trace.zip" not uploaded to your bucket (bucket_403) — its result is reported without it.');
+    });
+  });
+
+  describe('a bucket that does not answer', () => {
+    it.each([
+      ['a 5xx', [503]],
+      ['the network', ['network']],
+    ] as const)('is tried three more times after %s, then it is a warning', async (_what, putStatuses) => {
+      const { seen, run, cfg } = await settled(
+        report([result('a', { files: [trace()] })], { bucket: true, putStatuses: [...putStatuses] }),
+      );
+
+      expect(seen.puts).toHaveLength(4);
+      expect(seen.completes).toEqual([]);
+      expect(run.stats).toMatchObject({ accepted: 1, otherFiles: { uploaded: 0, skipped: 0, failed: 1 } });
+      expect(logOf(cfg).filter((l) => l.includes('not uploaded to your bucket'))).toHaveLength(1);
+    });
+
+    it('is forgiven when one of the tries is answered', async () => {
+      const { seen, run } = await settled(
+        report([result('a', { files: [trace()] })], { bucket: true, putStatuses: [503, 'network', 503, 200] }),
+      );
+
+      expect(seen.puts).toHaveLength(4);
+      expect(seen.completes).toEqual(['file-1']);
+      expect(run.stats.otherFiles).toEqual({ uploaded: 1, skipped: 0, failed: 0 });
+    });
+  });
+
+  it('puts no more than four files at once', async () => {
+    let open!: () => void;
+    const putHold = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    const p = platform({ known: { a: 'tc-a' }, bucket: true, putHold });
+    const run = await startRun(config(p.fetchImpl));
+    await run.add(result('a', { files: Array.from({ length: 12 }, (_, i) => trace(`t${i}`)) }));
+    const finishing = run.finish();
+    // Four are waiting for their answer, and the rest have to wait for those: give the others every chance to come.
+    for (let turn = 0; turn < 500 && p.seen.puts.length < 4; turn += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(p.seen.puts).toHaveLength(4);
+    open();
+    await finishing;
+
+    expect(p.seen.puts).toHaveLength(12);
+    expect(p.seen.maxPuts).toBe(4);
+    expect(run.stats.otherFiles.uploaded).toBe(12);
+  });
+
+  describe('no link is ever printed', () => {
+    /** Every word the run said, by the session or by the process, with the file names it was told. */
+    async function everythingSaid(opts: PlatformOptions, files: ResultFile[]): Promise<string> {
+      const out: string[] = [];
+      vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: string | Uint8Array) => {
+        out.push(String(chunk));
+        return true;
+      }) as typeof process.stdout.write);
+      vi.spyOn(process.stderr, 'write').mockImplementation(((chunk: string | Uint8Array) => {
+        out.push(String(chunk));
+        return true;
+      }) as typeof process.stderr.write);
+      const p = platform({ known: { a: 'tc-a' }, ...opts });
+      // No `log`: the default one is the process's stderr, as it is in a CI job.
+      const run = await startRun({
+        apiUrl: 'https://api.test',
+        token: TOKEN,
+        fallbackPath: path.join(dir, 'pending.jsonl'),
+        fetchImpl: p.fetchImpl,
+      });
+      await run.add(result('a', { files }));
+      await run.finish();
+      vi.restoreAllMocks();
+      return out.join('');
+    }
+    const clean = (said: string): void => {
+      expect(said).not.toMatch(/https?:\/\//i);
+      expect(said).not.toContain('bucket.test');
+      expect(said).not.toContain('SIGNATURE_NEVER_PRINT_ME');
+      expect(said).not.toContain('X-Amz');
+      expect(said).not.toContain('api.test');
+    };
+
+    it('when the files go there', async () => {
+      const said = await everythingSaid({ bucket: true }, [trace(), video()]);
+      expect(said).toContain('storage bucket found');
+      clean(said);
+    });
+
+    it('when the network fails with a message that holds the address', async () => {
+      const said = await settled(everythingSaid({ bucket: true, putStatuses: ['network'] }, [trace()]));
+      expect(said).toContain('not uploaded to your bucket (network)');
+      clean(said);
+    });
+
+    it.each([[403], [503]])('when the bucket answers %i', async (status) => {
+      const said = await settled(everythingSaid({ bucket: true, putStatuses: [status] }, [trace()]));
+      expect(said).toContain(`(bucket_${status})`);
+      clean(said);
+    });
+
+    it('when the platform refuses the check or the link', async () => {
+      clean(
+        await settled(
+          everythingSaid({ bucket: true, completeFailure: { status: 422, error: 'no', code: 'file_missing' } }, [trace()]),
+        ),
+      );
+      clean(await everythingSaid({ uploadsFailure: { status: 409, error: 'gone', code: 'storage_disconnected' } }, [trace()]));
+    });
+
+    it('when there is no bucket', async () => {
+      clean(await everythingSaid({}, [trace(), shot('s')]));
+    });
+  });
+
+  it('keeps a file’s stats at zero for a result that had none', async () => {
+    const { run } = await report([result('a')], { bucket: true });
+    expect(run.stats).toMatchObject({ screenshots: zero, textFiles: zero, otherFiles: zero });
   });
 });

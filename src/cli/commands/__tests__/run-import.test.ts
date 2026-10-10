@@ -33,6 +33,19 @@ function platform(
       seen.push({ path: target, body: {}, file: { type: (init?.headers as Record<string, string>)['content-type']!, bytes } });
       return json(201, { id: 'f-1', size: bytes.length });
     }
+    // A project without a bucket (ADR 0041): what the database takes goes the old way, the rest has nowhere to go.
+    if (target.endsWith('/files/uploads')) {
+      const { files } = JSON.parse(String(init?.body)) as { files: { name: string; contentType: string; size: number }[] };
+      return json(200, {
+        files: files.map((f) => {
+          const type = f.contentType.split(';')[0]!.trim();
+          const takes = ['image/png', 'image/jpeg', 'image/webp', 'application/json', 'text/plain'].includes(type);
+          return takes && f.size <= (type.startsWith('image/') ? 2 * 1024 * 1024 : 512 * 1024)
+            ? { name: f.name, direct: true }
+            : { name: f.name, skipped: 'no_storage' };
+        }),
+      });
+    }
     const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
     seen.push({ path: target, body });
 
