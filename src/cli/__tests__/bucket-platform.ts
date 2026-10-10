@@ -28,8 +28,9 @@ export interface BucketPlatform {
 
 export const sha256 = (bytes: Buffer | string): string => createHash('sha256').update(bytes).digest('hex');
 
-export async function startBucketPlatform(options: { bucket?: boolean } = {}): Promise<BucketPlatform> {
+export async function startBucketPlatform(options: { bucket?: boolean; known?: boolean } = {}): Promise<BucketPlatform> {
   const bucket = options.bucket ?? true;
+  const known = options.known ?? true;
   const puts: Put[] = [];
   const direct: BucketPlatform['direct'] = [];
   const results: BucketPlatform['results'] = [];
@@ -75,7 +76,7 @@ export async function startBucketPlatform(options: { bucket?: boolean } = {}): P
       if (url === '/v1/runs') return reply(201, { run: { id: 'r-9' }, joined: false });
       if (url === '/v1/test-cases/resolve') {
         const keys = (body['keys'] ?? []) as { value: string }[];
-        return reply(200, { results: keys.map((key) => ({ key, testCaseId: 'tc-1' })) });
+        return reply(200, { results: keys.map((key) => ({ key, testCaseId: known ? 'tc-1' : null })) });
       }
       if (url.endsWith('/results')) {
         const sent = (body['results'] ?? []) as { resultKey: string; title?: string; rawStatus?: string }[];

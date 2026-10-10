@@ -24,6 +24,8 @@ const MARKER = /^[ \t]*\[\[ATTACHMENT\|([^\r\n]*?)\]\][ \t]*$/gm;
 export interface MissingAttachment {
   /** The test, as the review queue would name it. */
   title: string;
+  /** The key of the result the file belonged to: what a «not found at import» marker on the platform is sent against. */
+  resultKey?: string;
   /** The path as the report wrote it. */
   path: string;
 }
@@ -67,16 +69,31 @@ export function reportFolder(report: string): string {
   }
 }
 
+/** The folder of the report as written and as it really is: the first judges a path's face, the second where it lands. */
+export function reportFolders(report: string): { lexical: string; real: string } {
+  return { lexical: path.dirname(path.resolve(report)), real: reportFolder(report) };
+}
+
+/** Text from a report that is safe on a line of our output: no control character, so no new line and no escape code. */
+export const printable = (text: string): string => text.replace(/[\u0000-\u001f\u007f-\u009f]/g, '?');
+
+/** At most this many markers of a test are read; the rest are counted and said once. */
+export const MARKERS_PER_TEST = 100;
+
 /** Whether `target` is `folder` or lies below it. */
 function within(folder: string, target: string): boolean {
   const rel = path.relative(folder, target);
   return rel === '' || (rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
 }
 
-/** The real file a marker names, or nothing: absent, a folder, or — after links — outside the report's folder. */
-function resolveInside(folder: string, ref: string): string | undefined {
+/** The real file a marker names, or nothing: absent, a folder, or outside the report's folder by its face or after links. */
+function resolveInside(folder: string, ref: string, lexical: string): string | undefined {
+  // Judged on its face first, with no I/O: opening `\\host\share\x` makes a Windows machine talk SMB (and hand
+  // over an NTLM hash) and `\\.\pipe\x` opens a pipe. A UNC or device path, another drive and `..` fail here.
+  if (/^[\\/]{2}/.test(ref) || ref.includes('\0')) return undefined;
+  if (!within(lexical, path.resolve(lexical, ref))) return undefined;
   try {
-    // Judged on the real path: `..`, an absolute path and a link all end up where they really point.
+    // Then where it really points: a link inside the folder can lead out.
     const real = fs.realpathSync(path.resolve(folder, ref));
     return within(folder, real) && fs.statSync(real).isFile() ? real : undefined;
   } catch {
@@ -86,29 +103,42 @@ function resolveInside(folder: string, ref: string): string | undefined {
 
 /** Every `[[ATTACHMENT|…]]` line in the test's `system-out` and `system-err`, in the order written, once each. */
 export function markersOf(test: XmlElement): string[] {
-  const refs: string[] = [];
+  const refs = new Set<string>();
   for (const stream of test.children) {
     if (stream.name !== 'system-out' && stream.name !== 'system-err') continue;
     for (const match of stream.text.matchAll(MARKER)) {
       const ref = match[1]?.trim() ?? '';
-      if (ref !== '' && !refs.includes(ref)) refs.push(ref);
+      if (ref !== '') refs.add(ref);
     }
   }
-  return refs;
+  return [...refs];
 }
 
 /**
  * The files one test announced. What cannot be given goes to `missing`, and the test still has its result.
- * The name is the file's own (the last segment); two paths to one file are one file.
+ * The name is the file's own (the last segment); two paths to one file are one file. `folder` is the real
+ * folder of the report; `options.lexical` is it as written (default: the same).
  */
-export function filesOfTest(test: XmlElement, folder: string, title: string, missing: MissingAttachment[]): ResultFile[] {
+export function filesOfTest(
+  test: XmlElement,
+  folder: string,
+  title: string,
+  missing: MissingAttachment[],
+  options: { lexical?: string; resultKey?: string; notes?: string[] } = {},
+): ResultFile[] {
   const files: ResultFile[] = [];
-  for (const ref of markersOf(test)) {
-    const real = resolveInside(folder, ref);
+  const all = markersOf(test);
+  if (all.length > MARKERS_PER_TEST) {
+    options.notes?.push(
+      `plune: ${JSON.stringify(title)}: ${all.length - MARKERS_PER_TEST} more markers ignored (at most ${MARKERS_PER_TEST} per test)`,
+    );
+  }
+  for (const ref of all.slice(0, MARKERS_PER_TEST)) {
+    const real = resolveInside(folder, ref, options.lexical ?? folder);
     if (real === undefined) {
-      missing.push({ title, path: ref });
+      missing.push({ title, path: ref, ...(options.resultKey !== undefined ? { resultKey: options.resultKey } : {}) });
     } else if (!files.some((f) => f.path === real)) {
-      files.push({ name: ref.split(/[\\/]/).pop() || path.basename(real), contentType: typeOfFile(real), path: real });
+      files.push({ name: printable(ref.split(/[\\/]/).pop() || path.basename(real)), contentType: typeOfFile(real), path: real });
     }
   }
   return files;

@@ -14,7 +14,7 @@
 
 import { resultKey } from '../reporter-core/result-key.js';
 import type { KeyRef, PendingResult } from '../reporter-core/types.js';
-import { filesOfTest, reportFolder, type MissingAttachment } from './attachments.js';
+import { filesOfTest, reportFolders, type MissingAttachment } from './attachments.js';
 import { parseXml, type XmlElement } from './xml.js';
 
 /** The key into the project's status map. */
@@ -172,9 +172,14 @@ function executionOf(test: XmlElement, suite: XmlElement | undefined): PendingRe
  * The files a test announced with `[[ATTACHMENT|path]]` (plune-ai/plune#1220) are looked up from the folder
  * of `file`; those that cannot be given are pushed to `missing`, which is how the caller learns of them.
  */
-export function readJUnit(source: string, file: string, missing: MissingAttachment[] = []): PendingResult[] {
+export function readJUnit(
+  source: string,
+  file: string,
+  missing: MissingAttachment[] = [],
+  notes: string[] = [],
+): PendingResult[] {
   const doc = parseXml(source, file);
-  const folder = reportFolder(file);
+  const { lexical, real: folder } = reportFolders(file);
   const found: Located[] = [];
   locate(doc, undefined, found);
 
@@ -192,10 +197,11 @@ export function readJUnit(source: string, file: string, missing: MissingAttachme
     const errorContext = errorTextOf(detail);
     const execution = executionOf(test, suite);
     const title = titleOf(classname, name);
-    const files = filesOfTest(test, folder, title, missing);
+    const rkey = resultKey(key.value, 0);
+    const files = filesOfTest(test, folder, title, missing, { lexical, resultKey: rkey, notes });
 
     return {
-      resultKey: resultKey(key.value, 0),
+      resultKey: rkey,
       ...(stated !== undefined ? { testCaseId: stated } : {}),
       keys: [key],
       source: SOURCE,

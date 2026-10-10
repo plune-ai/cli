@@ -52,10 +52,11 @@ export function readReport(
   source: string,
   file: string,
   format?: ImportFormat,
-): { format: ImportFormat; results: PendingResult[]; missing: MissingAttachment[]; ciUrl?: string; ci?: unknown } {
+): { format: ImportFormat; results: PendingResult[]; missing: MissingAttachment[]; notes: string[]; ciUrl?: string; ci?: unknown } {
   const chosen = format ?? detectFormat(source, file);
   const missing: MissingAttachment[] = [];
-  if (chosen === 'junit') return { format: chosen, results: readJUnit(source, file, missing), missing };
+  const notes: string[] = [];
+  if (chosen === 'junit') return { format: chosen, results: readJUnit(source, file, missing, notes), missing, notes };
   // A Playwright JSON report names its files itself; nothing in it can be announced and then absent.
-  return { format: chosen, ...readPlaywrightJson(source, file), missing };
+  return { format: chosen, ...readPlaywrightJson(source, file), missing, notes };
 }

@@ -6,6 +6,13 @@ import { fileURLToPath } from 'node:url';
 import { createProgram } from '../../cli.js';
 import { sha256, startBucketPlatform, type BucketPlatform } from './bucket-platform.js';
 
+// The real `fs`, with `realpathSync` counted: a test below needs to know which paths the disk was asked about.
+vi.mock('node:fs', async (original) => {
+  const actual = await original<typeof import('node:fs')>();
+  const realpathSync = vi.fn(actual.realpathSync);
+  return { ...actual, realpathSync, default: { ...actual, realpathSync } };
+});
+
 /**
  * plune-ai/plune#1220, through the command line: `plune run import report.xml` of a JUnit report whose tests
  * print `[[ATTACHMENT|path]]` on a line of their own. The program is the one the binary runs; the platform
@@ -268,13 +275,14 @@ describe('CLI · run import · JUnit · a path that leaves the folder of the rep
     expect(notFound(out)).toEqual(['plune: attachment not found — "shop.Cart › linked": link/passwd.txt']);
   });
 
-  it('a link to a single file outside is refused too', async () => {
+  it('a link to a single file outside is refused too', async (ctx) => {
     const { inside, outside } = layOutside();
     const report = lay(inside, suite([['linked file', [mark('single.txt')]]]));
     try {
       fs.symlinkSync(path.join(outside, 'passwd.txt'), path.join(inside, 'single.txt'), 'file');
     } catch {
-      return; // Windows without the symlink privilege: the junction test above holds the case.
+      ctx.skip(); // Windows without the symlink privilege: the junction test above holds the case.
+      return;
     }
 
     const out = await importIt(report);
@@ -300,5 +308,87 @@ describe('CLI · run import · JUnit · a path that leaves the folder of the rep
 
     expect(process.exitCode).toBe(1);
     expect(platform.results).toHaveLength(1);
+  });
+});
+
+describe('CLI · run import · JUnit · a marker is words from the report, not ours', () => {
+  it('a UNC path and a device path are refused on their face: the disk is never asked about them', async () => {
+    const real = vi.mocked(fs.realpathSync);
+    const BS = String.fromCharCode(92);
+    const report = lay(path.join(dir, 'ci'), suite([['net', [mark(`${BS}${BS}127.0.0.1${BS}x${BS}y.png`), mark('//127.0.0.1/x/y.png'), mark(`${BS}${BS}.${BS}pipe${BS}x`)]]]));
+    real.mockClear();
+
+    const out = await importIt(report);
+
+    const asked = real.mock.calls.map((c) => String(c[0]));
+    expect(asked.filter((p) => p.includes('127.0.0.1') || p.includes('pipe'))).toEqual([]);
+    expect(notFound(out)).toHaveLength(3);
+    expect(platform.puts).toEqual([]);
+  });
+
+  it('a test name with a new line and an escape code cannot start a line of ours or reach a terminal', async () => {
+    const xml =
+      '<testsuites><testsuite name="s">' +
+      '<testcase classname="c" name="x&#10;::warning title=PWN::INJECTED"><system-out>[[ATTACHMENT|gone.png]]</system-out></testcase>' +
+      '<testcase classname="c" name="y&#27;[31m red"><system-out>[[ATTACHMENT|gone&#27;[0m.png]]</system-out></testcase>' +
+      '</testsuite></testsuites>';
+
+    const out = await importIt(lay(path.join(dir, 'ci'), xml));
+
+    const lines = out.split('\n').filter((l) => l !== '');
+    expect(lines.filter((l) => l.startsWith('::'))).toEqual([]);
+    expect(lines.filter((l) => !l.startsWith('plune: ') && !l.startsWith('Read ') && !l.startsWith('Imported ') && !l.startsWith('http'))).toEqual([]);
+    expect(out).not.toContain('\u001b');
+    expect(notFound(out)).toHaveLength(2);
+  });
+
+  it('a sibling folder that shares the name of the report folder as a prefix is outside, in any letter case', async () => {
+    const report = lay(path.join(dir, 'ci'), suite([['evil', [mark('../ci-evil/x.txt'), mark(path.join(dir, 'ci-evil', 'x.txt').toUpperCase())]]]));
+    fs.mkdirSync(path.join(dir, 'ci-evil'));
+    fs.writeFileSync(path.join(dir, 'ci-evil', 'x.txt'), 'EVIL');
+
+    const out = await importIt(report);
+
+    expect(platform.puts).toEqual([]);
+    expect(notFound(out)).toHaveLength(2);
+  });
+
+  it('more than 100 markers in a test: the first 100 are read, one line says how many were not', async () => {
+    const marks = Array.from({ length: 103 }, (_, i) => mark(`f${i}.txt`));
+    const out = await importIt(lay(path.join(dir, 'ci'), suite([['flood', marks]])));
+
+    expect(notFound(out)).toHaveLength(100);
+    expect(out.split('\n').filter((l) => l.includes('more markers ignored'))).toEqual([
+      'plune: "shop.Cart › flood": 3 more markers ignored (at most 100 per test)',
+    ]);
+  });
+});
+
+describe('CLI · run import · JUnit · the summary tells what did not travel', () => {
+  it('a project that knows no test: the files found are named as not sent, not left as «0 files uploaded» alone', async () => {
+    await platform.close();
+    platform = await startBucketPlatform({ known: false });
+    vi.stubEnv('PLUNE_API_URL', platform.url);
+    const report = lay(path.join(dir, 'ci'), suite([['unknown', [mark('here.png'), mark('gone.png')]]]), ['here.png']);
+
+    const out = await importIt(report);
+
+    expect(out).toContain('Imported 0 results · 0 files uploaded · 1 files not found · 1 files not sent (their result was not stored)');
+    expect(platform.puts).toEqual([]);
+  });
+
+  it('a project without a bucket: the picture goes to the result, the trace is counted as not stored', async () => {
+    await platform.close();
+    platform = await startBucketPlatform({ bucket: false });
+    vi.stubEnv('PLUNE_API_URL', platform.url);
+    const report = lay(path.join(dir, 'ci'), suite([['plain', [mark('cart.png'), mark('trace.zip')]]]), ['cart.png', 'trace.zip']);
+
+    const out = await importIt(report);
+
+    expect(platform.puts).toEqual([]);
+    expect(platform.direct.map((d) => d.name)).toEqual(['cart.png']);
+    expect(platform.direct[0]?.type).toBe('image/png');
+    expect(out).toContain('1 file(s) not stored (no bucket connected)');
+    expect(out).toContain('Imported 1 results · 1 files uploaded · 0 files not found');
   });
 });

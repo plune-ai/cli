@@ -11,6 +11,7 @@
 
 import * as fs from 'node:fs';
 import { startRun } from '../../reporter-core/session.js';
+import { printable } from '../../importers/attachments.js';
 import { readReport, type ImportFormat, type MissingAttachment } from '../../importers/index.js';
 import { NoTokenError, RunCommandError, type RunCommandDeps } from './run-lifecycle.js';
 import { resolveApiUrl, dashboardUrl } from '../api-url.js';
@@ -60,6 +61,8 @@ export interface ImportResult {
   missingAttachments: MissingAttachment[];
   /** Files that went to the project, of every kind — a screenshot, a text, a trace. */
   filesUploaded: number;
+  /** Files found whose result the platform did not store (a duplicate, an unmatched test, a refused batch): never offered to it. */
+  filesNotSent: number;
   /** Whether the report announced any file at all, found or not: what decides if the summary has a line for them. */
   announced: boolean;
   /** Whether offering was asked for at all — the difference between «nothing was offered» and
@@ -85,16 +88,21 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
     throw new RunCommandError(`Cannot read ${options.file}.`);
   }
 
-  const { format, results, missing, ciUrl, ci } = readReport(source, options.file, options.format);
+  const { format, results, missing, notes, ciUrl, ci } = readReport(source, options.file, options.format);
   if (results.length === 0) {
     throw new RunCommandError(`No test cases in ${options.file} — it parsed, but there is nothing in it.`);
   }
 
   // Said now and whatever else happens: a file that is not here is the answer to «where is my screenshot?»,
   // and it is not for --verbose to give (plune-ai/plune#1220).
-  for (const m of missing) write(`plune: attachment not found — "${m.title}": ${m.path}`);
+  // The title and the path are the report's words: the title as a JSON string and the path without control
+  // characters, so a name with a new line in it cannot start a line of ours (a `::warning::` is a command to
+  // GitHub Actions) and an escape code cannot reach a terminal.
+  for (const m of missing) write(`plune: attachment not found — ${JSON.stringify(m.title)}: ${printable(m.path)}`);
+  for (const note of notes) write(note);
 
-  const announced = missing.length > 0 || results.some((r) => (r.files?.length ?? 0) > 0);
+  // JUnit only: a Playwright report's files have their counts in the session's own line.
+  const announced = format === 'junit' && (missing.length > 0 || results.some((r) => (r.files?.length ?? 0) > 0));
 
   const env = readEnv();
   const apiUrl = resolveApiUrl(options.apiUrl ?? env.config.apiUrl);
@@ -152,6 +160,11 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
     missingAttachments: missing,
     filesUploaded: stats.screenshots.uploaded + stats.textFiles.uploaded + stats.otherFiles.uploaded,
     announced,
+    filesNotSent: Math.max(
+      0,
+      results.reduce((n, r) => n + (r.files?.length ?? 0), 0) -
+        [stats.screenshots, stats.textFiles, stats.otherFiles].reduce((n, c) => n + c.uploaded + c.skipped + c.failed, 0),
+    ),
     unlocatable: results.filter((r) => r.specRef === undefined).length,
     offering: options.create === true,
   };
@@ -253,7 +266,8 @@ function describe(result: ImportResult, apiUrl: string): string[] {
   if (result.announced) {
     lines.push(
       `Imported ${result.accepted} results · ${result.filesUploaded} files uploaded · ` +
-        `${result.missingAttachments.length} files not found`,
+        `${result.missingAttachments.length} files not found` +
+        (result.filesNotSent > 0 ? ` · ${result.filesNotSent} files not sent (their result was not stored)` : ''),
     );
   }
   if (result.runId !== null) lines.push(runUrl(apiUrl, result.runId));
