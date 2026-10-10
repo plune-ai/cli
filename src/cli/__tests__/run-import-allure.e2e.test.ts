@@ -98,6 +98,16 @@ describe('CLI · run import · Allure · the built binary, a project with a buck
     });
   });
 
+  it('the bucket is given the name the adapter gave with the extension of the file: «after add.png», «state.json»', async () => {
+    await withFolder('pytest', async (folder) => {
+      const ran = await runCli(['run', 'import', folder], platform, tmp);
+
+      expect(ran.code).toBe(0);
+      const names = [...platform.puts.map((p) => p.name), ...platform.direct.map((d) => d.name)];
+      expect(names).toEqual(expect.arrayContaining(['after add.png', 'state.json']));
+    });
+  });
+
   it('one source gone: exit 0, its test and source in the output, the summary counts it, the rest arrive', async () => {
     await withFolder('pytest', async (folder) => {
       const [gone] = sourcesOf(folder, 'test_adds_item').filter((s) => s.endsWith('.png'));

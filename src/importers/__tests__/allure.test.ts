@@ -188,6 +188,17 @@ describe('CLI · run import · Allure · the statuses', () => {
   });
 });
 
+describe('CLI · run import · Allure · the statuses that carry a failure', () => {
+  it('failed and broken give the platform a failure to show, passed and skipped give none', () => {
+    const d = { message: 'boom', trace: 'at x' };
+    const dir = lay(
+      ['passed', 'failed', 'broken', 'skipped'].map((status, i) => t({ uuid: status, historyId: status, name: status, status, statusDetails: i === 0 ? {} : d })),
+    );
+    const got = Object.fromEntries(readAllure(dir).map((r) => [r.title, r.failure !== undefined]));
+    expect(got).toEqual({ passed: false, failed: true, broken: true, skipped: false });
+  });
+});
+
 describe('CLI · run import · Allure · the failure and the steps', () => {
   it('message and trace both reach the error text, the failed step chain reaches the failure', () => {
     const dir = lay([
@@ -257,6 +268,11 @@ describe('CLI · run import · Allure · attachments of the test, its steps and 
     ]);
   });
 
+  it('the name is the one the adapter gave, and with none it is the file name', () => {
+    const dir = lay([t({ attachments: [{ name: 'after add', source: 'a.txt' }, { source: 'b.txt' }] })], ['a.txt', 'b.txt']);
+    expect(readAllure(dir)[0]?.files?.map((f) => f.name)).toEqual(['after add', 'b.txt']);
+  });
+
   it('two attachments pointing at one file are one file', () => {
     const dir = lay([t({ attachments: [{ name: 'a', source: 'a.txt' }], steps: [{ name: 's', attachments: [{ name: 'again', source: 'a.txt' }] }] })], ['a.txt']);
     expect(readAllure(dir)[0]?.files).toHaveLength(1);
@@ -270,7 +286,34 @@ describe('CLI · run import · Allure · a file that is not there, or is not our
     const out = readAllure(dir, missing);
     expect(out).toHaveLength(1);
     expect(out[0]?.files?.map((f) => f.name)).toEqual(['here']);
-    expect(missing).toEqual([{ title: 'adds', path: 'gone.png' }]);
+    expect(missing).toEqual([{ title: 'adds', resultKey: out[0]?.resultKey, path: 'gone.png' }]);
+  });
+
+  it('a missing source carries the key of the result it belongs to, the attempt included', () => {
+    const missing: MissingAttachment[] = [];
+    const dir = lay([
+      t({ uuid: 'r1', status: 'failed', start: 1, stop: 2 }),
+      t({ uuid: 'r2', start: 3, stop: 4, attachments: [{ name: 'gone', source: 'gone.png' }] }),
+    ]);
+    const out = readAllure(dir, missing);
+    expect(missing).toHaveLength(1);
+    expect(missing[0]?.resultKey).toBe('shop.Cart#adds#1');
+    expect(out.map((r) => r.resultKey)).toContain(missing[0]?.resultKey);
+  });
+
+  it('a report reached through a link: a source inside the real folder is read', (ctx) => {
+    const real = lay([t({ attachments: [{ name: 'shot', source: 'shot.png' }] })], ['shot.png']);
+    const link = path.join(tmp, 'via-link');
+    try {
+      fs.symlinkSync(real, link, 'junction');
+    } catch {
+      return ctx.skip();
+    }
+    const missing: MissingAttachment[] = [];
+    const [r] = readAllure(link, missing);
+    expect(missing).toEqual([]);
+    expect(r?.files?.map((f) => f.name)).toEqual(['shot']);
+    expect(fs.readFileSync(r?.files?.[0]?.path ?? '', 'utf8')).toBe('bytes of shot.png');
   });
 
   it('a source outside the folder (.., absolute, nested ..) is refused the way a missing one is, and its bytes are not read', () => {

@@ -6,7 +6,7 @@
  * suite (a name for the group) and the fixtures around its tests; a file a test, a step or a fixture attached is
  * named by `source`, relative to the folder.
  *
- * Which files may be read is not decided here: every `source` goes through `filesOfTest` of `attachments.ts`,
+ * Which files may be read is not decided here: every `source` goes through `resolveAttachment` of `attachments.ts`,
  * the check a JUnit report's `[[ATTACHMENT|path]]` goes through (outside the folder, a link, a folder, absent —
  * all refused the same way), and from there to the same upload path the Playwright reporter uses. What the
  * platform makes of the words (`passed`, `broken`, …) is its status map's, as for every other source.
@@ -14,11 +14,10 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { errorContextOf, failureOf } from '../reporter-core/failure-detail.js';
+import { errorContextOf, failureOf, printable } from '../reporter-core/failure-detail.js';
 import { resultKey } from '../reporter-core/result-key.js';
 import type { DeclaredStep, FailedAttempt, PendingResult, ResultFile } from '../reporter-core/types.js';
-import { filesOfTest, reportFolder, type MissingAttachment } from './attachments.js';
-import type { XmlElement } from './xml.js';
+import { reportFolders, resolveAttachment, typeOfFile, type MissingAttachment } from './attachments.js';
 
 const SOURCE = 'allure';
 
@@ -98,9 +97,6 @@ function load<T>(file: string): T {
   return parsed as T;
 }
 
-/** A name that is printed on a line of its own: no control character can end that line and start another. */
-const printable = (s: string): string => s.replace(/[\u0000-\u001f\u007f-\u009f]/g, '?');
-
 const textOf = (v: unknown): string => (typeof v === 'string' ? v : '');
 const labelOf = (r: AllureResult, name: string): string => textOf(r.labels?.find((l) => l.name === name)?.value);
 
@@ -137,17 +133,10 @@ const FAILED = new Set(['failed', 'broken']);
 const declared = (steps: AllureStep[] | undefined): DeclaredStep[] =>
   (steps ?? []).map((s) => ({ title: textOf(s.name), failed: FAILED.has(textOf(s.status)), steps: declared(s.steps) }));
 
-/** A `testcase`-shaped stand-in announcing one file, so the file goes through the same check a JUnit marker does. */
-const announcing = (source: string): XmlElement => ({
-  name: 'testcase',
-  attrs: {},
-  line: 0,
-  text: '',
-  children: [{ name: 'system-out', attrs: {}, children: [], line: 0, text: `[[ATTACHMENT|${source}]]` }],
-});
-
 interface Context {
+  /** The folder as it really is, and as written: a report reached through a link names its files either way. */
   folder: string;
+  lexical: string;
   missing: MissingAttachment[];
   /** The containers around a uuid, nearest first, through containers of containers. */
   around: (uuid: string) => AllureContainer[];
@@ -170,7 +159,7 @@ export function readAllure(dir: string, missing: MissingAttachment[] = []): Pend
         'Point at the folder an Allure adapter wrote (pytest --alluredir, allure-results), or at a JUnit or Playwright JSON file.',
     );
   }
-  const folder = reportFolder(path.join(dir, '_'));
+  const { lexical, real: folder } = reportFolders(path.join(dir, '_'));
   const tests = resultNames.map((n) => load<AllureResult>(path.join(dir, n)));
   const containers = namesIn(dir, CONTAINER).map((n) => load<AllureContainer>(path.join(dir, n)));
 
@@ -189,7 +178,7 @@ export function readAllure(dir: string, missing: MissingAttachment[] = []): Pend
     walk(uuid);
     return [...seen];
   };
-  const ctx: Context = { folder, missing, around, direct };
+  const ctx: Context = { folder, lexical, missing, around, direct };
 
   // Attempts of one test: same historyId. A result without one stands alone.
   const groups = new Map<string, AllureResult[]>();
@@ -224,6 +213,7 @@ function pendingOf(r: AllureResult, retry: number, ctx: Context): PendingResult 
   const group = suite !== undefined ? [textOf(suite.name)] : labelGroup(r);
   const title = [...group, name].join(' › ');
   const safeTitle = printable(title);
+  const rkey = resultKey(key, retry);
 
   const files: ResultFile[] = [];
   const announced = new Set<string>();
@@ -231,20 +221,17 @@ function pendingOf(r: AllureResult, retry: number, ctx: Context): PendingResult 
     const source = textOf(att.source);
     if (source === '' || announced.has(source)) return;
     announced.add(source);
-    const gone: MissingAttachment[] = [];
-    const [file] = filesOfTest(announcing(source), ctx.folder, safeTitle, gone);
-    if (file === undefined || gone.length > 0) {
-      // Also a source the marker line cannot carry (a line break in it): never dropped without a word.
-      ctx.missing.push({ title: safeTitle, path: source });
+    const found = resolveAttachment(ctx.folder, source, ctx.lexical);
+    if (!('file' in found)) {
+      ctx.missing.push({ title: safeTitle, resultKey: rkey, path: source });
       return;
     }
-    if (files.some((f) => f.path === file.path)) return; // two names for one file are one file
+    if (files.some((f) => f.path === found.file)) return; // two names for one file are one file
     const type = textOf(att.type).trim();
-    files.push({
-      ...file,
-      name: textOf(att.name) !== '' ? textOf(att.name) : file.name,
-      ...(type !== '' ? { contentType: type } : {}),
-    });
+    // The name is the adapter's («after add»): what a person reads on the run page. The core gives it the extension
+    // of the real file when it has none (`total` -> `total.txt`), so the panel shows a name and the right kind.
+    const name = printable(textOf(att.name) !== '' ? textOf(att.name) : path.basename(found.file));
+    files.push({ name, contentType: type !== '' ? type : typeOfFile(found.file), path: found.file });
   };
 
   // Chronological: the fixtures that ran before (outermost first), the test with its steps, the fixtures after.
@@ -281,7 +268,7 @@ function pendingOf(r: AllureResult, retry: number, ctx: Context): PendingResult 
   const durationMs = started !== undefined && stopped !== undefined ? Math.max(0, stopped - started) : 0;
 
   return {
-    resultKey: resultKey(key, retry),
+    resultKey: rkey,
     ...(stated !== undefined ? { testCaseId: stated } : {}),
     keys: [{ kind: 'path-title', value: key }],
     source: SOURCE,

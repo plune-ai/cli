@@ -139,7 +139,8 @@ come from `*-result.json` with their status (`passed`, `failed`, `broken`, `skip
 and trace, and steps; the suite name comes from `*-container.json`. The files are the `attachments[]` of the
 test, of its steps and of its fixtures (`befores`, `afters`), sent with the `type` Allure wrote or, without
 one, the file's extension. The same test run again (same `historyId`) counts as its attempts, the last one to
-stop being the result. A `source` is counted from the folder; a missing one, a `source` that leaves the folder
+stop being the result. A file keeps the name Allure gave it with the file's extension added when the name has
+none (`after add` becomes `after add.png`). A `source` is counted from the folder, which may be reached through a link; a missing one, a `source` that leaves the folder
 and `--fail-on-missing-attachments` behave as for JUnit above. A folder with no `*-result.json` is an error
 (exit 2), never an import of nothing. Examples for pytest (`allure-pytest --alluredir`) and Java
 (`allure-junit5`) are in the README.

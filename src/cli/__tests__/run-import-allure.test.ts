@@ -199,3 +199,64 @@ describe('CLI · run import · Allure · a folder that is not a report', () => {
     expect(printed.join('')).toMatch(/is a folder, and this is a file/);
   });
 });
+
+describe('CLI · run import · Allure · what the platform is given as a file name', () => {
+  it('the name the adapter gave with the extension of the real file: «after add» arrives as «after add.png», «state» as «state.json»', async () => {
+    await importIt(copyOf('pytest'));
+
+    const names = [...platform.puts.map((p) => p.name), ...platform.direct.map((d) => d.name)];
+    expect(names).toEqual(expect.arrayContaining(['after add.png', 'state.json']));
+    expect(names.some((n) => n.endsWith('-attachment.png') || n.endsWith('-attachment.json'))).toBe(false);
+  });
+});
+
+describe('CLI · run import · Allure · a folder reached through a link', () => {
+  it('a source inside the real folder arrives with its bytes', async (ctx) => {
+    const real = copyOf('pytest');
+    const link = path.join(dir, 'link-to-results');
+    try {
+      fs.symlinkSync(real, link, 'junction');
+    } catch {
+      return ctx.skip();
+    }
+
+    const out = await importIt(link);
+
+    const want = sources(real, 'test_adds_item');
+    for (const s of want) expect(platform.puts.map((p) => p.sha256)).toContain(shaOf(real, s));
+    expect(notFound(out)).toEqual([]);
+    expect(out).toMatch(/Imported \d+ results · \d+ files uploaded · 0 files not found/);
+  });
+});
+
+describe('CLI · run import · Allure · the summary line is for the formats whose files can be absent', () => {
+  it('a Playwright JSON report with a file has no «Imported … files» line, an Allure folder with files has one', async () => {
+    const shot = path.join(dir, 'shot.png');
+    fs.writeFileSync(shot, 'png');
+    const report = path.join(dir, 'report.json');
+    fs.writeFileSync(
+      report,
+      JSON.stringify({
+        config: {},
+        suites: [
+          {
+            title: 'a.spec.ts',
+            file: 'a.spec.ts',
+            specs: [
+              {
+                title: 't',
+                file: 'a.spec.ts',
+                line: 1,
+                tests: [{ id: 'id-1', results: [{ status: 'passed', retry: 0, attachments: [{ name: 'shot', contentType: 'image/png', path: shot }] }] }],
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(await importIt(report)).not.toMatch(/Imported \d+ results · \d+ files uploaded/);
+    printed = [];
+    expect(await importIt(copyOf('pytest'))).toMatch(/Imported \d+ results · \d+ files uploaded/);
+  });
+});
