@@ -44,6 +44,10 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # Drives the built binary (dist/cli.cjs) against stub servers on localhost; needs no secrets or network.
+      - name: End-to-end — built binary
+        run: pnpm test:e2e
+
       # After Build: the adapter typechecks against the root's emitted .d.ts and bundles the
       # reporter core out of the root's dist. Its own `test` script builds it first, which is
       # what lets the packaging guard assert against a real artifact instead of an intention.

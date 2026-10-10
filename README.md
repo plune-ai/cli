@@ -229,6 +229,10 @@ results already sent. A path that leaves the folder of the report (`../../etc/pa
 elsewhere, a link that points outside) is refused with the same line, and the file is never read.
 Console output kept per suite rather than per test (`jest-junit`) names no test, so nothing is read from it.
 
+Check that the output reaches the report: Gradle writes it only with `reports.junitXml.outputPerTestCase = true`,
+and Maven Surefire moves it out of the XML when `redirectTestOutputToFile` is `true`. As in the Playwright
+reporter, a file whose name starts with an underscore is skipped, and a file several tests name is uploaded once per test.
+
 ### Several jobs, one run
 
 Two suites, or a sharded matrix, report into a single run when every job shares a key **and** knows
