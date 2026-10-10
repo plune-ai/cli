@@ -18,6 +18,7 @@ import {
   failureOf,
   filesOf,
   isTextType,
+  printable,
   repoRootOf,
   webLink,
 } from '../reporter-core/failure-detail.js';
@@ -95,7 +96,7 @@ export class JsonReportError extends Error {
     readonly file: string,
     detail: string,
   ) {
-    super(`${file} — ${detail}`);
+    super(`${printable(file)} — ${detail}`);
     this.name = 'JsonReportError';
   }
 }
@@ -227,7 +228,7 @@ export function readPlaywrightJson(
   try {
     parsed = JSON.parse(source);
   } catch (err) {
-    throw new JsonReportError(file, `not JSON — ${err instanceof Error ? err.message : String(err)}`);
+    throw new JsonReportError(file, `not JSON — ${printable(err instanceof Error ? err.message : String(err))}`);
   }
   if (typeof parsed !== 'object' || parsed === null || !Array.isArray((parsed as JsonSuite).suites)) {
     throw new JsonReportError(file, 'no "suites" array — is this a Playwright JSON report?');

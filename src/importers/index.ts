@@ -9,15 +9,17 @@
  */
 
 import type { PendingResult } from '../reporter-core/types.js';
+import { isFolder, readAllure } from './allure.js';
 import type { MissingAttachment } from './attachments.js';
 import { looksLikeJUnit, readJUnit } from './junit.js';
 import { looksLikePlaywrightJson, readPlaywrightJson } from './playwright-json.js';
 
 export { XmlParseError } from './xml.js';
 export { JsonReportError } from './playwright-json.js';
+export { AllureReportError } from './allure.js';
 export type { MissingAttachment } from './attachments.js';
 
-export const IMPORT_FORMATS = ['junit', 'playwright-json'] as const;
+export const IMPORT_FORMATS = ['junit', 'playwright-json', 'allure'] as const;
 export type ImportFormat = (typeof IMPORT_FORMATS)[number];
 
 /** Neither sniff matched, or the name given is not one we have. Exit 2 — the user can fix it. */
@@ -44,6 +46,21 @@ export function detectFormat(source: string, file: string): ImportFormat {
   );
 }
 
+export { isFolder };
+
+/** Read an `allure-results` folder (plune-ai/plune#1221); any other `format` asked for is refused. */
+export function readFolder(
+  dir: string,
+  format?: ImportFormat,
+): { format: ImportFormat; results: PendingResult[]; missing: MissingAttachment[]; notes: string[] } {
+  if (format !== undefined && format !== 'allure') {
+    throw new UnknownFormatError(dir, `this is a folder, and only allure-results is read from one, not ${format}.`);
+  }
+  const missing: MissingAttachment[] = [];
+  const notes: string[] = [];
+  return { format: 'allure', results: readAllure(dir, missing, notes), missing, notes };
+}
+
 /**
  * Parse a report into results — and, where the format names one, the CI run that wrote it (`ciUrl`) and
  * the runner's own record of that CI (`ci`, for the commit and branch). `format` omitted means detect it.
@@ -55,6 +72,7 @@ export function readReport(
 ): { format: ImportFormat; results: PendingResult[]; missing: MissingAttachment[]; notes: string[]; ciUrl?: string; ci?: unknown } {
   const chosen = format ?? detectFormat(source, file);
   const missing: MissingAttachment[] = [];
+  if (chosen === 'allure') throw new UnknownFormatError(file, 'allure-results is a folder, and this is a file.');
   const notes: string[] = [];
   if (chosen === 'junit') return { format: chosen, results: readJUnit(source, file, missing, notes), missing, notes };
   // A Playwright JSON report names its files itself; nothing in it can be announced and then absent.

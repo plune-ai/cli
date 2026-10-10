@@ -505,3 +505,16 @@ describe('the files a report keeps (plune#913, plune#928)', () => {
     ]);
   });
 });
+
+describe('CLI · run import · Playwright JSON · what a parse error may print', () => {
+  it('a line of the report\'s own text, or of its name, cannot start a line of ours (::error::)', () => {
+    let message = '';
+    try {
+      readPlaywrightJson('{"x":\n::error::pwned', 'a\n::error::name.json');
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toMatch(/not JSON/);
+    expect(message.split('\n').some((l) => l.startsWith('::'))).toBe(false);
+  });
+});

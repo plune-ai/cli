@@ -133,6 +133,19 @@ line (`Imported 120 results · 34 files uploaded · 2 files not found`); the imp
 `--fail-on-missing-attachments` to exit 1 in that case, with the results already sent. A path outside the
 folder of the report is refused the same way and never read. Examples for pytest and Java are in the README.
 
+**`import` reads an Allure `allure-results` folder.** Give it the folder instead of a file
+(`plune run import allure-results`; `--format allure` is the same, and a folder is never anything else). Tests
+come from `*-result.json` with their status (`passed`, `failed`, `broken`, `skipped`), time, failure message
+and trace, and steps; the suite name comes from `*-container.json`. The files are the `attachments[]` of the
+test, of its steps and of its fixtures (`befores`, `afters`), sent with the `type` Allure wrote or, without
+one, the file's extension. The same test run again (same `historyId`) counts as its attempts, the last one to
+stop being the result. A file keeps the name Allure gave it with the file's extension added when the name has
+none (`after add` becomes `after add.png`). A `source` is counted from the folder, which may be reached through
+a link; a missing one, a `source` that leaves the folder and `--fail-on-missing-attachments` behave as for JUnit
+above. At most 100 files of one test are read, as for JUnit, and the rest is said in one line. A folder with no `*-result.json` is an error
+(exit 2), never an import of nothing. Examples for pytest (`allure-pytest --alluredir`) and Java
+(`allure-junit5`) are in the README.
+
 **`exec`** is the whole thing in one line: it opens a run, gives the command `PLUNE_RUN` and
 `PLUNE_PROCEED` so any reporter inside joins without closing it, waits, then closes the run and
 exits with the **command's** code. The run is closed even when the command failed — a failed test

@@ -120,7 +120,7 @@ the last resort, used only when `PLUNE_TOKEN` is set nowhere else. Nothing write
 | `plune login` | Save a [Plune platform](https://plune.ai/platform) API token so `sync` and `ingest` can reach it. The token is **checked against the API before it is saved**, so a wrong one fails here rather than two commands later. Get one at `https://beta.plune.ai` → Account → API tokens. Flags: `--token <token>` (omit to paste it or pipe it via stdin), `--skip-verify` (save without checking, for offline setup). In CI, skip this step: every platform command reads `PLUNE_TOKEN` from the environment first, and the saved login only when it is not set. |
 | `plune logout` | Remove the saved token. |
 | `plune sync` | Upload the latest local run to the platform. Flags: `--file <path>` to send a specific run JSON. |
-| `plune run import <file>` | Turn a **JUnit XML** or **Playwright JSON** report into a run in Plune. Needs no provider key — nothing is generated. Flags: `--format junit\|playwright-json` (detected from the file when omitted), `--key <externalKey>` to land several reports in one run (with `PLUNE_SHARED_RUN=1` — see below), `--create` to offer unmatched tests to the review queue, `--fail-on-missing-attachments` to exit 1 when a file a JUnit report names with `[[ATTACHMENT\|path]]` is not there (the results are sent either way). |
+| `plune run import <file>` | Turn a **JUnit XML** or **Playwright JSON** report, or an **Allure `allure-results` folder**, into a run in Plune. Needs no provider key — nothing is generated. Flags: `--format junit\|playwright-json\|allure` (detected from the file when omitted; a folder is Allure), `--key <externalKey>` to land several reports in one run (with `PLUNE_SHARED_RUN=1` — see below), `--create` to offer unmatched tests to the review queue, `--fail-on-missing-attachments` to exit 1 when a file a JUnit report names with `[[ATTACHMENT\|path]]`, or an Allure result names as a `source`, is not there (the results are sent either way). |
 | `plune run start` | Open a platform run — or join the one already carrying `--key` — and print its id. Flags: `--key <externalKey>` (generated when absent), `--json` for one machine-readable line. |
 | `plune run finish <id>` | Close a platform run. This is what the reporter tells you to do for a run it had to leave open. Flags: `--terminate` to record it as cut short, `--reason <text>`. |
 | `plune run exec -- <command>` | Open a run, run the command inside it, close the run — and exit with whatever the command returned. Sets `PLUNE_SHARED_RUN` for you, so anything reporting inside joins that run. Flags: `--key <externalKey>`. |
@@ -145,6 +145,7 @@ costs nothing beyond a Plune token.
 plune login                           # once, on your machine; in CI export PLUNE_TOKEN instead
 plune run import ./junit.xml          # Jest, Vitest, pytest, PHPUnit, Surefire, Cypress, …
 plune run import ./playwright.json    # or Playwright's own JSON report
+plune run import ./allure-results     # or the folder an Allure adapter wrote — see below
 ```
 
 The format is read from the file, not from its name. Statuses go over as the report wrote them and
@@ -228,6 +229,57 @@ A CI step that should go red for it passes `--fail-on-missing-attachments`: exit
 results already sent. A path that leaves the folder of the report (`../../etc/passwd`, an absolute path
 elsewhere, a link that points outside) is refused with the same line, and the file is never read.
 Console output kept per suite rather than per test (`jest-junit`) names no test, so nothing is read from it.
+For Jest, use Allure below.
+
+### An `allure-results` folder
+
+Every Allure adapter (pytest, JUnit 5, TestNG, Playwright, Cypress, Jest, Vitest, WebdriverIO, .NET) writes
+the same folder: a `*-result.json` per test, a `*-container.json` per suite, and the files the tests attached.
+Point `plune run import` at the folder (a folder is read as Allure, no flag needed). Each test arrives with its
+name, its status as Allure shows it (`passed`, `failed`, `broken`, `skipped`), its time, the failure message and
+trace, and its steps; a test run again (same `historyId`) is one test with attempts, the last one counting.
+The files come from the test, from its steps and from its fixtures (`befores`, `afters`), each with the
+`type` Allure wrote, and go the way a JUnit file goes: your bucket, or the result for a picture or a text. A
+`source` counts from the folder, and one that leaves it is refused. A missing file, `--fail-on-missing-attachments`
+and the summary line work as for JUnit above.
+
+pytest (`allure-pytest`):
+
+```bash
+pip install allure-pytest
+pytest --alluredir=allure-results
+plune run import allure-results
+```
+
+```python
+import allure
+
+def test_checkout(page):
+    with allure.step("pay"):
+        allure.attach.file("artifacts/checkout.png", name="checkout", attachment_type=allure.attachment_type.PNG)
+```
+
+Java, JUnit 5 (`allure-junit5`, with the AspectJ agent from Allure's setup; the results folder is
+`target/allure-results` unless `allure.results.directory` says otherwise):
+
+```bash
+mvn test
+plune run import target/allure-results
+```
+
+```java
+@Test
+void checkout() {
+    Allure.addAttachment("checkout", "image/png", new FileInputStream("target/artifacts/checkout.png"), ".png");
+}
+```
+
+Jest has no per-test output in JUnit; `allure-jest` gives it one (`allure.attachment(...)` in a test or a step).
+Tests are matched to Plune cases by the same key as a JUnit report's, `classname#name`, where the adapter's
+names allow it (pytest, JUnit 5, Playwright); for Vitest, Jest and Cypress the key is the runner, the file and the
+test's full name (`vt:test/cart.test.js#cart adds an item`, `jest:…`, `cy:…`). A file whose name starts with `_`
+is not sent: the core hides it as Playwright's own reports do, and Allure has no such convention, so name
+attachments without a leading underscore.
 
 Check that the output reaches the report: Gradle writes it only with `reports.junitXml.outputPerTestCase = true`,
 and Maven Surefire moves it out of the XML when `redirectTestOutputToFile` is `true`. As in the Playwright

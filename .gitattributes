@@ -1,5 +1,11 @@
 # Keep line endings consistent across platforms: LF in the repo, LF on checkout.
 * text=auto eol=lf
 
+# Binary on purpose: a fixture's PNG signature must never depend on git's text heuristic.
+*.png binary
+*.jpg binary
+*.webm binary
+*.zip binary
+
 # Generated — collapse in diffs and exclude from language stats.
 pnpm-lock.yaml linguist-generated=true -diff

@@ -32,7 +32,10 @@ ticket: "https://github.com/plune-ai/plune/issues/1219"
 2. **Вкладення беруться зі стандартних форматів**, а не з «репортерів для Python, Java, C#»:
    - JUnit XML: явна позначка `[[ATTACHMENT|path]]` на окремому рядку в `system-out` або
      `system-err` тесту — її розуміють Jenkins і GitLab (cli, plune-ai/plune#1220);
-   - Allure: каталог `allure-results` (plune-ai/plune#1221).
+   - Allure: каталог `allure-results` — результати, кроки, вкладення тесту, кроків і фікстур
+     (plune-ai/plune#1221). Каталог читається без прапора; `source` вкладення проходить ту саму
+     перевірку шляху, що й позначка JUnit. Через Allure вкладення дає й Jest (`allure-jest`), якому
+     JUnit цього не дає.
 3. **GitHub Action** `plune-ai/report-action` — зараз, за зразком `eval-action`
    (plune-ai/plune#1222). Docker-образ CLI для GitLab, Jenkins і Azure — коли попросить перший
    клієнт не з GitHub.
