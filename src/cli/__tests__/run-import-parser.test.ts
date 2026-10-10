@@ -138,6 +138,8 @@ async function takingFiles(
   refuse?: { status: number; error: string },
   /** A project with a bucket (ADR 0041): `uploads` answers links back to this server, which stands in for the bucket. */
   bucket = false,
+  /** How many PUTs to the bucket are answered 503 before it comes round. */
+  failPuts = 0,
 ): Promise<{ url: string; uploads: Upload[]; puts: Upload[]; completed: string[] }> {
   const uploads: Upload[] = [];
   const puts: Upload[] = [];
@@ -154,7 +156,7 @@ async function takingFiles(
       const url = req.url ?? '';
       if (req.method === 'PUT' && url.startsWith('/bucket/')) {
         puts.push({ url, type: String(req.headers['content-type']), bytes: raw, length: req.headers['content-length'] });
-        return reply(200, {});
+        return reply(puts.length <= failPuts ? 503 : 200, {});
       }
       // Before the JSON below: a file's body is its bytes.
       if (/^\/v1\/results\/[^/]+\/files\?name=/.test(url)) {
@@ -259,7 +261,7 @@ describe('plune run import of a Playwright report that keeps text files (plune#9
       { url: '/v1/results/res-0/files?name=api-response.json', type: 'application/json', bytes: Buffer.from('{"items":[1,2,3],"ok":true}') },
       { url: '/v1/results/res-0/files?name=console.log', type: 'text/plain', bytes: Buffer.from(LOG) },
     ]);
-    expect(printed.join('')).toContain('2 text file(s) uploaded to their results.');
+    expect(printed.join('')).toContain('2 text file(s) uploaded');
   });
 
   it('a project with a bucket: the trace and the text are PUT to their links over the real transport, at the length of the file, and no link is printed', async () => {
@@ -284,6 +286,21 @@ describe('plune run import of a Playwright report that keeps text files (plune#9
     expect(out).not.toContain('SECRET_SIG');
   });
 
+  it('a bucket that answers 503 once: the real transport tries again and the file arrives', async () => {
+    const platform = await takingFiles(undefined, true, 1);
+    vi.stubEnv('PLUNE_API_URL', platform.url);
+    const trace = path.join(dir, 'trace.zip');
+    fs.writeFileSync(trace, 'PK-trace');
+    const keeping = reportKeeping([{ name: 'trace', contentType: 'application/zip', path: trace }]);
+    await createProgram().parseAsync(['node', 'plune', 'run', 'import', keeping]);
+
+    // Three files, one of them PUT twice; every one is completed.
+    expect(platform.puts).toHaveLength(4);
+    expect(platform.completed).toHaveLength(3);
+    expect(printed.join('')).toContain('3 file(s) uploaded to your bucket');
+    expect(printed.join('')).not.toContain('failed to upload');
+  });
+
   it('when the platform refuses them, says so and still imports — the run is not failed for a file', async () => {
     const platform = await takingFiles({ status: 415, error: 'text is accepted as UTF-8 only' });
     vi.stubEnv('PLUNE_API_URL', platform.url);
@@ -293,6 +310,6 @@ describe('plune run import of a Playwright report that keeps text files (plune#9
     const out = printed.join('');
     expect(out).toContain('1 accepted, 0 already there, 0 unmatched, 0 not delivered.');
     expect(out).toContain('could not upload a text file (text is accepted as UTF-8 only) — its result is reported without it.');
-    expect(out).toContain('0 text file(s) uploaded to their results, 2 could not be uploaded.');
+    expect(out).toContain('0 text file(s) uploaded, 2 failed to upload');
   });
 });

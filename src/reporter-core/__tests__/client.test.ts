@@ -316,6 +316,41 @@ describe('put — a file to a short-lived link of the project’s bucket (plune-
     expect(await real().put(`${base}/o`, {}, { body: Buffer.from('x') })).toEqual({ ok: false, status: 403, code: 'bucket_403' });
   });
 
+  it('reads the 403 the bucket sent while the body was still going out as that 403, not as a broken connection, and lets the file go', async () => {
+    await new Promise((resolve) => bucket.close(resolve));
+    const refusing = createServer((req, res) => {
+      // The link is dead: say so at once, and cut the connection under a body that is still arriving.
+      res.writeHead(403, { connection: 'close' });
+      res.end(() => setTimeout(() => req.socket.destroy(), 100));
+    });
+    await new Promise<void>((resolve) => refusing.listen(0, '127.0.0.1', resolve));
+    const at = join(dir, 'trace.zip');
+    writeFileSync(at, Buffer.alloc(40 * 1024 * 1024, 'z'));
+    const out = await real().put(`http://127.0.0.1:${(refusing.address() as AddressInfo).port}/o`, {}, { path: at, size: 40 * 1024 * 1024 });
+    await new Promise((resolve) => refusing.close(resolve));
+
+    expect(out).toEqual({ ok: false, status: 403, code: 'bucket_403' });
+    // A file still held open cannot be removed on Windows.
+    rmSync(at);
+  });
+
+  it('tries a 429 again after the pause the bucket asked for', async () => {
+    const waited: number[] = [];
+    let n = 0;
+    await new Promise((resolve) => bucket.close(resolve));
+    const slow = createServer((_req, res) => {
+      n += 1;
+      res.writeHead(n === 1 ? 429 : 200, n === 1 ? { 'retry-after': '3' } : {}).end();
+    });
+    await new Promise<void>((resolve) => slow.listen(0, '127.0.0.1', resolve));
+    const client = createClient({ apiUrl: 'https://api.test', token: TOKEN, wait: async (ms) => void waited.push(ms) });
+    const out = await client.put(`http://127.0.0.1:${(slow.address() as AddressInfo).port}/o`, {}, { body: Buffer.from('x') });
+    await new Promise((resolve) => slow.close(resolve));
+
+    expect(out).toEqual({ ok: true });
+    expect(waited).toEqual([3000]);
+  });
+
   it('gives a refused connection a code and nothing of the address', async () => {
     await new Promise((resolve) => bucket.close(resolve));
     const out = await real().put(`${base}/o?sig=SECRET`, {}, { body: Buffer.from('x') });

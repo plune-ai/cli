@@ -409,6 +409,12 @@ export async function startRun(
   const countsOf = (kind: Kind) => (kind === 'text' ? stats.textFiles : kind === 'file' ? stats.otherFiles : stats.screenshots);
   /** Whether a link has come back: the project has a bucket. Set before the line is said, so two files say it once. */
   let bucketSeen = false;
+  /** Files the platform said have nowhere to go; the rest of the skipped have reasons of their own. */
+  let noStorage = 0;
+  /** An older platform has no `uploads` route (404 and no JSON): a picture or a text goes the way 0.17 sent it. */
+  let uploadsMissing = false;
+  /** The kinds whose first refusal of the platform's own routes has been said. */
+  const failedSaid = new Set<Kind>();
   /** The codes of a bucket's trouble that have been said. */
   const codesSaid = new Set<string>();
   /** How many more files of a kind the route of the database takes for a result — by result and kind. */
@@ -633,6 +639,7 @@ export async function startRun(
 
   function skip(kind: Kind, name: string, why: keyof typeof SKIPPED): void {
     countsOf(kind).skipped += 1;
+    if (why === 'noStorage') noStorage += 1;
     // A project without a bucket is told once for the run, whichever file it was: the reason is the same.
     const said = why === 'noStorage' ? why : `${kind}/${why}`;
     if (skipsSaid.has(said)) return;
@@ -654,9 +661,9 @@ export async function startRun(
 
   /** The old warning, said once per kind, for a refusal of the platform's own routes. */
   function failed(job: Upload, why: string): void {
-    const counts = countsOf(job.kind);
-    counts.failed += 1;
-    if (counts.failed === 1) {
+    countsOf(job.kind).failed += 1;
+    if (!failedSaid.has(job.kind)) {
+      failedSaid.add(job.kind);
       log(`plune: could not upload a ${KINDS[job.kind].label} (${why}) — its result is reported without it.`);
     }
   }
@@ -683,7 +690,7 @@ export async function startRun(
   async function uploadDirect(job: Upload, size: number): Promise<void> {
     const { kind } = job;
     if (kind === 'file') return skip(kind, job.name, 'noStorage');
-    const { bytes: ceiling, size: tooBig, room, limit } = KINDS[kind];
+    const { bytes: ceiling, size: tooBig } = KINDS[kind];
     if (size > ceiling) return skip(kind, job.name, tooBig);
     let bytes: Buffer;
     if (job.body !== undefined) bytes = job.body;
@@ -696,11 +703,6 @@ export async function startRun(
     }
     const refusal = kind === 'text' ? textRefusal(bytes) : undefined;
     if (refusal !== undefined) return skip(kind, job.name, refusal);
-    // A place is taken by a file that is sent, not by one that was turned away here.
-    const roomKey = `${job.id}/${kind}`;
-    const left = rooms.get(roomKey) ?? room;
-    if (left === 0) return skip(kind, job.name, limit);
-    rooms.set(roomKey, left - 1);
     const out = await client.upload(
       `/v1/results/${encodeURIComponent(job.id)}/files?name=${encodeURIComponent(job.name)}`,
       bytes,
@@ -713,10 +715,6 @@ export async function startRun(
 
   /** The three steps of ADR 0041: the link is the platform's, the PUT the bucket's, and `complete` is the platform asking the bucket. */
   async function uploadToBucket(job: Upload, size: number, first: { id: string; url: string; headers: Record<string, string> }): Promise<void> {
-    if (!bucketSeen) {
-      bucketSeen = true;
-      log(BUCKET_FOUND);
-    }
     const source = job.body !== undefined ? { body: job.body } : { path: job.path as string, size };
     let link = first;
     for (let renewed = false; ; ) {
@@ -736,28 +734,69 @@ export async function startRun(
     countsOf(job.kind).uploaded += 1;
   }
 
-  /** One file to its result, under the name `nameOf` gave it — never the path, which names this machine, and never a link. */
-  async function uploadOne(job: Upload): Promise<void> {
+  /** At most `UPLOADS_AT_ONCE` calls of the platform or of a bucket in flight, whoever's they are. */
+  let free = UPLOADS_AT_ONCE;
+  const waiting: (() => void)[] = [];
+  async function gated<T>(work: () => Promise<T>): Promise<T> {
+    if (free === 0) await new Promise<void>((resolve) => waiting.push(resolve));
+    else free -= 1;
+    try {
+      return await work();
+    } finally {
+      const next = waiting.shift();
+      if (next !== undefined) next();
+      else free += 1;
+    }
+  }
+
+  /**
+   * Decide what one file does, under the name `nameOf` gave it — never the path, which names this machine, and
+   * never a link. The decision takes the place the file holds in its result, so the files of one result are
+   * decided in the order of their attachments; the work itself (a PUT, a direct upload) is handed back.
+   */
+  async function plan(job: Upload): Promise<(() => Promise<void>) | undefined> {
     const { kind } = job;
     let size: number;
     if (job.body !== undefined) size = job.body.length;
-    else if (job.path === undefined) return skip(kind, job.name, 'missing');
+    else if (job.path === undefined) return void skip(kind, job.name, 'missing');
     else {
       try {
         size = (await disk.stat(job.path)).size;
       } catch {
-        return skip(kind, job.name, 'missing');
+        return void skip(kind, job.name, 'missing');
       }
     }
-    if (size === 0) return skip(kind, job.name, 'empty');
-    const out = await ask(job, size);
-    if (!out.ok) return failed(job, out.code ?? (out.detail || out.kind));
+    if (size === 0) return void skip(kind, job.name, 'empty');
+    // A place in the result goes to a picture or a text the database will take, in the order of the attachments.
+    const direct = (): (() => Promise<void>) | undefined => {
+      if (kind === 'file') return void skip(kind, job.name, 'noStorage');
+      const roomKey = `${job.id}/${kind}`;
+      const left = rooms.get(roomKey) ?? KINDS[kind].room;
+      if (left === 0) return void skip(kind, job.name, KINDS[kind].limit);
+      rooms.set(roomKey, left - 1);
+      return () => uploadDirect(job, size);
+    };
+    if (uploadsMissing) return direct();
+    const out = await gated(() => ask(job, size));
+    if (!out.ok) {
+      if (out.status === 404 && out.detail === '' && out.code === undefined) {
+        uploadsMissing = true;
+        return direct();
+      }
+      if (out.code !== undefined) failedToBucket(job, out.code);
+      else failed(job, out.detail || out.kind);
+      return undefined;
+    }
     const item = out.body?.files?.[0] as { skipped?: unknown; direct?: unknown } | undefined;
-    if (item?.skipped === 'no_storage') return skip(kind, job.name, refusedHere(job, size) ?? 'noStorage');
-    if (item?.direct === true) return uploadDirect(job, size);
+    if (item?.skipped === 'no_storage') return void skip(kind, job.name, refusedHere(job, size) ?? 'noStorage');
+    if (item?.direct === true) return direct();
     const link = linkOf(item);
-    if (link === undefined) return failed(job, 'bad_answer');
-    return uploadToBucket(job, size, link);
+    if (link === undefined) return void failed(job, 'bad_answer');
+    if (!bucketSeen) {
+      bucketSeen = true;
+      log(BUCKET_FOUND);
+    }
+    return () => uploadToBucket(job, size, link);
   }
 
   /**
@@ -797,10 +836,18 @@ export async function startRun(
         }
       }
     }
-    let next = 0;
+    // The files of one result are asked about one after the other, in the order of the attachments; the results
+    // run side by side, and the calls they make share the four places of `gated`.
+    const byResult = new Map<string, Upload[]>();
+    for (const job of jobs) byResult.set(job.id, [...(byResult.get(job.id) ?? []), job]);
     await Promise.all(
-      Array.from({ length: Math.min(UPLOADS_AT_ONCE, jobs.length) }, async () => {
-        while (next < jobs.length) await uploadOne(jobs[next++]!);
+      [...byResult.values()].map(async (group) => {
+        const work: Promise<void>[] = [];
+        for (const job of group) {
+          const act = await plan(job);
+          if (act !== undefined) work.push(gated(act));
+        }
+        await Promise.all(work);
       }),
     );
   }
@@ -910,10 +957,13 @@ export async function startRun(
     const kinds = [stats.screenshots, stats.textFiles, stats.otherFiles];
     const sum = (what: 'uploaded' | 'skipped' | 'failed') => kinds.reduce((n, counts) => n + counts[what], 0);
     if (bucketSeen) {
-      // One count for the files of a project with a bucket: every kind goes the same way there.
+      // One count for the files of a project with a bucket: every kind goes the same way there. Only what the
+      // platform said has no bucket is labelled so; the other skips have their reasons, said above once each.
+      const other = sum('skipped') - noStorage;
       parts.push(
         `${sum('uploaded')} file(s) uploaded to your bucket` +
-          (sum('skipped') > 0 ? `, ${sum('skipped')} skipped (no bucket connected)` : '') +
+          (noStorage > 0 ? `, ${noStorage} skipped (no bucket connected)` : '') +
+          (other > 0 ? `, ${other} skipped` : '') +
           (sum('failed') > 0 ? `, ${sum('failed')} failed to upload` : ''),
       );
     } else {

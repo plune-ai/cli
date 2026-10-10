@@ -12,6 +12,7 @@
  */
 
 import { createReadStream, openAsBlob } from 'node:fs';
+import { pipeline } from 'node:stream';
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 
@@ -137,26 +138,42 @@ const withoutLength = (headers: Record<string, string>): Record<string, string> 
 
 /**
  * A PUT over `node:http(s)` with the length stated up front (the link is signed on it) and the file piped from
- * disk, never read whole. Why not `fetch`: see `nodeTransport` (#58). Resolves with the status only.
+ * disk, never read whole. Why not `fetch`: see `nodeTransport` (#58). Resolves with the status and `Retry-After`.
+ *
+ * What the bucket SAID wins over what the socket then did: a 403 sent while the body was still going out
+ * arrives as a status first and a reset after, and it must be read as the 403 it is (a new link), not as a
+ * network failure (three more tries of 100 MB). The file is closed whichever way it ends.
  */
-function nodePut(url: string, headers: Record<string, string>, source: PutSource, idleMs: number): Promise<number> {
+function nodePut(
+  url: string,
+  headers: Record<string, string>,
+  source: PutSource,
+  idleMs: number,
+): Promise<{ status: number; retryAfter: string | null }> {
   return new Promise((resolve, reject) => {
     const target = new URL(url);
     const send = target.protocol === 'https:' ? httpsRequest : httpRequest;
     const length = 'body' in source ? source.body.length : source.size;
+    let answered: { status: number; retryAfter: string | null } | undefined;
+    const settle = (err?: unknown): void => (answered !== undefined ? resolve(answered) : reject(err));
     const req = send(
       target,
       { method: 'PUT', headers: { ...withoutLength(headers), 'content-length': String(length) } },
       (res) => {
-        res.on('error', reject);
-        res.on('end', () => resolve(res.statusCode ?? 0));
+        const retry = res.headers['retry-after'];
+        answered = { status: res.statusCode ?? 0, retryAfter: Array.isArray(retry) ? (retry[0] ?? null) : (retry ?? null) };
+        res.on('error', settle);
+        res.on('close', () => {
+          resolve(answered as NonNullable<typeof answered>);
+          req.destroy(); // the answer is in: no more of the file is wanted
+        });
         res.resume();
       },
     );
     req.setTimeout(idleMs, () => req.destroy(Object.assign(new Error('idle'), { code: 'ETIMEDOUT' })));
-    req.on('error', reject);
+    req.on('error', settle);
     if ('body' in source) req.end(source.body);
-    else createReadStream(source.path).on('error', (err) => req.destroy(err)).pipe(req);
+    else pipeline(createReadStream(source.path), req, (err) => (err ? settle(err) : undefined));
   });
 }
 
@@ -284,17 +301,25 @@ export function createClient(opts: ClientOptions): PlatformClient {
       for (let attempt = 0; attempt <= PUT_DELAYS_MS.length; attempt += 1) {
         try {
           let status: number;
-          if (opts.fetchImpl === undefined) status = await nodePut(url, headers, source, IDLE_MS);
+          let retryAfter: string | null;
+          if (opts.fetchImpl === undefined) ({ status, retryAfter } = await nodePut(url, headers, source, IDLE_MS));
           else {
             // The length is the Blob's own: `fetch` refuses a `content-length` it did not write.
             const body = 'body' in source ? source.body : await openAsBlob(source.path);
             const res = await opts.fetchImpl(url, { method: 'PUT', headers: withoutLength(headers), body });
             await res.arrayBuffer().catch(() => undefined);
             status = res.status;
+            retryAfter = res.headers.get('retry-after');
           }
           if (status >= 200 && status <= 299) return { ok: true };
           last = { ok: false, status, code: `bucket_${status}` };
-          if (status < 500) return last;
+          // A 429 is a bucket asking for patience, like a 5xx.
+          if (status < 500 && status !== 429) return last;
+          const seconds = retryAfter === null ? NaN : Number(retryAfter.trim());
+          if (attempt < PUT_DELAYS_MS.length) {
+            await wait(Number.isFinite(seconds) && seconds >= 0 ? Math.min(seconds, 60) * 1000 : (PUT_DELAYS_MS[attempt] as number));
+          }
+          continue;
         } catch (err) {
           last = { ok: false, status: null, code: codeOfError(err) };
         }

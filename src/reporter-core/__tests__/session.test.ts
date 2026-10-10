@@ -73,7 +73,11 @@ interface PlatformOptions {
    */
   bucket?: boolean;
   /** Force a reply on `…/files/uploads`. */
-  uploadsFailure?: { status: number; error: string; code?: string };
+  uploadsFailure?: { status: number; error: string; code?: string; /** Only for the file of this name. */ only?: string };
+  /** A platform older than #945: there is no `uploads` route, and the 404 is not JSON. */
+  uploadsMissing?: boolean;
+  /** `Retry-After` of every PUT that is not answered 2xx. */
+  putRetryAfter?: string;
   /** The status each PUT to the bucket is answered with, in order; the last one repeats. Absent: 200. */
   putStatuses?: (number | 'network')[];
   /** Every PUT waits for this before it is answered — to count how many are waiting at once. */
@@ -121,13 +125,17 @@ function platform(opts: PlatformOptions = {}) {
       const planned = opts.putStatuses ?? [200];
       const status = planned[Math.min(seen.puts.length - 1, planned.length - 1)] as number | 'network';
       if (status === 'network') throw new TypeError(`fetch failed: getaddrinfo ENOTFOUND bucket.test ${target}`);
-      return new Response(null, { status });
+      return new Response(null, {
+        status,
+        ...(status >= 400 && opts.putRetryAfter !== undefined ? { headers: { 'retry-after': opts.putRetryAfter } } : {}),
+      });
     }
     const uploadsAt = /\/v1\/results\/([^/]+)\/files\/uploads$/.exec(target);
     if (uploadsAt) {
       const asked = JSON.parse(String(init?.body)) as { files: { name: string; contentType: string; size: number }[] };
       seen.asked.push({ url: target, files: asked.files });
-      if (opts.uploadsFailure !== undefined) {
+      if (opts.uploadsMissing === true) return new Response('404 Not Found', { status: 404 });
+      if (opts.uploadsFailure !== undefined && (opts.uploadsFailure.only === undefined || opts.uploadsFailure.only === asked.files[0]?.name)) {
         const { status, error, code } = opts.uploadsFailure;
         return json({ error, ...(code !== undefined ? { code } : {}) }, status);
       }
@@ -1598,14 +1606,15 @@ describe('screenshots go to the result they belong to (plune#913)', () => {
       { to: '/v1/results/id-a/files?name=ok.png', type: 'image/png', size: PNG.length },
       { to: '/v1/results/id-a/files?name=untyped.JPEG', type: 'image/jpeg', size: PNG.length },
     ]);
-    // Twenty of the twenty-two; which two stay behind is for whoever is answered last.
-    expect(new Set(uploads(seen).filter((u) => u.to.includes('/id-b/')).map((u) => u.to)).size).toBe(20);
+    // The first twenty the runner kept; the two after them stay behind, whoever is answered first.
+    expect(uploads(seen).filter((u) => u.to.includes('/id-b/')).map((u) => u.to)).toEqual(
+      Array.from({ length: 20 }, (_, i) => `/v1/results/id-b/files?name=b-${i}.png`).sort(),
+    );
     expect(run.stats.screenshots).toEqual({ uploaded: 23, skipped: 6, failed: 0 });
-    const said = logOf(cfg).filter((l) => l.includes(' not uploaded — '));
-    expect(said.filter((l) => /^plune: screenshot "b-\d+\.png" not uploaded — a result holds at most 20\.$/.test(l))).toHaveLength(1);
-    expect(said.filter((l) => !l.includes('"b-')).sort()).toEqual([
+    expect(logOf(cfg).filter((l) => l.includes(' not uploaded — ')).sort()).toEqual([
       "plune: screenshot \"_hidden.png\" not uploaded — its name starts with an underscore, which hides an attachment in Playwright's own reports too.",
       'plune: screenshot "anim.gif" not uploaded — Plune takes PNG, JPEG and WebP.',
+      'plune: screenshot "b-20.png" not uploaded — a result holds at most 20.',
       'plune: screenshot "gone.png" not uploaded — the file cannot be read on this machine.',
       'plune: screenshot "huge.png" not uploaded — Plune takes a file of at most 2 MB.',
     ]);
@@ -1939,26 +1948,25 @@ describe('text files go to the result they belong to (plune#928)', () => {
           inMemory('nul', Buffer.from('a\0')),
           inMemory('blank', ''),
           { name: 'gone', contentType: 'text/plain', path: path.join(dir, `gone-${SHA1}.txt`) },
-          // Ten places, and these are eleven.
+          // Ten places, two of them taken by the two the platform takes and Plune then finds not to be text: eight
+          // are left, and these are eleven.
           ...Array.from({ length: 11 }, (_, i) => inMemory(`ok-${i}`, `line ${i}`)),
         ],
       }),
     ]);
 
-    expect(seen.files).toHaveLength(10);
-    expect(run.stats.textFiles).toEqual({ uploaded: 10, skipped: 7, failed: 0 });
-    const said = logOf(cfg).filter((l) => l.includes(' not uploaded — '));
-    // Which of the eleven is the one without a place depends on who asked first.
-    expect(said.filter((l) => /"ok-\d+" not uploaded — a result holds at most 10 text files\.$/.test(l))).toHaveLength(1);
-    expect(said.filter((l) => !l.includes('"ok-')).sort()).toEqual([
+    expect(seen.files.map((f) => sentName(f.url)).sort()).toEqual(Array.from({ length: 8 }, (_, i) => `ok-${i}`));
+    expect(run.stats.textFiles).toEqual({ uploaded: 8, skipped: 9, failed: 0 });
+    expect(logOf(cfg).filter((l) => l.includes(' not uploaded — ')).sort()).toEqual([
       `plune: text file "_hidden" not uploaded — ${HIDDEN}.`,
       'plune: text file "blank" not uploaded — the file is empty.',
       'plune: text file "gone.txt" not uploaded — the file cannot be read on this machine.',
       'plune: text file "huge" not uploaded — Plune takes a text file of at most 512 KiB.',
       'plune: text file "latin1" not uploaded — Plune takes UTF-8 text only.',
       'plune: text file "nul" not uploaded — the file holds a NUL byte, and Plune takes UTF-8 text without one.',
+      'plune: text file "ok-8" not uploaded — a result holds at most 10 text files.',
     ]);
-    expect(logOf(cfg).at(-1)).toBe('plune: 1 accepted · 10 text file(s) uploaded, 7 skipped');
+    expect(logOf(cfg).at(-1)).toBe('plune: 1 accepted · 8 text file(s) uploaded, 9 skipped');
   });
 
   it.each([
@@ -2304,18 +2312,60 @@ describe('files go to the project’s bucket by short-lived links (plune-ai/plun
   });
 
   describe('a bucket that is there but does not take a file', () => {
-    it('is a warning with the platform’s code and no link, and the result stays', async () => {
+    it('says a closed run in the platform’s words, once, and the result stays (409, no code)', async () => {
       const { seen, run, cfg } = await report([result('a', { files: [trace()] }), result('b', { files: [video()] })], {
-        uploadsFailure: { status: 409, error: 'the bucket was disconnected', code: 'storage_disconnected' },
+        uploadsFailure: { status: 409, error: 'the run is closed — its results stand' },
       });
 
       expect(seen.puts).toEqual([]);
       expect(run.stats).toMatchObject({ accepted: 2, deferred: 0, otherFiles: { uploaded: 0, skipped: 0, failed: 2 } });
       expect(logOf(cfg).filter((l) => l.startsWith('plune: could not upload'))).toEqual([
-        'plune: could not upload a file (storage_disconnected) — its result is reported without it.',
+        'plune: could not upload a file (the run is closed — its results stand) — its result is reported without it.',
       ]);
       expect(seen.events.map((e) => e.body['event'])).toEqual(['finish']);
       expect(logOf(cfg).at(-1)).toBe('plune: 2 accepted · 2 file(s) failed to upload');
+    });
+
+    it.each([
+      [409, 'too_many_files'],
+      [413, 'file_too_large'],
+    ])('names the file and the code the platform gave when it answers %i', async (status, code) => {
+      const { seen, run, cfg } = await report([result('a', { files: [trace()] })], {
+        uploadsFailure: { status, error: 'no', code },
+      });
+
+      expect(seen.puts).toEqual([]);
+      expect(run.stats).toMatchObject({ accepted: 1, otherFiles: { uploaded: 0, skipped: 0, failed: 1 } });
+      expect(logOf(cfg)).toContain(`plune: "trace.zip" not uploaded to your bucket (${code}) — its result is reported without it.`);
+    });
+
+    it('does not let one warning silence another: a 503 on a PUT, then a 413 on the next file, are both said', async () => {
+      const { run, cfg } = await settled(
+        report([result('a', { files: [trace('t1'), trace('t2')] })], {
+          bucket: true,
+          putStatuses: [503],
+          uploadsFailure: { status: 413, error: 'too big', code: 'file_too_large', only: 't2.zip' },
+        }),
+      );
+
+      expect(run.stats.otherFiles).toEqual({ uploaded: 0, skipped: 0, failed: 2 });
+      expect(logOf(cfg)).toContain('plune: "t1.zip" not uploaded to your bucket (bucket_503) — its result is reported without it.');
+      expect(logOf(cfg)).toContain('plune: "t2.zip" not uploaded to your bucket (file_too_large) — its result is reported without it.');
+    });
+
+    it('is a plain warning when the check finds no file (404, no code) or no bucket any more (409 not_connected)', async () => {
+      const gone = await report([result('a', { files: [trace()] })], {
+        bucket: true,
+        completeFailure: { status: 404, error: "file 'file-1' not found" },
+      });
+      expect(logOf(gone.cfg)).toContain('plune: "trace.zip" not uploaded to your bucket (http_404) — its result is reported without it.');
+
+      const lost = await report([result('a', { files: [trace()] })], {
+        bucket: true,
+        completeFailure: { status: 409, error: 'the project has no bucket any more', code: 'not_connected' },
+      });
+      expect(logOf(lost.cfg)).toContain('plune: "trace.zip" not uploaded to your bucket (not_connected) — its result is reported without it.');
+      expect(lost.run.stats).toMatchObject({ accepted: 1, deferred: 0 });
     });
 
     it.each([
@@ -2336,14 +2386,35 @@ describe('files go to the project’s bucket by short-lived links (plune-ai/plun
   });
 
   describe('the summary of a project with a bucket', () => {
-    it('adds skipped and failed only when there are some', async () => {
+    it('labels as "no bucket connected" only what the platform said has nowhere to go; the other skips have their own reasons', async () => {
       const { run, cfg } = await report(
         [result('a', { files: [trace(), { name: '_hidden', contentType: 'application/zip', path: put('hidden.zip', 'x') }] })],
         { bucket: true },
       );
 
       expect(run.stats.otherFiles).toEqual({ uploaded: 1, skipped: 1, failed: 0 });
-      expect(logOf(cfg).at(-1)).toBe('plune: 1 accepted · 1 file(s) uploaded to your bucket, 1 skipped (no bucket connected)');
+      expect(logOf(cfg).at(-1)).toBe('plune: 1 accepted · 1 file(s) uploaded to your bucket, 1 skipped');
+    });
+
+    it('keeps the label for a file the platform turned away before the bucket was found', async () => {
+      // One result first, answered "no storage"; the bucket appears for the next (a project that connected one mid-run).
+      const p = platform({ known: { a: 'tc-a', b: 'tc-b' }, bucket: true });
+      let calls = 0;
+      const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
+        if (String(url).endsWith('/files/uploads') && (calls += 1) === 1) {
+          const asked = JSON.parse(String(init?.body)) as { files: { name: string }[] };
+          return new Response(JSON.stringify({ files: [{ name: asked.files[0]?.name, skipped: 'no_storage' }] }), { status: 200 });
+        }
+        return p.fetchImpl(url as string, init);
+      }) as unknown as typeof fetch;
+      const cfg = config(fetchImpl);
+      const run = await startRun(cfg);
+      await run.add(result('a', { files: [trace('t1')] }));
+      await run.flush();
+      await run.add(result('b', { files: [trace('t2'), { name: '_hidden', contentType: 'application/zip', path: put('hidden2.zip', 'x') }] }));
+      await run.finish();
+
+      expect(logOf(cfg).at(-1)).toBe('plune: 2 accepted · 1 file(s) uploaded to your bucket, 1 skipped (no bucket connected), 1 skipped');
     });
 
     it('names a file that could not be put, and counts it', async () => {
@@ -2404,6 +2475,40 @@ describe('files go to the project’s bucket by short-lived links (plune-ai/plun
       expect(seen.completes).toEqual(['file-1']);
       expect(run.stats.otherFiles).toEqual({ uploaded: 1, skipped: 0, failed: 0 });
     });
+  });
+
+  describe('a platform older than the uploads route (404, not JSON)', () => {
+    it('sends a picture and a text the way 0.17 did, asks once, and leaves a trace as not stored', async () => {
+      const { seen, run, cfg } = await report([result('a', { files: [shot('s'), json('j'), trace()] })], { uploadsMissing: true });
+
+      expect(seen.asked).toHaveLength(1);
+      expect(seen.files.map((f) => f.url).sort()).toEqual([
+        'https://api.test/v1/results/id-a/files?name=j.json',
+        'https://api.test/v1/results/id-a/files?name=s.png',
+      ]);
+      expect(run.stats).toMatchObject({
+        screenshots: { uploaded: 1, skipped: 0, failed: 0 },
+        textFiles: { uploaded: 1, skipped: 0, failed: 0 },
+        otherFiles: { uploaded: 0, skipped: 1, failed: 0 },
+      });
+      expect(logOf(cfg).some((l) => l.includes('(other)'))).toBe(false);
+    });
+
+    it('does not ask again for the files of later results', async () => {
+      const { seen } = await report([result('a', { files: [shot('s')] }), result('b', { files: [shot('t')] })], { uploadsMissing: true });
+
+      expect(seen.asked).toHaveLength(1);
+      expect(seen.files).toHaveLength(2);
+    });
+  });
+
+  it('waits out a 429 of the bucket as it does a 5xx, and then goes through', async () => {
+    const { seen, run } = await settled(
+      report([result('a', { files: [trace()] })], { bucket: true, putStatuses: [429, 200], putRetryAfter: '7' }),
+    );
+
+    expect(seen.puts).toHaveLength(2);
+    expect(run.stats.otherFiles).toEqual({ uploaded: 1, skipped: 0, failed: 0 });
   });
 
   it('puts no more than four files at once', async () => {
@@ -2484,7 +2589,7 @@ describe('files go to the project’s bucket by short-lived links (plune-ai/plun
           everythingSaid({ bucket: true, completeFailure: { status: 422, error: 'no', code: 'file_missing' } }, [trace()]),
         ),
       );
-      clean(await everythingSaid({ uploadsFailure: { status: 409, error: 'gone', code: 'storage_disconnected' } }, [trace()]));
+      clean(await everythingSaid({ uploadsFailure: { status: 413, error: 'gone', code: 'file_too_large' } }, [trace()]));
     });
 
     it('when there is no bucket', async () => {
