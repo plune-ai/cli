@@ -4,7 +4,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { MissingAttachment } from '../attachments.js';
-import { AllureReportError, looksLikeAllureDir, readAllure } from '../allure.js';
+import { AllureReportError, readAllure } from '../allure.js';
+import { readJUnit } from '../junit.js';
 
 const fixtures = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'allure-results');
 
@@ -53,8 +54,7 @@ describe.each(ADAPTERS)('CLI · run import · Allure · $folder · the folder th
     return { results: readAllure(dir, missing), missing };
   };
 
-  it('is recognised as an Allure folder and gives one result per test, none of them missing a file', () => {
-    expect(looksLikeAllureDir(dir)).toBe(true);
+  it('gives one result per test, none of them missing a file', () => {
     const { results, missing } = read();
     expect(results).toHaveLength(a.count);
     expect(missing).toEqual([]);
@@ -395,7 +395,6 @@ describe('CLI · run import · Allure · a folder that is not a report', () => {
   it('an empty folder is an error that says so, not a report of nothing', () => {
     const dir = path.join(tmp, 'empty');
     fs.mkdirSync(dir);
-    expect(looksLikeAllureDir(dir)).toBe(false);
     expect(() => readAllure(dir)).toThrow(AllureReportError);
     expect(() => readAllure(dir)).toThrow(/no \*-result\.json/);
   });
@@ -404,7 +403,6 @@ describe('CLI · run import · Allure · a folder that is not a report', () => {
     const dir = lay([], []);
     fs.writeFileSync(path.join(dir, 'report.xml'), '<testsuite/>');
     fs.writeFileSync(path.join(dir, 'a-container.json'), '{}');
-    expect(looksLikeAllureDir(dir)).toBe(false);
     expect(() => readAllure(dir)).toThrow(dir);
   });
 
@@ -412,5 +410,238 @@ describe('CLI · run import · Allure · a folder that is not a report', () => {
     const dir = lay([t()]);
     fs.writeFileSync(path.join(dir, 'broken-result.json'), '{"name": ');
     expect(() => readAllure(dir)).toThrow(/broken-result\.json/);
+  });
+});
+
+// ---- review: what a folder may hold, and what a hostile file may do ---------------------------------------------
+
+/** A result file written as text, so a shape `JSON.stringify` would refuse can be laid down. */
+function layRaw(name: string, text: string): string {
+  const dir = path.join(tmp, 'allure-results');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, name), text);
+  return dir;
+}
+
+describe('CLI · run import · Allure · only a regular file is a result', () => {
+  it('a folder named *-result.json or *-container.json is never opened', () => {
+    const dir = lay([t()]);
+    fs.mkdirSync(path.join(dir, 'x-result.json'));
+    fs.mkdirSync(path.join(dir, 'y-container.json'));
+    expect(readAllure(dir).map((r) => r.title)).toEqual(['adds']);
+  });
+
+  it('a link named *-result.json is not read, whether it leads to a file or to a folder', (ctx) => {
+    const dir = lay([t()]);
+    const outside = path.join(tmp, 'outside-result.json');
+    fs.writeFileSync(outside, JSON.stringify(t({ uuid: 'out', historyId: 'out', name: 'outside', fullName: 'x#outside' })));
+    const folder = path.join(tmp, 'a-folder');
+    fs.mkdirSync(folder);
+    let made = 0;
+    for (const [target, name, type] of [
+      [outside, 'link-result.json', 'file'],
+      [folder, 'dir-result.json', 'junction'],
+    ] as const) {
+      try {
+        fs.symlinkSync(target, path.join(dir, name), type);
+        made += 1;
+      } catch {
+        // A file link needs a privilege on Windows.
+      }
+    }
+    expect(readAllure(dir).map((r) => r.title)).toEqual(['adds']);
+    if (made === 0) ctx.skip();
+  });
+
+  it('a file over the size ceiling is exit 2 naming the file, judged before it is read', () => {
+    const dir = lay([t()]);
+    fs.writeFileSync(path.join(dir, 'big-result.json'), '{"this is not json' + ' '.repeat(2000));
+    // The ceiling is a parameter, so no 64 MB is written. Were the file read, the error would be «not JSON».
+    expect(() => readAllure(dir, [], [], 1000)).toThrow(AllureReportError);
+    expect(() => readAllure(dir, [], [], 1000)).toThrow(/big-result\.json — \d+ bytes, over the 1000/);
+  });
+});
+
+describe('CLI · run import · Allure · what a parse error may print', () => {
+  it('a line of the file\'s own text cannot start a line of ours (::error::)', () => {
+    const dir = layRaw('a-result.json', '{"x":\n::error::pwned');
+    let message = '';
+    try {
+      readAllure(dir);
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toMatch(/not JSON/);
+    expect(message.split('\n').some((l) => l.startsWith('::'))).toBe(false);
+    expect(message).not.toMatch(/[\u0000-\u001f]/);
+  });
+
+  it('a file name with a line break in it cannot start a line either, where the system allows such a name', (ctx) => {
+    const dir = path.join(tmp, 'allure-results');
+    fs.mkdirSync(dir);
+    try {
+      fs.writeFileSync(path.join(dir, 'a\n::error::x-result.json'), 'not json');
+    } catch {
+      return ctx.skip();
+    }
+    let message = '';
+    try {
+      readAllure(dir);
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toMatch(/not JSON/);
+    expect(message.split('\n').some((l) => l.startsWith('::'))).toBe(false);
+  });
+});
+
+describe('CLI · run import · Allure · a file in a shape nobody wrote', () => {
+  const shapes: [string, Record<string, unknown>][] = [
+    ['attachments: {}', { attachments: {} }],
+    ['attachments: [null]', { attachments: [null, 5, 'x', [], { source: 7 }] }],
+    ['steps: {}', { steps: {} }],
+    ['steps: [null, a number]', { steps: [null, 3, { name: 's', steps: 'x', attachments: [null] }] }],
+    ['labels: "x"', { labels: 'x' }],
+    ['parameters: {}', { parameters: {} }],
+    ['labels with nulls', { labels: [null, { name: 'package', value: 7 }] }],
+    ['statusDetails: a string', { statusDetails: 'boom' }],
+    ['start: 1e20', { start: 1e20, stop: 2e20 }],
+    ['stop: "z"', { stop: 'z' }],
+    ['stop: null, start: a huge number', { start: 1e300, stop: null }],
+    ['name: an object', { name: { a: 1 }, fullName: 7 }],
+  ];
+
+  it.each(shapes)('%s: no throw, the result is still there', (_label, over) => {
+    const dir = lay([t(over)]);
+    const out = readAllure(dir);
+    expect(out).toHaveLength(1);
+    if ('start' in over) expect(out[0]?.execution).toBeUndefined();
+  });
+
+  it('containers with odd children, befores and afters are read as far as they make sense', () => {
+    const dir = lay(
+      [t()],
+      [],
+      [
+        { uuid: 'c', name: 'suite', children: ['u1', 7, null], befores: {}, afters: [null, 3] },
+        { children: 'u1', befores: 'x' },
+      ],
+    );
+    expect(readAllure(dir).map((r) => r.title)).toEqual(['suite › adds']);
+  });
+
+  it('150 000 attachments on one test: no throw, 100 are read and one note says so', () => {
+    const many = Array.from({ length: 150_000 }, (_, i) => ({ name: `a${i}`, source: `s${i}.txt` }));
+    const dir = lay([t({ attachments: many })]);
+    const missing: MissingAttachment[] = [];
+    const notes: string[] = [];
+    const out = readAllure(dir, missing, notes);
+    expect(out).toHaveLength(1);
+    expect(missing).toHaveLength(100);
+    expect(notes).toEqual(['plune: "adds": 149900 more markers ignored (at most 100 per test)']);
+  });
+
+  it('steps nested 10 000 deep: no throw, the ones near the top keep their file, one note says the rest is ignored', () => {
+    const n = 10_000;
+    const nested = '{"name":"s","steps":['.repeat(n) + ']}'.repeat(n);
+    const text = `{"uuid":"u1","name":"adds","fullName":"shop.Cart#adds","historyId":"h1","status":"passed","attachments":[{"name":"top","source":"top.txt"}],"steps":[{"name":"first","attachments":[{"name":"near","source":"near.txt"}],"steps":[${nested}]}]}`;
+    const dir = layRaw('deep-result.json', text);
+    fs.writeFileSync(path.join(dir, 'top.txt'), 'x');
+    fs.writeFileSync(path.join(dir, 'near.txt'), 'x');
+    const notes: string[] = [];
+    const out = readAllure(dir, [], notes);
+    expect(out).toHaveLength(1);
+    expect(out[0]?.files?.map((f) => f.name)).toEqual(['top', 'near']);
+    expect(notes).toEqual(['plune: "adds": steps nested deeper than 256 are ignored']);
+  });
+
+  it('a result that is a list, a number or text gives exit 2 with the file name, not a TypeError', () => {
+    for (const text of ['[]', '7', '"x"', 'null']) {
+      const dir = layRaw('w-result.json', text);
+      expect(() => readAllure(dir)).toThrow(/w-result\.json — not an Allure result/);
+      fs.rmSync(dir, { recursive: true });
+    }
+  });
+});
+
+describe('CLI · run import · Allure · at most 100 files of one test', () => {
+  it('101 files on test, steps and fixtures together: 100 are sent and one note, in the shape of the JUnit one', () => {
+    const names = Array.from({ length: 101 }, (_, i) => `f${i}.txt`);
+    const att = (i: number) => ({ name: `n${i}`, source: names[i] });
+    const range = (from: number, to: number) => Array.from({ length: to - from }, (_, i) => att(from + i));
+    const dir = lay(
+      [t({ attachments: range(0, 40), steps: [{ name: 's', attachments: range(40, 70) }] })],
+      names,
+      [{ uuid: 'c', name: 'suite', children: ['u1'], afters: [{ name: 'tear', attachments: range(70, 101) }] }],
+    );
+    const notes: string[] = [];
+    const [r] = readAllure(dir, [], notes);
+    expect(r?.files).toHaveLength(100);
+    expect(notes).toEqual(['plune: "suite › adds": 1 more markers ignored (at most 100 per test)']);
+  });
+
+  it('exactly 100 files give no note', () => {
+    const names = Array.from({ length: 100 }, (_, i) => `f${i}.txt`);
+    const dir = lay([t({ attachments: names.map((s, i) => ({ name: `n${i}`, source: s })) })], names);
+    const notes: string[] = [];
+    expect(readAllure(dir, [], notes)[0]?.files).toHaveLength(100);
+    expect(notes).toEqual([]);
+  });
+});
+
+describe('CLI · run import · Allure · the key of a parametrised pytest test is the JUnit key', () => {
+  const junit = fs.readFileSync(path.join(path.dirname(fixtures), 'pytest-params.junit.xml'), 'utf8');
+
+  it('allure-pytest and `pytest --junitxml` of the same six tests give the same six keys, ids= and string parameters included', () => {
+    const fromJUnit = readJUnit(junit, 'pytest-params.junit.xml').map((r) => r.keys[0]?.value).sort();
+    const fromAllure = readAllure(path.join(fixtures, 'pytest-params')).map((r) => r.keys[0]?.value).sort();
+    expect(fromJUnit).toHaveLength(6);
+    expect(fromAllure).toEqual(fromJUnit);
+    expect(fromAllure).toEqual(
+      expect.arrayContaining(['tests.test_params#test_string_param[abc]', 'tests.test_params#test_ids[one]', 'tests.test_params#test_two_params[1-q]']),
+    );
+  });
+
+  it('a name that ends in ] is not given the parameters a second time', () => {
+    const dir = lay([t({ name: 'test_x[a b]', fullName: 'tests.t#test_x', parameters: [{ name: 'p', value: "'a b'" }] })]);
+    expect(readAllure(dir)[0]?.keys[0]?.value).toBe('tests.t#test_x[a b]');
+  });
+});
+
+describe('CLI · run import · Allure · the attempt that counts is the one that stopped last', () => {
+  it('an attempt that started first and stopped last is the main one, whatever the starts say', () => {
+    const dir = lay([t({ uuid: 'A', status: 'failed', start: 1, stop: 10 }), t({ uuid: 'B', status: 'passed', start: 5, stop: 6 })]);
+    const out = readAllure(dir);
+    expect(out.map((r) => [r.rawStatus, r.execution?.retry])).toEqual([
+      ['passed', 0],
+      ['failed', 1],
+    ]);
+  });
+
+  it('a tie on stop goes by start, then by uuid, and not by the order the files are listed in', () => {
+    const attempts = [
+      t({ uuid: 'c', status: 'failed', start: 3, stop: 9 }),
+      t({ uuid: 'a', status: 'passed', start: 3, stop: 9 }),
+      t({ uuid: 'b', status: 'skipped', start: 1, stop: 9 }),
+    ];
+    const order = (list: Record<string, unknown>[]) => {
+      fs.rmSync(path.join(tmp, 'allure-results'), { recursive: true, force: true });
+      return readAllure(lay(list))
+        .sort((x, y) => (x.execution?.retry ?? 0) - (y.execution?.retry ?? 0))
+        .map((r) => r.rawStatus);
+    };
+    // b started first (retry 0); a and c tie on start, and the uuid puts a before c: c is the main one.
+    expect(order(attempts)).toEqual(['skipped', 'passed', 'failed']);
+    expect(order([...attempts].reverse())).toEqual(['skipped', 'passed', 'failed']);
+  });
+});
+
+describe('CLI · run import · Allure · a runner prefix is not a place', () => {
+  it.each(['vitest', 'jest', 'cypress'])('%s: the key keeps its prefix, the spec reference is a path', (adapter) => {
+    for (const r of readAllure(path.join(fixtures, adapter))) {
+      expect(r.keys[0]?.value).toMatch(/^(vt|jest|cy):/);
+      expect(r.specRef).toBeDefined();
+      expect(r.specRef).not.toMatch(/^[a-z]+:/);
+    }
   });
 });

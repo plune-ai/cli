@@ -16,3 +16,10 @@ All six were built live on 2026-10-10, none written by hand:
 
 Changed after the run, and nothing else: the machine's folder in a trace became `/work`, and the host name
 `ci-host`. Attachment contents are the small test strings, not real screenshots.
+
+In `cypress`, `9d0822fa-1d5c-4ea2-9b1b-01a6ffcdd715-attachment.png` is plain text: the test attached a string with the
+type `image/png` and the adapter wrote it as it was given. It is not a picture.
+
+`pytest-params` is allure-pytest 2.16.2 with a string parameter, `ids=`, two parameters and a plain test; the
+same six tests were run with `pytest --junitxml`, and `../pytest-params.junit.xml` is that report (host and
+timestamps replaced). A test pins that both give the same key for every test.

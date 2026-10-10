@@ -23,7 +23,9 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   same test run again (same `historyId`) is one test with attempts, the last to stop counting. A folder with no
   `*-result.json` exits 2 with a message. A file keeps the name the adapter gave it (`after add`) with the
   extension of the real file when the name has none (`after add.png`); a results folder reached through a link
-  works as a JUnit report's does. This is how Jest gets files per test, which `jest-junit` cannot give.
+  works as a JUnit report's does. Only regular files named `*-result.json` and `*-container.json` are read, none over
+  64 MB; a file in a shape nobody wrote ends the import with exit 2 and its name, never a stack trace; at most 100
+  files of one test are read, as for JUnit. This is how Jest gets files per test, which `jest-junit` cannot give.
 - **`plune run import` of a JUnit report sends the files its tests announce (plune-ai/plune#1220).** A test that
   prints `[[ATTACHMENT|path]]` on a line of its own to `system-out` or `system-err` (pytest, Maven Surefire, Vitest,
   PHPUnit, .NET's JunitXml.TestLogger and Cypress's `mocha-junit-reporter` all carry it into the report) has that

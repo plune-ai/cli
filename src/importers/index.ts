@@ -8,9 +8,8 @@
  * correct, and the two would drift on the day one of them was fixed.
  */
 
-import { statSync } from 'node:fs';
 import type { PendingResult } from '../reporter-core/types.js';
-import { readAllure } from './allure.js';
+import { isFolder, readAllure } from './allure.js';
 import type { MissingAttachment } from './attachments.js';
 import { looksLikeJUnit, readJUnit } from './junit.js';
 import { looksLikePlaywrightJson, readPlaywrightJson } from './playwright-json.js';
@@ -47,14 +46,7 @@ export function detectFormat(source: string, file: string): ImportFormat {
   );
 }
 
-/** Whether `path` is a folder — the shape of an `allure-results` report, which is the only one that is. */
-export function isFolder(path: string): boolean {
-  try {
-    return statSync(path).isDirectory();
-  } catch {
-    return false;
-  }
-}
+export { isFolder };
 
 /** Read an `allure-results` folder (plune-ai/plune#1221); any other `format` asked for is refused. */
 export function readFolder(
@@ -65,7 +57,8 @@ export function readFolder(
     throw new UnknownFormatError(dir, `this is a folder, and only allure-results is read from one, not ${format}.`);
   }
   const missing: MissingAttachment[] = [];
-  return { format: 'allure', results: readAllure(dir, missing), missing, notes: [] };
+  const notes: string[] = [];
+  return { format: 'allure', results: readAllure(dir, missing, notes), missing, notes };
 }
 
 /**

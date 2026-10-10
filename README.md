@@ -276,7 +276,10 @@ void checkout() {
 
 Jest has no per-test output in JUnit; `allure-jest` gives it one (`allure.attachment(...)` in a test or a step).
 Tests are matched to Plune cases by the same key as a JUnit report's, `classname#name`, where the adapter's
-names allow it (pytest, JUnit 5, Playwright); for the others the key is `file#describe test`.
+names allow it (pytest, JUnit 5, Playwright); for Vitest, Jest and Cypress the key is the runner, the file and the
+test's full name (`vt:test/cart.test.js#cart adds an item`, `jest:…`, `cy:…`). A file whose name starts with `_`
+is not sent: the core hides it as Playwright's own reports do, and Allure has no such convention, so name
+attachments without a leading underscore.
 
 Check that the output reaches the report: Gradle writes it only with `reports.junitXml.outputPerTestCase = true`,
 and Maven Surefire moves it out of the XML when `redirectTestOutputToFile` is `true`. As in the Playwright

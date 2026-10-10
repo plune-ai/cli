@@ -260,3 +260,36 @@ describe('CLI · run import · Allure · the summary line is for the formats who
     expect(await importIt(copyOf('pytest'))).toMatch(/Imported \d+ results · \d+ files uploaded/);
   });
 });
+
+describe('CLI · run import · Allure · a folder with more files on a test than a test may have', () => {
+  it('prints the note, sends 100, and the import goes on', async () => {
+    const folder = copyOf('pytest');
+    const file = fs.readdirSync(folder).find((n) => n.endsWith('-result.json') && JSON.parse(fs.readFileSync(path.join(folder, n), 'utf8')).name === 'test_adds_item')!;
+    const r = JSON.parse(fs.readFileSync(path.join(folder, file), 'utf8')) as { attachments: { name: string; source: string; type: string }[] };
+    for (let i = 0; i < 101; i++) {
+      fs.writeFileSync(path.join(folder, `extra-${i}.txt`), `extra ${i}`);
+      r.attachments.push({ name: `extra ${i}`, source: `extra-${i}.txt`, type: 'text/plain' });
+    }
+    fs.writeFileSync(path.join(folder, file), JSON.stringify(r));
+
+    const out = await importIt(folder);
+
+    expect(out).toMatch(/plune: "tests › test_cart › test_adds_item": \d+ more markers ignored \(at most 100 per test\)/);
+    expect(process.exitCode ?? 0).toBe(0);
+    expect(platform.results.length).toBeGreaterThanOrEqual(6);
+  });
+});
+
+describe('CLI · run import · Allure · a file that is not an Allure result', () => {
+  it('exit 2 with the file name, and no line of the output starts with ::', async () => {
+    const folder = copyOf('pytest');
+    fs.writeFileSync(path.join(folder, 'evil-result.json'), '{"a":\n::error::pwned');
+
+    await expect(importIt(folder)).rejects.toThrow('the command exited with 2');
+
+    const lines = printed.join('').split('\n');
+    expect(lines.some((l) => l.includes('evil-result.json'))).toBe(true);
+    expect(lines.filter((l) => l.startsWith('::'))).toEqual([]);
+    expect(platform.results).toEqual([]);
+  });
+});

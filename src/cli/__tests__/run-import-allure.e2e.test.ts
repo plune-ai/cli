@@ -93,7 +93,10 @@ describe('CLI · run import · Allure · the built binary, a project with a buck
 
       expect(ran.code).toBe(0);
       const sent = platform.puts.map((p) => p.sha256);
-      for (const s of sourcesOf(folder, passing)) expect(sent).toContain(sha256(fs.readFileSync(path.join(folder, s))));
+      const want = sourcesOf(folder, passing);
+      // A loop over nothing passes; the test must have files to look for.
+      expect(want.length).toBeGreaterThanOrEqual(2);
+      for (const s of want) expect(sent).toContain(sha256(fs.readFileSync(path.join(folder, s))));
       expect(ran.out).toMatch(/Imported \d+ results · \d+ files uploaded · 0 files not found/);
     });
   });
