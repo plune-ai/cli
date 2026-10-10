@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- NOT a live run: the .NET SDK is not installed on the machine that wrote this. The shape follows the
+     JunitXml.TestLogger README (dotnet test --logger "junit;LogFilePath=results.xml"): one testsuite per
+     test assembly, a testcase per test with the captured Console.WriteLine in its own system-out. -->
+<testsuites>
+  <testsuite name="Acme.Tests.dll" tests="2" skipped="0" failures="1" errors="0" time="0.052" timestamp="2026-10-10T11:00:00" hostname="ci">
+    <properties />
+    <testcase classname="Acme.Tests.CartTests" name="AddsAnItem" time="0.021" file="/src/Acme.Tests/CartTests.cs">
+      <system-out>adding an item
+[[ATTACHMENT|artifacts/cart.png]]
+</system-out>
+    </testcase>
+    <testcase classname="Acme.Tests.CartTests" name="RejectsANegativeQuantity" time="0.012" file="/src/Acme.Tests/CartTests.cs">
+      <failure message="Assert.True() Failure" type="Xunit.Sdk.TrueException">   at Acme.Tests.CartTests.RejectsANegativeQuantity() in /src/Acme.Tests/CartTests.cs:line 21</failure>
+      <system-out>[[ATTACHMENT|artifacts/missing-trace.zip]]
+</system-out>
+    </testcase>
+  </testsuite>
+</testsuites>

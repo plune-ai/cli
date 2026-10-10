@@ -11,7 +11,7 @@
 
 import * as fs from 'node:fs';
 import { startRun } from '../../reporter-core/session.js';
-import { readReport, type ImportFormat } from '../../importers/index.js';
+import { readReport, type ImportFormat, type MissingAttachment } from '../../importers/index.js';
 import { NoTokenError, RunCommandError, type RunCommandDeps } from './run-lifecycle.js';
 import { resolveApiUrl, dashboardUrl } from '../api-url.js';
 import { loadToken } from '../credentials.js';
@@ -52,6 +52,16 @@ export interface ImportResult {
   textFiles: { uploaded: number; skipped: number; failed: number };
   /** Tests the report gives no location for, so the queue could never show a reviewer where to look. */
   unlocatable: number;
+  /**
+   * The files the report announced and this machine could not give (plune-ai/plune#1220): absent, not a file,
+   * or outside the report's folder. The one place the list is kept — a «not there at import» state on the
+   * platform, once it has one, is sent from here.
+   */
+  missingAttachments: MissingAttachment[];
+  /** Files that went to the project, of every kind — a screenshot, a text, a trace. */
+  filesUploaded: number;
+  /** Whether the report announced any file at all, found or not: what decides if the summary has a line for them. */
+  announced: boolean;
   /** Whether offering was asked for at all — the difference between «nothing was offered» and
    * «nothing was NEW to offer», which read the same in the summary until a real run said so. */
   offering: boolean;
@@ -75,10 +85,16 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
     throw new RunCommandError(`Cannot read ${options.file}.`);
   }
 
-  const { format, results, ciUrl, ci } = readReport(source, options.file, options.format);
+  const { format, results, missing, ciUrl, ci } = readReport(source, options.file, options.format);
   if (results.length === 0) {
     throw new RunCommandError(`No test cases in ${options.file} — it parsed, but there is nothing in it.`);
   }
+
+  // Said now and whatever else happens: a file that is not here is the answer to «where is my screenshot?»,
+  // and it is not for --verbose to give (plune-ai/plune#1220).
+  for (const m of missing) write(`plune: attachment not found — "${m.title}": ${m.path}`);
+
+  const announced = missing.length > 0 || results.some((r) => (r.files?.length ?? 0) > 0);
 
   const env = readEnv();
   const apiUrl = resolveApiUrl(options.apiUrl ?? env.config.apiUrl);
@@ -133,6 +149,9 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
     deferred: stats.deferred,
     screenshots: { ...stats.screenshots },
     textFiles: { ...stats.textFiles },
+    missingAttachments: missing,
+    filesUploaded: stats.screenshots.uploaded + stats.textFiles.uploaded + stats.otherFiles.uploaded,
+    announced,
     unlocatable: results.filter((r) => r.specRef === undefined).length,
     offering: options.create === true,
   };
@@ -228,6 +247,13 @@ function describe(result: ImportResult, apiUrl: string): string[] {
     lines.push(
       `${result.unlocatable} test(s) carry no file or class in the report, so they cannot be offered ` +
         'for review — a reviewer would have nowhere to look.',
+    );
+  }
+  // «Imported» here is about the files: the line says what became of what the report announced, found or not.
+  if (result.announced) {
+    lines.push(
+      `Imported ${result.accepted} results · ${result.filesUploaded} files uploaded · ` +
+        `${result.missingAttachments.length} files not found`,
     );
   }
   if (result.runId !== null) lines.push(runUrl(apiUrl, result.runId));

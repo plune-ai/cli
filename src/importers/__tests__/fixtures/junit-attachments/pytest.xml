@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Real output: pytest 9 --junitxml with -o junit_logging=system-out; only the hostname is replaced. The tests print [[ATTACHMENT|artifacts/cart.png]] and [[ATTACHMENT|artifacts/missing-trace.zip]]. -->
+<testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="2" time="0.043" timestamp="2026-10-10T14:03:23.032601+03:00" hostname="ci"><testcase classname="test_shop" name="test_adds_item" time="0.002"><system-out>--------------------------------- Captured Out ---------------------------------
+adding an item
+[[ATTACHMENT|artifacts/cart.png]]
+
+</system-out></testcase><testcase classname="test_shop" name="test_rejects_negative" time="0.001"><failure message="assert -1 &gt; 0">def test_rejects_negative():
+        print("[[ATTACHMENT|artifacts/missing-trace.zip]]")
+&gt;       assert -1 &gt; 0
+E       assert -1 &gt; 0
+
+test_shop.py:14: AssertionError</failure><system-out>--------------------------------- Captured Out ---------------------------------
+[[ATTACHMENT|artifacts/missing-trace.zip]]
+
+</system-out></testcase></testsuite></testsuites>

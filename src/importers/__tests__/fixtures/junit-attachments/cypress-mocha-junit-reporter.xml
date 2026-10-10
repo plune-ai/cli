@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Real output: mocha 10 + mocha-junit-reporter 2.2 with attachments=true, the reporter Cypress runs. Cypress itself was not run: the test sets test.attachments the way Cypress does with the screenshots and videos it kept. The suite file attribute (a machine path) is dropped. -->
+
+<testsuites name="Mocha Tests" time="0.001" tests="2" failures="1">
+  <testsuite name="Root Suite" timestamp="2026-10-10T11:04:53" tests="0" time="0.000" failures="0">
+  </testsuite>
+  <testsuite name="cart" timestamp="2026-10-10T11:04:53" tests="2" time="0.001" failures="1">
+    <testcase name="cart adds an item" time="0.000" classname="adds an item">
+      <system-out>[[ATTACHMENT|cypress/screenshots/cart.cy.js/cart -- adds an item.png]]</system-out>
+    </testcase>
+    <testcase name="cart rejects a negative quantity" time="0.000" classname="rejects a negative quantity">
+      <system-out>[[ATTACHMENT|cypress/screenshots/cart.cy.js/cart -- rejects a negative quantity (failed).png]]
+[[ATTACHMENT|cypress/videos/cart.cy.js.mp4]]</system-out>
+      <failure message="expected -1 to be &gt; 0" type="Error"><![CDATA[Error: expected -1 to be > 0
+    at Context.<anonymous> (t\shop.mocha.js:8:11)
+    at process.processImmediate (node:internal/timers:504:21)]]></failure>
+    </testcase>
+  </testsuite>
+</testsuites>

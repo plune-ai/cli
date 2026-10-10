@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- NOT a live run: Maven is not installed on the machine that wrote this. The shape follows Maven Surefire's
+     XML report schema (maven-surefire-plugin 3.x, JUnit Platform provider): one TEST-<class>.xml per class, the
+     test's stdout inside its own testcase as CDATA, written by System.out.println("[[ATTACHMENT|...]]"). -->
+<testsuite xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://maven.apache.org/surefire/maven-surefire-plugin/xsd/surefire-test-report-3.0.xsd" version="3.0" name="com.acme.CartTest" time="0.052" tests="2" errors="0" skipped="0" failures="1">
+  <properties>
+    <property name="java.version" value="21.0.4"/>
+  </properties>
+  <testcase name="addsAnItem()" classname="com.acme.CartTest" time="0.021">
+    <system-out><![CDATA[adding an item
+[[ATTACHMENT|target/artifacts/cart.png]]
+]]></system-out>
+  </testcase>
+  <testcase name="rejectsANegativeQuantity()" classname="com.acme.CartTest" time="0.012">
+    <failure message="expected: &lt;true&gt; but was: &lt;false&gt;" type="org.opentest4j.AssertionFailedError"><![CDATA[org.opentest4j.AssertionFailedError: expected: <true> but was: <false>
+	at com.acme.CartTest.rejectsANegativeQuantity(CartTest.java:21)
+]]></failure>
+    <system-out><![CDATA[[[ATTACHMENT|target/artifacts/missing-trace.zip]]
+]]></system-out>
+  </testcase>
+</testsuite>
