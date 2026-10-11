@@ -111,12 +111,16 @@ split across two runners. Something has to open the run before any of them start
 after all of them finish.
 
 ```bash
-plune run start --key "$GITHUB_RUN_ID"     # opens (or joins) and prints the id
-plune run finish <id>                      # closes it
+plune run start --key "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"     # opens (or joins) and prints the id
+plune run finish <id>                                          # closes it
 plune run finish <id> --terminate --reason "CI cancelled"
-plune run exec --key "$GITHUB_RUN_ID" -- npx playwright test
-plune run report                           # sends what the reporter could not
+plune run exec --key "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" -- npx playwright test
+plune run report                                               # sends what the reporter could not
 ```
+
+> **Why the attempt number?** GitHub Actions re-runs ("Re-run failed jobs") reuse the same
+> `GITHUB_RUN_ID` but increment `GITHUB_RUN_ATTEMPT`. Without it, a re-run would join the
+> original run and overwrite its results. The combined key gives each attempt its own run.
 
 `plune run` on its own still runs your assertion suite — these are subcommands, and it takes no
 positional arguments of its own.

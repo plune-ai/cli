@@ -183,7 +183,7 @@ export async function handleRunDelete(id: string, options: RunCommandDeps = {}):
     );
   }
   write(`Run ${id} deleted, with its results and the review-queue entries it produced.`);
-  write('Recoverable for six months — ask Plune to put it back.');
+  write('Recoverable for 30 days — ask Plune to put it back.');
 }
 
 export interface ExecOptions extends StartOptions {
