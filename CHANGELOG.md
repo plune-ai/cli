@@ -9,10 +9,15 @@ Each section is dated from the release tag it names. `0.2.1`, `0.2.2` and `0.2.3
 tags whose committed `package.json` still read `0.2.0` — the publish job takes the version from the
 tag (see 0.2.2), so the tag is the authority for what shipped, not the committed file.
 
-## [Unreleased]
+## [0.17.1] - 2026-10-12
 
 ### Added
 
+- **is_flaky / is_muted flags for TestCase contract (plune#1246, PR #88).** Adds two optional fields to the `TestCase` schema:
+  - `is_flaky` — assertion about a case: "this test is unstable by nature" (diagnostics).
+  - `is_muted` — human decision: "we execute and record it, but it does not count toward the run summary" (policy).
+  Both are purely additive: a producer that does not send them validates exactly as before, so `schemaVersion` stays at 2.
+  The platform already validates these fields on `POST /v1/test-cases` (plune#1246, ADR 0045).
 - **A result row can say the product was never judged (`inconclusive`) (plune-ai/plune#1244, ADR 0045).**
   `RowResult.inconclusive?: 'blocked' | 'skipped'` — optional and purely additive, so a runner that
   does not send it validates exactly as before and `schemaVersion` stays 1. Until now a row stopped
@@ -22,6 +27,29 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   field on `POST /v1/runs`; this is the producer's half of the same contract. `invalid` is
   deliberately not accepted — Qase's `invalid` is Plune's `broken`, and a second word for one idea
   would fork the contract at both ends.
+- **`plune run import <folder>` reads an Allure `allure-results` folder (plune-ai/plune#1221).** One reader for
+  every Allure adapter (pytest, JUnit 5, TestNG, Playwright, Cypress, Jest, Vitest, WebdriverIO, .NET): each
+  `*-result.json` is a test with its status (`passed`, `failed`, `broken`, `skipped`, sent as written), time,
+  failure message and trace, and steps; `*-container.json` names the suite. The files in `attachments[]` of the
+  test, of its steps and of its fixtures go the path a JUnit file does, with the `type` from the JSON or the
+  extension; a `source` is checked and read by the same code as a JUnit `[[ATTACHMENT|path]]`, so a missing one
+  is listed and counted and `--fail-on-missing-attachments` applies, and one outside the folder is refused. The
+  same test run again (same `historyId`) is one test with attempts, the last to stop counting. A folder with no
+  `*-result.json` exits 2 with a message. A file keeps the name the adapter gave it (`after add`) with the
+  extension of the real file when the name has none (`after add.png`); a results folder reached through a link
+  works as a JUnit report's does. Only regular files named `*-result.json` and `*-container.json` are read, none over
+  64 MB; a file in a shape nobody wrote ends the import with exit 2 and its name, never a stack trace; at most 100
+  files of one test are read, as for JUnit. This is how Jest gets files per test, which `jest-junit` cannot give.
+- **Trace, video, screenshots and text go to the project's bucket (plune-ai/plune#946).** When the project has
+  a storage bucket connected, every file an attempt kept is uploaded straight to it over short-lived links
+  Plune hands out per file: streamed from disk, four at a time, retried on network failures, 5xx and 429, with one
+  new link on a 403. The links are never printed; a warning names the file and a code, and never fails the import.
+  The run says once that the bucket was found, and the summary reads `N file(s) uploaded to your bucket`.
+  Without a bucket nothing changes for screenshots and text; a trace or a video is counted as not stored.
+
+## [Unreleased]
+
+### Added
 - **`plune run import <folder>` reads an Allure `allure-results` folder (plune-ai/plune#1221).** One reader for
   every Allure adapter (pytest, JUnit 5, TestNG, Playwright, Cypress, Jest, Vitest, WebdriverIO, .NET): each
   `*-result.json` is a test with its status (`passed`, `failed`, `broken`, `skipped`, sent as written), time,
