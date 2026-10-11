@@ -201,13 +201,13 @@ interface GoldenEvalCase extends GoldenTestCaseBase {
   goldenSetId?: string;
   assertions: GoldenAssertionResultRecord[];
 }
-type GoldenTestCase = GoldenManualCase | GoldenAutomatedCase | GoldenEvalCase;
+
+// TestCase pin disabled: union/intersection with exactOptionalPropertyTypes causes false positives
+// type GoldenTestCase = GoldenManualCase | GoldenAutomatedCase | GoldenEvalCase;
+// type _PinTestCase = Expect<Equal<_TestCase, GoldenTestCase>>;
 
 type _PinExternalKey = Expect<Equal<_ExternalKey, GoldenExternalKey>>;
 type _PinManualStep = Expect<Equal<_ManualStep, GoldenManualStep>>;
-
-// TestCase pin disabled: union/intersection with exactOptionalPropertyTypes causes false positives
-// type _PinTestCase = Expect<Equal<_TestCase, GoldenTestCase>>;
 
 // The JS golden version marker MUST equal the RunResult.schemaVersion literal — bump them together.
 type _PinSchemaVersion = Expect<Equal<_RunResult['schemaVersion'], typeof SCHEMA_VERSION>>;
