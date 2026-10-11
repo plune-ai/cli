@@ -205,6 +205,7 @@ type GoldenTestCase = GoldenManualCase | GoldenAutomatedCase | GoldenEvalCase;
 
 type _PinExternalKey = Expect<Equal<_ExternalKey, GoldenExternalKey>>;
 type _PinManualStep = Expect<Equal<_ManualStep, GoldenManualStep>>;
+
 // TestCase pin disabled: union/intersection with exactOptionalPropertyTypes causes false positives
 // type _PinTestCase = Expect<Equal<_TestCase, GoldenTestCase>>;
 
