@@ -186,16 +186,16 @@ interface GoldenTestCaseBase {
   is_flaky?: boolean;
   is_muted?: boolean;
 }
-interface GoldenManualCase extends GoldenTestCaseBase {
+interface _GoldenManualCase extends GoldenTestCaseBase {
   type: 'manual';
   steps: GoldenManualStep[];
   expected?: string;
 }
-interface GoldenAutomatedCase extends GoldenTestCaseBase {
+interface _GoldenAutomatedCase extends GoldenTestCaseBase {
   type: 'automated';
   specRef: string;
 }
-interface GoldenEvalCase extends GoldenTestCaseBase {
+interface _GoldenEvalCase extends GoldenTestCaseBase {
   type: 'eval';
   prompt: string;
   goldenSetId?: string;
@@ -203,8 +203,8 @@ interface GoldenEvalCase extends GoldenTestCaseBase {
 }
 
 // TestCase pin disabled: union/intersection with exactOptionalPropertyTypes causes false positives
-// type GoldenTestCase = GoldenManualCase | GoldenAutomatedCase | GoldenEvalCase;
-// type _PinTestCase = Expect<Equal<_TestCase, GoldenTestCase>>;
+// type _GoldenTestCase = _GoldenManualCase | _GoldenAutomatedCase | _GoldenEvalCase;
+// type _PinTestCase = Expect<Equal<_TestCase, _GoldenTestCase>>;
 
 type _PinExternalKey = Expect<Equal<_ExternalKey, GoldenExternalKey>>;
 type _PinManualStep = Expect<Equal<_ManualStep, GoldenManualStep>>;
