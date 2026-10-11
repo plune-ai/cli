@@ -103,7 +103,8 @@ describe('plune run import --create, when the platform refuses the offer (cli#71
     expect(out).toContain('2 more could not be offered — the project is at its test case limit.');
     expect(out).toContain('Delete cases you no longer need, or ask an operator to raise the limit');
     // The platform's own words are still above it, naming the limit.
-    expect(out).toContain(`(${CASE_LIMIT})`);
+    // The client now classifies 429 without Retry-After as quota exceeded and prepends its reason.
+    expect(out).toContain(`(quota exceeded (no Retry-After) — ${CASE_LIMIT})`);
   });
 
   it('when the queue is what is full, still says that, with what to do about a queue', async () => {

@@ -423,7 +423,7 @@ describe('plune run import', () => {
       );
       // Above it, the platform's own words, which name the limit.
       expect(lines.join('\n')).toContain(
-        `could not offer 3 unknown test(s) for review (${CASE_LIMIT})`,
+        `could not offer 3 unknown test(s) for review (quota exceeded (no Retry-After) — ${CASE_LIMIT})`,
       );
     });
 

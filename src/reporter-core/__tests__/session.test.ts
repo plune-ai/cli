@@ -1333,8 +1333,9 @@ describe('offering tests the platform has no case for (D14)', () => {
 
     expect(run.stats).toMatchObject({ unoffered: 1, unofferedWhy: why });
     // The line above the summary is the platform's own reason, whatever it was.
+    // The client now classifies 429 without Retry-After as quota exceeded and prepends its reason.
     expect(logOf(cfg).join('\n')).toContain(
-      `could not offer 1 unknown test(s) for review (${error})`,
+      `could not offer 1 unknown test(s) for review (quota exceeded (no Retry-After) \u2014 ${error})`,
     );
   });
 

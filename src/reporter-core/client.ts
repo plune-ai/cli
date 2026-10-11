@@ -282,6 +282,13 @@ export function createClient(opts: ClientOptions): PlatformClient {
       last = { kind, status: res.status, detail: scrub(said.detail), ...(said.code !== undefined ? { code: said.code } : {}) };
       if (kind !== 'unavailable') break;
 
+      // 429 without Retry-After means quota exceeded, not rate limit — retrying with short delays is useless.
+      if (res.status === 429 && retryAfterMs(res) === null) {
+        last.kind = 'invalid';
+        last.detail = 'quota exceeded (no Retry-After)'; if (said.detail) last.detail += ` — ${said.detail}`;
+        break;
+      }
+
       if (attempt < RETRY_DELAYS_MS.length) {
         await wait(retryAfterMs(res) ?? (RETRY_DELAYS_MS[attempt] as number));
       }

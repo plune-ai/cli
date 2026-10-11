@@ -88,13 +88,16 @@ describe('client — what it retries (AC-05)', () => {
     expect(waited).toEqual([7000, 7000]);
   });
 
-  it('falls back to its own backoff when a 429 names no delay', async () => {
-    const { client, waited } = harness([json({ error: 'slow down' }, 429)]);
-    await client.post('/v1/runs', {});
+  // 429 without Retry-After means quota exceeded, not rate limit — retrying with short delays is useless.
+  // The client classifies it as 'invalid' and gives up immediately. See cli#79.
+  it('treats a 429 without Retry-After as quota exceeded and does not retry', async () => {
+    const { client, calls } = harness([json({ error: 'slow down' }, 429)]);
+    const out = await client.post('/v1/runs', {});
 
-    expect(waited).toHaveLength(2);
-    expect(waited[0]).toBeGreaterThan(0);
-    expect(waited[1]).toBeGreaterThan(waited[0] as number);
+    expect(calls).toHaveLength(1);
+    expect(out.ok).toBe(false);
+    expect(!out.ok && out.kind).toBe('invalid');
+    expect(!out.ok && out.detail).toMatch(/quota exceeded/);
   });
 });
 
