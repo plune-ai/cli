@@ -53,6 +53,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
+    "typecheck:gates": "tsc -p tsconfig.check.json --noEmit",
     "typecheck:playwright": "pnpm --filter @plune-ai/playwright typecheck",
     "test:playwright": "pnpm --filter @plune-ai/playwright test",
     "test:e2e:playwright": "pnpm --filter @plune-ai/playwright test:e2e",

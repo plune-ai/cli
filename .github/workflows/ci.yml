@@ -38,6 +38,13 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      # The compile-time pins on the frozen public surface live in `src/types/__tests__/`, and the
+      # root tsconfig excludes `**/*.test.ts`. Without this step the golden contract test compiles
+      # in nobody's build, so a field added to a public type without a schemaVersion bump would go
+      # unnoticed — exactly the break the pins exist to catch.
+      - name: Typecheck gates (public contract pins)
+        run: pnpm typecheck:gates
+
       - name: Test (with coverage)
         run: pnpm test
 
