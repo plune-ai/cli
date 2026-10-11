@@ -136,6 +136,8 @@ interface GoldenRowResult {
   latency_ms?: number;
   error?: GoldenRunError;
   assertions: GoldenAssertionResultRecord[];
+  /** ADR 0045 — optional, so the type is a union with `undefined` exactly as the field is. */
+  inconclusive?: 'blocked' | 'skipped';
 }
 interface GoldenEvalResult {
   id: string;

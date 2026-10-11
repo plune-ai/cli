@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { RunResult } from './results.js';
+import { ROW_INCONCLUSIVE } from './results.js';
 
 /**
  * Runtime validation for the RunResult contract — the JSON that `plune run --format json` emits.
@@ -57,6 +58,8 @@ const rowResultSchema = z.object({
   latency_ms: z.number().optional(),
   error: runErrorSchema.optional(),
   assertions: z.array(assertionResultRecordSchema),
+  /** ADR 0045. Optional and additive — the same enum the platform validates on `POST /v1/runs`. */
+  inconclusive: z.enum(ROW_INCONCLUSIVE).optional(),
 });
 
 const summarySchema = z.object({

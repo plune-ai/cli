@@ -13,6 +13,15 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ### Added
 
+- **A result row can say the product was never judged (`inconclusive`) (plune-ai/plune#1244, ADR 0045).**
+  `RowResult.inconclusive?: 'blocked' | 'skipped'` — optional and purely additive, so a runner that
+  does not send it validates exactly as before and `schemaVersion` stays 1. Until now a row stopped
+  by a dependency or an environment had exactly one word available to it, `failed`, and the word was
+  wrong: a red build because something fell over reads identically to a red build because the code
+  is broken, and those are two different pieces of work. The Plune platform already validates the
+  field on `POST /v1/runs`; this is the producer's half of the same contract. `invalid` is
+  deliberately not accepted — Qase's `invalid` is Plune's `broken`, and a second word for one idea
+  would fork the contract at both ends.
 - **`plune run import <folder>` reads an Allure `allure-results` folder (plune-ai/plune#1221).** One reader for
   every Allure adapter (pytest, JUnit 5, TestNG, Playwright, Cypress, Jest, Vitest, WebdriverIO, .NET): each
   `*-result.json` is a test with its status (`passed`, `failed`, `broken`, `skipped`, sent as written), time,
