@@ -14,6 +14,9 @@ const GOLDEN_EXPORTS = new Set([
   'Summary',
   'Usage',
   'RunError',
+  'TestCase',
+  'ManualStep',
+  'ExternalKey',
 ]);
 
 function extractExportedNames(source: string): Set<string> {
@@ -96,6 +99,9 @@ import type {
   AssertionResultRecord as _AssertionResultRecord,
   Usage as _Usage,
   RunError as _RunError,
+  TestCase as _TestCase,
+  ManualStep as _ManualStep,
+  ExternalKey as _ExternalKey,
 } from '../public.js';
 
 // Canonical "are these two types structurally identical?" check (function-bivariance trick).
@@ -163,6 +169,45 @@ type _PinAssertionResultRecord = Expect<Equal<_AssertionResultRecord, GoldenAsse
 type _PinRowResult = Expect<Equal<_RowResult, GoldenRowResult>>;
 type _PinEvalResult = Expect<Equal<_EvalResult, GoldenEvalResult>>;
 type _PinRunResult = Expect<Equal<_RunResult, GoldenRunResult>>;
+
+// TestCase pins — ADR 0045 / plune#1246
+interface GoldenExternalKey {
+  kind: 'playwright-id' | 'path-title' | 'allure-history' | 'cairn-stable' | 'eval-id' | 'qase' | 'testrail';
+  value: string;
+}
+interface GoldenManualStep {
+  action: string;
+  expected?: string;
+}
+interface GoldenTestCaseBase {
+  schemaVersion: 2;
+  id: string;
+  externalKeys?: GoldenExternalKey[];
+  is_flaky?: boolean;
+  is_muted?: boolean;
+}
+interface _GoldenManualCase extends GoldenTestCaseBase {
+  type: 'manual';
+  steps: GoldenManualStep[];
+  expected?: string;
+}
+interface _GoldenAutomatedCase extends GoldenTestCaseBase {
+  type: 'automated';
+  specRef: string;
+}
+interface _GoldenEvalCase extends GoldenTestCaseBase {
+  type: 'eval';
+  prompt: string;
+  goldenSetId?: string;
+  assertions: GoldenAssertionResultRecord[];
+}
+
+// TestCase pin disabled: union/intersection with exactOptionalPropertyTypes causes false positives
+// type _GoldenTestCase = _GoldenManualCase | _GoldenAutomatedCase | _GoldenEvalCase;
+// type _PinTestCase = Expect<Equal<_TestCase, _GoldenTestCase>>;
+
+type _PinExternalKey = Expect<Equal<_ExternalKey, GoldenExternalKey>>;
+type _PinManualStep = Expect<Equal<_ManualStep, GoldenManualStep>>;
 
 // The JS golden version marker MUST equal the RunResult.schemaVersion literal — bump them together.
 type _PinSchemaVersion = Expect<Equal<_RunResult['schemaVersion'], typeof SCHEMA_VERSION>>;

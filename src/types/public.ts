@@ -9,4 +9,7 @@ export type {
   Summary,
   Usage,
   RunError,
+  TestCase,
+  ManualStep,
+  ExternalKey,
 } from './results.js';

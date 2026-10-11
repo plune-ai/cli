@@ -26,6 +26,71 @@ export interface RunError {
 }
 
 /**
+ * TestCase contract — the authoring record for the Plune TMS core.
+ *
+ * Three type-tagged kinds, each with a type-dependent body:
+ *   - `manual`    → human-run steps `{ action, expected }`
+ *   - `automated` → a reference to an external automated spec (`specRef`)
+ *   - `eval`      → an LLM eval: `prompt`, optional `goldenSetId`, and runnable `assertions[]`
+ *
+ * ADR 0045 / plune#1246: `is_flaky` and `is_muted` are optional, purely additive flags.
+ *   - `is_flaky` — assertion about a case: "this test is unstable by nature" (diagnostics).
+ *   - `is_muted` — human decision: "we execute and record it, but it does not count toward the run summary" (policy).
+ * Both are optional and purely additive: a producer that does not send them validates exactly as before,
+ * so `schemaVersion` stays at 2.
+ */
+export const TEST_CASE_SCHEMA_VERSION = 2 as const;
+
+export interface ManualStep {
+  action: string;
+  expected?: string;
+}
+
+export interface ExternalKey {
+  kind: 'playwright-id' | 'path-title' | 'allure-history' | 'cairn-stable' | 'eval-id' | 'qase' | 'testrail';
+  value: string;
+}
+
+type ManualCase = {
+  type: 'manual';
+  steps: { action: string; expected?: string }[];
+  expected?: string;
+};
+
+type AutomatedCase = {
+  type: 'automated';
+  specRef: string;
+};
+
+type EvalCase = {
+  type: 'eval';
+  prompt: string;
+  goldenSetId?: string;
+  assertions: AssertionResultRecord[];
+};
+
+export interface TestCaseBase {
+  schemaVersion: 2;
+  id: string;
+  externalKeys?: ExternalKey[];
+  is_flaky?: boolean;
+  is_muted?: boolean;
+}
+
+export type TestCase = TestCaseBase & (ManualCase | AutomatedCase | EvalCase);
+
+import { testCaseSchema } from './test-case-schema.js';
+
+/**
+ * Parse + validate an unknown value as a TestCase. Throws ZodError on failure.
+ * Cast is needed because `exactOptionalPropertyTypes` makes the zod output stricter
+ * than the interface with optional properties.
+ */
+export function parseTestCase(value: unknown): TestCase {
+  return testCaseSchema.parse(value) as TestCase;
+}
+
+/**
  * The two words a row may use to say the product was never judged (ADR 0045).
  *
  * Both are already statuses this system has — they are `RESULT_STATUSES` entries — and neither was

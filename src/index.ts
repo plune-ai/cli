@@ -34,6 +34,9 @@ export type {
   Summary,
   Usage,
   RunError,
+  TestCase,
+  ManualStep,
+  ExternalKey,
 } from './types/public.js';
 
 // The config shape a caller would build a `plune.yaml` against.
@@ -58,6 +61,15 @@ export {
   binaryVerdictSchema,
 } from './types/run-result-schema.js';
 export type { ParsedRunResult, BinaryVerdict } from './types/run-result-schema.js';
+
+// The runtime validator for the TestCase contract, for consumers that INGEST a case rather than
+// produce one. `plune sync` validates the local case file with it before uploading; the Plune platform
+// validates the same body on `POST /v1/test-cases`. One schema on both ends.
+export {
+  parseTestCase,
+  testCaseSchema,
+  TEST_CASE_SCHEMA_VERSION,
+} from './types/test-case-schema.js';
 
 // Cairn ingest (Plune #10 / #86): read a Cairn run directory and record it in Plune. Exposed on the
 // public API for the same reason `sync` is — embedding hosts drive it without shelling out.
