@@ -124,7 +124,7 @@ the last resort, used only when `PLUNE_TOKEN` is set nowhere else. Nothing write
 | `plune run start` | Open a platform run — or join the one already carrying `--key` — and print its id. Flags: `--key <externalKey>` (generated when absent), `--json` for one machine-readable line. |
 | `plune run finish <id>` | Close a platform run. This is what the reporter tells you to do for a run it had to leave open. Flags: `--terminate` to record it as cut short, `--reason <text>`. |
 | `plune run exec -- <command>` | Open a run, run the command inside it, close the run — and exit with whatever the command returned. Sets `PLUNE_SHARED_RUN` for you, so anything reporting inside joins that run. Flags: `--key <externalKey>`. |
-| `plune run delete <id>` | Delete a run and everything it produced — its results and the review-queue entries it raised. Approved test cases and the audit log stay. **Recoverable for six months** (ask Plune to put it back), then gone for good. No prompt: it is your data, and this command belongs in scripts. |
+| `plune run delete <id>` | Delete a run and everything it produced — its results and the review-queue entries it raised. Approved test cases and the audit log stay. **Recoverable for 30 days** (an owner of the project can put it back from Settings → Bin), then gone for good. No prompt: it is your data, and this command belongs in scripts. |
 | `plune run report` | Replay `.plune/pending-results.jsonl` — send what the reporter could not. The lines of one reporter run go back as one run, with the commit and branch the reporter recorded. Once every result has gone the file is renamed to `pending-results.<time>.sent.jsonl`; if anything did not go, it stays as it was. Flags: `--file <path>`. |
 | `plune ingest [dir]` | Record a [Cairn](https://github.com/plune-ai/cairn) run in Plune. Omit `[dir]` for the newest run under `./runs`, or name the directory holding `report.json`. Generated cases arrive as **review proposals** — nothing is created until a person approves it. |
 | `plune pull [file]` | Write the project's test cases as **one Markdown document** — Testomat's classical format, plus Plune's own columns — to `plune/cases.md` (or `[file]`). Refuses to overwrite a file git sees as modified; `--force` overrides, `--suite <id>` takes one suite or folder and what is under it. |
@@ -291,8 +291,8 @@ Two suites, or a sharded matrix, report into a single run when every job shares 
 it is not the last one:
 
 ```bash
-PLUNE_SHARED_RUN=1 plune run import ./junit.xml     --key "$GITHUB_RUN_ID"
-PLUNE_SHARED_RUN=1 plune run import ./app/junit.xml --key "$GITHUB_RUN_ID"
+PLUNE_SHARED_RUN=1 plune run import ./junit.xml     --key "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+PLUNE_SHARED_RUN=1 plune run import ./app/junit.xml --key "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
 plune run finish "$RUN_ID"                          # once, when they are all done
 ```
 

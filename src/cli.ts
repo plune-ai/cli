@@ -298,7 +298,7 @@ export function createProgram(): Command {
       '<id>',
       'The run id — the one `plune run import` printed, or the one in the dashboard URL',
     )
-    .description('Delete a run and everything it produced — recoverable for six months')
+    .description('Delete a run and everything it produced — recoverable for 30 days')
     .action(async (id: string, _options: unknown, command: Command) => {
       try {
         const { handleRunDelete } = await import('./cli/commands/run-lifecycle.js');

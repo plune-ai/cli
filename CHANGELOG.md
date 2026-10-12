@@ -46,23 +46,6 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   new link on a 403. The links are never printed; a warning names the file and a code, and never fails the import.
   The run says once that the bucket was found, and the summary reads `N file(s) uploaded to your bucket`.
   Without a bucket nothing changes for screenshots and text; a trace or a video is counted as not stored.
-
-## [Unreleased]
-
-### Added
-- **`plune run import <folder>` reads an Allure `allure-results` folder (plune-ai/plune#1221).** One reader for
-  every Allure adapter (pytest, JUnit 5, TestNG, Playwright, Cypress, Jest, Vitest, WebdriverIO, .NET): each
-  `*-result.json` is a test with its status (`passed`, `failed`, `broken`, `skipped`, sent as written), time,
-  failure message and trace, and steps; `*-container.json` names the suite. The files in `attachments[]` of the
-  test, of its steps and of its fixtures go the path a JUnit file does, with the `type` from the JSON or the
-  extension; a `source` is checked and read by the same code as a JUnit `[[ATTACHMENT|path]]`, so a missing one
-  is listed and counted and `--fail-on-missing-attachments` applies, and one outside the folder is refused. The
-  same test run again (same `historyId`) is one test with attempts, the last to stop counting. A folder with no
-  `*-result.json` exits 2 with a message. A file keeps the name the adapter gave it (`after add`) with the
-  extension of the real file when the name has none (`after add.png`); a results folder reached through a link
-  works as a JUnit report's does. Only regular files named `*-result.json` and `*-container.json` are read, none over
-  64 MB; a file in a shape nobody wrote ends the import with exit 2 and its name, never a stack trace; at most 100
-  files of one test are read, as for JUnit. This is how Jest gets files per test, which `jest-junit` cannot give.
 - **`plune run import` of a JUnit report sends the files its tests announce (plune-ai/plune#1220).** A test that
   prints `[[ATTACHMENT|path]]` on a line of its own to `system-out` or `system-err` (pytest, Maven Surefire, Vitest,
   PHPUnit, .NET's JunitXml.TestLogger and Cypress's `mocha-junit-reporter` all carry it into the report) has that
@@ -75,17 +58,35 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   reached through a link may name its files by the folder's real path). Test names and paths from the report are
   printed without control characters. Output
   `jest-junit` writes once per suite names no test, so nothing is read from it.
-- **Trace, video, screenshots and text go to the project's bucket (plune-ai/plune#946).** When the project has
-  a storage bucket connected, every file an attempt kept is uploaded straight to it over short-lived links
-  Plune hands out per file: streamed from disk, four at a time, retried on network failures, 5xx and 429, with one
-  new link on a 403. The links are never printed; a warning names the file and a code, and never fails the import.
-  The run says once that the bucket was found, and the summary reads `N file(s) uploaded to your bucket`.
-  Without a bucket nothing changes for screenshots and text; a trace or a video is counted as not stored.
 
 ### Changed
 
 - `plune run import` no longer prints its own screenshot and text-file count lines; the session's summary line
   carries them.
+
+## [Unreleased]
+
+### Fixed
+
+- **The run key in the docs and the reporter examples carries the attempt (cli#78).** GitHub Actions'
+  "Re-run failed jobs" reuses `GITHUB_RUN_ID` and increments `GITHUB_RUN_ATTEMPT`. A key built from the
+  run id alone sent the second attempt at a run that is already closed, so the platform took none of its
+  results and they stayed on the runner in `.plune/pending-results.jsonl`. `README.md`,
+  `packages/playwright/README.md` and the `plune run` examples now use
+  `"$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"` (the Playwright option reads
+  `${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT ?? '1'}`), and the note in
+  `docs/guide/cli.md` says what actually happens without it, instead of claiming the re-run would
+  overwrite the original run's results.
+- **The quota detail no longer carries the raw token (cli#79).** A 429 without `Retry-After` is
+  classified as `invalid` and reported as `quota exceeded (no Retry-After)` with the server's own words
+  appended — but they were appended raw, while the same response's text one line above went through
+  `scrub()`. A proxy or a gateway that echoes the bearer token back in an error page put it into a CI
+  log anyone with read access can scroll. The appended text is scrubbed now, and a test holds it there.
+- **A deleted run is recoverable for 30 days, and only an owner of the project can bring it back
+  (cli#80).** The server keeps it for 30 days, not six months, and the way back is Settings → Bin
+  rather than a request to Plune. `plune run delete` prints the sentence the platform's own dialogs
+  use, its `--help` description and the `README.md` command table say 30 days, and the command's
+  comment no longer speaks of six months.
 
 ## [0.17.0] - 2026-09-30
 

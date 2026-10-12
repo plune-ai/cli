@@ -529,8 +529,12 @@ describe('plune run delete', () => {
 
     expect(seen).toEqual([{ method: 'DELETE', path: '/v1/runs/r-42' }]);
     // The whole reason the command can be run without asking first, said where the person is
-    // looking. Reassurance after the fact is the only kind this command can offer.
-    expect(lines.join(' ')).toMatch(/30 days/i);
+    // looking. Reassurance after the fact is the only kind this command can offer. The whole
+    // sentence matters, not the number: "30 days" alone would pass while the line still told the
+    // reader to ask the vendor, which is nobody's job any more — an owner does it themselves.
+    expect(lines.join(' ')).toMatch(
+      /Recoverable for 30 days — an owner of the project can put it back from Settings → Bin\./,
+    );
   });
 
   it('names all three causes of a 404, because the platform names none', async () => {

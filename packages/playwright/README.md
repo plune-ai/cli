@@ -30,7 +30,7 @@ That is the whole setup. Options, if you want them:
 
 ```ts
 ['@plune-ai/playwright', {
-  externalKey: process.env.GITHUB_RUN_ID,  // several processes → one run
+  externalKey: `${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT ?? '1'}`, // several processes → one run
   batchSize: 100,                          // results per request (max 500)
   fallbackPath: '.plune/pending-results.jsonl',
   apiUrl: 'https://beta-api.plune.ai',     // or PLUNE_API_URL
