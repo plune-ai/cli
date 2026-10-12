@@ -11,6 +11,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-10-12
+
 ### Added
 
 - **`--fail-on-failures`: a release gate that honours mute (plune-ai/plune#1247).** `plune run finish`,
