@@ -268,6 +268,18 @@ export interface RunRecord {
   schemaVersion?: number;
 }
 
+/**
+ * What the platform froze into a run at `finish` and answers the event with (plune#1247): the verdict a
+ * release gate is made on, never recomputed. `counts` is by the status each result is counted under — a
+ * muted case's `failed` or `broken` is under `muted`, outside both — and an absent key is zero.
+ */
+export interface FrozenSummary {
+  counts: Record<string, number>;
+  /** The expected cases that never reported. */
+  notRun: string[];
+  total: number;
+}
+
 /** Per-element verdicts from a batch. `conflict` means two runners disagreed about one result —
  * the platform refuses to resolve that by overwriting, and neither do we. */
 export interface SubmitCounts {

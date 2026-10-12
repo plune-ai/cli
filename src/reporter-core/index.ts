@@ -39,6 +39,7 @@ export type {
   ExpectedEntry,
   FailedAttempt,
   FailureDetail,
+  FrozenSummary,
   ExternalKeyKind,
   KeyRef,
   PendingResult,

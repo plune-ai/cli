@@ -119,11 +119,11 @@ the last resort, used only when `PLUNE_TOKEN` is set nowhere else. Nothing write
 | `plune init` | Scaffold `plune.yaml`, a sample dataset, and `.env.example`. Flags: `--yes` (non-interactive), `--force`. |
 | `plune login` | Save a [Plune platform](https://plune.ai/platform) API token so `sync` and `ingest` can reach it. The token is **checked against the API before it is saved**, so a wrong one fails here rather than two commands later. Get one at `https://beta.plune.ai` → Account → API tokens. Flags: `--token <token>` (omit to paste it or pipe it via stdin), `--skip-verify` (save without checking, for offline setup). In CI, skip this step: every platform command reads `PLUNE_TOKEN` from the environment first, and the saved login only when it is not set. |
 | `plune logout` | Remove the saved token. |
-| `plune sync` | Upload the latest local run to the platform. Flags: `--file <path>` to send a specific run JSON. |
-| `plune run import <file>` | Turn a **JUnit XML** or **Playwright JSON** report, or an **Allure `allure-results` folder**, into a run in Plune. Needs no provider key — nothing is generated. Flags: `--format junit\|playwright-json\|allure` (detected from the file when omitted; a folder is Allure), `--key <externalKey>` to land several reports in one run (with `PLUNE_SHARED_RUN=1` — see below), `--create` to offer unmatched tests to the review queue, `--fail-on-missing-attachments` to exit 1 when a file a JUnit report names with `[[ATTACHMENT\|path]]`, or an Allure result names as a `source`, is not there (the results are sent either way). |
+| `plune sync` | Upload the latest local run to the platform. Flags: `--file <path>` to send a specific run JSON, `--fail-on-failures` to read the run's summary back once after the upload and exit with [the gate](#a-release-gate---fail-on-failures)'s code. |
+| `plune run import <file>` | Turn a **JUnit XML** or **Playwright JSON** report, or an **Allure `allure-results` folder**, into a run in Plune. Needs no provider key — nothing is generated. Flags: `--format junit\|playwright-json\|allure` (detected from the file when omitted; a folder is Allure), `--key <externalKey>` to land several reports in one run (with `PLUNE_SHARED_RUN=1` — see below), `--create` to offer unmatched tests to the review queue, `--fail-on-missing-attachments` to exit 1 when a file a JUnit report names with `[[ATTACHMENT\|path]]`, or an Allure result names as a `source`, is not there (the results are sent either way), `--fail-on-failures` to exit with [the gate](#a-release-gate---fail-on-failures)'s code on the summary the platform froze when this import finished the run. |
 | `plune run start` | Open a platform run — or join the one already carrying `--key` — and print its id. Flags: `--key <externalKey>` (generated when absent), `--json` for one machine-readable line. |
-| `plune run finish <id>` | Close a platform run. This is what the reporter tells you to do for a run it had to leave open. Flags: `--terminate` to record it as cut short, `--reason <text>`. |
-| `plune run exec -- <command>` | Open a run, run the command inside it, close the run — and exit with whatever the command returned. Sets `PLUNE_SHARED_RUN` for you, so anything reporting inside joins that run. Flags: `--key <externalKey>`. |
+| `plune run finish <id>` | Close a platform run. This is what the reporter tells you to do for a run it had to leave open. Flags: `--terminate` to record it as cut short, `--reason <text>`, `--fail-on-failures` to exit with [the gate](#a-release-gate---fail-on-failures)'s code on the summary the platform froze. |
+| `plune run exec -- <command>` | Open a run, run the command inside it, close the run — and exit with whatever the command returned. Sets `PLUNE_SHARED_RUN` for you, so anything reporting inside joins that run. Flags: `--key <externalKey>`, `--fail-on-failures` to exit with [the gate](#a-release-gate---fail-on-failures)'s code instead — or with the command's own when no result reached the run. |
 | `plune run delete <id>` | Delete a run and everything it produced — its results and the review-queue entries it raised. Approved test cases and the audit log stay. **Recoverable for 30 days** (an owner of the project can put it back from Settings → Bin), then gone for good. No prompt: it is your data, and this command belongs in scripts. |
 | `plune run report` | Replay `.plune/pending-results.jsonl` — send what the reporter could not. The lines of one reporter run go back as one run, with the commit and branch the reporter recorded. Once every result has gone the file is renamed to `pending-results.<time>.sent.jsonl`; if anything did not go, it stays as it was. Flags: `--file <path>`. |
 | `plune ingest [dir]` | Record a [Cairn](https://github.com/plune-ai/cairn) run in Plune. Omit `[dir]` for the newest run under `./runs`, or name the directory holding `report.json`. Generated cases arrive as **review proposals** — nothing is created until a person approves it. |
@@ -134,6 +134,24 @@ the last resort, used only when `PLUNE_TOKEN` is set nowhere else. Nothing write
 Global flags: `-c, --config <path>` · `-v, --verbose` · `--no-color`.
 
 **Exit codes:** `0` everything passed · `1` an assertion failed · `2` configuration or execution error · `3` `pull` refused to overwrite uncommitted changes · `4` `push` had refusals.
+
+### A release gate: `--fail-on-failures`
+
+`plune run finish`, `plune run exec`, `plune run import` and `plune sync` take `--fail-on-failures`. The exit
+code is then the platform's verdict on the run, not the runner's: the summary the platform froze at `finish`
+(for `sync`, one `GET /v1/runs/:id/summary` after the upload). The platform counts a muted case's failure under
+`muted`, so a mute set in Plune is honoured without the CLI knowing about it.
+
+| The run | Exit |
+| ------- | ---- |
+| a `failed` or `broken` result that is not muted | `1` |
+| an expected case that never reported (`notRun`): a dead shard is not green | `1` |
+| only `passed`, `blocked`, `skipped` and muted failures | `0` |
+| no verdict: the platform could not be reached, the finish was refused, the run was left open or terminated | `1` |
+| `run exec` where no result reached the run and nothing was expected of it | the command's own code |
+
+Without the flag every command exits as it always did. `plune run` (local evals) is not affected: it stays the
+raw local signal and works offline.
 
 ## Already running tests? Bring the results in
 

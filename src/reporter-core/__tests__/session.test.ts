@@ -61,6 +61,10 @@ interface PlatformOptions {
   discoverOutcomes?: string[];
   /** How many cases the platform says a `finish` detached (D20). Absent models a platform older than that. */
   detached?: number;
+  /** The summary a `finish` answers with, frozen (plune#1247). Absent models a platform older than that. */
+  summary?: unknown;
+  /** Force a reply on `…/events`. */
+  eventsFailure?: { status: number; error: string };
   /** Result keys the platform already has: answered `duplicate`, with no id. */
   duplicates?: string[];
   /** Force a reply on every upload to `/v1/results/:id/files`. */
@@ -240,10 +244,12 @@ function platform(opts: PlatformOptions = {}) {
     if (events) {
       seen.events.push({ runId: events[1] as string, body });
       seen.order.push(`event:${String(body['event'])}`);
+      if (opts.eventsFailure !== undefined) return json({ error: opts.eventsFailure.error }, opts.eventsFailure.status);
       return json({
         run: { id: events[1] },
         changed: true,
         ...(opts.detached !== undefined ? { detached: opts.detached } : {}),
+        ...(opts.summary !== undefined ? { summary: opts.summary } : {}),
       });
     }
     return json({ error: `unexpected ${target}` }, 500);
@@ -992,6 +998,39 @@ describe('who closes the run (AC-03, AC-08)', () => {
     const run = await startRun(config(fetchImpl));
     await run.finish();
     await expect(run.finish()).resolves.toBeUndefined();
+  });
+
+  /**
+   * The verdict a release gate is made on (plune#1247): the platform freezes it into the run at `finish` and
+   * answers the event with it. The session hands it back as it came — deciding what it means is the gate's.
+   */
+  describe('finish hands back the summary the platform froze', () => {
+    const frozen = { counts: { passed: 2, muted: 1 }, notRun: ['tc-9'], total: 3 };
+
+    it('returns the summary the finish was answered with', async () => {
+      const { fetchImpl } = platform({ summary: frozen });
+      const run = await startRun(config(fetchImpl));
+      await expect(run.finish()).resolves.toEqual(frozen);
+    });
+
+    it('returns nothing when the platform refused the finish', async () => {
+      const { fetchImpl } = platform({ summary: frozen, eventsFailure: { status: 409, error: 'not allowed' } });
+      const run = await startRun(config(fetchImpl));
+      await expect(run.finish()).resolves.toBeUndefined();
+    });
+
+    it('returns nothing from a platform older than the frozen summary', async () => {
+      const { fetchImpl } = platform();
+      const run = await startRun(config(fetchImpl));
+      await expect(run.finish()).resolves.toBeUndefined();
+    });
+
+    it('returns nothing from a run that never reached the platform', async () => {
+      const { seen, fetchImpl } = platform({ summary: frozen });
+      const run = await startRun(config(fetchImpl, { token: '' }));
+      await expect(run.finish()).resolves.toBeUndefined();
+      expect(seen.events).toEqual([]);
+    });
   });
 
   it('leaving the run open flushes but does not close it', async () => {

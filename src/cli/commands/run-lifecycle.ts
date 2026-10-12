@@ -18,7 +18,8 @@ import { createClient } from '../../reporter-core/client.js';
 import { defaultRunTitle, readEnv } from '../../reporter-core/env.js';
 import { DEFAULT_FALLBACK_PATH, type DeferredBatch } from '../../reporter-core/fallback.js';
 import { startRun } from '../../reporter-core/session.js';
-import type { PendingResult, ResultSubmission } from '../../reporter-core/types.js';
+import type { FrozenSummary, PendingResult, ResultSubmission } from '../../reporter-core/types.js';
+import { gateExit } from '../gate.js';
 
 /** No token anywhere. Exit 2 — the user can fix it. */
 export class NoTokenError extends Error {
@@ -124,20 +125,27 @@ export interface FinishOptions extends RunCommandDeps {
   reason?: string;
   /** `terminate` says the run was cut short; the platform refuses it on a finished run. */
   terminate?: boolean;
+  /** `--fail-on-failures`: the exit code is the platform's verdict on the run (plune#1247). */
+  failOnFailures?: boolean;
 }
 
 /**
- * Close a run.
+ * Close a run, and answer with the exit code: 0, or with `--fail-on-failures` the gate's on the summary the
+ * platform froze at `finish` — which the event's own answer carries. A second `finish` on a finished run is
+ * not refused (`runTransition`: `finished + finish` is `finished`, unchanged): it answers with the summary
+ * frozen the first time, so the gate reads the same verdict again.
  *
  * A refusal is reported as what it is. The platform answers a 409 with the transitions it WOULD
  * have accepted, and passing that through is the difference between "try again" and "this run was
  * already finished by the merge step".
+ *
+ * `runnerCode` is `exec`'s: the exit code without the flag, and with it whenever no result reached the run.
  */
-export async function handleRunFinish(id: string, options: FinishOptions = {}): Promise<void> {
+export async function handleRunFinish(id: string, options: FinishOptions = {}, runnerCode?: number): Promise<number> {
   const { client, write } = connect(options);
   const event = options.terminate === true ? 'terminate' : 'finish';
 
-  const out = await client.post(`/v1/runs/${id}/events`, {
+  const out = await client.post<{ run?: { statusEvent?: string }; summary?: FrozenSummary }>(`/v1/runs/${id}/events`, {
     event,
     ...(options.reason !== undefined ? { reason: options.reason } : {}),
   });
@@ -149,6 +157,12 @@ export async function handleRunFinish(id: string, options: FinishOptions = {}): 
     );
   }
   write(`Run ${id} ${event === 'finish' ? 'finished' : 'terminated'}.`);
+  if (options.failOnFailures !== true) return runnerCode ?? 0;
+
+  const summary = out.body?.summary;
+  const gate = gateExit({ statusEvent: out.body?.run?.statusEvent, counts: summary?.counts, notRun: summary?.notRun }, runnerCode);
+  write(gate.line);
+  return gate.code;
 }
 
 /**
@@ -189,6 +203,8 @@ export async function handleRunDelete(id: string, options: RunCommandDeps = {}):
 export interface ExecOptions extends StartOptions {
   /** The command and its arguments, as given after `--`. */
   argv: string[];
+  /** `--fail-on-failures`: the platform's verdict replaces the command's exit code once results arrived (plune#1247). */
+  failOnFailures?: boolean;
 }
 
 /**
@@ -216,8 +232,7 @@ export async function handleRunExec(options: ExecOptions): Promise<number> {
     child.on('error', () => resolve(1));
   });
 
-  await handleRunFinish(run.id, options);
-  return code;
+  return handleRunFinish(run.id, options, code);
 }
 
 /** A line of the fallback file, as the reporter wrote it — the batch, whichever version wrote it. */

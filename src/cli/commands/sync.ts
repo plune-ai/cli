@@ -14,6 +14,7 @@ import * as path from 'node:path';
 import { parseRunResult, type ParsedRunResult } from '../../types/run-result-schema.js';
 import { resolveApiUrl } from '../api-url.js';
 import { loadToken } from '../credentials.js';
+import { gateExit, type Verdict } from '../gate.js';
 
 // ponytail: alpha points at beta — the only live, token-issuing surface today. Flip to
 // https://api.plune.ai once prod is deployed and the alpha graduates. `PLUNE_API_URL` overrides
@@ -77,6 +78,8 @@ export interface SyncDeps {
   loadToken?: () => string | null;
   /** HTTP transport (injected in tests — e.g. a real Hono app's `request`). Defaults to global `fetch`. */
   fetchImpl?: typeof fetch;
+  /** `--fail-on-failures`: read the run's summary back once after the upload and judge it (plune#1247). */
+  failOnFailures?: boolean;
 }
 
 export interface SyncResult {
@@ -84,6 +87,8 @@ export interface SyncResult {
   id: string;
   /** The `GET /v1/runs/:id` URL where the uploaded run can be read back. */
   url: string;
+  /** The exit code `--fail-on-failures` asks for and the line that says why; absent without the flag. */
+  gate?: { code: number; line: string };
 }
 
 /** Read + validate the run to upload, failing locally (with a clear message) before any network call. */
@@ -162,7 +167,26 @@ export async function handleSync(deps: SyncDeps = {}): Promise<SyncResult> {
 
   const body = (await res.json().catch(() => ({}))) as { id?: unknown };
   const id = typeof body.id === 'string' ? body.id : '';
-  return { id, url: `${endpoint}/${id}` };
+  const result: SyncResult = { id, url: `${endpoint}/${id}` };
+  if (deps.failOnFailures === true) result.gate = gateExit(await readVerdict(doFetch, `${endpoint}/${id}/summary`, token));
+  return result;
+}
+
+/**
+ * The run's verdict as `GET /v1/runs/:id/summary` reads it: `counts` (a muted failure under `muted`), `notRun`
+ * and the run's `statusEvent`. `undefined` when the platform does not answer with one — no verdict, no pass.
+ */
+async function readVerdict(doFetch: typeof fetch, url: string, token: string): Promise<Verdict | undefined> {
+  try {
+    const res = await doFetch(url, { method: 'GET', headers: { authorization: `Bearer ${token}` } });
+    // Read on every status, as above: an unread body holds the socket open.
+    const body = (await res.json().catch(() => undefined)) as
+      | { counts?: Record<string, number>; notRun?: string[]; run?: { statusEvent?: string } }
+      | undefined;
+    return res.ok ? { statusEvent: body?.run?.statusEvent, counts: body?.counts, notRun: body?.notRun } : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**

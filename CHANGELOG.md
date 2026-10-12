@@ -11,6 +11,23 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **`--fail-on-failures`: a release gate that honours mute (plune-ai/plune#1247).** `plune run finish`,
+  `plune run exec`, `plune run import` and `plune sync` take the flag, and the exit code is then the
+  platform's verdict on the run rather than the runner's. The run commands read the summary the platform
+  freezes at `finish`, which the `finish` event already answers with (the CLI used to throw it away); `sync`
+  reads it with one `GET /v1/runs/:id/summary` after the upload. The platform counts a muted case's
+  `failed` or `broken` under `muted`, so a mute set in Plune keeps the gate green without the CLI holding a
+  muted flag of its own. Exit 1 on `failed + broken > 0` and on any expected case that never reported
+  (`notRun`); `blocked` and `skipped` do not fail it; exit 1 when there is no verdict at all (the platform
+  could not be reached, the finish was refused, the run was left open or terminated). `run exec` keeps the
+  command's own exit code when no result reached the run and nothing was expected of it. A second
+  `plune run finish` on a finished run is not refused by the platform: it answers with the summary frozen
+  the first time, so the gate reads the same verdict. Without the flag every command exits as before, and
+  `plune run` (local evals) does not change. `RunSession.finish()` in `@plune-ai/cli/reporter-core` now
+  resolves to that frozen summary (`FrozenSummary`), or `undefined` when the platform answered with none.
+
 ## [0.18.0] - 2026-10-12
 
 ### Fixed

@@ -151,6 +151,78 @@ describe('plune run finish', () => {
   });
 });
 
+/**
+ * What `POST /v1/runs/:id/events` answers (Plune `v1-routes.ts`): the run, and the summary frozen at `finish`
+ * (`lifecycle-store.ts` `applyEvent`) — `counts` by the status each result is counted under, a muted failure
+ * under `muted`, and `notRun`. A second `finish` on a finished run is no 409: `runTransition` maps
+ * `finished + finish` to `finished`, unchanged, and the route answers 200 with the summary frozen the first time.
+ * A terminated run carries no summary at all.
+ */
+function judged(summary: unknown, statusEvent = 'finished') {
+  return platform((url) =>
+    url.endsWith('/events')
+      ? { status: 200, body: { run: { id: 'r-1', statusEvent }, ...(summary === undefined ? {} : { summary }), detached: 0 } }
+      : undefined,
+  );
+}
+const MUTED_ONLY = { counts: { passed: 2, muted: 1 }, notRun: [], total: 3 };
+const ONE_FAILED = { counts: { passed: 2, failed: 1, muted: 1 }, notRun: [], total: 4 };
+
+describe('plune run finish --fail-on-failures (plune#1247)', () => {
+  it('exits 0 on a run whose only failures are muted, and says the verdict', async () => {
+    const { fetchImpl } = judged(MUTED_ONLY);
+    await expect(handleRunFinish('r-1', { ...deps(fetchImpl), failOnFailures: true })).resolves.toBe(0);
+    expect(lines.at(-1)).toMatch(/gate passed .*1 muted/);
+  });
+
+  it('exits 1 on a counted failure', async () => {
+    const { fetchImpl } = judged(ONE_FAILED);
+    await expect(handleRunFinish('r-1', { ...deps(fetchImpl), failOnFailures: true })).resolves.toBe(1);
+    expect(lines.at(-1)).toMatch(/gate failed .*1 failed/);
+  });
+
+  it('exits 1 on an expected case that never reported', async () => {
+    const { fetchImpl } = judged({ counts: { passed: 2 }, notRun: ['tc-9'], total: 2 });
+    await expect(handleRunFinish('r-1', { ...deps(fetchImpl), failOnFailures: true })).resolves.toBe(1);
+  });
+
+  it('reads the frozen summary from a second finish of a finished run — the platform answers it, not a 409', async () => {
+    const { seen, fetchImpl } = judged(ONE_FAILED);
+    await handleRunFinish('r-1', deps(fetchImpl));
+    await expect(handleRunFinish('r-1', { ...deps(fetchImpl), failOnFailures: true })).resolves.toBe(1);
+    expect(seen.filter((s) => s.path === '/v1/runs/r-1/events')).toHaveLength(2);
+  });
+
+  it('exits 1 on a terminated run: it has no verdict to pass on', async () => {
+    const { fetchImpl } = judged(undefined, 'terminated');
+    await expect(
+      handleRunFinish('r-1', { ...deps(fetchImpl), terminate: true, failOnFailures: true }),
+    ).resolves.toBe(1);
+    expect(lines.at(-1)).toMatch(/terminated/);
+  });
+
+  it('exits 1 on a platform older than the frozen summary: no verdict, no pass', async () => {
+    const { fetchImpl } = platform();
+    await expect(handleRunFinish('r-1', { ...deps(fetchImpl), failOnFailures: true })).resolves.toBe(1);
+  });
+
+  it('fails as it always did when the platform cannot be reached', async () => {
+    const fetchImpl = (async () => {
+      throw new TypeError('fetch failed');
+    }) as unknown as typeof fetch;
+    await expect(handleRunFinish('r-1', { ...deps(fetchImpl), failOnFailures: true })).rejects.toBeInstanceOf(
+      RunCommandError,
+    );
+  });
+
+  // Without the flag nothing changes: the same line, and success whatever the run counted.
+  it('without the flag, exits 0 over a failing run and says nothing more', async () => {
+    const { fetchImpl } = judged(ONE_FAILED);
+    await expect(handleRunFinish('r-1', deps(fetchImpl))).resolves.toBe(0);
+    expect(lines).toEqual(['Run r-1 finished.']);
+  });
+});
+
 describe('plune run exec', () => {
   function fakeSpawn(code: number) {
     const calls: { cmd: string; args: string[]; env: Record<string, string | undefined> }[] = [];
@@ -195,6 +267,44 @@ describe('plune run exec', () => {
 
     await expect(handleRunExec({ ...deps(fetchImpl), argv: [] })).rejects.toBeInstanceOf(RunCommandError);
     expect(seen).toEqual([]);
+  });
+
+  describe('--fail-on-failures (plune#1247)', () => {
+    const exec = (fetchImpl: typeof fetch, code: number, gate = true) =>
+      handleRunExec({
+        ...deps(fetchImpl),
+        key: 'ci-7',
+        argv: ['npx', 'playwright', 'test'],
+        spawnImpl: fakeSpawn(code).impl,
+        ...(gate ? { failOnFailures: true } : {}),
+      });
+
+    // The runner exits 1 on a muted case it knows nothing about; the platform's verdict is what counts.
+    it('exits 0 when the runner failed only on muted cases', async () => {
+      const { fetchImpl } = judged(MUTED_ONLY);
+      await expect(exec(fetchImpl, 1)).resolves.toBe(0);
+    });
+
+    it('exits 1 on a counted failure, even when the runner exited 0', async () => {
+      const { fetchImpl } = judged(ONE_FAILED);
+      await expect(exec(fetchImpl, 0)).resolves.toBe(1);
+    });
+
+    it("keeps the runner's own exit code when no result reached the run", async () => {
+      const { fetchImpl } = judged({ counts: {}, notRun: [], total: 0 });
+      await expect(exec(fetchImpl, 3)).resolves.toBe(3);
+    });
+
+    it('exits 1 when the finish carries no verdict', async () => {
+      const { fetchImpl } = platform();
+      await expect(exec(fetchImpl, 0)).resolves.toBe(1);
+    });
+
+    it("without the flag, returns the runner's code over a failing run, as it always did", async () => {
+      const { fetchImpl } = judged(ONE_FAILED);
+      await expect(exec(fetchImpl, 0, false)).resolves.toBe(0);
+      expect(lines.some((l) => l.includes('gate'))).toBe(false);
+    });
   });
 });
 
