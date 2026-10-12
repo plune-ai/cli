@@ -149,3 +149,31 @@ describe('runResultSchema — invalid cases are rejected', () => {
     expect(() => parseRunResult({ ...realCliOutput, schemaVersion: 2 })).toThrow();
   });
 });
+
+// plune#1245 — `blocked` and `skipped` are counted apart from `failed`. Optional in the contract so a
+// RunResult written before them validates unchanged and `schemaVersion` stays 1; the runner always
+// writes them.
+describe('runResultSchema — summary blocked / skipped (plune#1245)', () => {
+  const withCounters = {
+    ...realCliOutput,
+    summary: { ...realCliOutput.summary, total: 4, blocked: 1, skipped: 1 },
+  };
+
+  it('keeps blocked and skipped when the runner writes them', () => {
+    const parsed = parseRunResult(withCounters);
+    expect(parsed.summary.blocked).toBe(1);
+    expect(parsed.summary.skipped).toBe(1);
+  });
+
+  it('an old RunResult without them still parses (optional, schemaVersion stays 1)', () => {
+    const parsed = parseRunResult(realCliOutput);
+    expect(parsed.summary.blocked).toBeUndefined();
+    expect(parsed.summary.skipped).toBeUndefined();
+    expect(parsed.schemaVersion).toBe(1);
+  });
+
+  it('rejects a counter that is not a number', () => {
+    const bad = { ...withCounters, summary: { ...withCounters.summary, blocked: '1' } };
+    expect(runResultSchema.safeParse(bad).success).toBe(false);
+  });
+});

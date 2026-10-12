@@ -3,6 +3,7 @@
 // fences don't break the document). Plain text — never colored.
 
 import type { RunResult, RowResult } from '../types/results.js';
+import { rowStatus } from '../types/results.js';
 import { truncate } from './helpers.js';
 
 const DEFAULT_MAX_OUTPUT = 500;
@@ -10,12 +11,6 @@ const TICK = String.fromCharCode(96); // backtick
 
 export interface MarkdownOptions {
   maxOutputChars?: number;
-}
-
-function classify(row: RowResult): 'passed' | 'failed' | 'errored' {
-  if (row.error !== undefined) return 'errored';
-  if (row.assertions.some((a) => !a.passed)) return 'failed';
-  return 'passed';
 }
 
 /** Wrap content in a backtick fence longer than any backtick run inside it. */
@@ -39,20 +34,26 @@ export function renderMarkdown(result: RunResult, opts: MarkdownOptions = {}): s
   out.push(`| Passed | ${summary.passed} |`);
   out.push(`| Failed | ${summary.failed} |`);
   out.push(`| Errored | ${summary.errored} |`);
+  // plune#1245: only when not zero, so a report without them reads as it always has.
+  if ((summary.blocked ?? 0) > 0) out.push(`| Blocked | ${summary.blocked} |`);
+  if ((summary.skipped ?? 0) > 0) out.push(`| Skipped | ${summary.skipped} |`);
   out.push(`| Cost (USD) | ${summary.cost_usd.toFixed(4)} |`);
   out.push(`| Duration (ms) | ${summary.duration_ms} |`);
   out.push('');
 
+  // A blocked or skipped row is neither a failure nor a pass: the table counts it, this list does not.
   const failures: { id: string; row: RowResult; state: 'failed' | 'errored' }[] = [];
+  let allPassed = true;
   for (const ev of result.evals) {
     for (const row of ev.rows) {
-      const state = classify(row);
-      if (state !== 'passed') failures.push({ id: ev.id, row, state });
+      const state = rowStatus(row);
+      if (state !== 'passed') allPassed = false;
+      if (state === 'failed' || state === 'errored') failures.push({ id: ev.id, row, state });
     }
   }
 
   if (failures.length === 0) {
-    out.push('All evals passed.');
+    if (allPassed) out.push('All evals passed.');
     return out.join('\n');
   }
 

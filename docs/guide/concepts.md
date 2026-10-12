@@ -72,6 +72,11 @@ The point: **a model being down is not the same as your prompt being wrong.** Pl
 exit-codes them separately so an outage in CI doesn't look like a quality regression. `--bail` stops
 the run after the first failing eval.
 
+A row in a RunResult may also say it was never judged: `"inconclusive": "blocked"` or `"skipped"`.
+That word comes first: such a row counts as `blocked` or `skipped` in the summary, whatever its
+assertions or its error say, and it moves no exit code. `plune run` always writes both counters, and
+`passed + failed + errored + blocked + skipped` is `total`.
+
 ## Providers
 
 Plune talks to three providers: **`anthropic`**, **`openai`**, and **`openrouter`**.
@@ -107,7 +112,7 @@ Every run produces a `RunResult`, saved to `.plune/last-run.json`. Its shape:
   "finished_at": "2026-06-11T09:00:04.210Z",
   "config_hash": "…64 hex chars…",      // identifies the exact config that ran
   "summary": {
-    "total": 15, "passed": 12, "failed": 2, "errored": 1,
+    "total": 15, "passed": 12, "failed": 2, "errored": 1, "blocked": 0, "skipped": 0,
     "cost_usd": 0.0431, "duration_ms": 4210
   },
   "evals": [

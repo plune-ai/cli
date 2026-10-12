@@ -3,6 +3,14 @@ export interface Summary {
   passed: number;
   failed: number;
   errored: number;
+  /**
+   * plune#1245. Rows the runner said were never judged (`RowResult.inconclusive`), counted apart from
+   * `failed`. The runner always writes both; they are optional so a RunResult written before them is
+   * still valid and `schemaVersion` stays 1. With them, `passed + failed + errored + blocked + skipped`
+   * is `total`.
+   */
+  blocked?: number;
+  skipped?: number;
   cost_usd: number;
   duration_ms: number;
 }
@@ -121,6 +129,21 @@ export interface RowResult {
    * which is why `schemaVersion` stays 1.
    */
   inconclusive?: RowInconclusive;
+}
+
+export type RowStatus = 'passed' | 'failed' | 'errored' | RowInconclusive;
+
+/**
+ * What a row counts as — the one classifier the summary, the reporters and the diff share.
+ *
+ * The platform's order (`statusFromAssertions`, ADR 0045): the runner's `inconclusive` first, since
+ * neither a passing assertion nor a harness error may turn "never judged" into a verdict; then an
+ * error is `errored` (the platform's `broken`); then the assertions.
+ */
+export function rowStatus(row: RowResult): RowStatus {
+  if (row.inconclusive !== undefined) return row.inconclusive;
+  if (row.error !== undefined) return 'errored';
+  return row.assertions.every((a) => a.passed) ? 'passed' : 'failed';
 }
 
 export interface EvalResult {

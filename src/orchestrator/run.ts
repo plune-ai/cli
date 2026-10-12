@@ -18,6 +18,7 @@ import type {
   Summary,
   Usage,
 } from '../types/results.js';
+import { rowStatus } from '../types/results.js';
 import type {
   AssertionConfig,
   Config,
@@ -233,10 +234,30 @@ function resolveTemplate(ev: EvalConfig, baseDir: string): string {
   throw new RunConfigError(`Eval "${ev.id}" has neither prompt nor prompt_file`);
 }
 
-function classify(row: RowResult): 'passed' | 'failed' | 'errored' {
-  if (row.error !== undefined) return 'errored';
-  if (row.assertions.some((a) => !a.passed)) return 'failed';
-  return 'passed';
+/**
+ * The run's counters: every row lands in exactly one of them (plune#1245), by the shared `rowStatus`.
+ * `blocked` and `skipped` are always written, so this runner's output never relies on their being
+ * optional in the contract.
+ */
+export function summarize(evals: EvalResult[], durationMs: number): Summary {
+  const summary: Required<Summary> = {
+    total: 0,
+    passed: 0,
+    failed: 0,
+    errored: 0,
+    blocked: 0,
+    skipped: 0,
+    cost_usd: 0,
+    duration_ms: durationMs,
+  };
+  for (const ev of evals) {
+    for (const row of ev.rows) {
+      summary.total += 1;
+      summary[rowStatus(row)] += 1;
+      summary.cost_usd += row.usage?.cost_usd ?? 0;
+    }
+  }
+  return summary;
 }
 
 export async function runOrchestration(
@@ -281,27 +302,13 @@ export async function runOrchestration(
       }),
     );
 
-    const passed = rowResults.every((r) => classify(r) === 'passed');
+    const passed = rowResults.every((r) => rowStatus(r) === 'passed');
     evalResults.push({ id: ev.id, tags: ev.tags ?? [], rows: rowResults, passed });
     if (options.bail === true && !passed) break;
   }
 
   const finished = deps.now();
-  const summary: Summary = {
-    total: 0,
-    passed: 0,
-    failed: 0,
-    errored: 0,
-    cost_usd: 0,
-    duration_ms: finished - started,
-  };
-  for (const ev of evalResults) {
-    for (const row of ev.rows) {
-      summary.total += 1;
-      summary[classify(row)] += 1;
-      summary.cost_usd += row.usage?.cost_usd ?? 0;
-    }
-  }
+  const summary = summarize(evalResults, finished - started);
 
   return {
     schemaVersion: 1,
