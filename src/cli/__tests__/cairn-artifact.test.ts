@@ -1,3 +1,5 @@
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -70,6 +72,29 @@ describe('readCairnRun — api runs', () => {
     expect(payload.cases.every((c) => c.verdict !== undefined)).toBe(true);
     // The real Petstore run passed 8 of 26 — the verdicts are read, not assumed.
     expect(payload.cases.filter((c) => c.verdict === 'passed')).toHaveLength(8);
+  });
+
+  // plune-ai/plune#1327. Cairn writes `error` when a request got no response after the retries; the product never
+  // answered, so the case is `blocked`, not `failed`. Read through the real file reader, not an injected one.
+  it('sends a case whose request got no answer as blocked, not failed', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cairn-api-'));
+    await fs.copyFile(path.join(fixture('api'), 'report.json'), path.join(dir, 'report.json'));
+    const evidence = JSON.parse(await fs.readFile(path.join(fixture('api'), 'api-evidence.json'), 'utf8')) as {
+      name: string;
+      passed: boolean;
+      error?: string;
+      response?: unknown;
+    }[];
+    const unreachable = evidence.find((e) => !e.passed)!;
+    unreachable.error = 'fetch failed: connect ECONNREFUSED 127.0.0.1:8080';
+    delete unreachable.response;
+    await fs.writeFile(path.join(dir, 'api-evidence.json'), JSON.stringify(evidence), 'utf8');
+
+    const payload = await readCairnRun(dir);
+    expect(payload.cases.find((c) => c.title === unreachable.name)?.verdict).toBe('blocked');
+    expect(payload.cases.filter((c) => c.verdict === 'blocked')).toHaveLength(1);
+    expect(payload.cases.filter((c) => c.verdict === 'passed')).toHaveLength(8);
+    await fs.rm(dir, { recursive: true, force: true });
   });
 
   it('states each case in our vocabulary — the request as a step, the status as the expectation', async () => {

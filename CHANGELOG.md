@@ -11,6 +11,14 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Changed
+
+- **`plune ingest`: a Cairn case whose request got no answer arrives as `blocked` (plune-ai/plune#1327).** Cairn's
+  API evidence records a transport error when a request gets no response after the retries; the case used to be
+  sent as `failed`, blaming the product for an unreachable target. It now carries the verdict `blocked`, so the
+  platform records a `blocked` result. Needs a Plune that accepts the verdict (plune-ai/plune#1330); an older one
+  refuses the whole ingest with a validation error.
+
 ## [0.19.0] - 2026-10-12
 
 ### Added
