@@ -19,7 +19,12 @@ const INGEST_SCHEMA_VERSION = 1;
 
 export type CairnRunMode = 'explore' | 'design' | 'api';
 export type CairnExecution = 'auto' | 'manual';
-export type CairnVerdict = 'passed' | 'failed';
+/**
+ * `blocked` (plune-ai/plune#1327): the case's request got no answer — Cairn's evidence records a transport error
+ * after the retries — so the product never said anything either way. Sent as `failed`, it blamed the product for an
+ * unreachable target. Needs a platform that accepts it (plune-ai/plune#1330); an older one refuses the payload.
+ */
+export type CairnVerdict = 'passed' | 'failed' | 'blocked';
 
 export interface CairnIngestCase {
   stableId: string;
@@ -134,6 +139,8 @@ export class CairnEvidenceAmbiguousError extends Error {
 interface EvidenceRecord {
   name: string;
   passed: boolean;
+  /** Cairn's transport error, when the request got no response after the retries. */
+  error?: string;
 }
 
 export interface ReadCairnRunDeps {
@@ -160,7 +167,8 @@ async function defaultReadEvidence(dir: string): Promise<EvidenceRecord[] | unde
   if (!Array.isArray(raw)) return undefined;
   return raw.map((r) => {
     const rec = asRecord(r);
-    return { name: str(rec['name']), passed: rec['passed'] === true };
+    const error = str(rec['error']);
+    return { name: str(rec['name']), passed: rec['passed'] === true, ...(error !== '' ? { error } : {}) };
   });
 }
 
@@ -252,7 +260,8 @@ export async function readCairnRun(
     const verdicts = new Map<string, CairnVerdict>();
     for (const e of evidence ?? []) {
       if (verdicts.has(e.name)) throw new CairnEvidenceAmbiguousError(e.name);
-      verdicts.set(e.name, e.passed ? 'passed' : 'failed');
+      // No answer first, as the platform classifies: a request that never reached the product is no verdict on it.
+      verdicts.set(e.name, e.error !== undefined ? 'blocked' : e.passed ? 'passed' : 'failed');
     }
     cases = casesFromApi(report, verdicts);
   } else {
