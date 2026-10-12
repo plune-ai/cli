@@ -11,6 +11,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-10-13
+
 ### Changed
 
 - **`plune ingest`: a Cairn case whose request got no answer arrives as `blocked` (plune-ai/plune#1327).** Cairn's
