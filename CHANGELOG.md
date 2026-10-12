@@ -9,6 +9,48 @@ Each section is dated from the release tag it names. `0.2.1`, `0.2.2` and `0.2.3
 tags whose committed `package.json` still read `0.2.0` — the publish job takes the version from the
 tag (see 0.2.2), so the tag is the authority for what shipped, not the committed file.
 
+## [Unreleased]
+
+## [0.18.0] - 2026-10-12
+
+### Fixed
+
+- **The run key in the docs and the reporter examples carries the attempt (cli#78).** GitHub Actions'
+  "Re-run failed jobs" reuses `GITHUB_RUN_ID` and increments `GITHUB_RUN_ATTEMPT`. A key built from the
+  run id alone sent the second attempt at a run that is already closed, so the platform took none of its
+  results and they stayed on the runner in `.plune/pending-results.jsonl`. `README.md`,
+  `packages/playwright/README.md` and the `plune run` examples now use
+  `"$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"` (the Playwright option reads
+  `${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT ?? '1'}`), and the note in
+  `docs/guide/cli.md` says what actually happens without it, instead of claiming the re-run would
+  overwrite the original run's results.
+- **The quota detail no longer carries the raw token (cli#79).** A 429 without `Retry-After` is
+  classified as `invalid` and reported as `quota exceeded (no Retry-After)` with the server's own words
+  appended — but they were appended raw, while the same response's text one line above went through
+  `scrub()`. A proxy or a gateway that echoes the bearer token back in an error page put it into a CI
+  log anyone with read access can scroll. The appended text is scrubbed now, and a test holds it there.
+- **A deleted run is recoverable for 30 days, and only an owner of the project can bring it back
+  (cli#80).** The server keeps it for 30 days, not six months, and the way back is Settings → Bin
+  rather than a request to Plune. `plune run delete` prints the sentence the platform's own dialogs
+  use, its `--help` description and the `README.md` command table say 30 days, and the command's
+  comment no longer speaks of six months.
+
+### Changed
+
+- **The run summary counts `blocked` and `skipped` apart from `failed` (plune-ai/plune#1245).** A row
+  that reports `inconclusive` (ADR 0045) now counts by that word, not by its assertions or its error:
+  a blocked row whose assertions failed is `blocked`, not `failed`, and a skipped row with an error is
+  `skipped`, not `errored`. This is the order the platform already uses when it stores the row. **The
+  numbers change** for any run with such rows: `failed` and `errored` go down, `blocked` and `skipped`
+  go up, and `passed + failed + errored + blocked + skipped` is `total`. Runs without `inconclusive`
+  rows count exactly as before. `Summary.blocked` and `Summary.skipped` are optional in the contract, so
+  a RunResult written before them still validates and `schemaVersion` stays 1; `plune run` always
+  writes both. The console line and the markdown table show them only when they are not zero, so an
+  all-pass report reads as it did. The summary, both reporters and `plune diff` now share one
+  classifier instead of three copies, so a blocked row cannot become a regression in the diff either.
+  Exit codes are unchanged: only `failed` (1) and `errored` (2) move them. `invalid` is not added; it
+  is Plune's `broken`, which the CLI calls `errored`.
+
 ## [0.17.1] - 2026-10-12
 
 ### Added
@@ -63,46 +105,6 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 - `plune run import` no longer prints its own screenshot and text-file count lines; the session's summary line
   carries them.
-
-## [Unreleased]
-
-### Fixed
-
-- **The run key in the docs and the reporter examples carries the attempt (cli#78).** GitHub Actions'
-  "Re-run failed jobs" reuses `GITHUB_RUN_ID` and increments `GITHUB_RUN_ATTEMPT`. A key built from the
-  run id alone sent the second attempt at a run that is already closed, so the platform took none of its
-  results and they stayed on the runner in `.plune/pending-results.jsonl`. `README.md`,
-  `packages/playwright/README.md` and the `plune run` examples now use
-  `"$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"` (the Playwright option reads
-  `${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT ?? '1'}`), and the note in
-  `docs/guide/cli.md` says what actually happens without it, instead of claiming the re-run would
-  overwrite the original run's results.
-- **The quota detail no longer carries the raw token (cli#79).** A 429 without `Retry-After` is
-  classified as `invalid` and reported as `quota exceeded (no Retry-After)` with the server's own words
-  appended — but they were appended raw, while the same response's text one line above went through
-  `scrub()`. A proxy or a gateway that echoes the bearer token back in an error page put it into a CI
-  log anyone with read access can scroll. The appended text is scrubbed now, and a test holds it there.
-- **A deleted run is recoverable for 30 days, and only an owner of the project can bring it back
-  (cli#80).** The server keeps it for 30 days, not six months, and the way back is Settings → Bin
-  rather than a request to Plune. `plune run delete` prints the sentence the platform's own dialogs
-  use, its `--help` description and the `README.md` command table say 30 days, and the command's
-  comment no longer speaks of six months.
-
-### Changed
-
-- **The run summary counts `blocked` and `skipped` apart from `failed` (plune-ai/plune#1245).** A row
-  that reports `inconclusive` (ADR 0045) now counts by that word, not by its assertions or its error:
-  a blocked row whose assertions failed is `blocked`, not `failed`, and a skipped row with an error is
-  `skipped`, not `errored`. This is the order the platform already uses when it stores the row. **The
-  numbers change** for any run with such rows: `failed` and `errored` go down, `blocked` and `skipped`
-  go up, and `passed + failed + errored + blocked + skipped` is `total`. Runs without `inconclusive`
-  rows count exactly as before. `Summary.blocked` and `Summary.skipped` are optional in the contract, so
-  a RunResult written before them still validates and `schemaVersion` stays 1; `plune run` always
-  writes both. The console line and the markdown table show them only when they are not zero, so an
-  all-pass report reads as it did. The summary, both reporters and `plune diff` now share one
-  classifier instead of three copies, so a blocked row cannot become a regression in the diff either.
-  Exit codes are unchanged: only `failed` (1) and `errored` (2) move them. `invalid` is not added; it
-  is Plune's `broken`, which the CLI calls `errored`.
 
 ## [0.17.0] - 2026-09-30
 
