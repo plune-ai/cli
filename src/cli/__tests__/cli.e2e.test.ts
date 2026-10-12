@@ -174,6 +174,26 @@ describe('plune binary — .env reaches every command (#46)', () => {
   });
 });
 
+describe('plune binary — run grep (plune-ai/cli#85)', () => {
+  // A token and an address nobody answers on: anything that dials ends in exit 1, so a 2 is a refusal before the request.
+  const env = { PLUNE_TOKEN: 'token-for-e2e', PLUNE_API_URL: 'http://127.0.0.1:9' };
+
+  it('refuses what is neither a run id nor a run key with exit 2, before any request, and prints no pattern', () => {
+    const r = runCli(['run', 'grep', 'nightly', '--failed'], { env });
+    expect(r.status).toBe(2);
+    expect(r.stdout).toBe('');
+    expect(r.stderr).toContain('"nightly"');
+    expect(r.stderr).not.toContain('reach');
+  });
+
+  it('takes the command Plune shows as it is — a run id, then --failed — and asks the platform', () => {
+    const r = runCli(['run', 'grep', '0b9f3c1e-6d2a-4f6e-9a51-3c7d2e8f1a40', '--failed'], { env });
+    expect(r.status).toBe(1);
+    expect(r.stdout).toBe('');
+    expect(r.stderr).toContain('Could not reach the Plune API');
+  });
+});
+
 describe('bundle shape (AC-T06.3 / NFR-3)', () => {
   it('dist/index.js (public API) does not bundle commander', () => {
     const idx = fs.readFileSync(path.join(dist, 'index.js'), 'utf8');
