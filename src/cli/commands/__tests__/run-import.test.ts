@@ -933,4 +933,76 @@ describe('plune run import', () => {
       expect(lines.some((l) => l.includes('text file'))).toBe(false);
     });
   });
+
+  /**
+   * `--fail-on-failures` (plune#1247): the exit code is the verdict the platform froze at `finish` — muted
+   * failures outside `failed` and `broken` — and no verdict is no pass.
+   */
+  describe('--fail-on-failures', () => {
+    /** The platform as above, whose `finish` answers with `summary` (or with `events`, when given). */
+    const judging = (summary: unknown, events?: Response) => {
+      const { seen, fetchImpl } = platform();
+      const judged = (async (url: string | URL | Request, init?: RequestInit) =>
+        String(url).endsWith('/events')
+          ? (events ?? json(200, { run: { id: 'r-9', statusEvent: 'finished' }, summary, detached: 0 }))
+          : fetchImpl(url, init)) as unknown as typeof fetch;
+      return { seen, fetchImpl: judged };
+    };
+    const gated = (fetchImpl: typeof fetch) =>
+      handleRunImport({ ...deps(fetchImpl), file: write('results.xml', REPORT), failOnFailures: true });
+
+    beforeEach(() => vi.stubEnv('PLUNE_FALLBACK', path.join(dir, 'pending.jsonl')));
+    afterEach(() => {
+      delete process.env['PLUNE_PROCEED'];
+    });
+
+    // The report's failure is a muted case's: the platform counts it under `muted`, and the gate passes.
+    it('passes a run whose only failure is muted', async () => {
+      const { fetchImpl } = judging({ counts: { passed: 1, muted: 1 }, notRun: [], total: 2 });
+      const out = await gated(fetchImpl);
+      expect(out.gate).toBe(0);
+      expect(lines).toContain('plune: gate passed — 0 failed · 0 broken · 0 not run · 1 muted');
+    });
+
+    it('fails a run with a counted failure', async () => {
+      const { fetchImpl } = judging({ counts: { passed: 1, failed: 1 }, notRun: [], total: 2 });
+      expect((await gated(fetchImpl)).gate).toBe(1);
+    });
+
+    it('fails a run with a case it expected and never got', async () => {
+      const { fetchImpl } = judging({ counts: { passed: 2 }, notRun: ['tc-7'], total: 2 });
+      expect((await gated(fetchImpl)).gate).toBe(1);
+    });
+
+    it('fails when the platform refused the finish', async () => {
+      const { fetchImpl } = judging(undefined, json(409, { error: 'run is closed' }));
+      expect((await gated(fetchImpl)).gate).toBe(1);
+    });
+
+    it('fails when the platform cannot be reached — the results wait in the fallback file', async () => {
+      const unreachable = (async () => {
+        throw new TypeError('fetch failed');
+      }) as unknown as typeof fetch;
+      const out = await gated(unreachable);
+      expect(out.deferred).toBe(2);
+      expect(out.gate).toBe(1);
+    });
+
+    // A shard leaves the run open, so there is nothing frozen yet to pass on: the gate belongs on the step that finishes it.
+    it('fails a run it leaves open, and says where the gate belongs', async () => {
+      process.env['PLUNE_PROCEED'] = '1';
+      const { seen, fetchImpl } = judging({ counts: { passed: 2 }, notRun: [], total: 2 });
+      const out = await gated(fetchImpl);
+      expect(seen.some((s) => s.path.endsWith('/events'))).toBe(false);
+      expect(out.gate).toBe(1);
+      expect(lines.join('\n')).toMatch(/left open/);
+    });
+
+    it('without the flag, the result carries no gate and the run is reported as before', async () => {
+      const { fetchImpl } = judging({ counts: { passed: 1, failed: 1 }, notRun: [], total: 2 });
+      const out = await handleRunImport({ ...deps(fetchImpl), file: write('results.xml', REPORT) });
+      expect('gate' in out).toBe(false);
+      expect(lines.some((l) => l.includes('gate'))).toBe(false);
+    });
+  });
 });

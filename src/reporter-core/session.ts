@@ -12,6 +12,7 @@ import type {
   DiscoveredTest,
   DiscoveryOutcome,
   ExpectedEntry,
+  FrozenSummary,
   KeyRef,
   PendingResult,
   ReporterConfig,
@@ -262,8 +263,11 @@ export interface RunSession {
   add(result: PendingResult): Promise<void>;
   /** Send whatever is buffered. Safe to call when nothing is. */
   flush(): Promise<void>;
-  /** Send what is left and close the run. */
-  finish(reason?: string): Promise<void>;
+  /**
+   * Send what is left and close the run. Resolves to the summary the platform froze at `finish` (plune#1247), or
+   * `undefined` when it answered with none: no run, a refused finish, a deployment older than the summary.
+   */
+  finish(reason?: string): Promise<FrozenSummary | undefined>;
   /** Send what is left and deliberately leave the run open — the shard case (AC-03). */
   leaveOpen(): Promise<void>;
 }
@@ -1001,26 +1005,32 @@ export async function startRun(
     },
     flush,
     async finish(reason?: string) {
-      if (done) return;
+      if (done) return undefined;
       done = true;
       await flush();
       // Before the close, not after: the entries name the run that found them, and a closed run is
       // still the right answer to "where did this come from".
       await offer();
+      let frozen: FrozenSummary | undefined;
       if (runId !== null && !offline) {
-        const out = await client.post<{ detached?: number }>(`/v1/runs/${runId}/events`, {
+        const out = await client.post<{ detached?: number; summary?: FrozenSummary }>(`/v1/runs/${runId}/events`, {
           event: 'finish',
           ...(reason !== undefined ? { reason } : {}),
         });
         // A refusal here leaves the run open, which is a truthful state — see `leaveOpen`.
         if (!out.ok) log(`plune: could not close run ${runId} (${out.detail || out.kind}).`);
-        // The one thing a full run does outside itself (D20). Said when it happened and only then:
-        // a `0 detached` on every ordinary run would teach people to stop reading the line.
-        else if (typeof out.body?.detached === 'number' && out.body.detached > 0) {
-          log(`plune: ${out.body.detached} test case(s) marked detached — this full run no longer reports them.`);
+        else {
+          // Handed back as it came: what it means for an exit code is the gate's to say (plune#1247).
+          frozen = out.body?.summary ?? undefined;
+          // The one thing a full run does outside itself (D20). Said when it happened and only then:
+          // a `0 detached` on every ordinary run would teach people to stop reading the line.
+          if (typeof out.body?.detached === 'number' && out.body.detached > 0) {
+            log(`plune: ${out.body.detached} test case(s) marked detached — this full run no longer reports them.`);
+          }
         }
       }
       summarise();
+      return frozen;
     },
     async leaveOpen() {
       if (done) return;

@@ -235,6 +235,10 @@ export function createProgram(): Command {
   };
   const verboseOf = (command: Command): boolean =>
     (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
+  // `--fail-on-failures` (plune#1247): one wording for the four commands that take it.
+  const FAIL_ON_FAILURES =
+    "Exit with the platform's verdict on the run: 1 on a failed or broken result (muted ones do not count), " +
+    'on an expected case that never ran, or when there is no verdict at all';
 
   runCommand
     .command('start')
@@ -259,14 +263,21 @@ export function createProgram(): Command {
     .description('Close a platform run — what the reporter tells you to do for a run left open')
     .option('--terminate', 'Record the run as cut short rather than finished', false)
     .option('--reason <text>', 'Why, for a terminated run')
+    .option('--fail-on-failures', FAIL_ON_FAILURES, false)
     .action(
-      async (id: string, options: { terminate: boolean; reason?: string }, command: Command) => {
+      async (
+        id: string,
+        options: { terminate: boolean; reason?: string; failOnFailures: boolean },
+        command: Command,
+      ) => {
         try {
           const { handleRunFinish } = await import('./cli/commands/run-lifecycle.js');
-          await handleRunFinish(id, {
+          const code = await handleRunFinish(id, {
             terminate: options.terminate,
             ...(options.reason !== undefined ? { reason: options.reason } : {}),
+            ...(options.failOnFailures ? { failOnFailures: true } : {}),
           });
+          if (options.failOnFailures) process.exitCode = code;
         } catch (err) {
           await failRunCommand(err, verboseOf(command));
         }
@@ -280,12 +291,14 @@ export function createProgram(): Command {
       'Open a run, run a command inside it, close the run — whatever the command returns',
     )
     .option('--key <externalKey>', 'The key several processes share; generated when absent')
-    .action(async (argv: string[], options: { key?: string }, command: Command) => {
+    .option('--fail-on-failures', `${FAIL_ON_FAILURES}; the command's own exit code when no result reached the run`, false)
+    .action(async (argv: string[], options: { key?: string; failOnFailures: boolean }, command: Command) => {
       try {
         const { handleRunExec } = await import('./cli/commands/run-lifecycle.js');
         process.exitCode = await handleRunExec({
           argv,
           ...(options.key !== undefined ? { key: options.key } : {}),
+          ...(options.failOnFailures ? { failOnFailures: true } : {}),
         });
       } catch (err) {
         await failRunCommand(err, verboseOf(command));
@@ -333,10 +346,17 @@ export function createProgram(): Command {
       'Exit 1 when a file the report names ([[ATTACHMENT|path]] in JUnit, a source in allure-results) is not there; the results are sent either way',
       false,
     )
+    .option('--fail-on-failures', FAIL_ON_FAILURES, false)
     .action(
       async (
         file: string,
-        options: { format?: string; key?: string; create: boolean; failOnMissingAttachments: boolean },
+        options: {
+          format?: string;
+          key?: string;
+          create: boolean;
+          failOnMissingAttachments: boolean;
+          failOnFailures: boolean;
+        },
         command: Command,
       ) => {
         const [
@@ -365,9 +385,11 @@ export function createProgram(): Command {
             ...(format !== undefined ? { format: format as (typeof IMPORT_FORMATS)[number] } : {}),
             ...(options.key !== undefined ? { key: options.key } : {}),
             ...(options.create ? { create: true } : {}),
+            ...(options.failOnFailures ? { failOnFailures: true } : {}),
           });
           // After the run is sent and the summary printed: the flag changes the exit code, never what is reported.
           if (options.failOnMissingAttachments && imported.missingAttachments.length > 0) process.exitCode = 1;
+          if (imported.gate === 1) process.exitCode = 1;
         } catch (err) {
           // A report we could not read is the user's to fix, and the message already names the file
           // and the line — exit 2, not the generic failure path.
@@ -538,19 +560,25 @@ export function createProgram(): Command {
     .command('sync')
     .description('Upload your latest local run to the Plune platform (POST /v1/runs)')
     .option('--file <path>', 'Sync a specific run JSON instead of .plune/last-run.json')
-    .action(async (options: { file?: string }, command: Command) => {
+    .option('--fail-on-failures', `${FAIL_ON_FAILURES}; read with one GET of the run's summary after the upload`, false)
+    .action(async (options: { file?: string; failOnFailures: boolean }, command: Command) => {
       const globals = command.optsWithGlobals() as { config?: string; verbose?: boolean };
       const verbose = globals.verbose === true;
       const { handleSync, reportSyncFailure } = await import('./cli/commands/sync.js');
       // Mirror `report`: a global -c points sync at the run saved beside that config, else cwd.
       const cwd = globals.config !== undefined ? dirname(resolve(globals.config)) : process.cwd();
       try {
-        const { id, url } = await handleSync({
+        const { id, url, gate } = await handleSync({
           cwd,
           ...(options.file !== undefined ? { file: options.file } : {}),
+          ...(options.failOnFailures ? { failOnFailures: true } : {}),
         });
         // Print only the id + read-back URL — never the token.
         process.stdout.write(`Synced run ${id} → ${url}\n`);
+        if (gate !== undefined) {
+          process.stdout.write(`${gate.line}\n`);
+          process.exitCode = gate.code;
+        }
       } catch (err) {
         const code = reportSyncFailure(err, (s) => process.stderr.write(s));
         if (code !== null) {

@@ -16,8 +16,9 @@ import { isFolder, readFolder, readReport, type ImportFormat, type MissingAttach
 import { NoTokenError, RunCommandError, type RunCommandDeps } from './run-lifecycle.js';
 import { resolveApiUrl, dashboardUrl } from '../api-url.js';
 import { loadToken } from '../credentials.js';
+import { gateExit } from '../gate.js';
 import { ciCommit, readEnv } from '../../reporter-core/env.js';
-import type { PendingResult, UnofferedWhy } from '../../reporter-core/types.js';
+import type { FrozenSummary, PendingResult, UnofferedWhy } from '../../reporter-core/types.js';
 
 export interface ImportOptions extends RunCommandDeps {
   file: string;
@@ -27,6 +28,8 @@ export interface ImportOptions extends RunCommandDeps {
   key?: string;
   /** Offer tests that resolved to nothing to the review queue (the `PLUNE_CREATE=1` switch, D14). */
   create?: boolean;
+  /** `--fail-on-failures`: judge the run by the summary the platform froze when this import finished it (plune#1247). */
+  failOnFailures?: boolean;
 }
 
 export interface ImportResult {
@@ -68,6 +71,8 @@ export interface ImportResult {
   /** Whether offering was asked for at all — the difference between «nothing was offered» and
    * «nothing was NEW to offer», which read the same in the summary until a real run said so. */
   offering: boolean;
+  /** The exit code `--fail-on-failures` asks for; absent without the flag. */
+  gate?: number;
 }
 
 /**
@@ -143,8 +148,9 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
   // here as there. Closing regardless is what made `--key` a promise the import could not keep: the
   // first job finished the run and the second was answered 409, its results going to a fallback
   // file while the step stayed green.
+  let frozen: FrozenSummary | undefined;
   if (env.keepOpen) await session.leaveOpen();
-  else await session.finish();
+  else frozen = await session.finish();
 
   const stats = session.stats;
   const result: ImportResult = {
@@ -175,6 +181,15 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
     offering: options.create === true,
   };
   for (const line of describe(result, apiUrl)) write(line);
+  if (options.failOnFailures === true) {
+    // A shard's run has nothing frozen yet: the verdict is the step's that finishes it.
+    if (env.keepOpen) {
+      write('plune: the run is left open for the jobs still reporting, so there is no verdict yet — gate on the step that finishes it.');
+    }
+    const gate = gateExit(frozen);
+    write(gate.line);
+    result.gate = gate.code;
+  }
   return result;
 }
 

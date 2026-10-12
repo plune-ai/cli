@@ -214,6 +214,73 @@ describe('handleSync (#49)', () => {
   });
 });
 
+/**
+ * `plune sync --fail-on-failures` (plune#1247): after the upload, one `GET /v1/runs/:id/summary` — `counts`
+ * by the status each result is counted under (a muted failure under `muted`), `notRun`, and the run's
+ * `statusEvent` — and the exit code is the gate's.
+ */
+describe('handleSync --fail-on-failures', () => {
+  /** The upload answers 201; the summary answers what it is given — or throws, for a platform gone after the upload. */
+  function platform(summary: { status: number; body: unknown } | 'network') {
+    const calls: { url: string; method: string }[] = [];
+    const fn = (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), method: init?.method ?? 'GET' });
+      if (init?.method === 'POST') return new Response(JSON.stringify({ id: 'run_7' }), { status: 201 });
+      if (summary === 'network') throw new TypeError('fetch failed');
+      return new Response(JSON.stringify(summary.body), { status: summary.status });
+    }) as typeof fetch;
+    return { fn, calls };
+  }
+  const sync = (fn: typeof fetch, failOnFailures = true) => {
+    writeRun(tmp);
+    return handleSync({
+      cwd: tmp,
+      apiUrl: 'https://api.test',
+      loadToken: () => TOKEN,
+      fetchImpl: fn,
+      ...(failOnFailures ? { failOnFailures: true } : {}),
+    });
+  };
+  const summary = (counts: Record<string, number>, notRun: string[] = [], statusEvent = 'finished') => ({
+    status: 200,
+    body: { counts, unmapped: 0, discovered: 0, withDefect: 0, run: { kind: 'eval', statusEvent }, notRun },
+  });
+
+  it('reads the verdict with one GET of the summary, after the upload', async () => {
+    const { fn, calls } = platform(summary({ passed: 2, failed: 0, broken: 0, muted: 1 }));
+    const res = await sync(fn);
+    expect(calls).toEqual([
+      { url: 'https://api.test/v1/runs', method: 'POST' },
+      { url: 'https://api.test/v1/runs/run_7/summary', method: 'GET' },
+    ]);
+    expect(res.gate).toEqual({ code: 0, line: 'plune: gate passed — 0 failed · 0 broken · 0 not run · 1 muted' });
+  });
+
+  it.each([
+    ['a failed eval', summary({ passed: 1, failed: 1 })],
+    ['a broken eval', summary({ passed: 1, broken: 1 })],
+    ['an expected case that never reported', summary({ passed: 2 }, ['tc-1'])],
+    ['a terminated run', summary({ passed: 2 }, [], 'terminated')],
+    ['a summary the platform refused', { status: 500, body: { error: 'boom' } }],
+  ])('exits 1 on %s', async (_name, answer) => {
+    const { fn } = platform(answer);
+    expect((await sync(fn)).gate?.code).toBe(1);
+  });
+
+  it('exits 1 when the platform is gone after the upload: no verdict, no pass', async () => {
+    const { fn } = platform('network');
+    const res = await sync(fn);
+    expect(res.id).toBe('run_7');
+    expect(res.gate?.code).toBe(1);
+  });
+
+  it('without the flag, makes the one upload and nothing more', async () => {
+    const { fn, calls } = platform(summary({ failed: 3 }));
+    expect(await sync(fn, false)).toEqual({ id: 'run_7', url: 'https://api.test/v1/runs/run_7' });
+    expect(calls).toHaveLength(1);
+  });
+});
+
 describe('reportSyncFailure (#49)', () => {
   it('maps auth/file errors to exit 2, network/http to exit 1, and passes unknown through as null', () => {
     const out: string[] = [];
