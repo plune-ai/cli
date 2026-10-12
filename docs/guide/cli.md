@@ -119,8 +119,9 @@ plune run report                                               # sends what the 
 ```
 
 > **Why the attempt number?** GitHub Actions re-runs ("Re-run failed jobs") reuse the same
-> `GITHUB_RUN_ID` but increment `GITHUB_RUN_ATTEMPT`. Without it, a re-run would join the
-> original run and overwrite its results. The combined key gives each attempt its own run.
+> `GITHUB_RUN_ID` but increment `GITHUB_RUN_ATTEMPT`. Without it, a re-run joins a run that is
+> already closed: the platform will not take new results into it, and they stay undelivered on the
+> runner in `.plune/pending-results.jsonl`. The combined key gives each attempt its own run.
 
 `plune run` on its own still runs your assertion suite — these are subcommands, and it takes no
 positional arguments of its own.

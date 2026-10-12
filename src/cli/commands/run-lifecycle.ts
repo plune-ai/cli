@@ -164,7 +164,7 @@ export async function handleRunFinish(id: string, options: FinishOptions = {}): 
  * asking for it back. And this command's natural home is a CI script or a `for` loop over ids, where
  * a prompt is not caution — it is a hang.
  *
- * What makes that safe is the six months on the server, which is why the second line of output says
+ * What makes that safe is the 30 days on the server, which is why the second line of output says
  * so. Reassurance after the fact is the only kind this command can offer.
  */
 export async function handleRunDelete(id: string, options: RunCommandDeps = {}): Promise<void> {
@@ -183,7 +183,7 @@ export async function handleRunDelete(id: string, options: RunCommandDeps = {}):
     );
   }
   write(`Run ${id} deleted, with its results and the review-queue entries it produced.`);
-  write('Recoverable for 30 days — ask Plune to put it back.');
+  write('Recoverable for 30 days — an owner of the project can put it back from Settings → Bin.');
 }
 
 export interface ExecOptions extends StartOptions {

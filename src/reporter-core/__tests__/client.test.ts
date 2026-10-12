@@ -99,6 +99,18 @@ describe('client — what it retries (AC-05)', () => {
     expect(!out.ok && out.kind).toBe('invalid');
     expect(!out.ok && out.detail).toMatch(/quota exceeded/);
   });
+
+  // The quota branch rewrites `detail` after the scrubbed one was already built, and it used to
+  // append the server's words raw. A proxy or a gateway in front of the platform can echo the
+  // bearer token back in an error page, and this string goes straight into a CI log. See cli#79.
+  it('scrubs the token out of the quota detail as well', async () => {
+    const { client } = harness([json({ error: `quota spent, token ${TOKEN} has no room left` }, 429)]);
+    const out = await client.post('/v1/runs', {});
+
+    expect(out.ok).toBe(false);
+    expect(!out.ok && out.detail).not.toContain(TOKEN);
+    expect(!out.ok && out.detail).toBe('quota exceeded (no Retry-After) — quota spent, token *** has no room left');
+  });
 });
 
 /** plune-ai/plune#913, platform ADR 0040: a file is its bytes, not a JSON document about them. */

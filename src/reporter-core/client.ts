@@ -285,7 +285,9 @@ export function createClient(opts: ClientOptions): PlatformClient {
       // 429 without Retry-After means quota exceeded, not rate limit — retrying with short delays is useless.
       if (res.status === 429 && retryAfterMs(res) === null) {
         last.kind = 'invalid';
-        last.detail = 'quota exceeded (no Retry-After)'; if (said.detail) last.detail += ` — ${said.detail}`;
+        // The appended text is the same one `scrub` already had a look at above. Appending it raw
+        // put whatever a proxy echoed back — the bearer token among it — straight into a CI log.
+        last.detail = 'quota exceeded (no Retry-After)'; if (said.detail) last.detail += ` — ${scrub(said.detail)}`;
         break;
       }
 
