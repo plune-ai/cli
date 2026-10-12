@@ -100,3 +100,32 @@ export function withLongOutput(maxLen: number): RunResult {
     ],
   };
 }
+
+// plune#1245 — rows the runner says were never judged. The blocked row's assertion failed, and it is
+// still blocked, not failed: the runner's word comes first (ADR 0045).
+export const inconclusive: RunResult = {
+  schemaVersion: 1,
+  plune_version: '0.1.0',
+  started_at: '2026-10-12T09:00:00.000Z',
+  finished_at: '2026-10-12T09:00:01.000Z',
+  config_hash: 'b'.repeat(64),
+  summary: { total: 3, passed: 1, failed: 0, errored: 0, blocked: 1, skipped: 1, cost_usd: 0, duration_ms: 1000 },
+  evals: [
+    {
+      id: 'e-env',
+      tags: [],
+      passed: true,
+      rows: [
+        { vars: { q: 'ok' }, output: 'fine', cached: false, assertions: [{ type: 'contains', passed: true }] },
+        {
+          vars: { q: 'dep' },
+          output: 'gateway down',
+          cached: false,
+          inconclusive: 'blocked',
+          assertions: [{ type: 'contains', passed: false, reason: 'missing' }],
+        },
+        { vars: { q: 'later' }, output: null, cached: false, inconclusive: 'skipped', assertions: [] },
+      ],
+    },
+  ],
+};

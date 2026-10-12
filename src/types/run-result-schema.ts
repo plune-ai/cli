@@ -67,6 +67,9 @@ const summarySchema = z.object({
   passed: z.number(),
   failed: z.number(),
   errored: z.number(),
+  /** plune#1245. Optional and additive — a RunResult written before them validates unchanged. */
+  blocked: z.number().optional(),
+  skipped: z.number().optional(),
   cost_usd: z.number(),
   duration_ms: z.number(),
 });

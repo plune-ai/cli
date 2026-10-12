@@ -88,6 +88,22 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   use, its `--help` description and the `README.md` command table say 30 days, and the command's
   comment no longer speaks of six months.
 
+### Changed
+
+- **The run summary counts `blocked` and `skipped` apart from `failed` (plune-ai/plune#1245).** A row
+  that reports `inconclusive` (ADR 0045) now counts by that word, not by its assertions or its error:
+  a blocked row whose assertions failed is `blocked`, not `failed`, and a skipped row with an error is
+  `skipped`, not `errored`. This is the order the platform already uses when it stores the row. **The
+  numbers change** for any run with such rows: `failed` and `errored` go down, `blocked` and `skipped`
+  go up, and `passed + failed + errored + blocked + skipped` is `total`. Runs without `inconclusive`
+  rows count exactly as before. `Summary.blocked` and `Summary.skipped` are optional in the contract, so
+  a RunResult written before them still validates and `schemaVersion` stays 1; `plune run` always
+  writes both. The console line and the markdown table show them only when they are not zero, so an
+  all-pass report reads as it did. The summary, both reporters and `plune diff` now share one
+  classifier instead of three copies, so a blocked row cannot become a regression in the diff either.
+  Exit codes are unchanged: only `failed` (1) and `errored` (2) move them. `invalid` is not added; it
+  is Plune's `broken`, which the CLI calls `errored`.
+
 ## [0.17.0] - 2026-09-30
 
 Also `@plune-ai/playwright` **0.5.0** - the adapter embeds `reporter-core`, where the upload of a result's

@@ -1,11 +1,13 @@
 // Pure baseline-vs-current comparison for two RunResults (ADR-GA03).
 //
-// This module has NO I/O and imports only frozen public types — it is the pure-core enabler
+// This module has NO I/O and imports only the frozen contract module (its types and the pure
+// `rowStatus` that sits beside them) — it is the pure-core enabler
 // that keeps the GitHub Action a thin edge (constitution §5). `RunDiff` is INTENTIONALLY not
 // added to the frozen public barrel (types/public.ts): the contract the Action couples to is
 // the stdout of `plune diff`, not this TS type.
 
-import type { RunResult, EvalResult, RowResult } from '../types/results.js';
+import type { RunResult, EvalResult } from '../types/results.js';
+import { rowStatus } from '../types/results.js';
 
 export type EvalStatus = 'passed' | 'failed' | 'errored';
 export type EvalPresence = EvalStatus | 'absent';
@@ -44,17 +46,10 @@ export interface RunDiff {
   summary: RunDiffSummary;
 }
 
-// Row-level status. Mirrors the orchestrator's classify() (orchestrator/run.ts) so the diff's
-// notion of pass/fail/errored stays consistent with how the run itself was scored. Kept inline
-// (not imported from run.ts) to keep this module pure and dependency-free.
-function rowStatus(r: RowResult): EvalStatus {
-  if (r.error !== undefined) return 'errored';
-  if (r.assertions.some((a) => !a.passed)) return 'failed';
-  return 'passed';
-}
-
 // Eval-level status, lifted from its rows with the same precedence as exit-code.ts:
-// a genuine assertion failure dominates an infra error, which dominates pass.
+// a genuine assertion failure dominates an infra error, which dominates pass. Rows are read with the
+// same `rowStatus` the run was scored with; a blocked or skipped row (never judged, ADR 0045) is
+// neither a failure nor an error here, as it is not for the exit code (plune#1245).
 function evalStatus(e: EvalResult): EvalStatus {
   const statuses = e.rows.map(rowStatus);
   if (statuses.includes('failed')) return 'failed';

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { renderConsole } from '../console.js';
-import { mixed, allPass, withLongOutput } from './fixtures.js';
+import { mixed, allPass, withLongOutput, inconclusive } from './fixtures.js';
 import type { RunResult } from '../../types/results.js';
 
 const ESC = String.fromCharCode(27); // the ANSI escape byte (unambiguous, no escape-sequence pitfalls)
@@ -74,5 +74,25 @@ describe('renderConsole', () => {
     };
     const out = renderConsole(fixture, { color: false });
     expect(out).toContain('contains');
+  });
+
+  // plune#1245 (AC-05) — the breakdown, with the new words only when they are not zero.
+  it('shows blocked and skipped in the summary line when they are not zero', () => {
+    const out = renderConsole(inconclusive, { color: false });
+    expect(out).toContain('1 passed · 0 failed · 0 errored · 1 blocked · 1 skipped · 3 total');
+  });
+
+  it('an all-pass report reads as it did before blocked and skipped existed', () => {
+    const out = renderConsole(allPass, { color: false });
+    expect(out.split('\n')[1]).toBe('2 passed · 0 failed · 0 errored · 2 total · $0.0020 · 1000ms');
+    expect(out).not.toMatch(/blocked|skipped|undefined/);
+  });
+
+  it('labels a blocked or skipped row, never as a failure and never as passed', () => {
+    const out = renderConsole(inconclusive, { color: false });
+    expect(out).toContain('blocked (not judged)');
+    expect(out).toContain('skipped (not judged)');
+    expect(out).not.toContain('x contains'); // the blocked row's failing assertion is not a failure
+    expect(out).toContain('1 row(s) passed'); // the skipped row is not counted as passed
   });
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { runOrchestration, type RunDeps } from '../run.js';
+import { runOrchestration, summarize, type RunDeps } from '../run.js';
+import type { AssertionResultRecord, EvalResult, RowResult, Summary } from '../../types/results.js';
 import { loadDataset } from '../dataset.js';
 import type { Provider } from '../../types/provider.js';
 import type { Embedder } from '../../types/embedder.js';
@@ -47,7 +48,7 @@ const evalPass: EvalConfig = {
 describe('runOrchestration', () => {
   it('runs an eval end-to-end → RunResult passed (AC-1)', async () => {
     const r = await runOrchestration(config([evalPass]), {}, deps());
-    expect(r.summary).toMatchObject({ total: 1, passed: 1, failed: 0, errored: 0 });
+    expect(r.summary).toMatchObject({ total: 1, passed: 1, failed: 0, errored: 0, blocked: 0, skipped: 0 });
     expect(r.evals[0]!.passed).toBe(true);
     expect(r.config_hash).toMatch(/^[0-9a-f]{64}$/);
   });
@@ -104,5 +105,72 @@ describe('runOrchestration', () => {
     cfg.provider.concurrency = 2;
     await runOrchestration(cfg, {}, deps({ resolveProvider: () => slowProvider }));
     expect(maxActive).toBeLessThanOrEqual(2);
+  });
+});
+
+// plune#1245 — `blocked` and `skipped` are counted apart from `failed`, in the platform's order
+// (ADR 0045): the runner's `inconclusive` first, then an error, then the assertions.
+describe('summarize (plune#1245)', () => {
+  const pass: AssertionResultRecord = { type: 'contains', passed: true };
+  const fail: AssertionResultRecord = { type: 'contains', passed: false };
+  const row = (extra: Partial<RowResult> = {}): RowResult => ({
+    vars: {},
+    output: 'x',
+    cached: false,
+    assertions: [pass],
+    ...extra,
+  });
+  const errored = row({ output: null, error: { code: 'PROVIDER_TRANSIENT_EXHAUSTED', message: 'down' }, assertions: [] });
+  const evals = (...rows: RowResult[]): EvalResult[] => [{ id: 'e', tags: [], rows, passed: true }];
+  // AC-02: every row lands in exactly one counter.
+  const counted = (s: Summary): number => s.passed + s.failed + s.errored + (s.blocked ?? 0) + (s.skipped ?? 0);
+
+  it('all passed', () => {
+    const s = summarize(evals(row(), row()), 0);
+    expect(s).toMatchObject({ total: 2, passed: 2, failed: 0, errored: 0, blocked: 0, skipped: 0 });
+    expect(counted(s)).toBe(s.total);
+  });
+
+  it('one blocked', () => {
+    const s = summarize(evals(row(), row({ inconclusive: 'blocked' })), 0);
+    expect(s).toMatchObject({ total: 2, passed: 1, failed: 0, errored: 0, blocked: 1, skipped: 0 });
+    expect(counted(s)).toBe(s.total);
+  });
+
+  it('one skipped', () => {
+    const s = summarize(evals(row(), row({ inconclusive: 'skipped' })), 0);
+    expect(s).toMatchObject({ total: 2, passed: 1, failed: 0, errored: 0, blocked: 0, skipped: 1 });
+    expect(counted(s)).toBe(s.total);
+  });
+
+  it('one errored', () => {
+    const s = summarize(evals(row(), errored), 0);
+    expect(s).toMatchObject({ total: 2, passed: 1, failed: 0, errored: 1, blocked: 0, skipped: 0 });
+    expect(counted(s)).toBe(s.total);
+  });
+
+  it('mixed, across evals', () => {
+    const s = summarize(
+      [
+        ...evals(row(), row({ assertions: [fail] })),
+        ...evals(errored, row({ inconclusive: 'blocked' }), row({ inconclusive: 'skipped' })),
+      ],
+      0,
+    );
+    expect(s).toMatchObject({ total: 5, passed: 1, failed: 1, errored: 1, blocked: 1, skipped: 1 });
+    expect(counted(s)).toBe(s.total);
+  });
+
+  it('a blocked row whose assertions failed counts as blocked, not failed', () => {
+    const s = summarize(evals(row({ inconclusive: 'blocked', assertions: [fail] })), 0);
+    expect(s).toMatchObject({ total: 1, passed: 0, failed: 0, blocked: 1 });
+    expect(counted(s)).toBe(s.total);
+  });
+
+  it('sums the cost of every row and keeps the duration it is given', () => {
+    const paid = row({ usage: { input_tokens: 1, output_tokens: 1, cost_usd: 0.25 } });
+    const s = summarize(evals(paid, { ...paid, inconclusive: 'blocked' }), 42);
+    expect(s.cost_usd).toBe(0.5);
+    expect(s.duration_ms).toBe(42);
   });
 });

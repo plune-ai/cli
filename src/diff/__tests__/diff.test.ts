@@ -106,4 +106,13 @@ describe('diffRuns', () => {
       hasRegression: true,
     });
   });
+
+  // plune#1245 — the diff reads rows with the same classifier as the summary (ADR 0045 order), so a
+  // row the runner says was never judged cannot turn into a regression through its assertions.
+  it('a blocked row whose assertions failed is not a regression', () => {
+    const blocked: EvalResult = { id: 'a', tags: [], rows: [{ ...row({ fail: true }), inconclusive: 'blocked' }], passed: true };
+    const d = diffRuns(run([ev('a', 'passed')]), run([blocked]));
+    expect(d.evals[0]!.current).not.toBe('failed');
+    expect(d.summary.hasRegression).toBe(false);
+  });
 });

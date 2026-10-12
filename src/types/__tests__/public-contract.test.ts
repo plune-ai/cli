@@ -116,6 +116,9 @@ interface GoldenSummary {
   passed: number;
   failed: number;
   errored: number;
+  /** plune#1245 — optional, so a RunResult written before them is still this type. */
+  blocked?: number;
+  skipped?: number;
   cost_usd: number;
   duration_ms: number;
 }

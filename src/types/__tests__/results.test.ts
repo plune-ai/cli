@@ -5,6 +5,7 @@ import type {
   RowResult,
   AssertionResultRecord,
 } from '../results.js';
+import { rowStatus } from '../results.js';
 
 describe('RunResult shape (AC-02)', () => {
   it('carries every documented field with correct types', () => {
@@ -79,5 +80,41 @@ describe('RunResult shape (AC-02)', () => {
     const a: AssertionResultRecord = { type: 'exact-match', passed: false };
     expect(a.score).toBeUndefined();
     expect(a.reason).toBeUndefined();
+  });
+});
+
+// plune#1245 — one classifier for the summary, the reporters and the diff, in the platform's order
+// (`statusFromAssertions` in Plune `src/server/runs/status.ts`, ADR 0045): the runner's
+// `inconclusive` first, then an error, then the assertions.
+describe('rowStatus — the platform order (plune#1245)', () => {
+  const pass: AssertionResultRecord = { type: 'contains', passed: true };
+  const fail: AssertionResultRecord = { type: 'contains', passed: false };
+  const down = { code: 'PROVIDER_TRANSIENT_EXHAUSTED', message: 'down' };
+  const row = (extra: Partial<RowResult>): RowResult => ({
+    vars: {},
+    output: 'x',
+    cached: false,
+    assertions: [pass],
+    ...extra,
+  });
+
+  it('every assertion passed is passed', () => {
+    expect(rowStatus(row({}))).toBe('passed');
+  });
+
+  it('a failing assertion is failed', () => {
+    expect(rowStatus(row({ assertions: [pass, fail] }))).toBe('failed');
+  });
+
+  it('an error is errored, whatever the assertions hold', () => {
+    expect(rowStatus(row({ error: down, assertions: [fail] }))).toBe('errored');
+  });
+
+  it('a blocked row whose assertions failed is blocked, not failed', () => {
+    expect(rowStatus(row({ inconclusive: 'blocked', assertions: [fail] }))).toBe('blocked');
+  });
+
+  it('a skipped row with an error is skipped, not errored', () => {
+    expect(rowStatus(row({ inconclusive: 'skipped', error: down }))).toBe('skipped');
   });
 });

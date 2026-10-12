@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { renderMarkdown } from '../markdown.js';
-import { mixed, allPass } from './fixtures.js';
+import { mixed, allPass, inconclusive } from './fixtures.js';
 import type { RunResult } from '../../types/results.js';
 
 const ESC = String.fromCharCode(27);
@@ -59,5 +59,24 @@ describe('renderMarkdown (AC-4, AC-9)', () => {
 
   it('contains no ANSI', () => {
     expect(renderMarkdown(mixed, {})).not.toContain(ESC);
+  });
+
+  // plune#1245 (AC-05) — the breakdown, with the new rows only when they are not zero.
+  it('adds Blocked and Skipped rows to the table when they are not zero', () => {
+    const out = renderMarkdown(inconclusive, {});
+    expect(out).toContain('| Errored | 0 |\n| Blocked | 1 |\n| Skipped | 1 |\n| Cost (USD)');
+  });
+
+  it('an all-pass report reads as it did before blocked and skipped existed', () => {
+    const out = renderMarkdown(allPass, {});
+    expect(out).toContain('| Errored | 0 |\n| Cost (USD)');
+    expect(out).not.toMatch(/blocked|skipped|undefined/i);
+    expect(out).toContain('All evals passed.');
+  });
+
+  it('lists a blocked row as neither a failure nor a pass', () => {
+    const out = renderMarkdown(inconclusive, {});
+    expect(out).not.toContain('— failed');
+    expect(out).not.toContain('All evals passed.');
   });
 });

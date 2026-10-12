@@ -1,7 +1,9 @@
 // Console reporter (ADR-RP02). Default: summary + per-eval status + details ONLY for failed/errored
-// rows (passing rows collapsed to a count). Color is gated by the injected styler.
+// rows (passing rows collapsed to a count; blocked/skipped rows named, never detailed as failures).
+// Color is gated by the injected styler.
 
 import type { RunResult } from '../types/results.js';
+import { rowStatus } from '../types/results.js';
 import { createStyler } from './style.js';
 import { truncate } from './helpers.js';
 
@@ -23,8 +25,11 @@ export function renderConsole(result: RunResult, opts: ConsoleOptions = {}): str
   const failedTxt = summary.failed > 0 ? s.red(`${summary.failed} failed`) : `${summary.failed} failed`;
   const erroredTxt =
     summary.errored > 0 ? s.yellow(`${summary.errored} errored`) : `${summary.errored} errored`;
+  // plune#1245: only when not zero, so a run without them reads as it always has.
+  const blockedTxt = (summary.blocked ?? 0) > 0 ? ` · ${s.yellow(`${summary.blocked} blocked`)}` : '';
+  const skippedTxt = (summary.skipped ?? 0) > 0 ? ` · ${s.dim(`${summary.skipped} skipped`)}` : '';
   lines.push(
-    `${passedTxt} · ${failedTxt} · ${erroredTxt} · ${summary.total} total · $${summary.cost_usd.toFixed(4)} · ${summary.duration_ms}ms`,
+    `${passedTxt} · ${failedTxt} · ${erroredTxt}${blockedTxt}${skippedTxt} · ${summary.total} total · $${summary.cost_usd.toFixed(4)} · ${summary.duration_ms}ms`,
   );
   lines.push('');
 
@@ -35,17 +40,21 @@ export function renderConsole(result: RunResult, opts: ConsoleOptions = {}): str
 
     let passedCount = 0;
     for (const row of ev.rows) {
-      if (row.error !== undefined) {
-        lines.push(`  ${s.dim('vars:')} ${JSON.stringify(row.vars)}`);
-        lines.push(`  ${s.red('error:')} ${row.error.message}`);
-        continue;
-      }
-      const failed = row.assertions.filter((a) => !a.passed);
-      if (failed.length === 0) {
+      const status = rowStatus(row);
+      if (status === 'passed') {
         passedCount += 1;
         continue;
       }
       lines.push(`  ${s.dim('vars:')} ${JSON.stringify(row.vars)}`);
+      if (status === 'blocked' || status === 'skipped') {
+        lines.push(`  ${s.yellow(status)} (not judged)`);
+        continue;
+      }
+      if (row.error !== undefined) {
+        lines.push(`  ${s.red('error:')} ${row.error.message}`);
+        continue;
+      }
+      const failed = row.assertions.filter((a) => !a.passed);
       if (row.output !== null) {
         lines.push(`  ${s.dim('output:')} ${truncate(row.output, maxOut)}`);
       }

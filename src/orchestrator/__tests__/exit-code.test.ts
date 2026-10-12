@@ -27,4 +27,11 @@ describe('exitCodeFor (AC-10)', () => {
   it('returns 2 when errored without any failed (infra, not a quality regression)', () => {
     expect(exitCodeFor(result(2, 0, 1))).toBe(2);
   });
+  // plune#1245. ADR 0045 does not say what a row that was never judged means for the exit code, so
+  // today's rule stands: only failed (1) and errored (2) move it. Open question on the issue.
+  it('returns 0 when the only rows not passed are blocked or skipped', () => {
+    const r = result(1, 0, 0);
+    r.summary = { ...r.summary, total: 3, blocked: 1, skipped: 1 };
+    expect(exitCodeFor(r)).toBe(0);
+  });
 });
