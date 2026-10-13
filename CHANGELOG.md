@@ -11,6 +11,19 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **`plune run grep <run>`: a run's automated cases as one `--grep` (#85).** The command Plune shows for an
+  automated run's «Re-run N failed» — `npx playwright test --grep "$(plune run grep <run-id> --failed)"` — and the
+  one for a mixed run launched without a plan — `PLUNE_RUN=<key> npx playwright test --grep "$(plune run grep <key>)"`
+  — now work as they are. The pattern is built as `plune plan grep` builds a plan's (the same `grepFragment`, joined
+  with `|`, `(?!)` when nothing is taken), from `GET /v1/runs/:id/cases`: what the run expected or holds a result of,
+  manual cases left out. `<run>` is the run's id or its key (`rk_` and ten hex, found with `GET /v1/runs?key=`);
+  anything else is refused with exit 2 before a request is sent, and a key no run carries exits 1. `--failed` asks
+  the platform for the cases whose latest result it counts as failed or broken (`?status=failed,broken`), so a muted
+  case's failure is left out by the platform's rule, not by a copy of it in the CLI. stderr says how many cases were
+  taken and how many left out. Needs a Plune with plune-ai/plune#1333; an older one answers 404.
+
 ## [0.20.0] - 2026-10-13
 
 ### Changed

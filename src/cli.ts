@@ -322,6 +322,38 @@ export function createProgram(): Command {
     });
 
   runCommand
+    .command('grep')
+    .argument('<run>', 'The run: its id, or its key (rk_…) — the one PLUNE_RUN joins by')
+    .description(
+      "Print the run's automated cases as one --grep pattern for the runner (GET /v1/runs/:id/cases)",
+    )
+    .option('--failed', 'Only the cases whose latest result failed or broke — a muted failure does not count', false)
+    .action(async (run: string, options: { failed: boolean }, command: Command) => {
+      const verbose = verboseOf(command);
+      const { handleRunGrep, runGrepSummary, RunRefError } = await import('./cli/commands/plan.js');
+      const { reportCasesFailure } = await import('./cli/commands/cases.js');
+      try {
+        const out = await handleRunGrep({ run, failed: options.failed });
+        // The pattern alone on stdout, as `plan grep` prints it: `--grep "$(plune run grep <run>)"` gets nothing else.
+        process.stdout.write(out.pattern + '\n');
+        process.stderr.write(runGrepSummary(out, options.failed));
+      } catch (err) {
+        if (err instanceof RunRefError) {
+          process.stderr.write(`plune: ${err.message}\n`);
+          process.exitCode = err.exitCode;
+          return;
+        }
+        const code = reportCasesFailure(err, (s) => process.stderr.write(s));
+        if (code !== null) {
+          maybeStack(err, verbose);
+          process.exitCode = code;
+          return;
+        }
+        failUnexpected(err, verbose);
+      }
+    });
+
+  runCommand
     .command('report')
     .description('Send what the reporter could not — replays .plune/pending-results.jsonl')
     .option('--file <path>', 'The fallback file to replay')
