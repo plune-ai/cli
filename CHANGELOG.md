@@ -11,6 +11,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-10-13
+
 ### Added
 
 - **`plune run grep <run>`: a run's automated cases as one `--grep` (#85).** The command Plune shows for an
