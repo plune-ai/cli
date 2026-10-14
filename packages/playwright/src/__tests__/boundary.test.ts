@@ -125,5 +125,6 @@ describe('what the published tarball would carry', () => {
  * so that adding a new one is a visible change, not a silent one. */
 function isNodeBuiltin(specifier: string): boolean {
   // `http`/`https`: the core's own transport, not `fetch` (cli#58). `stream`: a file goes to a bucket piped from disk.
-  return ['crypto', 'fs', 'http', 'https', 'os', 'path', 'stream', 'url', 'util'].includes(specifier);
+  // `zlib`: a result batch goes gzipped to a platform that said it accepts that (plune-ai/plune#1393).
+  return ['crypto', 'fs', 'http', 'https', 'os', 'path', 'stream', 'url', 'util', 'zlib'].includes(specifier);
 }
