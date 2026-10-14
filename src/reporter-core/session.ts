@@ -29,7 +29,7 @@ const BATCH_MAX = 500;
 /** The platform's ceiling on one batch of offered tests — the same number, stated separately
  * because it is a different endpoint's promise and they are free to diverge. */
 const DISCOVER_MAX = 500;
-const BATCH_DEFAULT = 100;
+const BATCH_DEFAULT = 500;
 /** What `configuration.expected` may hold before the contract refuses the whole start. */
 const EXPECTED_MAX = 10_000;
 /** The platform's ceiling on one external key's value, and on the title of a queue entry. */

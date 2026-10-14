@@ -11,6 +11,14 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Changed
+
+- **Results go in batches of 500, not 100 (plune-ai/plune#1393).** The platform's ceiling per request is 500 and the 8 MiB
+  byte packing of a call is unchanged, so a run of 7 000 results is 14 requests instead of 70 (about 2.3 times faster per
+  result against a local platform; the time on a real network is not measured). `PLUNE_BATCH_SIZE` still sets it, up to 500.
+  The "N of M results sent" line only appears for a run larger than one batch, so it now starts at 501 results (it did at
+  101); `PLUNE_BATCH_SIZE=100` keeps the old cadence.
+
 ## [0.21.0] - 2026-10-13
 
 ### Added
