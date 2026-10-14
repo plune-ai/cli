@@ -19,7 +19,9 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   on its answers); an older platform never sees a compressed request, and a 415 sends the same body plain. Results are
   idempotent by `resultKey`, so the order the batches arrive in does not matter; a batch that fails is still set aside in
   the fallback file, and the run closes only after every request in flight has been answered. A refused token is said once
-  however many requests were already on the wire.
+  however many requests were already on the wire. With batches of 500, a run of 500 results or fewer is sent in one request,
+  so the "N of M results sent" line, which only appears for a run larger than one batch, now appears from 501 results
+  (it did from 101); set `PLUNE_BATCH_SIZE=100` to keep the old cadence.
 
 ## [0.21.0] - 2026-10-13
 

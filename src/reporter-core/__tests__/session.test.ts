@@ -572,6 +572,26 @@ describe('batching', () => {
     expect(seen.events).toHaveLength(1);
   });
 
+  it('waits for the calls still in flight when a send has failed, and only then throws', async () => {
+    const blocker = path.join(dir, 'blocker');
+    fs.writeFileSync(blocker, 'a file where a folder would have to be');
+    const { seen, fetchImpl } = platform({
+      known: { a: 'tc', b: 'tc' },
+      resultsFailure: { status: 400, error: 'bad batch' },
+      failCall: 0,
+      resultsMs: 40,
+    });
+    // The fallback file cannot be written, so the failed batch's send throws instead of deferring.
+    const run = await startRun(config(fetchImpl, { batchSize: 1, fallbackPath: path.join(blocker, 'pending.jsonl') }));
+    await run.add(result('a'));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await run.add(result('b'));
+    await new Promise((resolve) => setTimeout(resolve, 30)); // a has failed by now; b is still waiting for its answer
+    expect(seen.results).toHaveLength(0);
+    await expect(run.flush()).rejects.toThrow();
+    expect(seen.results).toHaveLength(1); // b was answered before flush gave up
+  });
+
   it('sends nothing at all for a run with no tests', async () => {
     const { seen, fetchImpl } = platform();
     const run = await startRun(config(fetchImpl));

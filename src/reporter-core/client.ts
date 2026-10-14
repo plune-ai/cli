@@ -37,6 +37,12 @@ interface Reply {
  */
 const agents = { 'http:': new HttpAgent({ keepAlive: true, maxSockets: 8 }), 'https:': new HttpsAgent({ keepAlive: true, maxSockets: 8 }) };
 
+/**
+ * The only routes that inflate a gzip body (the platform's bulk set): a run's start, a batch of results, a Cairn ingest,
+ * a Markdown tree and a CSV import. Any other route would read the compressed bytes as JSON and answer 400.
+ */
+const GZIP_PATHS = /^\/v1\/(runs|runs\/[^/?]+\/results|ingest\/cairn|test-cases\/markdown|test-cases\/import)(\?|$)/;
+
 /** Below this a body is sent as it is: gzip would save nothing a handshake does not cost. */
 const GZIP_MIN_BYTES = 1024;
 
@@ -251,12 +257,19 @@ export function createClient(opts: ClientOptions): PlatformClient {
    * answers 415 to it is not asked again.
    */
   let gzipAccepted = false;
+  /** Set by a 415, and nothing clears it: a header on a later answer cannot make the platform take what it refused. */
+  let gzipRefused = false;
 
   async function send<T>(
     method: 'POST' | 'DELETE',
     path: string,
     payload?: { body: string | Buffer; type: string },
   ): Promise<ClientOutcome<T>> {
+    // Compressed once, not once per retry: a batch of 8 MiB costs real time.
+    const gzipped =
+      !gzipRefused && gzipAccepted && payload?.type === 'application/json' && GZIP_PATHS.test(path) && Buffer.byteLength(payload.body) >= GZIP_MIN_BYTES
+        ? gzipSync(payload.body)
+        : undefined;
     let last: { kind: ClientFailureKind; status: number | null; detail: string; code?: string } = {
       kind: 'unavailable',
       status: null,
@@ -266,7 +279,7 @@ export function createClient(opts: ClientOptions): PlatformClient {
     for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
       let res: Reply;
       // Only JSON: a file is a picture or a log that is compressed already or goes to a route that does not inflate.
-      const zip = gzipAccepted && payload?.type === 'application/json' && Buffer.byteLength(payload.body) >= GZIP_MIN_BYTES;
+      const zip = gzipped !== undefined && !gzipRefused;
       try {
         res = await doFetch(`${base}${path}`, {
           method,
@@ -278,7 +291,7 @@ export function createClient(opts: ClientOptions): PlatformClient {
           // A DELETE carries none. Sending `"undefined"` as a body is what a naive
           // `JSON.stringify(body)` would do, and some proxies answer that with a 400 nobody can
           // explain.
-          ...(payload === undefined ? {} : { body: zip ? gzipSync(payload.body) : payload.body }),
+          ...(payload === undefined ? {} : { body: zip ? gzipped : payload.body }),
         });
       } catch (err) {
         last = { kind: 'unavailable', status: null, detail: scrub(String(err)) };
@@ -286,10 +299,10 @@ export function createClient(opts: ClientOptions): PlatformClient {
         continue;
       }
 
-      if (res.headers.get('accept-encoding')?.toLowerCase().includes('gzip') === true) gzipAccepted = true;
+      if (!gzipRefused && res.headers.get('accept-encoding')?.toLowerCase().includes('gzip') === true) gzipAccepted = true;
       // A platform that refuses the coding gets the same body plain, at once and for the rest of the run.
       if (res.status === 415 && zip) {
-        gzipAccepted = false;
+        gzipRefused = true;
         await detailOf(res);
         attempt -= 1;
         continue;

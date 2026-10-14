@@ -409,6 +409,37 @@ describe('client — gzip (#1393)', () => {
     expect(older.calls.map((c) => sent(c).encoding)).toEqual([undefined, undefined]);
   });
 
+  it('compresses only the routes that inflate: a long resolve or events body stays plain once gzip is learned', async () => {
+    const long = { keys: Array.from({ length: 100 }, (_, i) => ({ kind: 'playwright-id', value: `key-${i}-${'x'.repeat(20)}` })) };
+    const { client, calls } = harness([json({ ok: 1 }, 200, { 'accept-encoding': 'gzip' })]);
+    await client.post('/v1/runs', { schemaVersion: 2 });
+    await client.post('/v1/test-cases/resolve', long);
+    await client.post('/v1/review-items/discovered', long);
+    await client.post('/v1/runs/r-1/events', { event: 'finish', reason: 'x'.repeat(3000) });
+    await client.post('/v1/files/f-1/complete', long);
+    await client.post('/v1/runs/r-1/results', long);
+    expect(calls.map((c) => sent(c).encoding)).toEqual([undefined, undefined, undefined, undefined, undefined, 'gzip']);
+    expect(sent(calls[1]!).text).toBe(JSON.stringify(long));
+  });
+
+  it('stops for good after a 415, even when every answer, that one included, still says gzip', async () => {
+    const said = { 'accept-encoding': 'gzip' };
+    const { client, calls } = harness([json({ ok: 1 }, 200, said), json({ error: 'no' }, 415, said), json({ ok: 1 }, 200, said)]);
+    await client.post('/v1/runs', { schemaVersion: 2 });
+    await client.post('/v1/runs/r/results', big);
+    await client.post('/v1/runs/r/results', big);
+    await client.post('/v1/runs/r/results', big);
+    expect(calls.map((c) => sent(c).encoding)).toEqual([undefined, 'gzip', undefined, undefined, undefined]);
+  });
+
+  it('compresses a body once however often it is retried', async () => {
+    const { client, calls } = harness([json({ ok: 1 }, 200, { 'accept-encoding': 'gzip' }), json({ error: 'x' }, 503), json({ ok: 1 })]);
+    await client.post('/v1/runs', { schemaVersion: 2 });
+    await client.post('/v1/runs/r/results', big);
+    expect(calls).toHaveLength(3);
+    expect(calls[2]!.init.body).toBe(calls[1]!.init.body);
+  });
+
   it('answers a 415 with the same body plain, at once, and does not compress again', async () => {
     const { client, calls, waited } = harness([
       json({ ok: 1 }, 200, { 'accept-encoding': 'gzip' }),

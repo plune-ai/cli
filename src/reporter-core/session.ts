@@ -885,8 +885,12 @@ export async function startRun(
     rethrow();
   }
   async function flush(): Promise<void> {
-    await dispatch();
-    while (inFlight.size > 0) await Promise.all([...inFlight]);
+    try {
+      await dispatch();
+    } finally {
+      // Even when the dispatch threw: a send still in flight must be answered before anyone closes the run.
+      while (inFlight.size > 0) await Promise.all([...inFlight]);
+    }
     rethrow();
   }
 
