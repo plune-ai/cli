@@ -503,6 +503,38 @@ describe('batching', () => {
     expect(seen.results.map((r) => r.results.length)).toEqual([2, 1]);
   });
 
+  it('sends 500 results to a call when nothing is said, the platform’s ceiling (#1393)', async () => {
+    const ids = Array.from({ length: 501 }, (_, i) => `t${i}`);
+    const { seen, fetchImpl } = platform({ known: Object.fromEntries(ids.map((id) => [id, 'tc'])) });
+    const run = await startRun(config(fetchImpl));
+    for (const id of ids) await run.add(result(id));
+    await run.flush();
+
+    expect(seen.results.map((r) => r.results.length)).toEqual([500, 1]);
+    expect(run.stats).toMatchObject({ accepted: 501, deferred: 0 });
+  });
+
+  it('takes PLUNE_BATCH_SIZE over the default, and never more than 500', async () => {
+    const ids = Array.from({ length: 5 }, (_, i) => `t${i}`);
+    const known = Object.fromEntries(ids.map((id) => [id, 'tc']));
+    vi.stubEnv('PLUNE_BATCH_SIZE', '2');
+    try {
+      const { seen, fetchImpl } = platform({ known });
+      const run = await startRun(config(fetchImpl));
+      for (const id of ids) await run.add(result(id));
+      await run.flush();
+      expect(seen.results.map((r) => r.results.length)).toEqual([2, 2, 1]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    const big = Array.from({ length: 501 }, (_, i) => `u${i}`);
+    const capped = platform({ known: Object.fromEntries(big.map((id) => [id, 'tc'])) });
+    const run = await startRun(config(capped.fetchImpl, { batchSize: 9999 }));
+    for (const id of big) await run.add(result(id));
+    await run.flush();
+    expect(capped.seen.results.map((r) => r.results.length)).toEqual([500, 1]);
+  });
+
   it('sends nothing at all for a run with no tests', async () => {
     const { seen, fetchImpl } = platform();
     const run = await startRun(config(fetchImpl));
