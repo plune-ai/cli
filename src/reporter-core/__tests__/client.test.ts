@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { gunzipSync } from 'node:zlib';
 import { createClient, nodeTransport } from '../client.js';
 
 const TOKEN = 'plune_tok_do_not_leak_me';
@@ -372,5 +373,78 @@ describe('put — a file to a short-lived link of the project’s bucket (plune-
 
     expect(out).toEqual({ ok: false, status: null, code: 'ECONNREFUSED' });
     expect(JSON.stringify(out)).not.toContain('127.0.0.1');
+  });
+});
+
+/** #1393: a gzip body only for a platform that said it takes one, and plain again when it refuses. */
+describe('client — gzip (#1393)', () => {
+  const big = { results: Array.from({ length: 50 }, (_, i) => ({ resultKey: `k${i}`, testCaseId: `tc-${i}`, rawStatus: 'passed' })) };
+  const sent = (call: { init: RequestInit }): { encoding: string | undefined; text: string } => {
+    const headers = call.init.headers as Record<string, string>;
+    const body = call.init.body as string | Buffer;
+    return { encoding: headers['content-encoding'], text: headers['content-encoding'] === 'gzip' ? gunzipSync(body as Buffer).toString() : String(body) };
+  };
+
+  it('sends plain until an answer says `Accept-Encoding: gzip`, then compresses a body worth it', async () => {
+    const { client, calls } = harness([json({ run: { id: 'r' } }, 201, { 'accept-encoding': 'gzip' }), json({ ok: 1 })]);
+    await client.post('/v1/runs', big);
+    await client.post('/v1/runs/r/results', big);
+
+    expect(sent(calls[0]!).encoding).toBeUndefined();
+    expect(sent(calls[1]!).encoding).toBe('gzip');
+    expect(sent(calls[1]!).text).toBe(JSON.stringify(big));
+    expect((calls[1]!.init.body as Buffer).length).toBeLessThan(JSON.stringify(big).length / 2);
+  });
+
+  it('leaves a small body, a file and a platform that did not say so as they were', async () => {
+    const { client, calls } = harness([json({ ok: 1 }, 200, { 'accept-encoding': 'gzip' })]);
+    await client.post('/v1/runs', { schemaVersion: 2 });
+    await client.post('/v1/runs', { schemaVersion: 2 });
+    await client.upload('/v1/results/r/files?name=a', Buffer.alloc(5000, 1), 'image/png');
+    expect(calls.map((c) => sent(c).encoding)).toEqual([undefined, undefined, undefined]);
+
+    const older = harness([json({ ok: 1 })]);
+    await older.client.post('/v1/runs', big);
+    await older.client.post('/v1/runs', big);
+    expect(older.calls.map((c) => sent(c).encoding)).toEqual([undefined, undefined]);
+  });
+
+  it('answers a 415 with the same body plain, at once, and does not compress again', async () => {
+    const { client, calls, waited } = harness([
+      json({ ok: 1 }, 200, { 'accept-encoding': 'gzip' }),
+      json({ error: 'Content-Encoding is not accepted' }, 415),
+      json({ counts: {} }),
+      json({ counts: {} }),
+    ]);
+    await client.post('/v1/runs', { schemaVersion: 2 });
+    const out = await client.post('/v1/runs/r/results', big);
+    await client.post('/v1/runs/r/results', big);
+
+    expect(out.ok).toBe(true);
+    expect(calls.map((c) => sent(c).encoding)).toEqual([undefined, 'gzip', undefined, undefined]);
+    expect(sent(calls[2]!).text).toBe(JSON.stringify(big));
+    expect(waited).toEqual([]);
+  });
+});
+
+describe('nodeTransport — keep-alive (#1393)', () => {
+  it('sends two requests down one connection', async () => {
+    const connections: number[] = [];
+    const server = createServer((req, res) => {
+      connections.push(req.socket.remotePort ?? 0);
+      res.setHeader('content-type', 'application/json');
+      res.end('{}');
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1/runs`;
+    try {
+      await nodeTransport(url, { method: 'POST', headers: {}, body: '{}' });
+      await nodeTransport(url, { method: 'POST', headers: {}, body: '{}' });
+      expect(connections).toHaveLength(2);
+      expect(connections[0]).toBe(connections[1]);
+    } finally {
+      server.closeAllConnections();
+      server.close();
+    }
   });
 });

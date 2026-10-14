@@ -29,7 +29,11 @@ const BATCH_MAX = 500;
 /** The platform's ceiling on one batch of offered tests — the same number, stated separately
  * because it is a different endpoint's promise and they are free to diverge. */
 const DISCOVER_MAX = 500;
-const BATCH_DEFAULT = 100;
+/** 500 results is about 200 KB of JSON for an ordinary run and well inside the 8 MiB `packed` holds a call to. */
+const BATCH_DEFAULT = 500;
+/** How many results calls are on the wire at once (#1393). Results are idempotent by `resultKey`, so their order does not matter. */
+const CONCURRENCY_DEFAULT = 4;
+const CONCURRENCY_MAX = 16;
 /** What `configuration.expected` may hold before the contract refuses the whole start. */
 const EXPECTED_MAX = 10_000;
 /** The platform's ceiling on one external key's value, and on the title of a queue entry. */
@@ -366,6 +370,7 @@ export async function startRun(
   /** Made once, and written on every line this session defers: what tells `plune run report` that they are one run's (cli#45). */
   const sessionMarker = randomUUID();
   const batchSize = Math.min(cfg.batchSize ?? BATCH_DEFAULT, BATCH_MAX);
+  const concurrency = Math.min(Math.max(cfg.concurrency ?? CONCURRENCY_DEFAULT, 1), CONCURRENCY_MAX);
   const offerDiscovered = cfg.offerDiscovered ?? false;
 
   const token = cfg.token ?? loadToken() ?? '';
@@ -856,7 +861,36 @@ export async function startRun(
     );
   }
 
+  /**
+   * #1393: a full buffer is sent without the test waiting for the answer, up to `concurrency` calls at once; the
+   * test that fills a buffer past that waits for the first of them. A failure of a send is kept and thrown to the
+   * next caller, as it was thrown to the caller that waited for it before.
+   */
+  const inFlight = new Set<Promise<void>>();
+  let failure: { error: unknown } | undefined;
+  function rethrow(): void {
+    if (failure === undefined) return;
+    const { error } = failure;
+    failure = undefined;
+    throw error;
+  }
+  async function dispatch(): Promise<void> {
+    rethrow();
+    if (buffer.length === 0) return;
+    const sending: Promise<void> = send()
+      .catch((error: unknown) => void (failure ??= { error }))
+      .finally(() => void inFlight.delete(sending));
+    inFlight.add(sending);
+    if (inFlight.size >= concurrency) await Promise.race(inFlight);
+    rethrow();
+  }
   async function flush(): Promise<void> {
+    await dispatch();
+    while (inFlight.size > 0) await Promise.all([...inFlight]);
+    rethrow();
+  }
+
+  async function send(): Promise<void> {
     if (buffer.length === 0) return;
     const pending = buffer;
     buffer = [];
@@ -919,7 +953,8 @@ export async function startRun(
       if (out.ok) {
         log('plune: could not send results (the answer carried no counts).');
       } else if (out.kind === 'auth') {
-        log('plune: the API token was refused — run "plune login" with a fresh one.');
+        // Calls that were already on the wire when the first refusal came are refused too: said once.
+        if (!offline) log('plune: the API token was refused — run "plune login" with a fresh one.');
         offline = true;
       } else if (out.kind === 'conflict') {
         // Two processes closed one run. Retrying would not help and hiding it would leave someone
@@ -1001,7 +1036,7 @@ export async function startRun(
     },
     async add(result) {
       buffer.push({ ...result, keys: bound(result.keys) });
-      if (buffer.length >= batchSize) await flush();
+      if (buffer.length >= batchSize) await dispatch();
     },
     flush,
     async finish(reason?: string) {

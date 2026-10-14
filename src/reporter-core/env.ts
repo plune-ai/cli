@@ -77,6 +77,7 @@ export function readEnv(env: NodeJS.ProcessEnv = process.env): EnvSettings {
   const apiUrl = value(env, 'PLUNE_API_URL');
   const fallbackPath = value(env, 'PLUNE_FALLBACK');
   const batchSize = count(env, 'PLUNE_BATCH_SIZE');
+  const concurrency = count(env, 'PLUNE_CONCURRENCY');
   const title = value(env, 'PLUNE_RUN_TITLE');
   const environment = value(env, 'PLUNE_ENV');
   const labels = list(env, 'PLUNE_LABELS');
@@ -94,6 +95,7 @@ export function readEnv(env: NodeJS.ProcessEnv = process.env): EnvSettings {
       ...(apiUrl !== undefined ? { apiUrl } : {}),
       ...(fallbackPath !== undefined ? { fallbackPath } : {}),
       ...(batchSize !== undefined ? { batchSize } : {}),
+      ...(concurrency !== undefined ? { concurrency } : {}),
       ...(title !== undefined ? { title } : {}),
       ...(environment !== undefined ? { environment } : {}),
       ...(labels !== undefined ? { labels } : {}),

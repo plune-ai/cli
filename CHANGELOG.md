@@ -11,6 +11,16 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Changed
+
+- **A large run uploads faster (plune-ai/plune#1393).** Results go in batches of 500 instead of 100, with up to four requests
+  on the wire at once (`PLUNE_CONCURRENCY`, 1 to 16; 1 sends them one after another), over connections kept alive between
+  requests. A body of a kilobyte or more is sent gzipped once the platform has said it takes one (`Accept-Encoding: gzip`
+  on its answers); an older platform never sees a compressed request, and a 415 sends the same body plain. Results are
+  idempotent by `resultKey`, so the order the batches arrive in does not matter; a batch that fails is still set aside in
+  the fallback file, and the run closes only after every request in flight has been answered. A refused token is said once
+  however many requests were already on the wire.
+
 ## [0.21.0] - 2026-10-13
 
 ### Added

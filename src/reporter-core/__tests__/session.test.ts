@@ -39,6 +39,8 @@ interface Seen {
   completes: string[];
   /** The most PUTs that were ever waiting for an answer at once. */
   maxPuts: number;
+  /** The most calls to `…/results` that were ever waiting for an answer at once. */
+  maxResults: number;
 }
 
 interface PlatformOptions {
@@ -86,6 +88,8 @@ interface PlatformOptions {
   putStatuses?: (number | 'network')[];
   /** Every PUT waits for this before it is answered — to count how many are waiting at once. */
   putHold?: Promise<void>;
+  /** Every call to `…/results` takes this long to be answered (ms). */
+  resultsMs?: number;
   /** Force a reply on `…/complete`. */
   completeFailure?: { status: number; error: string; code?: string };
 }
@@ -107,7 +111,9 @@ function platform(opts: PlatformOptions = {}) {
     puts: [],
     completes: [],
     maxPuts: 0,
+    maxResults: 0,
   };
+  let resultsInFlight = 0;
   const known = opts.known ?? {};
   let linkCount = 0;
   let putsInFlight = 0;
@@ -206,6 +212,10 @@ function platform(opts: PlatformOptions = {}) {
     const results = /\/v1\/runs\/([^/]+)\/results$/.exec(target);
     if (results) {
       const call = seen.resultCalls.push(Buffer.byteLength(String(init?.body ?? ''))) - 1;
+      resultsInFlight += 1;
+      seen.maxResults = Math.max(seen.maxResults, resultsInFlight);
+      if (opts.resultsMs !== undefined) await new Promise((resolve) => setTimeout(resolve, opts.resultsMs));
+      resultsInFlight -= 1;
       const fails = opts.failCall === undefined || opts.failCall === call;
       if (fails && opts.resultsFailure === 'network') throw new TypeError('fetch failed');
       if (fails && opts.resultsFailure !== undefined) {
@@ -501,6 +511,65 @@ describe('batching', () => {
     await run.flush();
 
     expect(seen.results.map((r) => r.results.length)).toEqual([2, 1]);
+  });
+
+  it('keeps up to four results calls on the wire, and no more (#1393)', async () => {
+    const known = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`t${i}`, 'tc']));
+    const { seen, fetchImpl } = platform({ known, resultsMs: 20 });
+    const run = await startRun(config(fetchImpl, { batchSize: 1 }));
+    for (let i = 0; i < 12; i += 1) await run.add(result(`t${i}`));
+    await run.finish();
+
+    expect(seen.maxResults).toBe(4);
+    expect(seen.results).toHaveLength(12);
+    expect(run.stats).toMatchObject({ accepted: 12, deferred: 0 });
+  });
+
+  it('sends one after another when asked for 1, and takes PLUNE_CONCURRENCY from the environment', async () => {
+    const known = { a: 'tc', b: 'tc', c: 'tc' };
+    const one = platform({ known, resultsMs: 10 });
+    const serial = await startRun(config(one.fetchImpl, { batchSize: 1, concurrency: 1 }));
+    for (const id of ['a', 'b', 'c']) await serial.add(result(id));
+    await serial.flush();
+    expect(one.seen.maxResults).toBe(1);
+
+    vi.stubEnv('PLUNE_CONCURRENCY', '2');
+    try {
+      const two = platform({ known, resultsMs: 10 });
+      const run = await startRun(config(two.fetchImpl, { batchSize: 1 }));
+      for (const id of ['a', 'b', 'c']) await run.add(result(id));
+      await run.flush();
+      expect(two.seen.maxResults).toBe(2);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('closes the run only after every call in flight has been answered', async () => {
+    const { seen, fetchImpl } = platform({ known: { a: 'tc', b: 'tc', c: 'tc' }, resultsMs: 30 });
+    const run = await startRun(config(fetchImpl, { batchSize: 1 }));
+    for (const id of ['a', 'b', 'c']) await run.add(result(id));
+    await run.finish();
+
+    expect(seen.order).toEqual(['results', 'results', 'results', 'event:finish']);
+  });
+
+  it('still sets aside the one batch that failed while others are in flight, and delivers the rest', async () => {
+    const { seen, fetchImpl } = platform({
+      known: { a: 'tc', b: 'tc', c: 'tc' },
+      resultsFailure: { status: 400, error: 'bad batch' },
+      failCall: 1,
+      resultsMs: 20,
+    });
+    const cfg = config(fetchImpl, { batchSize: 1 });
+    const run = await startRun(cfg);
+    for (const id of ['a', 'b', 'c']) await run.add(result(id));
+    await run.finish();
+
+    expect(run.stats).toMatchObject({ accepted: 2, deferred: 1 });
+    const lines = fs.readFileSync(cfg.fallbackPath as string, 'utf8').trim().split(/\r?\n/);
+    expect(lines).toHaveLength(1);
+    expect(seen.events).toHaveLength(1);
   });
 
   it('sends nothing at all for a run with no tests', async () => {
@@ -1688,7 +1757,7 @@ describe('screenshots go to the result they belong to (plune#913)', () => {
     const { seen } = await report(
       [result('a', { files: [shot('a')] }), result('b', { files: [shot('b-1'), shot('b-2')] })],
       { fileMs: 25 },
-      { batchSize: 1 },
+      { batchSize: 1, concurrency: 1 },
     );
 
     expect(seen.order).toEqual(['results', 'file', 'results', 'file', 'file', 'event:finish']);
@@ -2113,7 +2182,7 @@ describe('text files go to the result they belong to (plune#928)', () => {
     const { seen } = await report(
       [result('a', { files: [inMemory('a', 'x')] }), result('b', { files: [inMemory('b-1', 'x'), jsonAt('b-2')] })],
       { fileMs: 25 },
-      { batchSize: 1 },
+      { batchSize: 1, concurrency: 1 },
     );
 
     expect(seen.order).toEqual(['results', 'file', 'results', 'file', 'file', 'event:finish']);

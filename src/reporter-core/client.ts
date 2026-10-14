@@ -13,8 +13,9 @@
 
 import { createReadStream, openAsBlob } from 'node:fs';
 import { pipeline } from 'node:stream';
-import { request as httpRequest } from 'node:http';
-import { request as httpsRequest } from 'node:https';
+import { Agent as HttpAgent, request as httpRequest } from 'node:http';
+import { Agent as HttpsAgent, request as httpsRequest } from 'node:https';
+import { gzipSync } from 'node:zlib';
 
 /** How long to wait before each retry, and — by its length — how many retries there are. */
 const RETRY_DELAYS_MS = [300, 900] as const;
@@ -29,6 +30,15 @@ interface Reply {
   headers: { get(name: string): string | null };
   json(): Promise<unknown>;
 }
+
+/**
+ * One connection kept for the next request instead of a handshake per batch (#1393). Node unrefs a socket while it idles
+ * in the pool, so a pooled connection does not hold the process open at the end of a run.
+ */
+const agents = { 'http:': new HttpAgent({ keepAlive: true, maxSockets: 8 }), 'https:': new HttpsAgent({ keepAlive: true, maxSockets: 8 }) };
+
+/** Below this a body is sent as it is: gzip would save nothing a handshake does not cost. */
+const GZIP_MIN_BYTES = 1024;
 
 interface Outgoing {
   method: string;
@@ -48,7 +58,7 @@ export function nodeTransport(url: string, init: Outgoing, idleMs: number = IDLE
     const target = new URL(url);
     const send = target.protocol === 'https:' ? httpsRequest : httpRequest;
     // `end(body)` with nothing written before it sends a Content-Length of its own, not chunks.
-    const req = send(target, { method: init.method, headers: init.headers }, (res) => {
+    const req = send(target, { method: init.method, headers: init.headers, agent: agents[target.protocol === 'https:' ? 'https:' : 'http:'] }, (res) => {
       const chunks: Buffer[] = [];
       res.on('data', (chunk: Buffer) => chunks.push(chunk));
       res.on('error', reject);
@@ -235,6 +245,13 @@ export function createClient(opts: ClientOptions): PlatformClient {
   const scrub = (text: string): string =>
     opts.token === '' ? text : text.split(opts.token).join('***');
 
+  /**
+   * #1393: whether the platform has said it takes a gzip body. It says so on the answers of the routes that do
+   * (`Accept-Encoding: gzip`), so a platform older than that never sees a compressed request from here; and one that
+   * answers 415 to it is not asked again.
+   */
+  let gzipAccepted = false;
+
   async function send<T>(
     method: 'POST' | 'DELETE',
     path: string,
@@ -248,18 +265,33 @@ export function createClient(opts: ClientOptions): PlatformClient {
 
     for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
       let res: Reply;
+      // Only JSON: a file is a picture or a log that is compressed already or goes to a route that does not inflate.
+      const zip = gzipAccepted && payload?.type === 'application/json' && Buffer.byteLength(payload.body) >= GZIP_MIN_BYTES;
       try {
         res = await doFetch(`${base}${path}`, {
           method,
-          headers: { 'content-type': payload?.type ?? 'application/json', authorization: `Bearer ${opts.token}` },
+          headers: {
+            'content-type': payload?.type ?? 'application/json',
+            authorization: `Bearer ${opts.token}`,
+            ...(zip ? { 'content-encoding': 'gzip' } : {}),
+          },
           // A DELETE carries none. Sending `"undefined"` as a body is what a naive
           // `JSON.stringify(body)` would do, and some proxies answer that with a 400 nobody can
           // explain.
-          ...(payload === undefined ? {} : { body: payload.body }),
+          ...(payload === undefined ? {} : { body: zip ? gzipSync(payload.body) : payload.body }),
         });
       } catch (err) {
         last = { kind: 'unavailable', status: null, detail: scrub(String(err)) };
         if (attempt < RETRY_DELAYS_MS.length) await wait(RETRY_DELAYS_MS[attempt] as number);
+        continue;
+      }
+
+      if (res.headers.get('accept-encoding')?.toLowerCase().includes('gzip') === true) gzipAccepted = true;
+      // A platform that refuses the coding gets the same body plain, at once and for the rest of the run.
+      if (res.status === 415 && zip) {
+        gzipAccepted = false;
+        await detailOf(res);
+        attempt -= 1;
         continue;
       }
 

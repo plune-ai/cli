@@ -362,8 +362,10 @@ export interface ReporterConfig {
   environment?: string;
   /** How the run is marked — smoke, nightly, a team. */
   labels?: string[];
-  /** Results per request. The platform's ceiling is 500. */
+  /** Results per request. The platform's ceiling is 500; 500 when nothing is said. */
   batchSize?: number;
+  /** Results requests on the wire at once (`PLUNE_CONCURRENCY`): 4 when nothing is said, 1 to send them one after another. */
+  concurrency?: number;
   /** Where unsent batches go. Defaults beside the run file the CLI already writes. */
   fallbackPath?: string;
   /**
