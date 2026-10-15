@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -292,5 +293,61 @@ describe('reportSyncFailure (#49)', () => {
     expect(reportSyncFailure(new SyncHttpError(500, ''), w)).toBe(1);
     expect(reportSyncFailure(new Error('unknown'), w)).toBeNull();
     expect(out).toHaveLength(5); // the unknown error printed nothing
+  });
+});
+
+describe('handleSync Idempotency-Key (#104)', () => {
+  const sha256Hex = (s: string): string => createHash('sha256').update(s).digest('hex');
+  const keyOf = (c: { init: RequestInit } | undefined): string =>
+    (c?.init.headers as Record<string, string>)['idempotency-key'] ?? '';
+  const upload = (dir: string, fn: typeof fetch): ReturnType<typeof handleSync> =>
+    handleSync({ cwd: dir, apiUrl: 'https://api.test', loadToken: () => TOKEN, fetchImpl: fn });
+
+  it('sends the SHA-256 of the exact body; same body, same key; other body, other key', async () => {
+    writeRun(tmp);
+    const a = stubFetch(201, { id: 'r1' });
+    await upload(tmp, a.fn);
+    await upload(tmp, a.fn);
+    expect(keyOf(a.calls[0])).toMatch(/^[0-9a-f]{64}$/);
+    expect(keyOf(a.calls[0])).toBe(sha256Hex(String(a.calls[0]?.init.body)));
+    expect(keyOf(a.calls[1])).toBe(keyOf(a.calls[0]));
+
+    writeRun(tmp, runResult({ config_hash: 'other' }));
+    const b = stubFetch(201, { id: 'r2' });
+    await upload(tmp, b.fn);
+    expect(keyOf(b.calls[0])).not.toBe(keyOf(a.calls[0]));
+  });
+
+  it('a 201 then a 200 replay are both success with the same result', async () => {
+    writeRun(tmp);
+    const first = await upload(tmp, stubFetch(201, { id: 'r1', linked: 2, unlinked: 0 }).fn);
+    const again = await upload(tmp, stubFetch(200, { id: 'r1', linked: 2, unlinked: 0 }).fn);
+    expect(again).toEqual(first);
+  });
+
+  it.each([422, 409, 400])('reports %i as an error and does not retry', async (status) => {
+    writeRun(tmp);
+    const { fn, calls } = stubFetch(status, { error: 'idempotency conflict' });
+    const err = await upload(tmp, fn).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SyncHttpError);
+    expect((err as SyncHttpError).status).toBe(status);
+    expect(calls).toHaveLength(1);
+  });
+
+  it('a retry after a lost answer (network error, then 5xx) resends the same key', async () => {
+    writeRun(tmp);
+    const keys: string[] = [];
+    let n = 0;
+    const flaky = (async (_u: string | URL | Request, init?: RequestInit) => {
+      keys.push((init?.headers as Record<string, string>)['idempotency-key'] ?? '');
+      n += 1;
+      if (n === 1) throw new TypeError('fetch failed');
+      return new Response(JSON.stringify({ id: 'r1' }), { status: n === 2 ? 503 : 200 });
+    }) as typeof fetch;
+    await upload(tmp, flaky).catch(() => undefined);
+    await upload(tmp, flaky).catch(() => undefined);
+    await upload(tmp, flaky);
+    expect(new Set(keys).size).toBe(1);
+    expect(keys).toHaveLength(3);
   });
 });

@@ -11,6 +11,13 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **`plune sync` sends `Idempotency-Key` on `POST /v1/runs`.** The key is the SHA-256 (hex) of the exact request body, so
+  repeating an upload whose answer was lost gives the same run instead of a second one, and other content gets another
+  key. A repeat answered `200` is a success with the same result as a fresh upload; `422` (the key was used with another
+  body) and `409` (its run is in the Bin) are reported as errors. A server that does not know the header ignores it.
+
 ## [0.23.0] - 2026-10-15
 
 ### Changed
