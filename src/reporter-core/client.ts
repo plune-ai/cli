@@ -16,8 +16,25 @@ import { pipeline } from 'node:stream';
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 
-/** How long to wait before each retry, and — by its length — how many retries there are. */
-const RETRY_DELAYS_MS = [300, 900] as const;
+/** The pause before retry `n` (from 0) when the platform named none: 300, 600, 1 200 ms … (x2), at most `BACKOFF_CAP_MS`. */
+const BACKOFF_BASE_MS = 300;
+const BACKOFF_CAP_MS = 10_000;
+/** Retries a request gets by default. An upload asks for more (`uploadRetries`). */
+export const DEFAULT_RETRIES = 2;
+/** The longest `Retry-After` honoured: a platform that says an hour does not park a CI job for one. */
+export const RETRY_AFTER_CAP_MS = 60_000;
+
+/**
+ * `Retry-After` as the milliseconds to wait: a count of seconds or an HTTP date, never more than
+ * `RETRY_AFTER_CAP_MS`, never negative. `null` when the header is absent or says nothing usable.
+ */
+export function parseRetryAfter(raw: string | null | undefined, now: number = Date.now()): number | null {
+  const text = raw?.trim();
+  if (text === undefined || text === '') return null;
+  const seconds = /^\d+(\.\d+)?$/.test(text) ? Number(text) : (Date.parse(text) - now) / 1000;
+  if (!Number.isFinite(seconds)) return null;
+  return Math.min(Math.max(seconds, 0) * 1000, RETRY_AFTER_CAP_MS);
+}
 
 /** How long a silent platform is waited for — the idle limit `fetch` had (undici's 300 s). */
 const IDLE_MS = 300_000;
@@ -106,10 +123,19 @@ export interface ClientOptions {
   fetchImpl?: typeof fetch;
   /** Test seam — the same idea as `fetchImpl`, so a retry test costs milliseconds, not seconds. */
   wait?: (ms: number) => Promise<void>;
+  /** Retries of a file's requests (default 2 for the platform's, 3 for a bucket's): what `uploadRetries` is. */
+  uploadRetries?: number;
+  /** Test seam for the jitter: a number in [0, 1). */
+  random?: () => number;
+  /** Test seam for the clock the shared pause is read against. */
+  now?: () => number;
+  /** Called once for every retry that is about to wait. */
+  onRetry?: () => void;
 }
 
 export interface PlatformClient {
-  post<T>(path: string, body: unknown): Promise<ClientOutcome<T>>;
+  /** `retries` after the first try: the default is 2; a file's requests ask for more. */
+  post<T>(path: string, body: unknown, retries?: number): Promise<ClientOutcome<T>>;
   /**
    * A file's bytes as the body, under the file's own type (platform ADR 0040) — not JSON. Through the
    * same retries as a POST, so a 429 on the platform's upload limit waits out its `Retry-After`.
@@ -130,8 +156,6 @@ export interface PlatformClient {
   put(url: string, headers: Record<string, string>, source: PutSource): Promise<PutOutcome>;
 }
 
-/** Pauses before the retries of a PUT — by their number, how many there are. */
-const PUT_DELAYS_MS = [500, 1500, 4000] as const;
 
 const withoutLength = (headers: Record<string, string>): Record<string, string> =>
   Object.fromEntries(Object.entries(headers).filter(([name]) => name.toLowerCase() !== 'content-length'));
@@ -204,14 +228,6 @@ async function detailOf(res: Reply): Promise<{ detail: string; code?: string }> 
   }
 }
 
-/** `Retry-After` in seconds, or `null` if the header is absent or not a count of seconds. */
-function retryAfterMs(res: Reply): number | null {
-  const raw = res.headers.get('retry-after');
-  if (raw === null) return null;
-  const seconds = Number(raw.trim());
-  return Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : null;
-}
-
 function classify(status: number): ClientFailureKind {
   if (status === 401 || status === 403) return 'auth';
   if (status === 409) return 'conflict';
@@ -223,6 +239,31 @@ function classify(status: number): ClientFailureKind {
 export function createClient(opts: ClientOptions): PlatformClient {
   const doFetch: (url: string, init: Outgoing) => Promise<Reply> = opts.fetchImpl ?? nodeTransport;
   const wait = opts.wait ?? sleep;
+  const uploadRetries = opts.uploadRetries === undefined ? undefined : Math.max(0, Math.floor(opts.uploadRetries));
+  const random = opts.random ?? Math.random;
+  const now = opts.now ?? Date.now;
+  /**
+   * When the platform last asked for patience, until when. Shared by every request of this client: one
+   * told to wait holds the next try of all the others, so a limit is met by a pause, not by a hundred
+   * requests each finding out for itself (and a 429 storm each paying its own retries).
+   */
+  let pausedUntil = 0;
+  /** [d, 1.5d): never earlier than asked, and spread so that what waited together does not return together. */
+  const jittered = (ms: number): number => Math.round(ms * (1 + random() * 0.5));
+  /** Sleep for a retry of this request, and make every other request sleep through it as well. */
+  async function backOff(attempt: number, said: number | null): Promise<number> {
+    opts.onRetry?.();
+    const ms = jittered(said ?? Math.min(BACKOFF_BASE_MS * 2 ** attempt, BACKOFF_CAP_MS));
+    const until = now() + ms;
+    pausedUntil = Math.max(pausedUntil, until);
+    await wait(ms);
+    return until;
+  }
+  /** Before a try: whatever is left of a pause ANOTHER request started (`mine` is the one this request slept through). */
+  async function respectPause(mine: number): Promise<void> {
+    const left = pausedUntil - now();
+    if (pausedUntil > mine && left > 0) await wait(left + Math.round(random() * 250));
+  }
   const base = opts.apiUrl.replace(/\/+$/, '');
 
   /**
@@ -239,6 +280,7 @@ export function createClient(opts: ClientOptions): PlatformClient {
     method: 'POST' | 'DELETE',
     path: string,
     payload?: { body: string | Buffer; type: string },
+    retries: number = DEFAULT_RETRIES,
   ): Promise<ClientOutcome<T>> {
     let last: { kind: ClientFailureKind; status: number | null; detail: string; code?: string } = {
       kind: 'unavailable',
@@ -246,7 +288,9 @@ export function createClient(opts: ClientOptions): PlatformClient {
       detail: 'no attempt was made',
     };
 
-    for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
+    let mine = 0;
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+      await respectPause(mine);
       let res: Reply;
       try {
         res = await doFetch(`${base}${path}`, {
@@ -259,7 +303,8 @@ export function createClient(opts: ClientOptions): PlatformClient {
         });
       } catch (err) {
         last = { kind: 'unavailable', status: null, detail: scrub(String(err)) };
-        if (attempt < RETRY_DELAYS_MS.length) await wait(RETRY_DELAYS_MS[attempt] as number);
+        if (attempt >= Math.min(retries, DEFAULT_RETRIES)) break;
+        mine = await backOff(attempt, null);
         continue;
       }
 
@@ -283,7 +328,8 @@ export function createClient(opts: ClientOptions): PlatformClient {
       if (kind !== 'unavailable') break;
 
       // 429 without Retry-After means quota exceeded, not rate limit — retrying with short delays is useless.
-      if (res.status === 429 && retryAfterMs(res) === null) {
+      const said429 = parseRetryAfter(res.headers.get('retry-after'), now());
+      if (res.status === 429 && said429 === null) {
         last.kind = 'invalid';
         // The appended text is the same one `scrub` already had a look at above. Appending it raw
         // put whatever a proxy echoed back — the bearer token among it — straight into a CI log.
@@ -291,23 +337,26 @@ export function createClient(opts: ClientOptions): PlatformClient {
         break;
       }
 
-      if (attempt < RETRY_DELAYS_MS.length) {
-        await wait(retryAfterMs(res) ?? (RETRY_DELAYS_MS[attempt] as number));
-      }
+      // Only a platform that SAID when to come back earns the long budget; a dead one does not stall a thousand files six times each.
+      if (attempt >= (said429 === null ? Math.min(retries, DEFAULT_RETRIES) : retries)) break;
+      mine = await backOff(attempt, said429);
     }
 
     return { ok: false, ...last };
   }
 
   return {
-    post: <T>(path: string, body: unknown) =>
-      send<T>('POST', path, { body: JSON.stringify(body), type: 'application/json' }),
+    post: <T>(path: string, body: unknown, retries?: number) =>
+      send<T>('POST', path, { body: JSON.stringify(body), type: 'application/json' }, retries),
     upload: <T>(path: string, bytes: Buffer, contentType: string) =>
-      send<T>('POST', path, { body: bytes, type: contentType }),
+      send<T>('POST', path, { body: bytes, type: contentType }, uploadRetries ?? DEFAULT_RETRIES),
     del: <T>(path: string) => send<T>('DELETE', path),
     async put(url, headers, source) {
+      const putRetries = uploadRetries ?? 3;
       let last: PutOutcome = { ok: false, status: null, code: 'network' };
-      for (let attempt = 0; attempt <= PUT_DELAYS_MS.length; attempt += 1) {
+      let mine = 0;
+      for (let attempt = 0; attempt <= putRetries; attempt += 1) {
+        await respectPause(mine);
         try {
           let status: number;
           let retryAfter: string | null;
@@ -324,15 +373,15 @@ export function createClient(opts: ClientOptions): PlatformClient {
           last = { ok: false, status, code: `bucket_${status}` };
           // A 429 is a bucket asking for patience, like a 5xx.
           if (status < 500 && status !== 429) return last;
-          const seconds = retryAfter === null ? NaN : Number(retryAfter.trim());
-          if (attempt < PUT_DELAYS_MS.length) {
-            await wait(Number.isFinite(seconds) && seconds >= 0 ? Math.min(seconds, 60) * 1000 : (PUT_DELAYS_MS[attempt] as number));
-          }
+          const said = parseRetryAfter(retryAfter, now());
+          if (attempt >= (said === null ? Math.min(putRetries, 3) : putRetries)) return last;
+          mine = await backOff(attempt, said);
           continue;
         } catch (err) {
           last = { ok: false, status: null, code: codeOfError(err) };
         }
-        if (attempt < PUT_DELAYS_MS.length) await wait(PUT_DELAYS_MS[attempt] as number);
+        if (attempt >= Math.min(putRetries, 3)) return last;
+        mine = await backOff(attempt, null);
       }
       return last;
     },

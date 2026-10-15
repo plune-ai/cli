@@ -54,6 +54,8 @@ fills in what you left out. Anything set in the config file wins.
 | `PLUNE_SHARED_RUN` | this process is one of several — do not close the run |
 | `PLUNE_PROCEED` | the job closes the run itself, later |
 | `PLUNE_BATCH_SIZE` | results per request (default 500, max 500) |
+| `PLUNE_UPLOAD_CONCURRENCY` | files uploaded at once (1 to 32, default 4) |
+| `PLUNE_UPLOAD_RETRIES` | retries of a file's request after a 429 with `Retry-After` (0 to 20, default 6) |
 | `PLUNE_FALLBACK` | where unsent batches are written |
 | `PLUNE_RUN_TITLE` | what to call the run in the list (default: `<directory> · 2026-09-15 15:26 · ci`) |
 | `PLUNE_ENV` | where it ran — `staging`, `prod`, a preview name |

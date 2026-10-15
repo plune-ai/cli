@@ -28,6 +28,8 @@ export interface ImportOptions extends RunCommandDeps {
   key?: string;
   /** Offer tests that resolved to nothing to the review queue (the `PLUNE_CREATE=1` switch, D14). */
   create?: boolean;
+  /** `--upload-concurrency`: files in flight at once, over `PLUNE_UPLOAD_CONCURRENCY`. */
+  uploadConcurrency?: number;
   /** `--fail-on-failures`: judge the run by the summary the platform froze when this import finished it (plune#1247). */
   failOnFailures?: boolean;
 }
@@ -127,6 +129,7 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
       ...(options.fetchImpl !== undefined ? { fetchImpl: options.fetchImpl } : {}),
       ...(options.key !== undefined ? { externalKey: options.key } : {}),
       ...(options.create === true ? { offerDiscovered: true } : {}),
+      ...(options.uploadConcurrency !== undefined ? { uploadConcurrency: options.uploadConcurrency } : {}),
       kind: 'automated',
       // The CI run the report names, never this machine's: whoever imports may be another job (#790).
       // The commit and branch likewise, where the report names a commit; a report that names none —
