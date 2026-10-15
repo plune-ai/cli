@@ -28,6 +28,7 @@ function platform(
   const seen: Seen[] = [];
   const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
     const target = String(url).replace('https://api.test', '');
+    if (/\/v1\/files\/(uploads|complete|direct)-batch$/.test(target)) return new Response('404 Not Found', { status: 404 });
     if (target.includes('/files?name=')) {
       const bytes = Buffer.from(init?.body as Uint8Array);
       seen.push({ path: target, body: {}, file: { type: (init?.headers as Record<string, string>)['content-type']!, bytes } });

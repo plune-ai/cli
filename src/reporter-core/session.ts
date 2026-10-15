@@ -7,6 +7,7 @@ import { loadToken } from '../cli/credentials.js';
 import { createClient, type ClientOutcome, type PlatformClient } from './client.js';
 import { defaultRunTitle, readEnv, UPLOAD_CONCURRENCY, UPLOAD_RETRIES } from './env.js';
 import { mediaTypeOf, printable, TEXT_TYPES } from './failure-detail.js';
+import { BATCH_PIPELINES, BUCKET_CODES, DIRECT_BATCH_BYTES, FILES_BATCH_MAX, sha256Bytes, sha256File, type BatchVerdict } from './files-batch.js';
 import { appendBatch, DEFAULT_FALLBACK_PATH, type DeferredResult } from './fallback.js';
 import type {
   DiscoveredTest,
@@ -373,6 +374,11 @@ export async function startRun(
   /** For the closing line about files: the retries the platform and the buckets asked for, and the time the uploads took. */
   let retried = 0;
   let uploadMs = 0;
+  /** Requests made to the platform's file routes (not to buckets), retries not counted; and files it already had (`exists`). */
+  let requests = 0;
+  let existed = 0;
+  /** A platform older than ADR 0051 has no bulk routes (404, no JSON): the files go one request each, as before. Decided by the answer, not by a version. */
+  let batchMissing = false;
   const client: PlatformClient = createClient({
     apiUrl: resolveApiUrl(cfg.apiUrl),
     token,
@@ -665,6 +671,7 @@ export async function startRun(
    * bucket's ceiling refuses the whole call) costs no other, and a renewed link is the same call again.
    */
   function ask(job: Upload, size: number) {
+    requests += 1;
     return client.post<{ files?: unknown[] }>(`/v1/results/${encodeURIComponent(job.id)}/files/uploads`, {
       files: [{ name: job.name, contentType: job.type, size }],
     }, uploadRetries);
@@ -714,6 +721,7 @@ export async function startRun(
     }
     const refusal = kind === 'text' ? textRefusal(bytes) : undefined;
     if (refusal !== undefined) return skip(kind, job.name, refusal);
+    requests += 1;
     const out = await client.upload(
       `/v1/results/${encodeURIComponent(job.id)}/files?name=${encodeURIComponent(job.name)}`,
       bytes,
@@ -740,6 +748,7 @@ export async function startRun(
       if (fresh === undefined) return failedToBucket(job, 'bad_answer');
       link = fresh;
     }
+    requests += 1;
     const done = await client.post(`/v1/files/${encodeURIComponent(link.id)}/complete`, {}, uploadRetries);
     if (!done.ok) return failedToBucket(job, codeOf(done));
     countsOf(job.kind).uploaded += 1;
@@ -810,6 +819,276 @@ export async function startRun(
     return () => uploadToBucket(job, size, link);
   }
 
+  /** The way it was before ADR 0051: a request or three per file. Used against a platform that has no bulk routes. */
+  async function uploadEach(jobs: Upload[]): Promise<void> {
+    // The files of one result are asked about one after the other, in the order of the attachments; the results
+    // run side by side, and the calls they make share the places of `gated`.
+    const byResult = new Map<string, Upload[]>();
+    for (const job of jobs) byResult.set(job.id, [...(byResult.get(job.id) ?? []), job]);
+    await Promise.all(
+      [...byResult.values()].map(async (group) => {
+        const work: Promise<void>[] = [];
+        for (const job of group) {
+          const act = await plan(job);
+          if (act !== undefined) work.push(gated(act));
+        }
+        await Promise.all(work);
+      }),
+    );
+  }
+
+  /** The size of a file, or nothing (and a count) when there is nothing to send. */
+  async function measure(job: Upload): Promise<number | undefined> {
+    let size: number;
+    if (job.body !== undefined) size = job.body.length;
+    else if (job.path === undefined) return void skip(job.kind, job.name, 'missing');
+    else {
+      try {
+        size = (await disk.stat(job.path)).size;
+      } catch {
+        return void skip(job.kind, job.name, 'missing');
+      }
+    }
+    if (size === 0) return void skip(job.kind, job.name, 'empty');
+    return size;
+  }
+
+  /** A platform that answers a bulk route with a bare 404 does not have it (a new one never does, even for a result that is not yours). */
+  const routeMissing = (out: { ok: boolean; status?: number | null; detail?: string; code?: string }): boolean =>
+    !out.ok && out.status === 404 && out.detail === '' && out.code === undefined;
+
+  /** A place for a picture or a text in the result of the database, in the order of the attachments. */
+  function takeRoom(job: Upload): boolean {
+    if (job.kind === 'file') {
+      skip(job.kind, job.name, 'noStorage');
+      return false;
+    }
+    const roomKey = `${job.id}/${job.kind}`;
+    const left = rooms.get(roomKey) ?? KINDS[job.kind].room;
+    if (left === 0) {
+      skip(job.kind, job.name, KINDS[job.kind].limit);
+      return false;
+    }
+    rooms.set(roomKey, left - 1);
+    return true;
+  }
+
+  /** What one refused item of a bulk answer means for its file. Nothing else in the batch is touched. */
+  function refusedItem(job: Upload, size: number, item: BatchVerdict): void {
+    const code = item.code ?? 'refused';
+    if (code === 'duplicate') existed += 1; // the same file twice in one report: one copy is there
+    else if (code === 'no_storage') skip(job.kind, job.name, refusedHere(job, size) ?? 'noStorage');
+    else if (code === 'too_many_files') skip(job.kind, job.name, KINDS[job.kind].limit);
+    else if (BUCKET_CODES.has(code)) failedToBucket(job, code);
+    else failed(job, code);
+  }
+
+  /** Pause before retrying only the items a batch said may succeed if sent again; the platform's own `Retry-After` is honoured by the client. */
+  const itemPause = (round: number): Promise<void> => new Promise((r) => setTimeout(r, Math.min(250 * 2 ** round, 4000)));
+
+  /**
+   * Up to 100 files per request (platform ADR 0051): announce all with their SHA-256 (a file the platform has
+   * already is `exists` and sends nothing), PUT the ones that got a link, complete them in one request, and send
+   * the ones that have no bucket by `direct-batch`. Every item has its own verdict; one that fails costs the others nothing.
+   */
+  async function batchOf(jobs: Upload[]): Promise<void> {
+    if (batchMissing) return uploadEach(jobs);
+    const sized: { job: Upload; size: number; sha256: string }[] = [];
+    for (const job of jobs) {
+      const size = await measure(job);
+      if (size === undefined) continue;
+      try {
+        sized.push({ job, size, sha256: job.body !== undefined ? sha256Bytes(job.body) : await sha256File(job.path as string) });
+      } catch {
+        skip(job.kind, job.name, 'missing');
+      }
+    }
+    if (sized.length === 0) return;
+    const announced = await gated(() => {
+      requests += 1;
+      return client.post<{ items?: BatchVerdict[] }>(
+        '/v1/files/uploads-batch',
+        { items: sized.map((s) => ({ resultId: s.job.id, name: s.job.name, contentType: s.job.type, size: s.size, sha256: s.sha256 })) },
+        uploadRetries,
+      );
+    });
+    if (routeMissing(announced)) {
+      batchMissing = true;
+      return uploadEach(sized.map((s) => s.job)); // the missing and the empty are counted already
+    }
+    const verdicts = announced.ok ? announced.body?.items : undefined;
+    if (!announced.ok || !Array.isArray(verdicts) || verdicts.length !== sized.length) {
+      for (const s of sized) {
+        if (announced.ok) failed(s.job, 'bad_answer');
+        else if (announced.code !== undefined) failedToBucket(s.job, announced.code);
+        else failed(s.job, announced.detail || announced.kind);
+      }
+      return;
+    }
+    const puts: { s: (typeof sized)[number]; link: { id: string; url: string; headers: Record<string, string> } }[] = [];
+    const directs: (typeof sized)[number][] = [];
+    sized.forEach((s, i) => {
+      const v = verdicts[i] ?? {};
+      if (v.status === 'exists') existed += 1;
+      else if (v.status === 'direct') {
+        if (takeRoom(s.job)) directs.push(s);
+      } else if (v.status === 'upload') {
+        const link = linkOf(v);
+        if (link === undefined) return failed(s.job, 'bad_answer');
+        if (!bucketSeen) {
+          bucketSeen = true;
+          log(BUCKET_FOUND);
+        }
+        puts.push({ s, link });
+      } else if (v.status === 'refused') refusedItem(s.job, s.size, v);
+      else failed(s.job, 'bad_answer');
+    });
+
+    const toComplete: { job: Upload; id: string }[] = [];
+    await Promise.all(
+      puts.map(({ s, link: first }) =>
+        gated(async () => {
+          const source = s.job.body !== undefined ? { body: s.job.body } : { path: s.job.path as string, size: s.size };
+          let link = first;
+          for (let renewed = false; ; ) {
+            const put = await client.put(link.url, link.headers, source);
+            if (put.ok) break;
+            // The link has expired: one new one for this file (the same hash gets the same row back), then it is a warning.
+            if (put.status !== 403 || renewed) return failedToBucket(s.job, put.code);
+            renewed = true;
+            requests += 1;
+            const again = await client.post<{ items?: BatchVerdict[] }>(
+              '/v1/files/uploads-batch',
+              { items: [{ resultId: s.job.id, name: s.job.name, contentType: s.job.type, size: s.size, sha256: s.sha256 }] },
+              uploadRetries,
+            );
+            const fresh = again.ok ? linkOf(again.body?.items?.[0]) : undefined;
+            if (fresh === undefined) return failedToBucket(s.job, again.ok ? 'bad_answer' : codeOf(again));
+            link = fresh;
+          }
+          toComplete.push({ job: s.job, id: link.id });
+        }),
+      ),
+    );
+    await complete(toComplete);
+    await sendDirect(directs);
+  }
+
+  /** `complete-batch`; the items it calls retryable (the bucket did not answer) go again, alone, a few times. */
+  async function complete(items: { job: Upload; id: string }[]): Promise<void> {
+    for (let round = 0; items.length > 0; round += 1) {
+      const out = await gated(() => {
+        requests += 1;
+        return client.post<{ items?: BatchVerdict[] }>('/v1/files/complete-batch', { ids: items.map((i) => i.id) }, uploadRetries);
+      });
+      if (routeMissing(out)) {
+        // Announced by a bulk route and completed by a single one: a platform in the middle of a deploy. `complete` is the same check.
+        await Promise.all(
+          items.map((i) =>
+            gated(async () => {
+              requests += 1;
+              const one = await client.post(`/v1/files/${encodeURIComponent(i.id)}/complete`, {}, uploadRetries);
+              if (one.ok) countsOf(i.job.kind).uploaded += 1;
+              else failedToBucket(i.job, codeOf(one));
+            }),
+          ),
+        );
+        return;
+      }
+      const verdicts = out.ok ? out.body?.items : undefined;
+      if (!out.ok || !Array.isArray(verdicts) || verdicts.length !== items.length) {
+        for (const i of items) failedToBucket(i.job, out.ok ? 'bad_answer' : codeOf(out));
+        return;
+      }
+      const again: typeof items = [];
+      items.forEach((i, at) => {
+        const v = verdicts[at] ?? {};
+        if (v.status === 'ready') countsOf(i.job.kind).uploaded += 1;
+        else if (v.retryable === true && round < Math.min(uploadRetries, 3)) again.push(i);
+        else refusedItem(i.job, 0, v.status === 'refused' ? v : { code: 'bad_answer' });
+      });
+      items = again;
+      if (items.length > 0) {
+        retried += items.length;
+        await itemPause(round);
+      }
+    }
+  }
+
+  /** The files of a project without a bucket: `direct-batch`, a request per 100 files or 6 MiB, whichever comes first. */
+  async function sendDirect(items: { job: Upload; size: number }[]): Promise<void> {
+    const groups: (typeof items)[] = [];
+    let bytes = 0;
+    for (const item of items) {
+      const group = groups[groups.length - 1];
+      if (group === undefined || group.length >= FILES_BATCH_MAX || bytes + item.size > DIRECT_BATCH_BYTES) {
+        groups.push([item]);
+        bytes = item.size;
+      } else {
+        group.push(item);
+        bytes += item.size;
+      }
+    }
+    for (const group of groups) {
+      // The bytes are read for this request only, and let go of with it.
+      const body: { resultId: string; name: string; contentType: string; data: string }[] = [];
+      const sent: { job: Upload; size: number }[] = [];
+      for (const { job, size } of group) {
+        const { kind } = job;
+        if (size > KINDS[kind].bytes) {
+          skip(kind, job.name, KINDS[kind].size);
+          continue;
+        }
+        let data: Buffer;
+        try {
+          data = job.body ?? (await disk.readFile(job.path as string));
+        } catch {
+          skip(kind, job.name, 'missing');
+          continue;
+        }
+        const refusal = kind === 'text' ? textRefusal(data) : undefined;
+        if (refusal !== undefined) {
+          skip(kind, job.name, refusal);
+          continue;
+        }
+        body.push({ resultId: job.id, name: job.name, contentType: job.type, data: data.toString('base64') });
+        sent.push({ job, size });
+      }
+      if (body.length === 0) continue;
+      const out = await gated(() => {
+        requests += 1;
+        return client.post<{ items?: BatchVerdict[] }>('/v1/files/direct-batch', { items: body }, uploadRetries);
+      });
+      if (routeMissing(out)) {
+        batchMissing = true;
+        for (const { job, size } of sent) await gated(() => uploadDirect(job, size));
+        continue;
+      }
+      const verdicts = out.ok ? out.body?.items : undefined;
+      if (!out.ok || !Array.isArray(verdicts) || verdicts.length !== sent.length) {
+        for (const { job } of sent) failed(job, out.ok ? 'bad_answer' : out.detail || out.kind);
+        continue;
+      }
+      sent.forEach(({ job }, i) => {
+        const v = verdicts[i] ?? {};
+        if (v.status === 'stored') countsOf(job.kind).uploaded += 1;
+        else if (v.status === 'exists') existed += 1;
+        else refusedItem(job, 0, v.status === 'refused' ? v : { code: 'bad_answer' });
+      });
+    }
+  }
+
+  /** Files in batches of up to 100, `BATCH_PIPELINES` of them at a time; the places of `gated` bound the requests and the PUTs together. */
+  async function uploadBatched(jobs: Upload[]): Promise<void> {
+    const batches = chunk(jobs, FILES_BATCH_MAX);
+    let next = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(BATCH_PIPELINES, batches.length) }, async () => {
+        for (let at = next++; at < batches.length; at = next++) await batchOf(batches[at]!);
+      }),
+    );
+  }
+
   /**
    * The screenshots and the text files of the results a batch just stored, each to its own result
    * (platform ADR 0040).
@@ -847,21 +1126,9 @@ export async function startRun(
         }
       }
     }
-    // The files of one result are asked about one after the other, in the order of the attachments; the results
-    // run side by side, and the calls they make share the places of `gated`.
     const started = Date.now();
-    const byResult = new Map<string, Upload[]>();
-    for (const job of jobs) byResult.set(job.id, [...(byResult.get(job.id) ?? []), job]);
-    await Promise.all(
-      [...byResult.values()].map(async (group) => {
-        const work: Promise<void>[] = [];
-        for (const job of group) {
-          const act = await plan(job);
-          if (act !== undefined) work.push(gated(act));
-        }
-        await Promise.all(work);
-      }),
-    );
+    if (batchMissing) await uploadEach(jobs);
+    else await uploadBatched(jobs);
     uploadMs += Date.now() - started;
   }
 
@@ -993,10 +1260,10 @@ export async function startRun(
     // What the files cost, in one line before the summary: a dropped file never fails the import, so this is where it is counted.
     const files = [stats.screenshots, stats.textFiles, stats.otherFiles];
     const total = (what: 'uploaded' | 'skipped' | 'failed') => files.reduce((n, counts) => n + counts[what], 0);
-    if (total('uploaded') + total('skipped') + total('failed') > 0) {
+    if (total('uploaded') + total('skipped') + total('failed') + existed > 0) {
       log(
-        `plune: files — ${total('uploaded')} uploaded, ${total('skipped')} skipped, ${retried} retried, ` +
-          `${total('failed')} dropped, in ${(uploadMs / 1000).toFixed(1)} s (${uploadsAtOnce} at once)`,
+        `plune: files — ${total('uploaded')} uploaded, ${total('skipped')} skipped, ${existed} already there (skipped), ${retried} retried, ` +
+          `${total('failed')} dropped, in ${(uploadMs / 1000).toFixed(1)} s (${uploadsAtOnce} at once, ${requests} request(s) to Plune)`,
       );
     }
     log(`plune: ${parts.join(' · ')}`);

@@ -159,6 +159,7 @@ async function takingFiles(
         puts.push({ url, type: String(req.headers['content-type']), bytes: raw, length: req.headers['content-length'] });
         return reply(puts.length <= failPuts ? 503 : 200, {});
       }
+      if (/^\/v1\/files\/(uploads|complete|direct)-batch$/.test(url)) return reply(404, {});
       // Before the JSON below: a file's body is its bytes.
       if (/^\/v1\/results\/[^/]+\/files\?name=/.test(url)) {
         uploads.push({ url, type: String(req.headers['content-type']), bytes: raw });

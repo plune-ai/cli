@@ -134,6 +134,8 @@ function platform(opts: PlatformOptions = {}) {
         ...(status >= 400 && opts.putRetryAfter !== undefined ? { headers: { 'retry-after': opts.putRetryAfter } } : {}),
       });
     }
+    // A platform older than the bulk routes (ADR 0051): the CLI falls back to one request per file.
+    if (/\/v1\/files\/(uploads|complete|direct)-batch$/.test(target)) return new Response('404 Not Found', { status: 404 });
     const uploadsAt = /\/v1\/results\/([^/]+)\/files\/uploads$/.exec(target);
     if (uploadsAt) {
       const asked = JSON.parse(String(init?.body)) as { files: { name: string; contentType: string; size: number }[] };

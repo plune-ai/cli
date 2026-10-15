@@ -11,6 +11,17 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Changed
+
+- **`plune run import` (and the Playwright reporter) upload a report's files through the bulk routes of the platform.** Up to
+  100 files go in one `uploads-batch` request with the SHA-256 of each (read as a stream), the bytes go to the bucket as before
+  (or through `direct-batch` for a project without one), and `complete-batch` confirms them. Each file has its own verdict: a
+  refused one is reported and retried alone, the rest of its request is not affected, and a file the platform already has is
+  `exists` and is not sent again. A 429 on a request waits out its `Retry-After`. Against a platform without the bulk routes
+  (404) the CLI falls back to one request per file, decided by the answer. The files line gains `N already there (skipped)` and
+  the number of requests made to Plune. On a local fake server with 20 ms per request, 2760 files of 70 KB took 5522 requests
+  and 65 s one by one, and 56 requests and 24 s in batches; the real server has not been measured.
+
 ## [0.22.0] - 2026-10-15
 
 ### Added

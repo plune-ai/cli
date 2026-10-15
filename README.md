@@ -324,8 +324,13 @@ without closing.
 
 ### Many screenshots: upload concurrency and retries
 
-Every file is its own request, so a report with thousands of screenshots is bound by the round trip, not
-by bandwidth. Files go four at a time by default; raise it on a runner with a slow link:
+Files go to Plune up to 100 to a request: `uploads-batch` announces them (with the SHA-256 of each, read as a stream,
+so a file the platform already has is answered `exists` and is not sent again), the bytes go straight to your bucket
+(or, for a project without one, 100 files or 6 MiB at a time through `direct-batch`), and `complete-batch` confirms
+them. Every file has its own verdict: one that is refused is reported and the rest of its request goes through. A
+report of 2760 screenshots is about 56 requests to Plune instead of 5500. The bytes themselves still go one request each,
+so the PUTs to a bucket are bound by the round trip, not by bandwidth: four at a time by default, raise it on a runner
+with a slow link:
 
 ```bash
 PLUNE_UPLOAD_CONCURRENCY=16 plune run import ./playwright.json     # 1 to 32, default 4
@@ -336,11 +341,14 @@ When the platform answers 429 with a `Retry-After` (seconds or an HTTP date, nev
 the request is tried again after that time plus up to half as much, and every other request of the import
 waits through the same pause. `PLUNE_UPLOAD_RETRIES` (0 to 20, default 6) says how many times; a 429 that
 names no time is the quota and is not retried. A platform that is down (a 5xx or no answer) is still tried
-twice (three times for a bucket). A file that stays refused is reported without it, never fails the import,
-and is counted in the line printed before the summary:
-`plune: files — 2758 uploaded, 0 skipped, 14 retried, 0 dropped, in 41.2 s (16 at once)`.
-A value outside the range is ignored with a warning, and the default is used. The Playwright reporter reads
-the same variables.
+twice (three times for a bucket). A 429 on a whole request waits the same way; a file that the bucket did not
+answer for at `complete` is confirmed again, on its own. A file that stays refused is reported without it, never fails
+the import, and is counted in the line printed before the summary:
+`plune: files — 2758 uploaded, 0 skipped, 0 already there (skipped), 14 retried, 0 dropped, in 41.2 s (16 at once, 56 request(s) to Plune)`.
+`already there` are the files Plune had from an earlier import of the same report (same result, name, type and bytes):
+none of them is sent again. Against a platform older than the bulk routes (it answers 404 to `uploads-batch`) the CLI
+sends one request per file, as before; it decides by that answer, not by a version. A value outside the range is
+ignored with a warning, and the default is used. The Playwright reporter reads the same variables.
 
 ### When a test is deleted
 

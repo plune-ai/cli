@@ -32,6 +32,8 @@ export async function fakePlatform(opts: FakeOptions = {}) {
     req.on('data', (c: Buffer) => chunks.push(c));
     req.on('end', () => {
       const path = req.url ?? '';
+      // A platform older than the bulk routes: the CLI falls back to one request per file.
+      if (/\/v1\/files\/(uploads|complete|direct)-batch$/.test(path)) return send(res, 404, {});
       const isFile = /\/files(\/uploads|\?name=)|\/complete$/.test(path);
       if (isFile) {
         inflight += 1;
