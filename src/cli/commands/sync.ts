@@ -9,6 +9,7 @@
 // Every failure is mapped to a typed error with a clean, actionable message (never a stack trace, never
 // the token). `cli.ts` turns those into the right exit code via `reportSyncFailure`.
 
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { parseRunResult, type ParsedRunResult } from '../../types/run-result-schema.js';
@@ -145,12 +146,22 @@ export async function handleSync(deps: SyncDeps = {}): Promise<SyncResult> {
   const doFetch = deps.fetchImpl ?? fetch;
   const endpoint = `${apiUrl}/v1/runs`;
 
+  // The key is the SHA-256 of the exact bytes sent: the same upload retried has the same key, other content
+  // another. The server answers a repeat with 200 and the same id (no second run), a key reused with another
+  // body with 422, a key of a run in the Bin with 409 (plune ADR 0053); an older server ignores the header.
+  const payload = JSON.stringify(run);
+  const idempotencyKey = createHash('sha256').update(payload).digest('hex');
+
   let res: Response;
   try {
     res = await doFetch(endpoint, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-      body: JSON.stringify(run),
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${token}`,
+        'idempotency-key': idempotencyKey,
+      },
+      body: payload,
     });
   } catch {
     throw new SyncNetworkError(apiUrl); // network/DNS/TLS — clean message, no stack, no token
