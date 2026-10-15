@@ -11,6 +11,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-10-15
+
 ### Changed
 
 - **`plune run import` (and the Playwright reporter) upload a report's files through the bulk routes of the platform.** Up to
