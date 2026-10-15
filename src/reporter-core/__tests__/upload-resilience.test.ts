@@ -113,7 +113,7 @@ describe('a 429 on the uploads', () => {
     const { run, log } = await report(40, { latencyMs: 2, limiter: (n) => (n <= 20 ? { retryAfter: '0' } : undefined) });
     expect(run.stats.screenshots).toEqual({ uploaded: 40, skipped: 0, failed: 0 });
     const files = log.find((l) => l.startsWith('plune: files —')) ?? '';
-    expect(files).toMatch(/^plune: files — 40 uploaded, 0 skipped, 20 retried, 0 dropped, in \d+\.\d s \(4 at once\)$/);
+    expect(files).toMatch(/^plune: files — 40 uploaded, 0 skipped, 0 already there \(skipped\), 20 retried, 0 dropped, in \d+\.\d s \(4 at once, \d+ request\(s\) to Plune\)$/);
   });
 
   it('drops the file — counted, said, the run still closes — when the retries are used up', async () => {
@@ -121,7 +121,7 @@ describe('a 429 on the uploads', () => {
     const { run, log } = await report(3, { limiter: () => ({ retryAfter: '0' }) });
     expect(run.stats.screenshots).toEqual({ uploaded: 0, skipped: 0, failed: 3 });
     expect(log.some((l) => /its result is reported without it/.test(l))).toBe(true);
-    expect(log.find((l) => l.startsWith('plune: files —'))).toMatch(/0 uploaded, 0 skipped, 6 retried, 3 dropped/);
+    expect(log.find((l) => l.startsWith('plune: files —'))).toMatch(/0 uploaded, 0 skipped, 0 already there \(skipped\), 6 retried, 3 dropped/);
     expect(log.at(-1)).toMatch(/^plune: 3 accepted/);
   });
 

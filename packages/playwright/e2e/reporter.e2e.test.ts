@@ -78,6 +78,8 @@ async function stub(refuseResults: boolean, answerAfterMs = 0, refuseStart = fal
         received.push({ path: url.split('?')[0] as string, body: {}, file: { type: req.headers['content-type'] ?? '', bytes: raw } });
         return json({});
       }
+      // A platform older than the bulk file routes (ADR 0051): the reporter falls back to one request per file.
+      if (/\/v1\/files\/(uploads|complete|direct)-batch$/.test(url)) return json({}, 404);
       if (url.endsWith('/files/uploads')) {
         if (answeredAtClose !== null) return json({ error: 'the run is closed — its results stand' }, 409);
         const { files } = JSON.parse(raw.toString('utf8')) as { files: { name: string; contentType: string; size: number }[] };
