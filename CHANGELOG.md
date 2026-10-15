@@ -11,6 +11,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-10-15
+
 ### Added
 
 - **`PLUNE_UPLOAD_CONCURRENCY` and `--upload-concurrency` for `plune run import`.** Files in flight at once were fixed at 4;
