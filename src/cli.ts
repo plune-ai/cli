@@ -1,5 +1,5 @@
 import { FEEDBACK_URL } from './cli/api-url.js';
-import { Command } from 'commander';
+import { Command, InvalidArgumentError } from 'commander';
 import { readFileSync, writeFileSync, realpathSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -378,6 +378,14 @@ export function createProgram(): Command {
       'Exit 1 when a file the report names ([[ATTACHMENT|path]] in JUnit, a source in allure-results) is not there; the results are sent either way',
       false,
     )
+    .option(
+      '--upload-concurrency <n>',
+      'Files uploaded at once, 1 to 32 (default 4; PLUNE_UPLOAD_CONCURRENCY sets it too). A 429 is retried PLUNE_UPLOAD_RETRIES times (default 6)',
+      (v: string) => {
+        if (!/^\d+$/.test(v) || Number(v) < 1 || Number(v) > 32) throw new InvalidArgumentError('a whole number from 1 to 32.');
+        return Number(v);
+      },
+    )
     .option('--fail-on-failures', FAIL_ON_FAILURES, false)
     .action(
       async (
@@ -386,6 +394,7 @@ export function createProgram(): Command {
           format?: string;
           key?: string;
           create: boolean;
+          uploadConcurrency?: number;
           failOnMissingAttachments: boolean;
           failOnFailures: boolean;
         },
@@ -417,6 +426,7 @@ export function createProgram(): Command {
             ...(format !== undefined ? { format: format as (typeof IMPORT_FORMATS)[number] } : {}),
             ...(options.key !== undefined ? { key: options.key } : {}),
             ...(options.create ? { create: true } : {}),
+            ...(options.uploadConcurrency !== undefined ? { uploadConcurrency: options.uploadConcurrency } : {}),
             ...(options.failOnFailures ? { failOnFailures: true } : {}),
           });
           // After the run is sent and the summary printed: the flag changes the exit code, never what is reported.

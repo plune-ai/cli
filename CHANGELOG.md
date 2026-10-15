@@ -11,6 +11,19 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **`PLUNE_UPLOAD_CONCURRENCY` and `--upload-concurrency` for `plune run import`.** Files in flight at once were fixed at 4;
+  with a round trip above ~160 ms a report of thousands of screenshots is bound by that, not by bandwidth. The variable (and
+  the flag, which wins) takes 1 to 32, default 4; anything else is ignored with a warning. The Playwright reporter reads
+  the variable too.
+- **`PLUNE_UPLOAD_RETRIES`** (0 to 20, default 6, was 2): how often a file's request is retried after a 429 with a `Retry-After`.
+  The header is read as seconds or an HTTP date and capped at 60 s; the wait gets up to 50 % jitter, and every other request
+  of the process waits through the same pause instead of finding the limit for itself. A 429 with no `Retry-After` is still
+  the quota and is not retried; a platform that is down is still tried twice (three times for a bucket).
+- **A line about the files before the summary**: `plune: files — N uploaded, N skipped, N retried, N dropped, in 41.2 s (16 at once)`.
+  A dropped file is still reported without its file and still does not change the exit code; it is now counted.
+
 ### Changed
 
 - **Results go in batches of 500, not 100 (plune-ai/plune#1393).** The platform's ceiling per request is 500 and the 8 MiB

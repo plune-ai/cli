@@ -17,6 +17,7 @@ function harness(responses: (Response | Error)[]) {
   const waited: number[] = [];
   let i = 0;
   const client = createClient({
+    random: () => 0,
     apiUrl: 'https://api.test',
     token: TOKEN,
     fetchImpl: (async (url: string | URL | Request, init?: RequestInit) => {
@@ -239,7 +240,7 @@ describe('client — its own transport (cli#58)', () => {
 
   it('reads a refusal, its Retry-After and an empty 204 as fetch did', async () => {
     const waited: number[] = [];
-    const client = createClient({ apiUrl: url, token: TOKEN, wait: async (ms) => void waited.push(ms) });
+    const client = createClient({ random: () => 0, apiUrl: url, token: TOKEN, wait: async (ms) => void waited.push(ms) });
     answers.push(reply(503, { error: 'busy' }, { 'retry-after': '2' }), reply(204));
     expect(await client.del('/v1/runs/r-1')).toEqual({ ok: true, status: 204, body: undefined });
     expect(waited).toEqual([2000]);
@@ -358,7 +359,7 @@ describe('put — a file to a short-lived link of the project’s bucket (plune-
       res.writeHead(n === 1 ? 429 : 200, n === 1 ? { 'retry-after': '3' } : {}).end();
     });
     await new Promise<void>((resolve) => slow.listen(0, '127.0.0.1', resolve));
-    const client = createClient({ apiUrl: 'https://api.test', token: TOKEN, wait: async (ms) => void waited.push(ms) });
+    const client = createClient({ random: () => 0, apiUrl: 'https://api.test', token: TOKEN, wait: async (ms) => void waited.push(ms) });
     const out = await client.put(`http://127.0.0.1:${(slow.address() as AddressInfo).port}/o`, {}, { body: Buffer.from('x') });
     await new Promise((resolve) => slow.close(resolve));
 

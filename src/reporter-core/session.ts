@@ -5,7 +5,7 @@ import { TextDecoder } from 'node:util';
 import { resolveApiUrl } from '../cli/api-url.js';
 import { loadToken } from '../cli/credentials.js';
 import { createClient, type ClientOutcome, type PlatformClient } from './client.js';
-import { defaultRunTitle, readEnv } from './env.js';
+import { defaultRunTitle, readEnv, UPLOAD_CONCURRENCY, UPLOAD_RETRIES } from './env.js';
 import { mediaTypeOf, printable, TEXT_TYPES } from './failure-detail.js';
 import { appendBatch, DEFAULT_FALLBACK_PATH, type DeferredResult } from './fallback.js';
 import type {
@@ -90,8 +90,6 @@ const TYPE_BY_EXTENSION: Record<string, string> = {
 };
 /** The attachment that tells the reporter which test case a test is: read by it, and not a file of the test. */
 const METADATA_TYPE = 'application/plune.metadata+json';
-/** Uploads in flight at once. One at a time, a suite with a screenshot per test waits on every round trip. */
-const UPLOADS_AT_ONCE = 4;
 /** The longest name the platform takes for a result's file (ADR 0040) — in UTF-16 units, as it measures. */
 const NAME_MAX = 200;
 
@@ -369,9 +367,17 @@ export async function startRun(
   const offerDiscovered = cfg.offerDiscovered ?? false;
 
   const token = cfg.token ?? loadToken() ?? '';
+  /** Files in flight at once: with a round trip per file, this is what a suite of screenshots waits on. */
+  const uploadsAtOnce = Math.min(Math.max(Math.floor(cfg.uploadConcurrency ?? UPLOAD_CONCURRENCY.default), UPLOAD_CONCURRENCY.min), UPLOAD_CONCURRENCY.max);
+  const uploadRetries = Math.min(Math.max(Math.floor(cfg.uploadRetries ?? UPLOAD_RETRIES.default), UPLOAD_RETRIES.min), UPLOAD_RETRIES.max);
+  /** For the closing line about files: the retries the platform and the buckets asked for, and the time the uploads took. */
+  let retried = 0;
+  let uploadMs = 0;
   const client: PlatformClient = createClient({
     apiUrl: resolveApiUrl(cfg.apiUrl),
     token,
+    uploadRetries,
+    onRetry: () => void (retried += 1),
     ...(cfg.fetchImpl !== undefined ? { fetchImpl: cfg.fetchImpl } : {}),
   });
 
@@ -444,6 +450,7 @@ export async function startRun(
   if (offline) {
     log('plune: no API token — run "plune login" first. Results will be written to the fallback file.');
   }
+  for (const warning of env.warnings) log(`plune: ${warning}`);
   if (env.ignored.length > 0) {
     // Said out loud rather than dropped: a run has nowhere to store these yet, and a caller who
     // set them would otherwise have every reason to believe they arrived.
@@ -660,7 +667,7 @@ export async function startRun(
   function ask(job: Upload, size: number) {
     return client.post<{ files?: unknown[] }>(`/v1/results/${encodeURIComponent(job.id)}/files/uploads`, {
       files: [{ name: job.name, contentType: job.type, size }],
-    });
+    }, uploadRetries);
   }
 
   /** The old warning, said once per kind, for a refusal of the platform's own routes. */
@@ -733,13 +740,13 @@ export async function startRun(
       if (fresh === undefined) return failedToBucket(job, 'bad_answer');
       link = fresh;
     }
-    const done = await client.post(`/v1/files/${encodeURIComponent(link.id)}/complete`, {});
+    const done = await client.post(`/v1/files/${encodeURIComponent(link.id)}/complete`, {}, uploadRetries);
     if (!done.ok) return failedToBucket(job, codeOf(done));
     countsOf(job.kind).uploaded += 1;
   }
 
-  /** At most `UPLOADS_AT_ONCE` calls of the platform or of a bucket in flight, whoever's they are. */
-  let free = UPLOADS_AT_ONCE;
+  /** At most `uploadsAtOnce` calls of the platform or of a bucket in flight, whoever's they are. */
+  let free = uploadsAtOnce;
   const waiting: (() => void)[] = [];
   async function gated<T>(work: () => Promise<T>): Promise<T> {
     if (free === 0) await new Promise<void>((resolve) => waiting.push(resolve));
@@ -841,7 +848,8 @@ export async function startRun(
       }
     }
     // The files of one result are asked about one after the other, in the order of the attachments; the results
-    // run side by side, and the calls they make share the four places of `gated`.
+    // run side by side, and the calls they make share the places of `gated`.
+    const started = Date.now();
     const byResult = new Map<string, Upload[]>();
     for (const job of jobs) byResult.set(job.id, [...(byResult.get(job.id) ?? []), job]);
     await Promise.all(
@@ -854,6 +862,7 @@ export async function startRun(
         await Promise.all(work);
       }),
     );
+    uploadMs += Date.now() - started;
   }
 
   async function flush(): Promise<void> {
@@ -981,6 +990,15 @@ export async function startRun(
     }
     if (stats.deferred > 0) parts.push(`${stats.deferred} not delivered — written to ${fallbackPath}`);
     if (shortened.size > 0) parts.push(`${shortened.size} test name(s) shortened to fit a key`);
+    // What the files cost, in one line before the summary: a dropped file never fails the import, so this is where it is counted.
+    const files = [stats.screenshots, stats.textFiles, stats.otherFiles];
+    const total = (what: 'uploaded' | 'skipped' | 'failed') => files.reduce((n, counts) => n + counts[what], 0);
+    if (total('uploaded') + total('skipped') + total('failed') > 0) {
+      log(
+        `plune: files — ${total('uploaded')} uploaded, ${total('skipped')} skipped, ${retried} retried, ` +
+          `${total('failed')} dropped, in ${(uploadMs / 1000).toFixed(1)} s (${uploadsAtOnce} at once)`,
+      );
+    }
     log(`plune: ${parts.join(' · ')}`);
     // Where a GitHub run shows it without anyone opening the log — for every road, from here (#790).
     // Said and nothing more: a reporting failure is not the build's failure (#788).

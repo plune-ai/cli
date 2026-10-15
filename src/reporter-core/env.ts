@@ -29,7 +29,13 @@ export interface EnvSettings {
   keepOpen: boolean;
   /** Variables that were set and have nowhere to land. The caller says so once. */
   ignored: string[];
+  /** Variables that were set to something unusable and fell back to their default. The caller says so once. */
+  warnings: string[];
 }
+
+/** Bounds of `PLUNE_UPLOAD_CONCURRENCY` and `PLUNE_UPLOAD_RETRIES`, and what each is when unset. */
+export const UPLOAD_CONCURRENCY = { min: 1, max: 32, default: 4 } as const;
+export const UPLOAD_RETRIES = { min: 0, max: 20, default: 6 } as const;
 
 /** A variable that is set but blank is what a CI template leaves when it had no value to give. */
 function value(env: NodeJS.ProcessEnv, name: string): string | undefined {
@@ -48,6 +54,21 @@ function count(env: NodeJS.ProcessEnv, name: string): number | undefined {
   if (raw === undefined) return undefined;
   const n = Number(raw);
   return Number.isInteger(n) && n > 0 ? n : undefined;
+}
+
+/** An integer within bounds, or the default with a line saying so: an out-of-range number is a typo, not a request for the nearest. */
+function bounded(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  range: { min: number; max: number; default: number },
+  warnings: string[],
+): number | undefined {
+  const raw = value(env, name);
+  if (raw === undefined) return undefined;
+  const n = Number(raw);
+  if (/^\d+$/.test(raw) && n >= range.min && n <= range.max) return n;
+  warnings.push(`${name}=${JSON.stringify(raw.slice(0, 40))} is not a whole number from ${range.min} to ${range.max} — using ${range.default}.`);
+  return undefined;
 }
 
 /**
@@ -77,6 +98,9 @@ export function readEnv(env: NodeJS.ProcessEnv = process.env): EnvSettings {
   const apiUrl = value(env, 'PLUNE_API_URL');
   const fallbackPath = value(env, 'PLUNE_FALLBACK');
   const batchSize = count(env, 'PLUNE_BATCH_SIZE');
+  const warnings: string[] = [];
+  const uploadConcurrency = bounded(env, 'PLUNE_UPLOAD_CONCURRENCY', UPLOAD_CONCURRENCY, warnings);
+  const uploadRetries = bounded(env, 'PLUNE_UPLOAD_RETRIES', UPLOAD_RETRIES, warnings);
   const title = value(env, 'PLUNE_RUN_TITLE');
   const environment = value(env, 'PLUNE_ENV');
   const labels = list(env, 'PLUNE_LABELS');
@@ -94,6 +118,8 @@ export function readEnv(env: NodeJS.ProcessEnv = process.env): EnvSettings {
       ...(apiUrl !== undefined ? { apiUrl } : {}),
       ...(fallbackPath !== undefined ? { fallbackPath } : {}),
       ...(batchSize !== undefined ? { batchSize } : {}),
+      ...(uploadConcurrency !== undefined ? { uploadConcurrency } : {}),
+      ...(uploadRetries !== undefined ? { uploadRetries } : {}),
       ...(title !== undefined ? { title } : {}),
       ...(environment !== undefined ? { environment } : {}),
       ...(labels !== undefined ? { labels } : {}),
@@ -107,6 +133,7 @@ export function readEnv(env: NodeJS.ProcessEnv = process.env): EnvSettings {
     // way this process must not be the one to call it finished.
     keepOpen: flag(env, 'PLUNE_SHARED_RUN') || flag(env, 'PLUNE_PROCEED'),
     ignored: UNSUPPORTED_VARS.filter((name) => value(env, name) !== undefined),
+    warnings,
   };
 }
 
