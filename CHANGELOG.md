@@ -11,6 +11,18 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Changed
+
+- **Files are uploaded 16 at once by default, not 4 (#81).** The bulk routes of 0.23.0 took the announce and confirm steps off the
+  per-file path, but the PUTs of the bytes to the bucket (and every call of the one-by-one fallback) still waited in a pool of 4,
+  so 1 280 screenshots stayed bound by the round trip. The platform limits do not bind there: the bulk routes allow 120 requests
+  and 6 000 files a minute per user, and the bytes go to the customer's bucket. `PLUNE_UPLOAD_CONCURRENCY` and
+  `--upload-concurrency` still set 1 to 32 (the flag wins); a 429 still waits out its `Retry-After` for every request of the
+  import, so a platform that pushes back is not hammered harder. The files line now reads `(16 at once, ...)`. Not measured
+  against the real platform.
+
+## [Unreleased]
+
 ## [0.24.0] - 2026-10-16
 
 ### Added

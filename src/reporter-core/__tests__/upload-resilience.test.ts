@@ -50,9 +50,9 @@ async function report(files: number, fake: FakeOptions, over: Record<string, unk
 }
 
 describe('PLUNE_UPLOAD_CONCURRENCY — how many files are in flight', () => {
-  it('keeps four at once when nothing is set', async () => {
-    const { platform } = await report(40, { latencyMs: 15 });
-    expect(platform.maxInflight).toBe(4);
+  it('keeps sixteen at once when nothing is set', async () => {
+    const { platform } = await report(80, { latencyMs: 15 });
+    expect(platform.maxInflight).toBe(16);
   });
 
   it('never has more in flight than the variable says, and does use them', async () => {
@@ -73,12 +73,12 @@ describe('PLUNE_UPLOAD_CONCURRENCY — how many files are in flight', () => {
     expect(platform.maxInflight).toBe(1);
   });
 
-  it.each(['abc', '0', '-3', '33', '2.5', '1e1'])('falls back to four, and says so, for %j', async (bad) => {
+  it.each(['abc', '0', '-3', '33', '2.5', '1e1'])('falls back to sixteen, and says so, for %j', async (bad) => {
     vi.stubEnv('PLUNE_UPLOAD_CONCURRENCY', bad);
-    const { platform, log } = await report(20, { latencyMs: 15 });
-    expect(platform.maxInflight).toBe(4);
+    const { platform, log } = await report(60, { latencyMs: 15 });
+    expect(platform.maxInflight).toBe(16);
     expect(log.filter((l) => l.includes('PLUNE_UPLOAD_CONCURRENCY'))).toHaveLength(1);
-    expect(log.find((l) => l.includes('PLUNE_UPLOAD_CONCURRENCY'))).toMatch(/1 to 32 — using 4/);
+    expect(log.find((l) => l.includes('PLUNE_UPLOAD_CONCURRENCY'))).toMatch(/1 to 32 — using 16/);
   });
 
   it('reads the bounds as the documentation gives them', () => {
@@ -113,7 +113,7 @@ describe('a 429 on the uploads', () => {
     const { run, log } = await report(40, { latencyMs: 2, limiter: (n) => (n <= 20 ? { retryAfter: '0' } : undefined) });
     expect(run.stats.screenshots).toEqual({ uploaded: 40, skipped: 0, failed: 0 });
     const files = log.find((l) => l.startsWith('plune: files —')) ?? '';
-    expect(files).toMatch(/^plune: files — 40 uploaded, 0 skipped, 0 already there \(skipped\), 20 retried, 0 dropped, in \d+\.\d s \(4 at once, \d+ request\(s\) to Plune\)$/);
+    expect(files).toMatch(/^plune: files — 40 uploaded, 0 skipped, 0 already there \(skipped\), 20 retried, 0 dropped, in \d+\.\d s \(16 at once, \d+ request\(s\) to Plune\)$/);
   });
 
   it('drops the file — counted, said, the run still closes — when the retries are used up', async () => {

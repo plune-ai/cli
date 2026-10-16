@@ -2585,13 +2585,13 @@ describe('files go to the project’s bucket by short-lived links (plune-ai/plun
     expect(run.stats.otherFiles).toEqual({ uploaded: 1, skipped: 0, failed: 0 });
   });
 
-  it('puts no more than four files at once', async () => {
+  it('puts no more than the stated number of files at once (4 here; the default is 16)', async () => {
     let open!: () => void;
     const putHold = new Promise<void>((resolve) => {
       open = resolve;
     });
     const p = platform({ known: { a: 'tc-a' }, bucket: true, putHold });
-    const run = await startRun(config(p.fetchImpl));
+    const run = await startRun(config(p.fetchImpl, { uploadConcurrency: 4 }));
     await run.add(result('a', { files: Array.from({ length: 12 }, (_, i) => trace(`t${i}`)) }));
     const finishing = run.finish();
     // Four are waiting for their answer, and the rest have to wait for those: give the others every chance to come.

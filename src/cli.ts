@@ -380,7 +380,7 @@ export function createProgram(): Command {
     )
     .option(
       '--upload-concurrency <n>',
-      'File uploads in flight at once, 1 to 32 (default 4; PLUNE_UPLOAD_CONCURRENCY sets it too). Files are announced and confirmed up to 100 to a request; a 429 is retried PLUNE_UPLOAD_RETRIES times (default 6)',
+      'File uploads in flight at once, 1 to 32 (default 16; PLUNE_UPLOAD_CONCURRENCY sets it too). Files are announced and confirmed up to 100 to a request; a 429 is retried PLUNE_UPLOAD_RETRIES times (default 6)',
       (v: string) => {
         if (!/^\d+$/.test(v) || Number(v) < 1 || Number(v) > 32) throw new InvalidArgumentError('a whole number from 1 to 32.');
         return Number(v);
