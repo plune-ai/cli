@@ -186,7 +186,7 @@ describe('files by the bulk routes (platform ADR 0051)', () => {
       const bySha = new Map(items.map((i: { name: string; sha256: string }) => [i.name, i.sha256]));
       expect(bySha.get('shot-7.png')).toBe(sha(bytesOf(7)));
       expect(p.puts).toHaveLength(250);
-      expect(line).toMatch(/250 uploaded, 0 skipped, 0 already there \(skipped\), 0 retried, 0 dropped, .* \(4 at once, 6 request\(s\) to Plune\)$/);
+      expect(line).toMatch(/250 uploaded, 0 skipped, 0 already there \(skipped\), 0 retried, 0 dropped, .* \(16 at once, 6 request\(s\) to Plune\)$/);
     } finally {
       await p.close();
     }
@@ -217,7 +217,7 @@ describe('files by the bulk routes (platform ADR 0051)', () => {
       expect(p.to('/files/uploads')).toHaveLength(30);
       expect(p.to('/complete')).toHaveLength(30);
       expect(p.puts).toHaveLength(30);
-      expect(line).toMatch(/\(4 at once, 61 request\(s\) to Plune\)$/); // 1 refused announce + 30 asks + 30 completes (the PUTs go to the bucket)
+      expect(line).toMatch(/\(16 at once, 61 request\(s\) to Plune\)$/); // 1 refused announce + 30 asks + 30 completes (the PUTs go to the bucket)
     } finally {
       await p.close();
     }

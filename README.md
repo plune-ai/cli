@@ -120,7 +120,7 @@ the last resort, used only when `PLUNE_TOKEN` is set nowhere else. Nothing write
 | `plune login` | Save a [Plune platform](https://plune.ai/platform) API token so `sync` and `ingest` can reach it. The token is **checked against the API before it is saved**, so a wrong one fails here rather than two commands later. Get one at `https://beta.plune.ai` → Account → API tokens. Flags: `--token <token>` (omit to paste it or pipe it via stdin), `--skip-verify` (save without checking, for offline setup). In CI, skip this step: every platform command reads `PLUNE_TOKEN` from the environment first, and the saved login only when it is not set. |
 | `plune logout` | Remove the saved token. |
 | `plune sync` | Upload the latest local run to the platform. Flags: `--file <path>` to send a specific run JSON, `--fail-on-failures` to read the run's summary back once after the upload and exit with [the gate](#a-release-gate---fail-on-failures)'s code. Each upload carries an `Idempotency-Key` (SHA-256 of the body), so sending the same run again returns the same run rather than creating a second one. |
-| `plune run import <file>` | Turn a **JUnit XML** or **Playwright JSON** report, or an **Allure `allure-results` folder**, into a run in Plune. Needs no provider key — nothing is generated. Flags: `--format junit\|playwright-json\|allure` (detected from the file when omitted; a folder is Allure), `--key <externalKey>` to land several reports in one run (with `PLUNE_SHARED_RUN=1` — see below), `--create` to offer unmatched tests to the review queue, `--fail-on-missing-attachments` to exit 1 when a file a JUnit report names with `[[ATTACHMENT\|path]]`, or an Allure result names as a `source`, is not there (the results are sent either way), `--upload-concurrency <n>` for files uploaded at once ([1 to 32, default 4](#many-screenshots-upload-concurrency-and-retries)), `--fail-on-failures` to exit with [the gate](#a-release-gate---fail-on-failures)'s code on the summary the platform froze when this import finished the run. |
+| `plune run import <file>` | Turn a **JUnit XML** or **Playwright JSON** report, or an **Allure `allure-results` folder**, into a run in Plune. Needs no provider key — nothing is generated. Flags: `--format junit\|playwright-json\|allure` (detected from the file when omitted; a folder is Allure), `--key <externalKey>` to land several reports in one run (with `PLUNE_SHARED_RUN=1` — see below), `--create` to offer unmatched tests to the review queue, `--fail-on-missing-attachments` to exit 1 when a file a JUnit report names with `[[ATTACHMENT\|path]]`, or an Allure result names as a `source`, is not there (the results are sent either way), `--upload-concurrency <n>` for files uploaded at once ([1 to 32, default 16](#many-screenshots-upload-concurrency-and-retries)), `--fail-on-failures` to exit with [the gate](#a-release-gate---fail-on-failures)'s code on the summary the platform froze when this import finished the run. |
 | `plune run start` | Open a platform run — or join the one already carrying `--key` — and print its id. Flags: `--key <externalKey>` (generated when absent), `--json` for one machine-readable line. |
 | `plune run finish <id>` | Close a platform run. This is what the reporter tells you to do for a run it had to leave open. Flags: `--terminate` to record it as cut short, `--reason <text>`, `--fail-on-failures` to exit with [the gate](#a-release-gate---fail-on-failures)'s code on the summary the platform froze. |
 | `plune run exec -- <command>` | Open a run, run the command inside it, close the run — and exit with whatever the command returned. Sets `PLUNE_SHARED_RUN` for you, so anything reporting inside joins that run. Flags: `--key <externalKey>`, `--fail-on-failures` to exit with [the gate](#a-release-gate---fail-on-failures)'s code instead — or with the command's own when no result reached the run. |
@@ -193,7 +193,7 @@ bytes, up to 512 KiB each and 10 per result. The summary counts them apart from 
 A project that has connected its own storage bucket in Plune takes more. Every file an attempt kept
 — screenshots, text, a Playwright trace, a video — goes straight from this machine into that bucket
 over short-lived links Plune hands out per file, so a trace of up to 100 MB is streamed from disk,
-never read into memory. Up to four files go at once. The limits there are larger: 10 MiB for an
+never read into memory. Up to 16 files go at once (`PLUNE_UPLOAD_CONCURRENCY`). The limits there are larger: 10 MiB for an
 image, 5 MiB for a text, 50 MiB for any other file and 100 MiB for a video or a trace, 30 files a
 result. The links are write keys to your bucket, so they are never printed — not in the log, not with
 `--verbose`, not in an error; a line names the file and a code. The first time a run finds the
@@ -329,12 +329,12 @@ so a file the platform already has is answered `exists` and is not sent again), 
 (or, for a project without one, 100 files or 6 MiB at a time through `direct-batch`), and `complete-batch` confirms
 them. Every file has its own verdict: one that is refused is reported and the rest of its request goes through. A
 report of 2760 screenshots is about 56 requests to Plune instead of 5500. The bytes themselves still go one request each,
-so the PUTs to a bucket are bound by the round trip, not by bandwidth: four at a time by default, raise it on a runner
-with a slow link:
+so the PUTs to a bucket are bound by the round trip, not by bandwidth: 16 at a time by default, lower it on a runner
+with a fragile link or a bucket that throttles:
 
 ```bash
-PLUNE_UPLOAD_CONCURRENCY=16 plune run import ./playwright.json     # 1 to 32, default 4
-plune run import ./playwright.json --upload-concurrency 16         # the same, as a flag (it wins)
+PLUNE_UPLOAD_CONCURRENCY=4 plune run import ./playwright.json      # 1 to 32, default 16
+plune run import ./playwright.json --upload-concurrency 4          # the same, as a flag (it wins)
 ```
 
 When the platform answers 429 with a `Retry-After` (seconds or an HTTP date, never waited longer than 60 s),

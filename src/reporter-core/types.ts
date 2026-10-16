@@ -364,7 +364,7 @@ export interface ReporterConfig {
   labels?: string[];
   /** Results per request. The platform's ceiling is 500. */
   batchSize?: number;
-  /** Files in flight at once (`PLUNE_UPLOAD_CONCURRENCY`, 1 to 32, default 4). */
+  /** Files in flight at once (`PLUNE_UPLOAD_CONCURRENCY`, 1 to 32, default 16). */
   uploadConcurrency?: number;
   /** Retries of a request the platform or a bucket asked to wait for (`PLUNE_UPLOAD_RETRIES`, 0 to 20, default 6). */
   uploadRetries?: number;

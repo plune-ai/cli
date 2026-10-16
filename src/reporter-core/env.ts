@@ -34,7 +34,7 @@ export interface EnvSettings {
 }
 
 /** Bounds of `PLUNE_UPLOAD_CONCURRENCY` and `PLUNE_UPLOAD_RETRIES`, and what each is when unset. */
-export const UPLOAD_CONCURRENCY = { min: 1, max: 32, default: 4 } as const;
+export const UPLOAD_CONCURRENCY = { min: 1, max: 32, default: 16 } as const;
 export const UPLOAD_RETRIES = { min: 0, max: 20, default: 6 } as const;
 
 /** A variable that is set but blank is what a CI template leaves when it had no value to give. */
