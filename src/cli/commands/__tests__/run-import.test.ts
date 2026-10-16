@@ -179,7 +179,7 @@ describe('plune run import', () => {
       expect(lines.join('\n')).toContain('2 unknown test(s) offered to the review queue');
       // The cause and the way out, not just the fact (plune#1569).
       expect(lines.join('\n')).toContain('do not count on the run until approved');
-      expect(lines.join('\n')).toContain('Settings → Trusted sources');
+      expect(lines.join('\n')).toContain('add `junit` under Settings → Trusted sources');
     });
 
     it('does not tell you to pass the flag you just passed', async () => {
