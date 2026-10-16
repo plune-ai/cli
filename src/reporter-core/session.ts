@@ -413,6 +413,11 @@ export async function startRun(
    * the identity the platform would use, so a repeat replaces rather than adds.
    */
   const discoveries = new Map<string, DiscoveredTest>();
+  /** The results behind `discoveries`, by the same key: a case the platform creates from an offer gets its result recorded (plune-ai/plune#1581). */
+  const held = new Map<string, PendingResult>();
+  /** Cases created from an offer, and how many of them have a result delivered; the summary says "recorded" only when they match. */
+  let createdWithResult = 0;
+  let createdUndelivered = 0;
   let runId: string | null = null;
   let joined = false;
   /** Set once the platform has told us it will not accept anything more from this process. */
@@ -611,6 +616,7 @@ export async function startRun(
       specRef: result.specRef,
       rawStatus: result.rawStatus,
     });
+    held.set(result.keys[0]!.value, result);
   }
 
   /**
@@ -650,7 +656,27 @@ export async function startRun(
       // project trusts this source, so the case exists already. Left out, a run that filled a
       // project with two thousand cases would print "0 offered for review" and read as a run where
       // nothing happened.
-      stats.created += out.body.results.filter((r) => r?.outcome === 'created').length;
+      const made = out.body.results.filter((r) => r?.outcome === 'created');
+      stats.created += made.length;
+      // The case exists but its own result was not recorded: send it to the same run now, the way a
+      // matched result goes. Only `created` with an `id` (the new case); an older server sends none,
+      // and then nothing is sent, as before. `queued`, `duplicate`, `refused` and `known` never get here.
+      const submissions: ResultSubmission[] = [];
+      const filesByKey = new Map<string, ResultFile[]>();
+      for (const r of made) {
+        const pending = typeof r.id === 'string' && r.id !== '' ? held.get(r.key?.value) : undefined;
+        if (pending === undefined) continue;
+        held.delete(r.key.value); // never twice in one process
+        const { keys: _keys, files, ...rest } = pending;
+        submissions.push({ ...rest, testCaseId: r.id! });
+        if (files !== undefined) filesByKey.set(pending.resultKey, files);
+      }
+      if (submissions.length > 0) {
+        const before = stats.deferred;
+        await send(submissions, filesByKey);
+        createdWithResult += submissions.length;
+        createdUndelivered += stats.deferred - before;
+      }
     }
   }
 
@@ -1170,6 +1196,11 @@ export async function startRun(
       return;
     }
 
+    await send(submissions, filesByKey);
+  }
+
+  /** Post results to the run, a batch per request; what is not delivered goes to the fallback file. */
+  async function send(submissions: ResultSubmission[], filesByKey: ReadonlyMap<string, ResultFile[]>): Promise<void> {
     // One fallback line per batch, never the rest of the flush on one line: `plune run report` sends
     // a line as one request, and a line of every batch left would be the request the route refuses.
     for (const part of packed(submissions)) {
@@ -1233,7 +1264,10 @@ export async function startRun(
     if (stats.rejected > 0) parts.push(`${stats.rejected} rejected`);
     if (stats.unresolved > 0) parts.push(`${stats.unresolved} with no matching test case`);
     if (stats.offered > 0) parts.push(`${stats.offered} offered for review`);
-    if (stats.created > 0) parts.push(`${stats.created} added as cases (trusted source)`);
+    if (stats.created > 0) {
+      const recorded = createdWithResult === stats.created && createdUndelivered === 0;
+      parts.push(`${stats.created} added as cases (trusted source)${recorded ? ' and their results recorded' : ''}`);
+    }
     const kinds = [stats.screenshots, stats.textFiles, stats.otherFiles];
     const sum = (what: 'uploaded' | 'skipped' | 'failed') => kinds.reduce((n, counts) => n + counts[what], 0);
     if (bucketSeen) {
