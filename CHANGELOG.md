@@ -18,6 +18,12 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   key. A repeat answered `200` is a success with the same result as a fresh upload; `422` (the key was used with another
   body) and `409` (its run is in the Bin) are reported as errors. A server that does not know the header ignores it.
 
+### Changed
+
+- **`plune run import` says why tests wait and how to skip it.** After `--create` on a source the project does not trust,
+  the line "N unknown test(s) offered to the review queue" now adds that they wait there for a decision and do not count
+  on the run until approved, and points at Settings → Trusted sources. Before, the run showed zeros with no explanation.
+
 ## [0.23.0] - 2026-10-15
 
 ### Changed

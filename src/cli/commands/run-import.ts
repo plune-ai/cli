@@ -257,7 +257,13 @@ function describe(result: ImportResult, apiUrl: string): string[] {
     );
   }
   if (result.offered > 0) {
-    lines.push(`${result.offered} unknown test(s) offered to the review queue.`);
+    // Said with the cause and the way out (plune#1569): "offered" alone read as a fact with no reason,
+    // and a first import of an untrusted source shows its run at zero until somebody decides.
+    lines.push(
+      `${result.offered} unknown test(s) offered to the review queue. They wait there for a decision ` +
+        `and do not count on the run until approved. To skip review for this source, trust it under ` +
+        `Settings → Trusted sources.`,
+    );
     // Both queue lines below carry `created === 0`: with a trusted source the unmatched tests were
     // dealt with, and advice about a queue they never entered sends a reader to an empty screen.
   } else if (result.unresolved > 0 && result.created === 0 && !result.offering) {
