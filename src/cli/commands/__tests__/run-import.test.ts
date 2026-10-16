@@ -24,6 +24,8 @@ interface Seen {
 function platform(
   resolveTo: (key: string) => string | null = () => 'tc-1',
   discoveryOutcome: 'queued' | 'known' | 'created' = 'queued',
+  /** A `created` answer names the new case (plune-ai/plune#1581); an older platform does not. */
+  createdIds = true,
 ) {
   const seen: Seen[] = [];
   const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
@@ -58,7 +60,11 @@ function platform(
     if (target === '/v1/review-items/discovered') {
       const discovered = (body['discovered'] ?? []) as { keys: { value: string }[] }[];
       return json(200, {
-        results: discovered.map((d) => ({ key: d.keys[0], outcome: discoveryOutcome, id: 'ri-1' })),
+        results: discovered.map((d) => ({
+          key: d.keys[0],
+          outcome: discoveryOutcome,
+          ...(discoveryOutcome !== 'created' ? { id: 'ri-1' } : createdIds ? { id: `tc-new-${d.keys[0]!.value}` } : {}),
+        })),
       });
     }
     if (target.endsWith('/results')) {
@@ -221,6 +227,59 @@ describe('plune run import', () => {
       // sends the reader to an empty screen to look for work that was already done.
       expect(lines.join('\n')).not.toContain('already in the review queue');
       expect(lines.join('\n')).not.toContain('pass --create');
+    });
+
+    describe('a trusted source (plune-ai/plune#1581)', () => {
+      const resultPosts = (seen: Seen[]) => seen.filter((s) => s.path === '/v1/runs/r-9/results');
+      const sentCases = (seen: Seen[]) =>
+        resultPosts(seen).flatMap((s) => (s.body['results'] as { testCaseId?: string }[]).map((r) => r.testCaseId));
+
+      it('records the result of every case it created, in the same run', async () => {
+        const { seen, fetchImpl } = platform(() => null, 'created');
+        const out = await handleRunImport({ ...deps(fetchImpl), file: write('r.xml', REPORT), create: true });
+
+        expect(out.created).toBe(2);
+        expect(out.accepted).toBe(2);
+        expect(out.deferred).toBe(0);
+        expect(sentCases(seen)).toHaveLength(2);
+        expect(sentCases(seen).every((id) => typeof id === 'string' && id.startsWith('tc-new-'))).toBe(true);
+        // After the offer and before the run closed.
+        const paths = seen.map((s) => s.path);
+        expect(paths.indexOf('/v1/runs/r-9/results')).toBeGreaterThan(paths.indexOf('/v1/review-items/discovered'));
+        expect(paths.indexOf('/v1/runs/r-9/results')).toBeLessThan(paths.indexOf('/v1/runs/r-9/events'));
+        expect(lines.join('\n')).toContain('2 added as cases (trusted source) and their results recorded');
+      });
+
+      it('behaves as before against a platform that names no case', async () => {
+        const { seen, fetchImpl } = platform(() => null, 'created', false);
+        const out = await handleRunImport({ ...deps(fetchImpl), file: write('r.xml', REPORT), create: true });
+
+        expect(out.created).toBe(2);
+        expect(out.accepted).toBe(0);
+        expect(resultPosts(seen)).toHaveLength(0);
+        expect(lines.join('\n')).toContain('2 added as cases (trusted source)');
+        expect(lines.join('\n')).not.toContain('their results recorded');
+      });
+
+      it('never sends the result of a test that was only queued', async () => {
+        const { seen, fetchImpl } = platform(() => null, 'queued');
+        await handleRunImport({ ...deps(fetchImpl), file: write('r.xml', REPORT), create: true });
+        expect(resultPosts(seen)).toHaveLength(0);
+      });
+
+      it('keeps a result it could not deliver in the fallback file, and does not claim it was recorded', async () => {
+        const fallback = path.join(dir, 'pending.jsonl');
+        vi.stubEnv('PLUNE_FALLBACK', fallback);
+        const { fetchImpl } = platform(() => null, 'created');
+        const refusing = (async (url: string | URL | Request, init?: RequestInit) =>
+          String(url).endsWith('/results') ? json(500, { error: 'boom' }) : fetchImpl(url, init)) as unknown as typeof fetch;
+        const out = await handleRunImport({ ...deps(refusing), file: write('r.xml', REPORT), create: true });
+
+        expect(out.deferred).toBe(2);
+        const stored = fs.readFileSync(fallback, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { results: { testCaseId?: string }[] });
+        expect(stored.flatMap((b) => b.results).map((r) => r.testCaseId?.slice(0, 7))).toEqual(['tc-new-', 'tc-new-']);
+        expect(lines.join('\n')).not.toContain('their results recorded');
+      });
     });
 
     it('says how many the report locates nowhere, instead of dropping them in silence', async () => {

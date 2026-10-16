@@ -13,6 +13,12 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ### Changed
 
+- **A trusted source's first import records the results of the cases it creates (plune-ai/plune#1581).** `plune run import --create`
+  (and the reporters, with offering on) created the cases of a trusted source but sent nothing for them, so the run showed zeros and
+  the new cases had empty histories until a second import. When the platform answers `created` with the new case's `id`, the result of
+  that test now goes to the same run, files included, and the summary reads `3 added as cases (trusted source) and their results
+  recorded`. A result that cannot be delivered goes to the fallback file like any other. A platform that returns no `id` behaves and
+  reads as before. `queued`, `duplicate`, `refused` and `known` tests are never resent. Needs the platform half of the same issue.
 - **Files are uploaded 16 at once by default, not 4 (#81).** The bulk routes of 0.23.0 took the announce and confirm steps off the
   per-file path, but the PUTs of the bytes to the bucket (and every call of the one-by-one fallback) still waited in a pool of 4,
   so 1 280 screenshots stayed bound by the round trip. The platform limits do not bind there: the bulk routes allow 120 requests
