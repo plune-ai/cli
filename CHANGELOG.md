@@ -21,8 +21,6 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   import, so a platform that pushes back is not hammered harder. The files line now reads `(16 at once, ...)`. Not measured
   against the real platform.
 
-## [Unreleased]
-
 ## [0.24.0] - 2026-10-16
 
 ### Added
