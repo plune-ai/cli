@@ -11,6 +11,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-10-16
+
 ### Added
 
 - **`plune sync` sends `Idempotency-Key` on `POST /v1/runs`.** The key is the SHA-256 (hex) of the exact request body, so
