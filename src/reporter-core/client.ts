@@ -212,20 +212,32 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 /**
  * Read the server's error message, draining the body either way.
  *
- * The drain is not tidiness: an unread response body leaves undici's socket half-open, which
+ * A `quota` object in the body is returned as it came (cli#111). The drain is not tidiness: an unread response body leaves undici's socket half-open, which
  * blocks a clean process exit and — on Windows — trips a libuv teardown assertion. `plune sync`
  * learned this one in production.
  */
-async function detailOf(res: Reply): Promise<{ detail: string; code?: string }> {
+async function detailOf(res: Reply): Promise<{ detail: string; code?: string; quota?: Record<string, unknown> }> {
   try {
-    const body = (await res.json()) as { error?: unknown; code?: unknown };
+    const body = (await res.json()) as { error?: unknown; code?: unknown; quota?: unknown };
+    const q = body.quota;
     return {
       detail: typeof body.error === 'string' ? body.error : '',
+      ...(typeof q === 'object' && q !== null && !Array.isArray(q) ? { quota: q as Record<string, unknown> } : {}),
       ...(typeof body.code === 'string' && /^[a-z0-9_]{1,60}$/.test(body.code) ? { code: body.code } : {}),
     };
   } catch {
     return { detail: '' };
   }
+}
+
+/** The limit a quota object names, whatever of it the platform gave: `runs: 50 of 50 used, resets 2026-10-18T00:00:00Z`. */
+function describeQuota(q: Record<string, unknown>): string {
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+  const kind = typeof q['kind'] === 'string' ? q['kind'].slice(0, 60) : 'limit';
+  const [used, limit] = [num(q['used']), num(q['limit'])];
+  const parts = [used !== undefined && limit !== undefined ? `${kind}: ${used} of ${limit} used` : kind];
+  if (typeof q['resetsAt'] === 'string' && q['resetsAt'] !== '') parts.push(`resets ${q['resetsAt'].slice(0, 40)}`);
+  return parts.join(', ');
 }
 
 function classify(status: number): ClientFailureKind {
@@ -327,13 +339,16 @@ export function createClient(opts: ClientOptions): PlatformClient {
       last = { kind, status: res.status, detail: scrub(said.detail), ...(said.code !== undefined ? { code: said.code } : {}) };
       if (kind !== 'unavailable') break;
 
-      // 429 without Retry-After means quota exceeded, not rate limit — retrying with short delays is useless.
+      // A 429 is a quota when its body has a `quota` object, whatever the header says: waiting frees nothing
+      // (cli#111). With neither object nor Retry-After it is read the same way, for a platform that predates
+      // the object. Only a bare Retry-After is a throttle. Retrying a quota with short delays is useless.
       const said429 = parseRetryAfter(res.headers.get('retry-after'), now());
-      if (res.status === 429 && said429 === null) {
+      if (res.status === 429 && (said.quota !== undefined || said429 === null)) {
         last.kind = 'invalid';
         // The appended text is the same one `scrub` already had a look at above. Appending it raw
         // put whatever a proxy echoed back — the bearer token among it — straight into a CI log.
-        last.detail = 'quota exceeded (no Retry-After)'; if (said.detail) last.detail += ` — ${scrub(said.detail)}`;
+        last.detail = `quota exceeded (${said.quota === undefined ? 'no Retry-After' : scrub(describeQuota(said.quota))})`;
+        if (said.detail) last.detail += ` — ${scrub(said.detail)}`;
         break;
       }
 
