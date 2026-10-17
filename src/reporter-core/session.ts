@@ -31,6 +31,8 @@ const BATCH_MAX = 500;
  * because it is a different endpoint's promise and they are free to diverge. */
 const DISCOVER_MAX = 500;
 const BATCH_DEFAULT = 500;
+/** Result batches of one run in flight at once (plune-ai/plune#1393). */
+const SEND_CONCURRENCY = 4;
 /** What `configuration.expected` may hold before the contract refuses the whole start. */
 const EXPECTED_MAX = 10_000;
 /** The platform's ceiling on one external key's value, and on the title of a queue entry. */
@@ -1165,7 +1167,41 @@ export async function startRun(
     uploadMs += Date.now() - started;
   }
 
+  /**
+   * The result batches being sent. Up to `SEND_CONCURRENCY` at once, but only ONE until a batch has been
+   * answered with counts and its files are up: a refused token, a closed run or an old platform is then met
+   * by a single request, not by four. `settle` is what the steps that must come after every result (offer,
+   * finish) wait for.
+   */
+  const sending = new Set<Promise<void>>();
+  let sendError: unknown;
+  let answered = false;
+  async function dispatch(work: () => Promise<void>): Promise<void> {
+    while (sending.size >= (answered ? SEND_CONCURRENCY : 1)) await Promise.race(sending);
+    const task: Promise<void> = work()
+      .catch((err: unknown) => {
+        sendError ??= err;
+      })
+      .finally(() => sending.delete(task));
+    sending.add(task);
+  }
+  async function settle(): Promise<void> {
+    while (sending.size > 0) await Promise.all([...sending]);
+    if (sendError !== undefined) {
+      const err = sendError;
+      sendError = undefined;
+      throw err;
+    }
+  }
+
+  /** Everything buffered is sent and has been answered, or deferred. */
   async function flush(): Promise<void> {
+    await flushBuffer();
+    await settle();
+  }
+
+  /** Hands the buffer to `dispatch` as one batch; it does not wait for the batch's answer. */
+  async function flushBuffer(): Promise<void> {
     if (buffer.length === 0) return;
     const pending = buffer;
     buffer = [];
@@ -1174,6 +1210,11 @@ export async function startRun(
       defer(pending);
       return;
     }
+    await dispatch(() => deliver(pending));
+  }
+
+  /** One batch: its keys looked up, then the results posted. Several of these run at once. */
+  async function deliver(pending: PendingResult[]): Promise<void> {
 
     await resolveKeys(pending.flatMap((p) => p.keys));
 
@@ -1227,6 +1268,7 @@ export async function startRun(
         for (const k of told) stats[k] += counts![k];
         progress();
         await upload(out.ok ? out.body?.items : undefined, filesByKey);
+        answered = true;
         continue;
       }
 
@@ -1328,7 +1370,7 @@ export async function startRun(
     },
     async add(result) {
       buffer.push({ ...result, keys: bound(result.keys) });
-      if (buffer.length >= batchSize) await flush();
+      if (buffer.length >= batchSize) await flushBuffer();
     },
     flush,
     async finish(reason?: string) {

@@ -15,6 +15,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 - **`plune requirements import` maps several tables in one run (plune-ai/plune#1624).** Repeat `--table "<n>:key=ID,text=Requirement,fixed-category=functional"`, each with its own columns (`key`, `title`/`text`, `description`, `priority`, `category`, `type`, `status`, `criteria`, `fixed-category`, `fixed-type`); the request carries them as `tables`, and `--map-priority`, `--type` and `--map-category` are shared. `--table 0 --key-column ...` works as before; the two forms are not mixed (exit 2). The plan names the table of each row, shows the new skip reasons (`template placeholder`, `first on line N, again on line M`), and says `this file is an empty template` when the platform reports one (exit 0, like any skipped row). Not run against a real platform.
 
+### Changed
+
+- **Faster result upload (plune-ai/plune#1393).** Result batches of one run go four at a time (the first alone, so a refused token or a closed run is met by one request), over reused connections; the default batch is still 500, so 7 000 results are 14 requests, not 70. Ordering is kept: the run starts before the first result and closes after the last is answered; a failed batch still goes to the fallback file. Gain estimated from measured round trips, not measured on a real platform.
+
 ## [0.25.0] - 2026-10-17
 
 ### Added
