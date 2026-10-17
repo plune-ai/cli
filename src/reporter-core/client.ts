@@ -13,8 +13,8 @@
 
 import { createReadStream, openAsBlob } from 'node:fs';
 import { pipeline } from 'node:stream';
-import { request as httpRequest } from 'node:http';
-import { request as httpsRequest } from 'node:https';
+import { Agent as HttpAgent, request as httpRequest } from 'node:http';
+import { Agent as HttpsAgent, request as httpsRequest } from 'node:https';
 
 /** The pause before retry `n` (from 0) when the platform named none: 300, 600, 1 200 ms … (x2), at most `BACKOFF_CAP_MS`. */
 const BACKOFF_BASE_MS = 300;
@@ -35,6 +35,13 @@ export function parseRetryAfter(raw: string | null | undefined, now: number = Da
   if (!Number.isFinite(seconds)) return null;
   return Math.min(Math.max(seconds, 0) * 1000, RETRY_AFTER_CAP_MS);
 }
+
+/**
+ * One pool per scheme, shared by every request of the process: a new connection to the platform costs
+ * about 200 ms to the first byte (TLS ~70 ms of it), so a run's tens of requests reuse sockets (plune-ai/plune#1393).
+ * An idle socket in the pool is unref'd by Node, so it never keeps the process alive after the last request.
+ */
+const POOLS = { 'http:': new HttpAgent({ keepAlive: true }), 'https:': new HttpsAgent({ keepAlive: true }) };
 
 /** How long a silent platform is waited for — the idle limit `fetch` had (undici's 300 s). */
 const IDLE_MS = 300_000;
@@ -65,7 +72,8 @@ export function nodeTransport(url: string, init: Outgoing, idleMs: number = IDLE
     const target = new URL(url);
     const send = target.protocol === 'https:' ? httpsRequest : httpRequest;
     // `end(body)` with nothing written before it sends a Content-Length of its own, not chunks.
-    const req = send(target, { method: init.method, headers: init.headers }, (res) => {
+    const agent = POOLS[target.protocol === 'https:' ? 'https:' : 'http:'];
+    const req = send(target, { method: init.method, headers: init.headers, agent }, (res) => {
       const chunks: Buffer[] = [];
       res.on('data', (chunk: Buffer) => chunks.push(chunk));
       res.on('error', reject);
