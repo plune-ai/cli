@@ -101,6 +101,61 @@ describe('client — what it retries (AC-05)', () => {
     expect(!out.ok && out.detail).toMatch(/quota exceeded/);
   });
 
+  // The platform's 429 for a quota carries a `quota` object, and the run quota's also a Retry-After
+  // (plune-ai/plune#1599). The body decides: waiting till the reset frees nothing. See cli#111.
+  const QUOTA = { kind: 'runs', limit: 50, used: 50, remaining: 0, resetsAt: '2026-10-18T00:00:00.000Z' };
+
+  it.each([
+    ['with Retry-After', { 'retry-after': '3600' }],
+    ['without Retry-After', {}],
+  ])('treats a 429 with a quota object %s as a quota: one request, the limit named', async (_n, headers) => {
+    const { client, calls, waited } = harness([json({ error: 'daily run quota reached', quota: QUOTA }, 429, headers)]);
+    const out = await client.post('/v1/runs', {});
+
+    expect(calls).toHaveLength(1);
+    expect(waited).toEqual([]);
+    expect(!out.ok && out.kind).toBe('invalid');
+    expect(!out.ok && out.detail).toBe(
+      'quota exceeded (runs: 50 of 50 used, resets 2026-10-18T00:00:00.000Z) — daily run quota reached',
+    );
+  });
+
+  it('names a quota that gave only its kind', async () => {
+    const { client } = harness([json({ error: 'full', quota: { kind: 'cases' } }, 429, { 'retry-after': '5' })]);
+    const out = await client.post('/v1/runs', {});
+
+    expect(!out.ok && out.detail).toBe('quota exceeded (cases) — full');
+  });
+
+  it('still waits and retries a 429 with Retry-After and no quota object', async () => {
+    const { client, calls, waited } = harness([json({ error: 'slow down', quota: 'n/a' }, 429, { 'retry-after': '2' })]);
+    const out = await client.post('/v1/runs', {});
+
+    expect(calls).toHaveLength(3);
+    expect(waited).toEqual([2000, 2000]);
+    expect(!out.ok && out.kind).toBe('unavailable');
+  });
+
+  it('does not crash on a 429 whose body is not JSON', async () => {
+    const html = () => new Response('<html>429</html>', { status: 429 });
+    const none = harness([html()]);
+    const out = await none.client.post('/v1/runs', {});
+    expect(none.calls).toHaveLength(1);
+    expect(!out.ok && out.detail).toBe('quota exceeded (no Retry-After)');
+
+    const slow = harness([new Response('<html>429</html>', { status: 429, headers: { 'retry-after': '1' } })]);
+    const throttled = await slow.client.post('/v1/runs', {});
+    expect(slow.calls).toHaveLength(3);
+    expect(!throttled.ok && throttled.kind).toBe('unavailable');
+  });
+
+  it('scrubs the token out of a quota kind', async () => {
+    const { client } = harness([json({ quota: { kind: `k ${TOKEN}` } }, 429)]);
+    const out = await client.post('/v1/runs', {});
+
+    expect(!out.ok && out.detail).not.toContain(TOKEN);
+  });
+
   // The quota branch rewrites `detail` after the scrubbed one was already built, and it used to
   // append the server's words raw. A proxy or a gateway in front of the platform can echo the
   // bearer token back in an error page, and this string goes straight into a CI log. See cli#79.

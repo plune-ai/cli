@@ -27,6 +27,16 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
   import, so a platform that pushes back is not hammered harder. The files line now reads `(16 at once, ...)`. Not measured
   against the real platform.
 
+### Fixed
+
+- **A quota 429 is told by the `quota` object in the body, not by a missing `Retry-After` (#111).** plune-ai/plune#1599 adds
+  `Retry-After` to the quota 429 that has a reset time (the daily runs quota); the CLI would have read it as a throttle, waited
+  and retried for nothing. A 429 whose JSON body has a `quota` object now stops at once, with the exit code as before, and the
+  message names the limit: `quota exceeded (runs: 50 of 50 used, resets 2026-10-18T00:00:00.000Z) — <server words>`. A 429
+  with `Retry-After` and no `quota` is still a throttle (waited, capped at 60 s, retried); a 429 with neither is still read as a
+  quota, so an older platform behaves as before. A 429 whose body is not JSON does not crash. Release this before or together
+  with the platform change.
+
 ## [0.24.0] - 2026-10-16
 
 ### Added

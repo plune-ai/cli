@@ -340,7 +340,8 @@ plune run import ./playwright.json --upload-concurrency 4          # the same, a
 When the platform answers 429 with a `Retry-After` (seconds or an HTTP date, never waited longer than 60 s),
 the request is tried again after that time plus up to half as much, and every other request of the import
 waits through the same pause. `PLUNE_UPLOAD_RETRIES` (0 to 20, default 6) says how many times; a 429 that
-names no time is the quota and is not retried. A platform that is down (a 5xx or no answer) is still tried
+carries a `quota` object in its body is the quota and is not retried, with or without `Retry-After` (the message names the
+limit and when it resets); one with neither the object nor a `Retry-After` is read the same way. A platform that is down (a 5xx or no answer) is still tried
 twice (three times for a bucket). A 429 on a whole request waits the same way; a file that the bucket did not
 answer for at `complete` is confirmed again, on its own. A file that stays refused is reported without it, never fails
 the import, and is counted in the line printed before the summary:
