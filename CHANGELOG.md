@@ -11,6 +11,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-10-17
+
 ### Added
 
 - **`plune requirements import <file.md>` (#113, plune-ai/plune#1594).** Requirements from a Markdown file, in the two steps of the
