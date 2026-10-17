@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync, realpathSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ReportFormat } from './reporters/index.js';
+import type { ImportFlags } from './cli/commands/requirements-import.js';
 
 // COLD-START (NFR-1, <300ms): keep this module's top-level imports tiny — commander + node
 // builtins only. The command handlers transitively load heavy deps (@huggingface/transformers,
@@ -718,6 +719,58 @@ export function createProgram(): Command {
         if (report.refused.length > 0) process.exitCode = 4;
       } catch (err) {
         const code = reportCasesFailure(err, (s) => process.stderr.write(s));
+        if (code !== null) {
+          maybeStack(err, verbose);
+          process.exitCode = code;
+          return;
+        }
+        failUnexpected(err, verbose);
+      }
+    });
+
+  const requirementsCommand = program
+    .command('requirements')
+    .description('Requirements on the platform — import them from a Markdown file');
+
+  requirementsCommand
+    .command('import')
+    .argument('<file>', 'A Markdown file (UTF-8, at most 1 MiB)')
+    .description(
+      'Import requirements from a Markdown file. With no mapping flags it lists the tables and sections found; with them it is a dry run until --yes',
+    )
+    .option('--table <n>', 'Read the table with this number (from the list)')
+    .option('--key-column <header>', 'Table: the column holding the requirement key')
+    .option('--title-column <header>', 'Table: the column holding the title')
+    .option('--text-column <header>', 'Table: one text column; the title is its first line (not with --title-column)')
+    .option('--description-column <header>', 'Table: the description column')
+    .option('--priority-column <header>', 'Table: the priority column')
+    .option('--category-column <header>', 'Table: the category column')
+    .option('--type-column <header>', 'Table: the type column')
+    .option('--status-column <header>', 'Table: the status column (draft, active or done)')
+    .option('--criteria-column <header>', 'Table: the acceptance criteria column')
+    .option('--map-priority <pairs>', 'Rename priority values, e.g. "Critical=Must-have,High=Should-have"')
+    .option('--map-category <pairs>', 'Table: rename category values, e.g. "Quality=non-functional"')
+    .option('--sections <heading|n>', 'Read the section with this heading or number (from the list)')
+    .option('--unit <unit>', 'Sections: bullets or subheadings (default: sub-headings if it has any)')
+    .option('--key-prefix <text>', 'Sections: text a bullet or sub-heading starts with that carries its key')
+    .option('--priority-from <source>', 'Sections: subheading — bullets take their sub-heading as priority')
+    .option('--type <type>', 'What a row without a type becomes: user_story, feature or epic')
+    .option('--project <id>', 'The project (default: PLUNE_PROJECT, else the only project of the account)')
+    .option('--yes', 'Write it. Without it the import is a dry run', false)
+    .option('--json', 'Print the platform’s answer as JSON', false)
+    .action(async (file: string, options: ImportFlags, command: Command) => {
+      const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
+      const { handleRequirementsImport, formatDiscover, formatReport, reportRequirementsImportFailure } =
+        await import('./cli/commands/requirements-import.js');
+      try {
+        const res = await handleRequirementsImport({ file, ...options });
+        if (options.json === true) {
+          process.stdout.write(JSON.stringify(res.step === 'discover' ? res.result : res.report, null, 2) + '\n');
+        } else {
+          process.stdout.write(res.step === 'discover' ? formatDiscover(file, res.result) : formatReport(res.report));
+        }
+      } catch (err) {
+        const code = reportRequirementsImportFailure(err, (s) => process.stderr.write(s));
         if (code !== null) {
           maybeStack(err, verbose);
           process.exitCode = code;

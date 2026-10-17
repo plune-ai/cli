@@ -148,6 +148,8 @@ export interface PlatformClient {
    * a proxy error page that echoes the request would put a token in a CI log.
    */
   del<T>(path: string): Promise<ClientOutcome<T>>;
+  /** A GET, through the same retries, classification and token scrubbing. */
+  get<T>(path: string): Promise<ClientOutcome<T>>;
   /**
    * The bytes to a short-lived link of the customer's bucket (plune-ai/plune#946): exactly the headers the
    * link came with, no token of ours. Network failures and 5xx wait and try again, up to three times; a 403
@@ -290,7 +292,7 @@ export function createClient(opts: ClientOptions): PlatformClient {
     opts.token === '' ? text : text.split(opts.token).join('***');
 
   async function send<T>(
-    method: 'POST' | 'DELETE',
+    method: 'GET' | 'POST' | 'DELETE',
     path: string,
     payload?: { body: string | Buffer; type: string },
     retries: number = DEFAULT_RETRIES,
@@ -367,6 +369,7 @@ export function createClient(opts: ClientOptions): PlatformClient {
     upload: <T>(path: string, bytes: Buffer, contentType: string) =>
       send<T>('POST', path, { body: bytes, type: contentType }, uploadRetries ?? DEFAULT_RETRIES),
     del: <T>(path: string) => send<T>('DELETE', path),
+    get: <T>(path: string) => send<T>('GET', path),
     async put(url, headers, source) {
       const putRetries = uploadRetries ?? 3;
       let last: PutOutcome = { ok: false, status: null, code: 'network' };

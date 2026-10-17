@@ -13,6 +13,15 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ### Added
 
+- **`plune requirements import <file.md>` (#113, plune-ai/plune#1594).** Requirements from a Markdown file, in the two steps of the
+  platform's import (plune-ai/plune#1621). With no mapping flags it lists the tables and sections the file has (and which look like
+  requirements) and exits 0; `--table <n>` with `--key-column`, `--title-column` or `--text-column`, `--description-column`,
+  `--priority-column`, `--category-column`, `--type-column`, `--status-column`, `--criteria-column`, `--map-priority`, `--map-category`,
+  or `--sections <heading|n>` with `--unit`, `--key-prefix`, `--priority-from`, runs a **dry run** (`create 3 · update 0 · unchanged 12 ·
+  skip 1`, the rows by action with line and reason, the value tables, what was not imported); `--yes` writes it, `--json` prints the raw
+  answer. Impossible flag combinations and a file over 1 MiB are refused before any request (exit 2); a platform without the routes gets
+  one message ("This platform does not support requirements import yet") instead of a stack trace. `--project <id>` / `PLUNE_PROJECT`
+  names the project when the account has several. Not run against a platform that has the routes (not deployed yet).
 - **`PLUNE_SHARD=k/N` closes a sharded run by itself (#110).** A shard that sets it uploads as before, then sends
   `{"event":"finish","shardIndex":k,"shardsExpected":N}`; the platform (plune-ai/plune#1601) closes the run when N distinct shards have
   reported. It implies `PLUNE_SHARED_RUN`. The job prints `plune: shard k of N done — R of N shards reported` as its last line and
