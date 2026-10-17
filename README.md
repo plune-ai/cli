@@ -129,12 +129,45 @@ the last resort, used only when `PLUNE_TOKEN` is set nowhere else. Nothing write
 | `plune ingest [dir]` | Record a [Cairn](https://github.com/plune-ai/cairn) run in Plune. Omit `[dir]` for the newest run under `./runs`, or name the directory holding `report.json`. Generated cases arrive as **review proposals** — nothing is created until a person approves it. |
 | `plune pull [file]` | Write the project's test cases as **one Markdown document** — Testomat's classical format, plus Plune's own columns — to `plune/cases.md` (or `[file]`). Refuses to overwrite a file git sees as modified; `--force` overrides, `--suite <id>` takes one suite or folder and what is under it. |
 | `plune push [file] [--dry-run]` | Send the document back. Cases are matched by `id`; a block without one becomes a draft; an unknown id is refused by line; **nothing is deleted**. Prints the report — created, updated, unchanged, refused, warnings — and with `--dry-run` writes nothing. Exit `4` when anything was refused. |
+| `plune requirements import <file.md>` | Import requirements from a **Markdown file** (an SRS, a PRD, a page exported from a wiki). With no mapping flags it lists the tables and sections the file has and exits `0`; with `--table` or `--sections` it is a **dry run** that writes nothing until you add `--yes`. See [Requirements from a Markdown file](#requirements-from-a-markdown-file). Needs a Plune platform that serves `POST /v1/projects/:id/requirements/import` (plune-ai/plune#1621). |
 | `plune plan grep <id>` | Print a [test plan](https://docs.plune.ai/platform/plans/) as **one `--grep` pattern** — `npx playwright test --grep "$(plune plan grep <id>)"` or `npx vitest run -t "$(plune plan grep <id>)"` runs exactly what the plan collects. Each case contributes its title path from the `path-title` key the reporter wrote (the file left out, `[ >#]+` between the segments — a space for Playwright, jest, mocha and vitest ≤ 4, ` > ` for vitest 5), escaped, joined with `\|`; a case without one goes in by title. The pattern is all that reaches stdout; the summary — how many cases, how many keyed — goes to stderr. An empty plan prints `(?!)`, which matches nothing, because an empty `--grep` would run everything. |
 | `plune run grep <run> [--failed]` | Print a run's **automated** cases as one `--grep` pattern, built the way `plan grep` builds a plan's — so the commands Plune shows for a run work as they are: `npx playwright test --grep "$(plune run grep <run-id> --failed)"` re-runs an automated run's failures where your tests run (Plune starts no CI), and `PLUNE_RUN=<key> npx playwright test --grep "$(plune run grep <key>)"` runs the automated half of a mixed run launched without a plan. `<run>` is the run's id (a UUID) or its key (`rk_` and ten hex); anything else is refused with exit `2` before anything is sent, and a key no run carries exits `1`. The cases are the ones the run expected — cases added on its page among them, run or not — or holds a result of; manual cases are left out. `--failed` keeps the cases whose latest result the platform counts as failed or broken, so a muted case's failure stays out, as from **Re-run N failed**. Only the pattern reaches stdout; how many cases were taken and how many left out goes to stderr; nothing taken prints `(?!)`. Needs a Plune that serves `GET /v1/runs/:id/cases` (plune-ai/plune#1333). |
 
 Global flags: `-c, --config <path>` · `-v, --verbose` · `--no-color`.
 
 **Exit codes:** `0` everything passed · `1` an assertion failed · `2` configuration or execution error · `3` `pull` refused to overwrite uncommitted changes · `4` `push` had refusals.
+
+### Requirements from a Markdown file
+
+`plune requirements import <file.md>` reads a requirements document (UTF-8, at most 1 MiB, at most 2000 requirements) and brings it into the project in two steps. It sends the file as it is and changes nothing by itself: you say which table or section holds the requirements and which column is which, and the platform tells you what it would do before it does it.
+
+**1. See what the file holds.** With no mapping flags:
+
+```bash
+plune requirements import srs.md
+```
+
+It lists every table (number, nearest heading, header cells, row count, and `<- looks like requirements` where the first column holds ids and a header names a requirement) and every section (number, heading, bullets and sub-headings under it), then the commands to try next. Exit `0`.
+
+**2a. A table.** Name the table and its columns by their header text (any case):
+
+```bash
+plune requirements import srs.md --table 0 --key-column ID --text-column Requirement   --priority-column Priority --map-priority "Critical=Must-have,High=Should-have"
+```
+
+`--key-column`, `--title-column` or `--text-column` (one of the two: the title is the first line of the text and the whole text is kept as the description), `--description-column`, `--priority-column`, `--category-column`, `--type-column`, `--status-column` (`draft`, `active` or `done`), `--criteria-column`; `--map-priority` and `--map-category` (`"Quality=non-functional"`) rename values; `--type user_story|feature|epic` is the type of a row that has none.
+
+**2b. A section.** One requirement per bullet or per sub-heading:
+
+```bash
+plune requirements import prd.md --sections Requirements --unit bullets --key-prefix REQ-
+```
+
+`--sections` takes the heading or its number; `--unit bullets|subheadings` (default: sub-headings when the section has any); `--key-prefix` is text a bullet starts with that carries its key (`REQ-12: The system shall ...`; no pattern is accepted); `--priority-from subheading` makes the bullets under a sub-heading take its text as their priority.
+
+**3. Read the plan, then write it.** Without `--yes` nothing is written. The report is the summary line (`create 3 · update 0 · unchanged 12 · skip 1`), the rows grouped by action with their line in the file, key, title and reason (a skipped row says why), the priority and category values seen and what they map to, and what was **not imported** (other tables, other sections, frontmatter keys). It ends with `dry run — nothing was written; add --yes to apply`. Add `--yes` to apply the same plan in one transaction. A row with a key matches the requirement of that key; one without matches by exact title; running the same file again changes nothing (every row is `unchanged`). A skipped row does not fail the command.
+
+`--json` prints the platform's answer instead. The project is the only one of the account, or `--project <id>` / `PLUNE_PROJECT` (a token only works in the project it was minted in). Exit `0` on success, `2` for a flag combination that cannot work (`--table` with `--sections`, `--title-column` with `--text-column`), an unreadable or over-limit file, or a rejected token, `1` when the platform refuses (400, 403, 409 a key taken meanwhile, 413) or does not have the routes yet.
 
 ### A release gate: `--fail-on-failures`
 
