@@ -105,7 +105,7 @@ export type ClientFailureKind =
 
 export type ClientOutcome<T> =
   | { ok: true; status: number; body: T }
-  | { ok: false; kind: ClientFailureKind; status: number | null; detail: string; code?: string };
+  | { ok: false; kind: ClientFailureKind; status: number | null; detail: string; code?: string; shardsExpected?: number };
 
 /** What a PUT to a bucket carries: a file on disk, streamed at a length known beforehand, or bytes in memory. */
 export type PutSource = { path: string; size: number } | { body: Buffer };
@@ -216,11 +216,12 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
  * blocks a clean process exit and — on Windows — trips a libuv teardown assertion. `plune sync`
  * learned this one in production.
  */
-async function detailOf(res: Reply): Promise<{ detail: string; code?: string; quota?: Record<string, unknown> }> {
+async function detailOf(res: Reply): Promise<{ detail: string; code?: string; quota?: Record<string, unknown>; shardsExpected?: number }> {
   try {
-    const body = (await res.json()) as { error?: unknown; code?: unknown; quota?: unknown };
+    const body = (await res.json()) as { error?: unknown; code?: unknown; quota?: unknown; shardsExpected?: unknown };
     const q = body.quota;
     return {
+      ...(typeof body.shardsExpected === 'number' && Number.isInteger(body.shardsExpected) ? { shardsExpected: body.shardsExpected } : {}),
       detail: typeof body.error === 'string' ? body.error : '',
       ...(typeof q === 'object' && q !== null && !Array.isArray(q) ? { quota: q as Record<string, unknown> } : {}),
       ...(typeof body.code === 'string' && /^[a-z0-9_]{1,60}$/.test(body.code) ? { code: body.code } : {}),
@@ -294,7 +295,7 @@ export function createClient(opts: ClientOptions): PlatformClient {
     payload?: { body: string | Buffer; type: string },
     retries: number = DEFAULT_RETRIES,
   ): Promise<ClientOutcome<T>> {
-    let last: { kind: ClientFailureKind; status: number | null; detail: string; code?: string } = {
+    let last: { kind: ClientFailureKind; status: number | null; detail: string; code?: string; shardsExpected?: number } = {
       kind: 'unavailable',
       status: null,
       detail: 'no attempt was made',
@@ -336,7 +337,7 @@ export function createClient(opts: ClientOptions): PlatformClient {
 
       const said = await detailOf(res);
       const kind = classify(res.status);
-      last = { kind, status: res.status, detail: scrub(said.detail), ...(said.code !== undefined ? { code: said.code } : {}) };
+      last = { kind, status: res.status, detail: scrub(said.detail), ...(said.code !== undefined ? { code: said.code } : {}), ...(said.shardsExpected !== undefined ? { shardsExpected: said.shardsExpected } : {}) };
       if (kind !== 'unavailable') break;
 
       // A 429 is a quota when its body has a `quota` object, whatever the header says: waiting frees nothing

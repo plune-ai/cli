@@ -267,8 +267,13 @@ export interface RunSession {
    * `undefined` when it answered with none: no run, a refused finish, a deployment older than the summary.
    */
   finish(reason?: string): Promise<FrozenSummary | undefined>;
-  /** Send what is left and deliberately leave the run open — the shard case (AC-03). */
-  leaveOpen(): Promise<void>;
+  /**
+   * Send what is left and deliberately leave the run open - the shard case (AC-03). With `PLUNE_SHARD=k/N`
+   * it reports "shard k of N is done" instead (cli#110) and resolves to the summary when that was the Nth.
+   */
+  leaveOpen(opts?: { holdShardLines?: boolean }): Promise<FrozenSummary | undefined>;
+  /** The closing lines of a `PLUNE_SHARD` report (`run closed`, `shard k of N done`). Printed by `leaveOpen` unless it was told to hold them for a caller that has more to say first. */
+  readonly shardLines: readonly string[];
 }
 
 /**
@@ -356,6 +361,8 @@ export async function startRun(
   // fills what the caller left open. Explicitly PASSED wins — but an explicit `undefined` does not:
   // that is a caller spreading an optional field, not a decision to unset one.
   const env = readEnv();
+  // A typo here must not turn into a run that never closes: refuse before anything is sent.
+  if (env.shardError !== undefined) throw new Error(env.shardError);
   const stated = Object.fromEntries(Object.entries(passed).filter(([, v]) => v !== undefined));
   const cfg: ReporterConfig = { ...env.config, ...stated };
 
@@ -1308,6 +1315,7 @@ export async function startRun(
     }
   }
 
+  const shardLines: string[] = [];
   return {
     get runId() {
       return runId;
@@ -1351,21 +1359,57 @@ export async function startRun(
       summarise();
       return frozen;
     },
-    async leaveOpen() {
-      if (done) return;
+    shardLines,
+    async leaveOpen(opts) {
+      if (done) return undefined;
       done = true;
       await flush();
       // A shard offers what IT found. The platform deduplicates by key, so the other shards'
       // repeats come back `duplicate` — whereas offering only from the closing process would mean
       // a sharded run never offers anything, since no process closes it.
       await offer();
-      if (runId !== null) {
+      let frozen: FrozenSummary | undefined;
+      const after: string[] = [];
+      const shard = env.shard;
+      let counted = false;
+      let mismatch: Error | undefined;
+      if (runId !== null && shard !== undefined && !offline) {
+        const out = await client.post<{
+          run?: { statusEvent?: string };
+          summary?: FrozenSummary;
+          detached?: number;
+          shardsReported?: number;
+          shardsExpected?: number;
+        }>(`/v1/runs/${runId}/events`, { event: 'finish', shardIndex: shard.index, shardsExpected: shard.total });
+        if (out.ok && typeof out.body?.shardsReported === 'number') {
+          counted = true;
+          frozen = out.body.summary ?? undefined;
+          const n = out.body.shardsExpected ?? shard.total;
+          if (out.body.run?.statusEvent === 'finished') after.push('plune: run closed');
+          after.push(`plune: shard ${shard.index} of ${shard.total} done — ${out.body.shardsReported} of ${n} shards reported`);
+        } else if (out.ok || out.kind === 'invalid') {
+          // An older platform: it rejects the unknown fields (400), or ignores them and answers a plain finish
+          // without counts. Either way the shard did not count, and the run stays as it was.
+          log('plune: the platform does not support shard auto-close yet — the run is left open for "plune run finish".');
+        } else if (out.code === 'shards_mismatch') {
+          mismatch = new Error(
+            `PLUNE_SHARD=${shard.index}/${shard.total} says ${shard.total} shards, but run ${runId} already expects ${out.shardsExpected ?? 'a different number of'} — every shard of one run must use the same N. The results are uploaded; the run is left open.`,
+          );
+        } else {
+          log(`plune: could not report shard ${shard.index} of ${shard.total} to run ${runId} (${out.detail || out.kind}) — the results are uploaded; close the run with "plune run finish ${runId}".`);
+        }
+      }
+      if (runId !== null && !counted) {
         // Deliberately open: this process is one shard and cannot know the others are done.
         // Whoever does know closes it, and until then the run reads as still running — which is
         // the truth, and the whole point of AC-08.
         log(`plune: run ${runId} is still open — close it with "plune run finish ${runId}".`);
       }
       summarise();
+      shardLines.push(...after);
+      if (opts?.holdShardLines !== true) for (const line of after) log(line);
+      if (mismatch !== undefined) throw mismatch;
+      return frozen;
     },
   };
 }

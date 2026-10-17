@@ -152,7 +152,7 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
   // first job finished the run and the second was answered 409, its results going to a fallback
   // file while the step stayed green.
   let frozen: FrozenSummary | undefined;
-  if (env.keepOpen) await session.leaveOpen();
+  if (env.keepOpen) frozen = await session.leaveOpen({ holdShardLines: true });
   else frozen = await session.finish();
 
   const stats = session.stats;
@@ -186,13 +186,15 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
   for (const line of describe(result, apiUrl)) write(line);
   if (options.failOnFailures === true) {
     // A shard's run has nothing frozen yet: the verdict is the step's that finishes it.
-    if (env.keepOpen) {
+    if (env.keepOpen && frozen === undefined) {
       write('plune: the run is left open for the jobs still reporting, so there is no verdict yet — gate on the step that finishes it.');
     }
     const gate = gateExit(frozen);
     write(gate.line);
     result.gate = gate.code;
   }
+  // After everything else, so it is the last line of the job's log (cli#110).
+  for (const line of session.shardLines) write(line);
   return result;
 }
 

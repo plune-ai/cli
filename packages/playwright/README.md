@@ -52,6 +52,7 @@ fills in what you left out. Anything set in the config file wins.
 | `PLUNE_RUN` | the shared run key: every process with the same value lands in one run |
 | `PLUNE_API_URL` | the deployment to report to |
 | `PLUNE_SHARED_RUN` | this process is one of several — do not close the run |
+| `PLUNE_SHARD` | `k/N`: this process is shard k of N; it reports itself done and the run closes when all N have (implies `PLUNE_SHARED_RUN`) |
 | `PLUNE_PROCEED` | the job closes the run itself, later |
 | `PLUNE_BATCH_SIZE` | results per request (default 500, max 500) |
 | `PLUNE_UPLOAD_CONCURRENCY` | files uploaded at once (1 to 32, default 4) |

@@ -11,6 +11,17 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **`PLUNE_SHARD=k/N` closes a sharded run by itself (#110).** A shard that sets it uploads as before, then sends
+  `{"event":"finish","shardIndex":k,"shardsExpected":N}`; the platform (plune-ai/plune#1601) closes the run when N distinct shards have
+  reported. It implies `PLUNE_SHARED_RUN`. The job prints `plune: shard k of N done — R of N shards reported` as its last line and
+  `plune: run closed` when it was the Nth; exit codes do not depend on the counts, and `--fail-on-failures` gates on the summary the closing
+  shard receives. A value that is not `k/N` with `1 <= k <= N <= 1000`, or a different N than the run already holds (409
+  `shards_mismatch`), is a configuration error and fails. A platform without the feature (400, or an answer without counts) gets one
+  warning and the run is left open as before. Unset: nothing changes. The Playwright reporter honours it too. Not run against a
+  platform that has the feature (not deployed yet).
+
 ### Changed
 
 - **A trusted source's first import records the results of the cases it creates (plune-ai/plune#1581).** `plune run import --create`
