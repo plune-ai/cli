@@ -22,11 +22,40 @@ import type { ReporterConfig, RunMeta } from './types.js';
  */
 export const UNSUPPORTED_VARS = ['PLUNE_GROUP'] as const;
 
+export interface ShardOf {
+  /** 1-based. */
+  index: number;
+  total: number;
+}
+
+/** The platform's bound on N (plune#1601). */
+export const SHARDS_MAX = 1000;
+
+/**
+ * `PLUNE_SHARD=k/N`, strictly: two whole numbers, 1 <= k <= N <= 1000. Not derived from CI variables
+ * (a matrix index is 0-based on some runners and 1-based on others, and a wrong guess closes a run early
+ * or never) - a Playwright `--shard=k/N` user passes the same string.
+ */
+function shardOf(env: NodeJS.ProcessEnv): { shard?: ShardOf; error?: string } {
+  const raw = value(env, 'PLUNE_SHARD');
+  if (raw === undefined) return {};
+  const m = /^(\d{1,4})\/(\d{1,4})$/.exec(raw);
+  const [k, n] = m ? [Number(m[1]), Number(m[2])] : [0, 0];
+  if (k >= 1 && k <= n && n <= SHARDS_MAX) return { shard: { index: k, total: n } };
+  return {
+    error: `PLUNE_SHARD=${JSON.stringify(raw.slice(0, 40))} is not "k/N" with 1 <= k <= N <= ${SHARDS_MAX} (for example 2/4) - nothing was sent.`,
+  };
+}
+
 export interface EnvSettings {
   /** Config fields the environment supplied. Anything passed explicitly outranks these. */
   config: Partial<ReporterConfig>;
   /** This process must not close the run — several share it, or the job closes it itself. */
   keepOpen: boolean;
+  /** `PLUNE_SHARD=k/N`: this process is shard k of N, and tells the platform when it is done (cli#110). */
+  shard?: ShardOf;
+  /** `PLUNE_SHARD` was set to something that is not `k/N`. A configuration error: the caller refuses to start. */
+  shardError?: string;
   /** Variables that were set and have nowhere to land. The caller says so once. */
   ignored: string[];
   /** Variables that were set to something unusable and fell back to their default. The caller says so once. */
@@ -110,6 +139,7 @@ export function readEnv(env: NodeJS.ProcessEnv = process.env): EnvSettings {
   // The claim that this run is the whole suite (D20). Same rule: only `1`/`true` means it, and only
   // the job that runs everything should say so — a filtered run with this set detaches the rest.
   const full = flag(env, 'PLUNE_FULL_RUN');
+  const { shard, error: shardError } = shardOf(env);
 
   return {
     config: {
@@ -131,7 +161,11 @@ export function readEnv(env: NodeJS.ProcessEnv = process.env): EnvSettings {
     // Two names for two situations that end the same way. `SHARED_RUN` says other processes are
     // reporting into this run; `PROCEED` says the job will close it on its own schedule. Either
     // way this process must not be the one to call it finished.
-    keepOpen: flag(env, 'PLUNE_SHARED_RUN') || flag(env, 'PLUNE_PROCEED'),
+    // `PLUNE_SHARD` implies it: the run is joined by the shared key and this process does not close it
+    // by itself; `leaveOpen` reports the shard instead.
+    keepOpen: flag(env, 'PLUNE_SHARED_RUN') || flag(env, 'PLUNE_PROCEED') || shard !== undefined || shardError !== undefined,
+    ...(shard !== undefined ? { shard } : {}),
+    ...(shardError !== undefined ? { shardError } : {}),
     ignored: UNSUPPORTED_VARS.filter((name) => value(env, name) !== undefined),
     warnings,
   };

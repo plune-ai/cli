@@ -322,6 +322,32 @@ job closes the run instead of the explicit `finish`.
 `plune run exec` sets it for you — anything reporting inside it, this command included, joins
 without closing.
 
+#### Closing a sharded run by itself: `PLUNE_SHARD`
+
+When you know how many shards there are, let them close the run instead of a final `finish` step:
+
+```bash
+PLUNE_SHARD=2/4 plune run import ./junit.xml --key "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+```
+
+`PLUNE_SHARD=k/N` says "this job is shard k of N" (k counts from 1, `1 <= k <= N <= 1000`; a Playwright
+`--shard=2/4` user passes the same string). It implies `PLUNE_SHARED_RUN`: the job uploads its results, then tells
+Plune that shard k is done. The run closes once, when N different shards have said so, in whatever order and however
+often a shard is retried (a repeat counts once; a red shard counts too). The job's exit code does not depend on the counts.
+
+```
+plune: shard 2 of 4 done — 2 of 4 shards reported
+```
+
+The shard that is the Nth also prints `plune: run closed` just above that line, so the `shard ... done` line is always the last one.
+
+- A value that is not `k/N` (`0/4`, `5/4`, `2`, `a/b`) is a configuration error: nothing is sent and the command fails.
+  Every shard of a run must use the same N; a different one fails with a message naming both numbers, and the run is left as it was.
+- The index is not guessed from CI variables (matrix indexes are 0-based on some runners and 1-based on others); set it.
+- On a platform that does not support it yet, the job warns once (`the platform does not support shard auto-close yet`)
+  and leaves the run open, as `PLUNE_SHARED_RUN` does: close it with `plune run finish`.
+- With `--fail-on-failures`, the shard that closes the run gates on its summary; the others have no verdict yet.
+
 ### Many screenshots: upload concurrency and retries
 
 Files go to Plune up to 100 to a request: `uploads-batch` announces them (with the SHA-256 of each, read as a stream,
