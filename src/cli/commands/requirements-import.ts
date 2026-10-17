@@ -38,7 +38,8 @@ const usage = (message: string): never => {
 };
 
 export interface ImportFlags {
-  table?: string;
+  /** A bare number (the single-table form) or, repeated, `"<n>:key=ID,text=Requirement,..."` specs. */
+  table?: string | string[];
   sections?: string;
   keyColumn?: string;
   titleColumn?: string;
@@ -93,7 +94,22 @@ export interface ImportReport {
   applied: boolean;
   mode: 'table' | 'sections';
   summary: Record<Action, number>;
-  items: { line: number; action: Action; key: string | null; title: string; reason: string; changes?: string[]; id?: string; notes?: string[] }[];
+  items: {
+    line: number;
+    action: Action;
+    key: string | null;
+    title: string;
+    reason: string;
+    changes?: string[];
+    id?: string;
+    notes?: string[];
+    /** Only when several tables were sent: the table the row is from, and its heading. */
+    table?: number;
+    tableHeading?: string | null;
+  }[];
+  /** `true` when every row read was a template placeholder: nothing to import. */
+  emptyTemplate?: true;
+  message?: string;
   values: { priority: ImportValue[]; category: ImportValue[] };
   notImported: {
     frontmatterKeys: string[];
@@ -144,17 +160,58 @@ export function parseMap(flag: string, raw: string): Record<string, string> {
 const oneOf = (flag: string, value: string, allowed: readonly string[]): string =>
   allowed.includes(value) ? value : usage(`${flag} must be ${allowed.join(' or ')}, not "${value}".`);
 
+/** The keys of one `--table "<n>:key=Header,..."` spec → the field of that table in the request's `tables`. */
+const TABLE_SPEC_KEYS: Record<string, string> = {
+  key: 'keyColumn',
+  title: 'titleColumn',
+  text: 'textColumn',
+  description: 'descriptionColumn',
+  priority: 'priorityColumn',
+  category: 'categoryColumn',
+  type: 'typeColumn',
+  status: 'statusColumn',
+  criteria: 'acceptanceCriteriaColumn',
+  'fixed-category': 'fixedCategory',
+  'fixed-type': 'fixedType',
+};
+const SPEC_HELP = 'Write it like --table "3:key=ID,text=Requirement,fixed-category=functional".';
+
+/** `"3:key=ID,text=Requirement"` → `{table: 3, keyColumn: 'ID', textColumn: 'Requirement'}`. A header with a comma cannot be named here. */
+export function parseTableSpec(spec: string): Record<string, unknown> {
+  const at = spec.indexOf(':');
+  const index = (at < 0 ? spec : spec.slice(0, at)).trim();
+  if (!/^\d+$/.test(index)) usage(`--table "${spec}": "${index}" is not a table number. ${SPEC_HELP}`);
+  const t: Record<string, unknown> = { table: Number(index) };
+  for (const pair of (at < 0 ? '' : spec.slice(at + 1)).split(',')) {
+    if (pair.trim() === '') continue;
+    const eq = pair.indexOf('=');
+    const name = (eq < 0 ? pair : pair.slice(0, eq)).trim().toLowerCase();
+    const value = eq < 0 ? '' : pair.slice(eq + 1).trim();
+    const field = TABLE_SPEC_KEYS[name];
+    if (field === undefined) return usage(`--table "${spec}": "${name}" is not a column name. Use ${Object.keys(TABLE_SPEC_KEYS).join(', ')}.`);
+    if (value === '') usage(`--table "${spec}": "${name}" has no value. ${SPEC_HELP}`);
+    if (field in t) usage(`--table "${spec}": "${name}" is given twice.`);
+    if (field === 'fixedCategory') oneOf('fixed-category', value, ['functional', 'non-functional', 'other']);
+    if (field === 'fixedType') oneOf('fixed-type', value, ['user_story', 'feature', 'epic']);
+    t[field] = value;
+  }
+  if (t['titleColumn'] !== undefined && t['textColumn'] !== undefined) usage(`--table "${spec}": give title= or text=, not both.`);
+  if (t['titleColumn'] === undefined && t['textColumn'] === undefined) usage(`--table "${spec}": each table needs title=<header> or text=<header>.`);
+  return t;
+}
+
 /** Which step the flags ask for, and the body of the import (without the markdown); `null` is the discover step. */
 export function buildImportBody(f: ImportFlags): Record<string, unknown> | null {
+  const tables = f.table === undefined ? [] : Array.isArray(f.table) ? f.table : [f.table];
   const columnFlags = COLUMN_FLAGS.filter(([k]) => f[k] !== undefined);
   const sectionFlags = SECTION_FLAGS.filter(([k]) => f[k] !== undefined);
   const anyMapping =
-    f.table !== undefined || f.sections !== undefined || columnFlags.length > 0 || sectionFlags.length > 0 ||
+    tables.length > 0 || f.sections !== undefined || columnFlags.length > 0 || sectionFlags.length > 0 ||
     f.mapPriority !== undefined || f.mapCategory !== undefined || f.type !== undefined;
   if (!anyMapping) return null;
 
-  if (f.table !== undefined && f.sections !== undefined) usage('Give --table or --sections, not both: one import reads one table or one section.');
-  if (f.table === undefined && f.sections === undefined) {
+  if (tables.length > 0 && f.sections !== undefined) usage('Give --table or --sections, not both: one import reads one table or one section.');
+  if (tables.length === 0 && f.sections === undefined) {
     usage('The mapping flags need --table <n> (a table) or --sections <heading|n> (a section). Run without flags to see which the file has.');
   }
 
@@ -162,13 +219,30 @@ export function buildImportBody(f: ImportFlags): Record<string, unknown> | null 
   if (f.mapPriority !== undefined) body['priorityMap'] = parseMap('--map-priority', f.mapPriority);
   if (f.type !== undefined) body['defaultType'] = oneOf('--type', f.type, ['user_story', 'feature', 'epic']);
 
-  if (f.table !== undefined) {
-    if (!/^\d+$/.test(f.table)) usage(`--table is the number of the table in the list (0, 1, ...), not "${f.table}".`);
+  // Several tables: each --table carries its own columns, so the single-table column flags are refused (one form or the other).
+  if (tables.length > 1 || tables.some((t) => t.includes(':'))) {
+    if (sectionFlags.length > 0) usage(`${sectionFlags.map(([, n]) => n).join(', ')} ${sectionFlags.length > 1 ? 'are' : 'is'} for --sections, not --table.`);
+    if (columnFlags.length > 0) {
+      usage(`${columnFlags.map(([, n]) => n).join(', ')} cannot be used with --table "<n>:...": put the column inside each --table, e.g. --table "3:key=ID,text=Requirement".`);
+    }
+    const specs = tables.map(parseTableSpec);
+    const seen = new Set<unknown>();
+    for (const t of specs) {
+      if (seen.has(t['table'])) usage(`Table ${String(t['table'])} is given twice in --table.`);
+      seen.add(t['table']);
+    }
+    body['mode'] = 'table';
+    // --map-category is shared here: the request keeps one `categoryMap` per table, so it is copied into each.
+    const categoryMap = f.mapCategory !== undefined ? parseMap('--map-category', f.mapCategory) : undefined;
+    body['tables'] = specs.map((t) => (categoryMap === undefined ? t : { ...t, categoryMap }));
+  } else if (tables.length === 1) {
+    const only = tables[0]!;
+    if (!/^\d+$/.test(only)) usage(`--table is the number of the table in the list (0, 1, ...), not "${only}".`);
     if (sectionFlags.length > 0) usage(`${sectionFlags.map(([, n]) => n).join(', ')} ${sectionFlags.length > 1 ? 'are' : 'is'} for --sections, not --table.`);
     if (f.titleColumn !== undefined && f.textColumn !== undefined) usage('Give --title-column or --text-column, not both.');
     if (f.titleColumn === undefined && f.textColumn === undefined) usage('--table needs --title-column <header> or --text-column <header>.');
     body['mode'] = 'table';
-    body['table'] = Number(f.table);
+    body['table'] = Number(only);
     for (const [k, , key] of columnFlags) body[key] = f[k];
     if (f.mapCategory !== undefined) body['categoryMap'] = parseMap('--map-category', f.mapCategory);
   } else {
@@ -310,6 +384,8 @@ export function formatDiscover(file: string, r: DiscoverResult): string {
     'Pick one and map it (a dry run, nothing is written):',
     `  plune requirements import ${file} --table <n> --key-column <header> --title-column <header>`,
     `  plune requirements import ${file} --sections <heading|n> --unit bullets|subheadings`,
+    'Several tables in one run, each with its own columns:',
+    `  plune requirements import ${file} --table "<n>:key=<header>,text=<header>,fixed-category=functional" --table "<m>:key=<header>,text=<header>"`,
   );
   return out.join('\n') + '\n';
 }
@@ -317,6 +393,11 @@ export function formatDiscover(file: string, r: DiscoverResult): string {
 export function formatReport(report: ImportReport): string {
   const s = report.summary;
   const out: string[] = [`create ${s.create} · update ${s.update} · unchanged ${s.unchanged} · skip ${s.skip}`];
+  // The exit code stays 0: like a skipped row, a file with nothing to import is an answer, not a failure (--json carries emptyTemplate).
+  if (report.emptyTemplate === true) {
+    const said = report.message !== undefined && !/empty template/i.test(report.message) ? ` ${flat(report.message)}` : '';
+    out.push('', `this file is an empty template: every row is a placeholder, nothing to import.${said}`);
+  }
   for (const action of ['create', 'update', 'skip', 'unchanged'] as const) {
     const rows = report.items.filter((i) => i.action === action);
     if (rows.length === 0) continue;
@@ -324,7 +405,8 @@ export function formatReport(report: ImportReport): string {
     for (const i of rows.slice(0, SHOWN)) {
       const changes = i.changes !== undefined && i.changes.length > 0 ? `; changes: ${i.changes.join(', ')}` : '';
       const notes = i.notes !== undefined && i.notes.length > 0 ? `; note: ${i.notes.join('; ')}` : '';
-      out.push(`  line ${i.line}  ${i.key ?? '-'}  ${cut(flat(i.title), 80)}  - ${flat(i.reason)}${changes}${notes}`);
+      const from = i.table === undefined ? '' : `table #${i.table}${i.tableHeading ? ` "${cut(flat(i.tableHeading), 40)}"` : ''}  `;
+      out.push(`  ${from}line ${i.line}  ${i.key ?? '-'}  ${cut(flat(i.title), 80)}  - ${flat(i.reason)}${changes}${notes}`);
     }
     if (rows.length > SHOWN) out.push(`  ... and ${rows.length - SHOWN} more (--json lists every row)`);
   }

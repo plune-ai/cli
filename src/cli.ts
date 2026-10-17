@@ -738,7 +738,11 @@ export function createProgram(): Command {
     .description(
       'Import requirements from a Markdown file. With no mapping flags it lists the tables and sections found; with them it is a dry run until --yes',
     )
-    .option('--table <n>', 'Read the table with this number (from the list)')
+    .option(
+      '--table <n|spec>',
+      'Read the table with this number (from the list); repeat as --table "<n>:key=ID,text=Requirement,fixed-category=functional" for several tables',
+      (value: string, previous: string[] = []) => [...previous, value],
+    )
     .option('--key-column <header>', 'Table: the column holding the requirement key')
     .option('--title-column <header>', 'Table: the column holding the title')
     .option('--text-column <header>', 'Table: one text column; the title is its first line (not with --title-column)')
