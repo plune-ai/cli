@@ -410,3 +410,105 @@ describe('through the program (stdout, stderr, exit code)', () => {
     expect(out + errOut).not.toContain(TOKEN);
   });
 });
+
+describe('several tables in one run', () => {
+  it('each --table spec becomes an entry of `tables`; shared maps stay top-level', () => {
+    expect(
+      buildImportBody({
+        table: ['1:key=ID,text=Requirement,fixed-category=functional', '2: KEY = ID , title=Name, priority=Prio, criteria=Signal, fixed-type=user_story'],
+        mapPriority: 'Must=High', mapCategory: 'Quality=non-functional', type: 'feature',
+      }),
+    ).toEqual({
+      mode: 'table',
+      priorityMap: { Must: 'High' },
+      defaultType: 'feature',
+      tables: [
+        { table: 1, keyColumn: 'ID', textColumn: 'Requirement', fixedCategory: 'functional', categoryMap: { Quality: 'non-functional' } },
+        { table: 2, keyColumn: 'ID', titleColumn: 'Name', priorityColumn: 'Prio', acceptanceCriteriaColumn: 'Signal', fixedType: 'user_story', categoryMap: { Quality: 'non-functional' } },
+      ],
+    });
+  });
+
+  it('a single spec with ":" is the new form; a bare number stays the old one', () => {
+    expect(buildImportBody({ table: ['3:text=Req'] })).toEqual({ mode: 'table', tables: [{ table: 3, textColumn: 'Req' }] });
+    expect(buildImportBody({ table: ['3'], textColumn: 'Req' })).toEqual({ mode: 'table', table: 3, textColumn: 'Req' });
+  });
+
+  it('refuses a mix of forms and bad specs before any request', () => {
+    const bad = (f: Parameters<typeof buildImportBody>[0], re: RegExp) => expect(() => buildImportBody(f)).toThrow(re);
+    bad({ table: ['1:text=A'], keyColumn: 'ID' }, /put the column inside each --table/);
+    bad({ table: ['1:text=A', '2'] }, /not a table number|each table needs/);
+    bad({ table: ['1:text=A', '1:text=B'] }, /given twice/);
+    bad({ table: ['1:key=ID'] }, /needs title=<header> or text=<header>/);
+    bad({ table: ['1:title=A,text=B'] }, /not both/);
+    bad({ table: ['1:text=A,color=red'] }, /"color" is not a column name/);
+    bad({ table: ['1:text=A,fixed-category=bogus'] }, /must be functional or non-functional or other/);
+    bad({ table: ['1:text='] }, /has no value/);
+    bad({ table: ['x:text=A'] }, /not a table number/);
+    bad({ table: ['1:text=A'], sections: 'S' }, /not both/);
+  });
+
+  const tablesReport: ImportReport = {
+    ...REPORT,
+    summary: { create: 2, update: 0, unchanged: 0, skip: 2 },
+    items: [
+      { line: 7, action: 'create', key: 'FR-1', title: 'Sign in', reason: 'new', table: 1, tableHeading: 'Functional requirements' },
+      { line: 20, action: 'create', key: 'NFR-1', title: 'Fast', reason: 'new', table: 2, tableHeading: null },
+      { line: 8, action: 'skip', key: null, title: '[Behavior]', reason: 'template placeholder', table: 1, tableHeading: 'Functional requirements' },
+      { line: 21, action: 'skip', key: 'FR-1', title: 'Again', reason: 'duplicate key: first on line 7, again on line 21', table: 2, tableHeading: null },
+    ],
+  };
+
+  it('sends `tables`, never the top-level column fields, and the plan names the table of each row', async () => {
+    const fake = platform({ 'GET /v1/projects': projects, [`POST ${P}`]: () => [200, tablesReport] });
+    const res = await run(fake.fetchImpl, { table: ['1:key=ID,text=Requirement,fixed-category=functional', '2:key=ID,text=Requirement,fixed-category=non-functional'] });
+    expect(fake.calls.find((c) => c.path === P)!.body).toEqual({
+      markdown: MD, dryRun: true, mode: 'table',
+      tables: [
+        { table: 1, keyColumn: 'ID', textColumn: 'Requirement', fixedCategory: 'functional' },
+        { table: 2, keyColumn: 'ID', textColumn: 'Requirement', fixedCategory: 'non-functional' },
+      ],
+    });
+    expect(res.step).toBe('import');
+    const text = formatReport(tablesReport);
+    expect(text).toContain('table #1 "Functional requirements"  line 7  FR-1  Sign in  - new');
+    expect(text).toContain('table #2  line 20  NFR-1  Fast  - new');
+    expect(text).toContain('table #1 "Functional requirements"  line 8  -  [Behavior]  - template placeholder');
+    expect(text).toContain('duplicate key: first on line 7, again on line 21');
+    expect(text).not.toContain('empty template');
+  });
+
+  it('says so when the file is an empty template (and the rows without `table` print as before)', () => {
+    const text = formatReport({ ...REPORT, summary: { create: 0, update: 0, unchanged: 0, skip: 2 }, emptyTemplate: true, message: 'this file is an empty template' });
+    expect(text).toContain('this file is an empty template: every row is a placeholder, nothing to import.');
+    expect(text).not.toMatch(/template\. this file/);
+    expect(formatReport(REPORT)).toContain('create (1)\n  line 7  REQ-1');
+  });
+
+  it('through the program: repeated --table, empty template exits 0 and --json keeps the flag', async () => {
+    let out = '';
+    vi.spyOn(process.stdout, 'write').mockImplementation((s: string | Uint8Array) => ((out += String(s)), true));
+    process.exitCode = undefined;
+    vi.stubEnv('PLUNE_TOKEN', TOKEN);
+    vi.stubEnv('PLUNE_PROJECT', 'p1');
+    const empty: ImportReport = { ...REPORT, summary: { create: 0, update: 0, unchanged: 0, skip: 1 }, items: [], emptyTemplate: true };
+    const s = await serve({ [`POST ${P}`]: () => [200, empty] });
+    vi.stubEnv('PLUNE_API_URL', s.url);
+    try {
+      const cli = (...args: string[]) => createProgram().parseAsync(['node', 'plune', 'requirements', 'import', file, ...args]);
+      await cli('--table', '1:text=Requirement', '--table', '2:text=Requirement');
+      expect(s.calls[0]!.body).toMatchObject({ tables: [{ table: 1 }, { table: 2 }], dryRun: true });
+      expect(s.calls[0]!.body).not.toHaveProperty('table');
+      expect(out).toContain('this file is an empty template');
+      expect(process.exitCode).toBeUndefined();
+      out = '';
+      await cli('--table', '1:text=Requirement', '--table', '2:text=Requirement', '--json');
+      expect((JSON.parse(out) as ImportReport).emptyTemplate).toBe(true);
+    } finally {
+      s.server.close();
+      vi.restoreAllMocks();
+      vi.unstubAllEnvs();
+      process.exitCode = undefined;
+    }
+  });
+});

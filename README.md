@@ -165,9 +165,20 @@ plune requirements import prd.md --sections Requirements --unit bullets --key-pr
 
 `--sections` takes the heading or its number; `--unit bullets|subheadings` (default: sub-headings when the section has any); `--key-prefix` is text a bullet starts with that carries its key (`REQ-12: The system shall ...`; no pattern is accepted); `--priority-from subheading` makes the bullets under a sub-heading take its text as their priority.
 
-**3. Read the plan, then write it.** Without `--yes` nothing is written. The report is the summary line (`create 3 · update 0 · unchanged 12 · skip 1`), the rows grouped by action with their line in the file, key, title and reason (a skipped row says why), the priority and category values seen and what they map to, and what was **not imported** (other tables, other sections, frontmatter keys). It ends with `dry run — nothing was written; add --yes to apply`. Add `--yes` to apply the same plan in one transaction. A row with a key matches the requirement of that key; one without matches by exact title; running the same file again changes nothing (every row is `unchanged`). A skipped row does not fail the command.
+**2c. Several tables in one run.** A PRD keeps its functional and non-functional requirements in different tables. Repeat `--table` and put each table's columns inside it, after the number and a colon:
 
-`--json` prints the platform's answer instead. The project is the only one of the account, or `--project <id>` / `PLUNE_PROJECT` (a token only works in the project it was minted in). Exit `0` on success, `2` for a flag combination that cannot work (`--table` with `--sections`, `--title-column` with `--text-column`), an unreadable or over-limit file, or a rejected token, `1` when the platform refuses (400, 403, 409 a key taken meanwhile, 413) or does not have the routes yet.
+```bash
+plune requirements import prd.md \
+  --table "1:key=ID,text=Requirement,priority=Priority,fixed-category=functional" \
+  --table "2:key=ID,text=Requirement,fixed-category=non-functional" \
+  --map-priority "Must=Must-have"
+```
+
+Inside a `--table` the names are `key`, `title` or `text` (one of the two), `description`, `priority`, `category`, `type`, `status`, `criteria`, plus `fixed-category=functional|non-functional|other` and `fixed-type=user_story|feature|epic` — one meaning for the whole table, used where a row has none of its own. Names are separated by commas, so a header that contains a comma cannot be named in this form. `--map-priority`, `--type` and `--map-category` are shared by all tables. A table number may be given once. The single-table form (`--table 0 --key-column ...`) keeps working, but the two forms are not mixed: `--key-column` and the other column flags are refused together with `--table "<n>:..."`. The plan shows `table #N "heading"` in front of each row.
+
+**3. Read the plan, then write it.** Without `--yes` nothing is written. The report is the summary line (`create 3 · update 0 · unchanged 12 · skip 1`), the rows grouped by action with their line in the file, key, title and reason (a skipped row says why), the priority and category values seen and what they map to, and what was **not imported** (other tables, other sections, frontmatter keys). It ends with `dry run — nothing was written; add --yes to apply`. Add `--yes` to apply the same plan in one transaction. A row with a key matches the requirement of that key; one without matches by exact title; running the same file again changes nothing (every row is `unchanged`). A skipped row does not fail the command. Rows that are only placeholders (`[Behavior]`) are skipped with the reason `template placeholder`; a key that appears twice in the file is skipped with `first on line N, again on line M`. When every row is a placeholder the plan says `this file is an empty template` (`--json` has `"emptyTemplate": true`) and the exit code is `0`, like any plan whose rows are skipped: nothing is written, and nothing is an error.
+
+`--json` prints the platform's answer instead. The project is the only one of the account, or `--project <id>` / `PLUNE_PROJECT` (a token only works in the project it was minted in). Exit `0` on success, `2` for a flag combination that cannot work (`--table` with `--sections`, `--title-column` with `--text-column`, a `--table "<n>:..."` spec with the single-table column flags), an unreadable or over-limit file, or a rejected token, `1` when the platform refuses (400, 403, 409 a key taken meanwhile, 413) or does not have the routes yet.
 
 ### A release gate: `--fail-on-failures`
 
