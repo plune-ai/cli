@@ -1069,3 +1069,78 @@ describe('plune run import', () => {
     });
   });
 });
+
+describe('a platform that stops answering (plune-ai/plune#1473)', () => {
+  /** Answers the run's start, then goes silent on everything else; remembers whether `terminate` was tried. */
+  function stalls(terminateAnswers: boolean) {
+    const events: string[] = [];
+    const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
+      const target = String(url).replace('https://api.test', '');
+      if (target === '/v1/runs') return json(201, { run: { id: 'r-9' }, joined: false });
+      if (target === '/v1/test-cases/resolve') {
+        const keys = (JSON.parse(String(init?.body)) as { keys: { value: string }[] }).keys;
+        return json(200, { results: keys.map((key) => ({ key, testCaseId: 'tc-1' })) });
+      }
+      if (target === '/v1/runs/r-9/events' && (JSON.parse(String(init?.body)) as { event: string }).event === 'terminate') {
+        events.push('terminate');
+        if (terminateAnswers) return json(200, { run: { id: 'r-9', statusEvent: 'terminated' } });
+      }
+      return new Promise<Response>(() => undefined);
+    }) as unknown as typeof fetch;
+    return { events, fetchImpl };
+  }
+
+  it('gives up at the limit, terminates the run it opened, and says what happened in one line', async () => {
+    const { events, fetchImpl } = stalls(true);
+    const err = await handleRunImport({ ...deps(fetchImpl), file: write('r.xml', REPORT), timeoutSec: 0.05 }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RunCommandError);
+    const message = (err as Error).message;
+    expect(message).not.toContain('\n');
+    expect(message).toMatch(/did not finish in 0\.05 s/);
+    expect(message).toMatch(/may have received part of the results/);
+    expect(message).toMatch(/run r-9 was terminated/);
+    expect(events).toEqual(['terminate']);
+  });
+
+  it('says so plainly when the terminate gets no answer either', async () => {
+    const { fetchImpl } = stalls(false);
+    const err = await handleRunImport({ ...deps(fetchImpl), file: write('r.xml', REPORT), timeoutSec: 0.05, terminateWaitMs: 50 }).catch(
+      (e: unknown) => e,
+    );
+    expect((err as Error).message).toMatch(/run r-9 could not be terminated from here/);
+  });
+
+  it('does not terminate a run that other jobs report into', async () => {
+    vi.stubEnv('PLUNE_SHARED_RUN', '1');
+    const { events, fetchImpl } = stalls(true);
+    const err = await handleRunImport({ ...deps(fetchImpl), file: write('r.xml', REPORT), timeoutSec: 0.05 }).catch((e: unknown) => e);
+    expect((err as Error).message).toMatch(/shared with other jobs and was left open/);
+    expect(events).toEqual([]);
+  });
+
+  it('admits the run id is unknown when the platform never answered the start', async () => {
+    const fetchImpl = (async () => new Promise<Response>(() => undefined)) as unknown as typeof fetch;
+    const err = await handleRunImport({ ...deps(fetchImpl), file: write('r.xml', REPORT), timeoutSec: 0.05 }).catch((e: unknown) => e);
+    expect((err as Error).message).toMatch(/the run id is not known, so nothing was terminated/);
+  });
+
+  it('takes the limit from PLUNE_IMPORT_TIMEOUT, and the flag wins over it', async () => {
+    vi.stubEnv('PLUNE_IMPORT_TIMEOUT', '1');
+    const { fetchImpl } = stalls(true);
+    const started = Date.now();
+    const err = await handleRunImport({ ...deps(fetchImpl), file: write('r.xml', REPORT) }).catch((e: unknown) => e);
+    expect((err as Error).message).toMatch(/did not finish in 1 s/);
+    expect(Date.now() - started).toBeLessThan(5000);
+    const second = await handleRunImport({ ...deps(fetchImpl), file: write('r.xml', REPORT), timeoutSec: 0.05 }).catch((e: unknown) => e);
+    expect((second as Error).message).toMatch(/did not finish in 0\.05 s/);
+  });
+
+  it('leaves a normal import alone, with the default and with no limit', async () => {
+    for (const timeoutSec of [undefined, 0]) {
+      const { fetchImpl } = platform();
+      const out = await handleRunImport({ ...deps(fetchImpl), file: write('ok.xml', REPORT), ...(timeoutSec !== undefined ? { timeoutSec } : {}) });
+      expect(out.runId).toBe('r-9');
+      expect(out.accepted).toBe(2);
+    }
+  });
+});
