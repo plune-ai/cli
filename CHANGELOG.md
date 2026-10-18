@@ -11,6 +11,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-10-18
+
 ### Added
 
 - **`plune requirements import` maps several tables in one run (plune-ai/plune#1624).** Repeat `--table "<n>:key=ID,text=Requirement,fixed-category=functional"`, each with its own columns (`key`, `title`/`text`, `description`, `priority`, `category`, `type`, `status`, `criteria`, `fixed-category`, `fixed-type`); the request carries them as `tables`, and `--map-priority`, `--type` and `--map-category` are shared. `--table 0 --key-column ...` works as before; the two forms are not mixed (exit 2). The plan names the table of each row, shows the new skip reasons (`template placeholder`, `first on line N, again on line M`), and says `this file is an empty template` when the platform reports one (exit 0, like any skipped row). Not run against a real platform.
