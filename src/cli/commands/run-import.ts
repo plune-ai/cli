@@ -10,14 +10,14 @@
 // nobody has a case for. What this file adds is a parser and a summary.
 
 import * as fs from 'node:fs';
-import { startRun } from '../../reporter-core/session.js';
+import { startRun, type RunSession } from '../../reporter-core/session.js';
 import { printable } from '../../reporter-core/failure-detail.js';
 import { isFolder, readFolder, readReport, type ImportFormat, type MissingAttachment } from '../../importers/index.js';
-import { NoTokenError, RunCommandError, type RunCommandDeps } from './run-lifecycle.js';
+import { NoTokenError, RunCommandError, handleRunFinish, type RunCommandDeps } from './run-lifecycle.js';
 import { resolveApiUrl, dashboardUrl } from '../api-url.js';
 import { loadToken } from '../credentials.js';
 import { gateExit } from '../gate.js';
-import { ciCommit, readEnv } from '../../reporter-core/env.js';
+import { ciCommit, readEnv, IMPORT_TIMEOUT } from '../../reporter-core/env.js';
 import type { FrozenSummary, PendingResult, UnofferedWhy } from '../../reporter-core/types.js';
 
 export interface ImportOptions extends RunCommandDeps {
@@ -32,7 +32,14 @@ export interface ImportOptions extends RunCommandDeps {
   uploadConcurrency?: number;
   /** `--fail-on-failures`: judge the run by the summary the platform froze when this import finished it (plune#1247). */
   failOnFailures?: boolean;
+  /** `--timeout`: seconds for the whole import, over `PLUNE_IMPORT_TIMEOUT`; 0 is no limit. */
+  timeoutSec?: number;
+  /** Test seam: how long the `terminate` sent after a timeout is waited for (ms, default 15 000). */
+  terminateWaitMs?: number;
 }
+
+/** The import ran out of time. Exit 1 like any platform that did not answer. */
+export class ImportTimeoutError extends RunCommandError {}
 
 export interface ImportResult {
   runId: string | null;
@@ -75,6 +82,29 @@ export interface ImportResult {
   offering: boolean;
   /** The exit code `--fail-on-failures` asks for; absent without the flag. */
   gate?: number;
+}
+
+/**
+ * What a person reads when the deadline passed, after one try at closing the run this import opened.
+ * One line, because it ends up as the annotation of a CI step. The run is only terminated by the process
+ * that would have finished it: with PLUNE_SHARD / PLUNE_PROCEED / PLUNE_SHARED_RUN other jobs report into it.
+ */
+async function timeoutMessage(limit: number, runId: string | null, ours: boolean, options: ImportOptions): Promise<string> {
+  const head = `plune: run import did not finish in ${limit} s (--timeout / PLUNE_IMPORT_TIMEOUT; 0 turns the limit off); the platform may have received part of the results`;
+  if (runId === null) return `${head}; the run id is not known, so nothing was terminated - look for an open run with this key in Plune and terminate it there, then import again.`;
+  if (!ours) return `${head}; run ${runId} is shared with other jobs and was left open - close it with "plune run finish ${runId}" once they are done, then import this report again.`;
+  const wait = options.terminateWaitMs ?? 15_000;
+  let timer: NodeJS.Timeout | undefined;
+  const gaveUp = new Promise<'gaveup'>((resolve) => (timer = setTimeout(() => resolve('gaveup'), wait)));
+  const quiet = (): void => undefined;
+  const closed = handleRunFinish(runId, { ...options, write: quiet, terminate: true, reason: `import timed out after ${limit} s` }).then(
+    () => true,
+    () => false,
+  );
+  const done = (await Promise.race([closed, gaveUp]).finally(() => clearTimeout(timer))) === true;
+  return done
+    ? `${head}; run ${runId} was terminated - import the report again.`
+    : `${head}; run ${runId} could not be terminated from here - run "plune run finish ${runId} --terminate" (the platform also closes a silent run after 30 minutes), then import again.`;
 }
 
 /**
@@ -122,7 +152,9 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
   const token = options.token ?? env.config.token ?? loadToken() ?? '';
   if (token === '') throw new NoTokenError();
 
-  const session = await startRun(
+  let session: RunSession | undefined;
+  const send = async (): Promise<FrozenSummary | undefined> => {
+  session = await startRun(
     {
       apiUrl,
       token,
@@ -151,9 +183,26 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
   // here as there. Closing regardless is what made `--key` a promise the import could not keep: the
   // first job finished the run and the second was answered 409, its results going to a fallback
   // file while the step stayed green.
+  return env.keepOpen ? session.leaveOpen({ holdShardLines: true }) : session.finish();
+  };
+
+  // The whole exchange with the platform has one deadline. Each request already gives up after 300 s of
+  // silence, but with retries and a hundred batches that adds up to hours, and CI is what ended it (plune-ai/plune#1473).
+  const limit = options.timeoutSec ?? env.importTimeout ?? IMPORT_TIMEOUT.default;
+  const sent = send();
   let frozen: FrozenSummary | undefined;
-  if (env.keepOpen) frozen = await session.leaveOpen({ holdShardLines: true });
-  else frozen = await session.finish();
+  if (limit === 0) frozen = await sent;
+  else {
+    sent.catch(() => undefined); // if the deadline wins, a late failure of the abandoned work has no one to tell
+    let timer: NodeJS.Timeout | undefined;
+    const late = new Promise<'late'>((resolve) => (timer = setTimeout(() => resolve('late'), limit * 1000)));
+    const first = await Promise.race([sent, late]).finally(() => clearTimeout(timer));
+    if (first === 'late') {
+      throw new ImportTimeoutError(await timeoutMessage(limit, session?.runId ?? null, !env.keepOpen, { ...options, apiUrl, token }));
+    }
+    frozen = first;
+  }
+  if (session === undefined) throw new RunCommandError('The import did not start.');
 
   const stats = session.stats;
   const result: ImportResult = {

@@ -56,6 +56,8 @@ export interface EnvSettings {
   shard?: ShardOf;
   /** `PLUNE_SHARD` was set to something that is not `k/N`. A configuration error: the caller refuses to start. */
   shardError?: string;
+  /** `PLUNE_IMPORT_TIMEOUT` in seconds, when set and usable. */
+  importTimeout?: number;
   /** Variables that were set and have nowhere to land. The caller says so once. */
   ignored: string[];
   /** Variables that were set to something unusable and fell back to their default. The caller says so once. */
@@ -65,6 +67,8 @@ export interface EnvSettings {
 /** Bounds of `PLUNE_UPLOAD_CONCURRENCY` and `PLUNE_UPLOAD_RETRIES`, and what each is when unset. */
 export const UPLOAD_CONCURRENCY = { min: 1, max: 32, default: 16 } as const;
 export const UPLOAD_RETRIES = { min: 0, max: 20, default: 6 } as const;
+/** `PLUNE_IMPORT_TIMEOUT` / `--timeout`: seconds for the whole of `plune run import`; 0 means no limit (plune-ai/plune#1473). */
+export const IMPORT_TIMEOUT = { min: 0, max: 86_400, default: 600 } as const;
 
 /** A variable that is set but blank is what a CI template leaves when it had no value to give. */
 function value(env: NodeJS.ProcessEnv, name: string): string | undefined {
@@ -130,6 +134,7 @@ export function readEnv(env: NodeJS.ProcessEnv = process.env): EnvSettings {
   const warnings: string[] = [];
   const uploadConcurrency = bounded(env, 'PLUNE_UPLOAD_CONCURRENCY', UPLOAD_CONCURRENCY, warnings);
   const uploadRetries = bounded(env, 'PLUNE_UPLOAD_RETRIES', UPLOAD_RETRIES, warnings);
+  const importTimeout = bounded(env, 'PLUNE_IMPORT_TIMEOUT', IMPORT_TIMEOUT, warnings);
   const title = value(env, 'PLUNE_RUN_TITLE');
   const environment = value(env, 'PLUNE_ENV');
   const labels = list(env, 'PLUNE_LABELS');
@@ -166,6 +171,7 @@ export function readEnv(env: NodeJS.ProcessEnv = process.env): EnvSettings {
     keepOpen: flag(env, 'PLUNE_SHARED_RUN') || flag(env, 'PLUNE_PROCEED') || shard !== undefined || shardError !== undefined,
     ...(shard !== undefined ? { shard } : {}),
     ...(shardError !== undefined ? { shardError } : {}),
+    ...(importTimeout !== undefined ? { importTimeout } : {}),
     ignored: UNSUPPORTED_VARS.filter((name) => value(env, name) !== undefined),
     warnings,
   };

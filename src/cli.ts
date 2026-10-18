@@ -387,6 +387,14 @@ export function createProgram(): Command {
         return Number(v);
       },
     )
+    .option(
+      '--timeout <seconds>',
+      'Give up on the whole import after this many seconds, 0 for no limit (default 600; PLUNE_IMPORT_TIMEOUT sets it too). On a timeout the run this import opened is terminated, and the exit code is 1',
+      (v: string) => {
+        if (!/^\d+$/.test(v) || Number(v) > 86_400) throw new InvalidArgumentError('a whole number of seconds from 0 to 86400.');
+        return Number(v);
+      },
+    )
     .option('--fail-on-failures', FAIL_ON_FAILURES, false)
     .action(
       async (
@@ -396,6 +404,7 @@ export function createProgram(): Command {
           key?: string;
           create: boolean;
           uploadConcurrency?: number;
+          timeout?: number;
           failOnMissingAttachments: boolean;
           failOnFailures: boolean;
         },
@@ -428,6 +437,7 @@ export function createProgram(): Command {
             ...(options.key !== undefined ? { key: options.key } : {}),
             ...(options.create ? { create: true } : {}),
             ...(options.uploadConcurrency !== undefined ? { uploadConcurrency: options.uploadConcurrency } : {}),
+            ...(options.timeout !== undefined ? { timeoutSec: options.timeout } : {}),
             ...(options.failOnFailures ? { failOnFailures: true } : {}),
           });
           // After the run is sent and the summary printed: the flag changes the exit code, never what is reported.

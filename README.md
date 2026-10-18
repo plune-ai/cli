@@ -392,6 +392,17 @@ The shard that is the Nth also prints `plune: run closed` just above that line, 
   and leaves the run open, as `PLUNE_SHARED_RUN` does: close it with `plune run finish`.
 - With `--fail-on-failures`, the shard that closes the run gates on its summary; the others have no verdict yet.
 
+### A time limit for the import
+
+The whole `plune run import` stops after 600 seconds by default, so a platform that stops answering cannot hold a CI job until its own timeout kills it. Raise it for a very large report, or turn it off with `0`:
+
+```bash
+PLUNE_IMPORT_TIMEOUT=1200 plune run import ./playwright.json     # seconds, 0 to 86400; 0 is no limit
+plune run import ./playwright.json --timeout 1200                # the same, as a flag (it wins)
+```
+
+At the limit the command sends `terminate` for the run it opened (not for a run other jobs share), says in one line that the platform may have received part of the results, and exits 1. Import the report again afterwards.
+
 ### Many screenshots: upload concurrency and retries
 
 Files go to Plune up to 100 to a request: `uploads-batch` announces them (with the SHA-256 of each, read as a stream,
