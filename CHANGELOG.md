@@ -11,6 +11,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-10-18
+
 ### Added
 
 - **`plune run import` has a time limit of its own (plune-ai/plune#1473).** The whole import gives up after 600 s by default (`--timeout <seconds>` or `PLUNE_IMPORT_TIMEOUT`, the flag wins; `0` turns the limit off). Before, a platform that stopped answering kept the command waiting until CI killed the job, and the run it had opened stayed in progress. On a timeout the command tries to send `terminate` for the run it opened (waiting up to 15 s for it), prints one line that says the platform may have received part of the results and whether the run was terminated, and exits 1. A run shared with other jobs (`--key` with `PLUNE_SHARD`, `PLUNE_PROCEED` or `PLUNE_SHARED_RUN`) is left open and named; if the run was never started the line says its id is not known. Not run against a real platform.
