@@ -5,12 +5,15 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { cacheKey, configHash } from '../util/hash.js';
+import { extractJson } from '../assertions/json-extract.js';
+import { isCacheable } from '../cache/cache.js';
 import { getAssertion } from '../assertions/index.js';
 import { buildJudge } from './judge.js';
 import { mapLimit } from './concurrency.js';
 import { ProviderError, AuthError } from '../providers/errors.js';
 import type {
   AssertionResultRecord,
+  CacheSummary,
   EvalResult,
   RowResult,
   RunError,
@@ -54,6 +57,26 @@ export interface RowParams {
   now: () => number;
   dryRun: boolean;
   noCache: boolean;
+  /** Every row must be answered from the cache; a miss ends the row without a model call. */
+  cacheStrict?: boolean;
+  /** Entries older than this count as a miss. */
+  cacheMaxAgeMs?: number;
+  /** Test seam: the policy version in the key (default CACHE_POLICY_VERSION). */
+  policyVersion?: number;
+}
+
+/** The code on a row left unanswered by `--cache-strict`; the CLI turns these into its own exit code. */
+export const CACHE_MISS_CODE = 'CACHE_MISS';
+
+/**
+ * Format check for a completion, before it is cached or replayed: an eval with a `json-schema`
+ * assertion needs an answer that holds JSON. Whether the JSON fits the schema is a content verdict
+ * and is not asked here (ADR 0002 of the completion cache).
+ */
+export function answerParses(output: string, assertions: AssertionConfig[]): boolean {
+  return assertions.every(
+    (a) => a.type !== 'json-schema' || extractJson(output, a.extract ?? 'auto').ok,
+  );
 }
 
 /** Substitute {{var}} from the row's vars (CLI_SPEC §5.2). An unknown variable is a config error. */
@@ -99,19 +122,41 @@ export async function runRow(p: RowParams): Promise<RowResult> {
   }
 
   // The key keeps the old default so a cache written before the change still answers.
-  const key = cacheKey({
-    provider: p.providerConfig.type,
-    model: p.providerConfig.model,
-    temperature: temperature ?? 0,
-    max_tokens: maxTokens,
-    prompt_resolved: prompt,
-  });
+  const key = cacheKey(
+    {
+      provider: p.providerConfig.type,
+      model: p.providerConfig.model,
+      temperature: temperature ?? 0,
+      max_tokens: maxTokens,
+      prompt_resolved: prompt,
+    },
+    p.policyVersion,
+  );
 
   let output: string;
   let usage: Usage;
   let cached = false;
+  let cacheSaved: RowResult['cache_saved'];
 
-  const hit = p.noCache ? undefined : p.cache.get(key);
+  let hit = p.noCache
+    ? undefined
+    : p.cache.get(key, p.cacheMaxAgeMs !== undefined ? { maxAgeMs: p.cacheMaxAgeMs } : {});
+  if (hit !== undefined && !answerParses(hit.output, p.assertions)) {
+    // A stored answer that does not hold the expected format is dropped, and the model is asked
+    // once in this run. (Only that entry; a provider failure never removes entries.)
+    p.cache.delete(key);
+    hit = undefined;
+  }
+  if (hit === undefined && p.cacheStrict === true) {
+    return {
+      vars: p.row.vars,
+      output: null,
+      cached: false,
+      latency_ms: p.now() - t0,
+      error: { code: CACHE_MISS_CODE, message: 'no usable cache entry (--cache-strict)' },
+      assertions: [],
+    };
+  }
   if (hit !== undefined) {
     output = hit.output;
     cached = true;
@@ -119,6 +164,11 @@ export async function runRow(p: RowParams): Promise<RowResult> {
       input_tokens: hit.usage.input_tokens,
       output_tokens: hit.usage.output_tokens,
       cost_usd: 0,
+    };
+    cacheSaved = {
+      input_tokens: hit.usage.input_tokens,
+      output_tokens: hit.usage.output_tokens,
+      cost_usd: p.provider.estimateCost(hit.usage).cost_usd,
     };
   } else {
     try {
@@ -137,7 +187,11 @@ export async function runRow(p: RowParams): Promise<RowResult> {
         // lets a config pricing override win, else falls back to the table estimate (ADR-PRC01).
         cost_usd: p.provider.estimateCost(res.usage, res.cost_usd).cost_usd,
       };
-      if (!p.noCache) p.cache.set(key, res);
+      // Stored only once the answer is usable: some text, not cut off, no provider error, and the
+      // expected format. A wrong-but-well-formed answer (assertions fail below) stays cached.
+      if (!p.noCache && isCacheable(res) && answerParses(res.output, p.assertions)) {
+        p.cache.set(key, res);
+      }
     } catch (err) {
       // Provider exhausted (after retry) → the row is ERRORED, not failed (ADR-OR02).
       return {
@@ -189,6 +243,7 @@ export async function runRow(p: RowParams): Promise<RowResult> {
     cached,
     usage: finalUsage,
     latency_ms: p.now() - t0,
+    ...(cacheSaved !== undefined ? { cache_saved: cacheSaved } : {}),
     ...(assertionError !== undefined ? { error: assertionError } : {}),
     assertions: records,
   };
@@ -202,6 +257,10 @@ export interface RunOptions {
   concurrency?: number;
   noCache?: boolean;
   bail?: boolean;
+  /** `--cache-strict`: every row must come from the cache. Not combinable with `noCache`. */
+  cacheStrict?: boolean;
+  /** `--cache-max-age`, in ms. */
+  cacheMaxAgeMs?: number;
 }
 
 export interface RunDeps {
@@ -240,7 +299,7 @@ function resolveTemplate(ev: EvalConfig, baseDir: string): string {
  * optional in the contract.
  */
 export function summarize(evals: EvalResult[], durationMs: number): Summary {
-  const summary: Required<Summary> = {
+  const summary: Required<Omit<Summary, 'cache'>> = {
     total: 0,
     passed: 0,
     failed: 0,
@@ -250,14 +309,27 @@ export function summarize(evals: EvalResult[], durationMs: number): Summary {
     cost_usd: 0,
     duration_ms: durationMs,
   };
+  const cache: CacheSummary = {
+    from_cache: 0,
+    from_model: 0,
+    missed: 0,
+    saved: { input_tokens: 0, output_tokens: 0, cost_usd: 0 },
+  };
   for (const ev of evals) {
     for (const row of ev.rows) {
       summary.total += 1;
       summary[rowStatus(row)] += 1;
       summary.cost_usd += row.usage?.cost_usd ?? 0;
+      if (row.cached) {
+        cache.from_cache += 1;
+        cache.saved.input_tokens += row.cache_saved?.input_tokens ?? 0;
+        cache.saved.output_tokens += row.cache_saved?.output_tokens ?? 0;
+        cache.saved.cost_usd += row.cache_saved?.cost_usd ?? 0;
+      } else if (row.error?.code === CACHE_MISS_CODE) cache.missed += 1;
+      else if (row.output !== null) cache.from_model += 1;
     }
   }
-  return summary;
+  return { ...summary, cache };
 }
 
 export async function runOrchestration(
@@ -265,9 +337,13 @@ export async function runOrchestration(
   options: RunOptions,
   deps: RunDeps,
 ): Promise<RunResult> {
+  const noCache = options.noCache ?? false;
+  const cacheStrict = options.cacheStrict ?? false;
+  if (noCache && cacheStrict) {
+    throw new RunConfigError('--no-cache and --cache-strict cannot be used together');
+  }
   const started = deps.now();
   const dryRun = options.dryRun ?? false;
-  const noCache = options.noCache ?? false;
   const evalResults: EvalResult[] = [];
 
   // Pre-flight (before any provider construction): resolve every template + dataset and validate
@@ -299,6 +375,8 @@ export async function runOrchestration(
         now: deps.now,
         dryRun,
         noCache,
+        cacheStrict,
+        ...(options.cacheMaxAgeMs !== undefined ? { cacheMaxAgeMs: options.cacheMaxAgeMs } : {}),
       }),
     );
 

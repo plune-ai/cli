@@ -3,6 +3,7 @@ import { Command, InvalidArgumentError } from 'commander';
 import { readFileSync, writeFileSync, realpathSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseDuration } from './util/duration.js';
 import type { ReportFormat } from './reporters/index.js';
 import type { ImportFlags } from './cli/commands/requirements-import.js';
 
@@ -122,6 +123,12 @@ export function createProgram(): Command {
     )
     .option('--concurrency <n>', 'Override provider concurrency', (v: string) => parseInt(v, 10))
     .option('--no-cache', 'Bypass the local cache for this run')
+    .option(
+      '--cache-strict',
+      'Every row must be in the cache: no model calls for completions; a miss ends the run with exit 5 and lists the rows',
+      false,
+    )
+    .option('--cache-max-age <duration>', 'Treat cache entries older than this as a miss (e.g. 90s, 15m, 12h, 7d)')
     .option('--bail', 'Stop after the first failing eval', false)
     .option('--format <fmt>', 'console | json | markdown', 'console')
     .option('-o, --output <path>', 'Write the report to a file instead of stdout')
@@ -133,6 +140,8 @@ export function createProgram(): Command {
           only: string[];
           concurrency?: number;
           cache: boolean;
+          cacheStrict: boolean;
+          cacheMaxAge?: string;
           bail: boolean;
           format: string;
           output?: string;
@@ -150,7 +159,7 @@ export function createProgram(): Command {
         // Lazy-load the heavy run pipeline only now that `run` is actually executing.
         const [
           { handleRun },
-          { exitCodeFor, RunConfigError },
+          { exitCodeFor, cacheMissRows, CACHE_STRICT_EXIT, RunConfigError },
           { renderReport },
           { ConfigNotFoundError, ConfigValidationError, YamlParseError },
           { AuthError },
@@ -162,6 +171,21 @@ export function createProgram(): Command {
           import('./providers/errors.js'),
         ]);
         try {
+          if (options.cache === false && options.cacheStrict) {
+            process.stderr.write('--no-cache and --cache-strict cannot be used together\n');
+            process.exit(2);
+            return;
+          }
+          let cacheMaxAgeMs: number | undefined;
+          if (options.cacheMaxAge !== undefined) {
+            try {
+              cacheMaxAgeMs = parseDuration(options.cacheMaxAge);
+            } catch (err) {
+              process.stderr.write(`--cache-max-age: ${(err as Error).message}\n`);
+              process.exit(2);
+              return;
+            }
+          }
           const result = await handleRun({
             dryRun: options.dryRun,
             ...(configPath !== undefined ? { configPath } : {}),
@@ -171,6 +195,8 @@ export function createProgram(): Command {
               : {}),
             noCache: options.cache === false,
             bail: options.bail,
+            ...(options.cacheStrict ? { cacheStrict: true } : {}),
+            ...(cacheMaxAgeMs !== undefined ? { cacheMaxAgeMs } : {}),
           });
           if (options.only.length > 0 && result.evals.length === 0) {
             process.stderr.write('No evals matched the selector.\n');
@@ -180,6 +206,14 @@ export function createProgram(): Command {
           });
           writeReport(text, options.output);
           process.exitCode = exitCodeFor(result);
+          const missed = cacheMissRows(result);
+          if (missed.length > 0) {
+            // Rows with no cache entry under --cache-strict: their own exit code, ahead of the verdict.
+            process.stderr.write(
+              `--cache-strict: ${missed.length} row(s) have no cache entry:\n${missed.map((m) => `  - ${m}`).join('\n')}\n`,
+            );
+            process.exitCode = CACHE_STRICT_EXIT;
+          }
         } catch (err) {
           const verbose = globals.verbose === true;
           if (err instanceof ConfigValidationError) {

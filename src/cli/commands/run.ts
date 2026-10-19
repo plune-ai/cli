@@ -16,7 +16,7 @@ import type { Config } from '../../types/config.js';
 import type { RunResult } from '../../types/results.js';
 
 // Used for --dry-run so the run never opens/creates the cache file (FR-8).
-const NOOP_CACHE: Cache = { get: () => undefined, set: () => {}, clear: () => {}, close: () => {} };
+const NOOP_CACHE: Cache = { get: () => undefined, set: () => {}, delete: () => {}, clear: () => {}, close: () => {} };
 
 /**
  * True when the E2E mock provider is active (PLUNE_MOCK_PROVIDER=1). In this mode buildRealDeps
@@ -34,6 +34,9 @@ export interface RunOptions {
   concurrency?: number;
   noCache?: boolean;
   bail?: boolean;
+  cacheStrict?: boolean;
+  /** Milliseconds; parsed from `--cache-max-age` by the caller. */
+  cacheMaxAgeMs?: number;
 }
 
 function resolveProviderFor(config: Config, dryRun: boolean): RunDeps['resolveProvider'] {
@@ -77,6 +80,11 @@ export async function handleRun(
   const factory = depsFactory ?? ((c, d) => buildRealDeps(c, d, options.dryRun));
   const deps = factory(config, baseDir);
   try {
+    // Once per run, on stderr so a --format json report on stdout stays clean.
+    const stale = deps.cache.staleEntries ?? 0;
+    if (stale > 0) {
+      process.stderr.write(`cache policy changed, ${stale} entries are stale (dropped)\n`);
+    }
     const result = await runOrchestration(
       config,
       {
@@ -85,6 +93,8 @@ export async function handleRun(
         ...(options.concurrency !== undefined ? { concurrency: options.concurrency } : {}),
         ...(options.noCache !== undefined ? { noCache: options.noCache } : {}),
         ...(options.bail !== undefined ? { bail: options.bail } : {}),
+        ...(options.cacheStrict === true ? { cacheStrict: true } : {}),
+        ...(options.cacheMaxAgeMs !== undefined ? { cacheMaxAgeMs: options.cacheMaxAgeMs } : {}),
       },
       deps,
     );

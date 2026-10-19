@@ -59,6 +59,11 @@ export function makeAnthropicProvider(
             input_tokens: res.usage.input_tokens,
             output_tokens: res.usage.output_tokens,
           },
+          ...(res.stop_reason === 'max_tokens'
+            ? { finish_reason: 'length' }
+            : res.stop_reason !== null && res.stop_reason !== undefined
+              ? { finish_reason: res.stop_reason }
+              : {}),
         };
       } catch (err) {
         throw normalizeProviderError(err, apiKey, ENV_VAR);

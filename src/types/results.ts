@@ -13,6 +13,19 @@ export interface Summary {
   skipped?: number;
   cost_usd: number;
   duration_ms: number;
+  /** plune-ai/plune#1696. Where the answers came from. Optional and additive; absent in older runs. */
+  cache?: CacheSummary;
+}
+
+/**
+ * `from_cache` rows were answered by the store, `from_model` by a model call, `missed` had no entry
+ * under `--cache-strict` and were not answered. The `saved` totals are the sum of the rows' `cache_saved`.
+ */
+export interface CacheSummary {
+  from_cache: number;
+  from_model: number;
+  missed: number;
+  saved: { input_tokens: number; output_tokens: number; cost_usd: number };
 }
 
 export interface AssertionResultRecord {
@@ -121,6 +134,8 @@ export interface RowResult {
   latency_ms?: number;
   error?: RunError;
   assertions: AssertionResultRecord[];
+  /** plune-ai/plune#1696. On a cache hit: what the call would have cost. Optional and additive. */
+  cache_saved?: { input_tokens: number; output_tokens: number; cost_usd: number };
   /**
    * ADR 0045. Say it when the test was never judged, rather than letting `failed` stand for both
    * "the environment broke" and "the code is wrong".

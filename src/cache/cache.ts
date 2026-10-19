@@ -5,6 +5,7 @@
 
 import Database from 'better-sqlite3';
 import type { CompletionResponse } from '../types/provider.js';
+import { CACHE_POLICY_VERSION } from '../util/hash.js';
 
 const SCHEMA_VERSION = 1;
 const META_DDL = 'CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);';
@@ -16,6 +17,10 @@ export interface Cache {
   /** Return the cached completion, or undefined on a miss. `maxAgeMs` (optional) expires old entries. */
   get(key: string, opts?: { maxAgeMs?: number }): CompletionResponse | undefined;
   set(key: string, value: CompletionResponse): void;
+  /** Remove one entry (a cached answer that turned out unusable). Best-effort. */
+  delete(key: string): void;
+  /** Entries left by an older policy version, found when the store was opened (0 when none or unknown). */
+  readonly staleEntries?: number;
   clear(): void;
   close(): void;
 }
@@ -23,6 +28,20 @@ export interface Cache {
 export interface OpenCacheOptions {
   /** Injected clock for deterministic TTL tests (default Date.now). */
   now?: () => number;
+  /** Policy version the store is opened for (default CACHE_POLICY_VERSION); a different stored one makes entries stale. */
+  policyVersion?: number;
+}
+
+/** Finish reasons that mark an answer as cut off or failed: never worth replaying. */
+const UNCACHEABLE_FINISH = new Set(['length', 'max_tokens', 'error', 'content_filter']);
+
+/**
+ * The minimum check before a completion may be stored: some text, not cut off by the token limit,
+ * no provider error in the body. Checks that depend on the answer's format run in the orchestrator.
+ */
+export function isCacheable(res: CompletionResponse): boolean {
+  if (res.output.trim() === '') return false;
+  return res.finish_reason === undefined || !UNCACHEABLE_FINISH.has(res.finish_reason);
 }
 
 interface Row {
@@ -42,7 +61,7 @@ export function openCache(file: string, opts: OpenCacheOptions = {}): Cache {
       db.close();
       throw err;
     }
-    return new SqliteCache(db, now);
+    return new SqliteCache(db, now, markPolicy(db, opts.policyVersion ?? CACHE_POLICY_VERSION));
   } catch {
     // Corrupt / unopenable file → degrade to a no-op (always miss). Cache is an optimization (FR-7).
     return new NoOpCache();
@@ -65,10 +84,29 @@ function ensureSchema(db: Database.Database): void {
   }
 }
 
+/**
+ * Record the policy version. Entries written under another one can never be hit again (the version is
+ * in the key), so they are counted and dropped; the count is what the run reports, once.
+ */
+function markPolicy(db: Database.Database, version: number): number {
+  const current = String(version);
+  const stored = (
+    db.prepare("SELECT value FROM meta WHERE key = 'policy_version'").get() as
+      | { value: string }
+      | undefined
+  )?.value;
+  if (stored === current) return 0;
+  const { n } = db.prepare('SELECT COUNT(*) AS n FROM completions').get() as { n: number };
+  db.exec('DELETE FROM completions');
+  db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run('policy_version', current);
+  return n;
+}
+
 class SqliteCache implements Cache {
   constructor(
     private readonly db: Database.Database,
     private readonly now: () => number,
+    readonly staleEntries: number,
   ) {}
 
   get(key: string, opts: { maxAgeMs?: number } = {}): CompletionResponse | undefined {
@@ -77,6 +115,15 @@ class SqliteCache implements Cache {
         .prepare('SELECT output, input_tokens, output_tokens, created_at FROM completions WHERE cache_key = ?')
         .get(key) as Row | undefined;
       if (row === undefined) return undefined;
+      // A damaged row (wrong column types) is a miss, never a made-up answer.
+      if (
+        typeof row.output !== 'string' ||
+        !Number.isFinite(row.input_tokens) ||
+        !Number.isFinite(row.output_tokens) ||
+        !Number.isFinite(row.created_at)
+      ) {
+        return undefined;
+      }
       // Hybrid TTL: permanent unless maxAgeMs is given and the entry is older than it (FR-4).
       if (opts.maxAgeMs !== undefined && this.now() - row.created_at > opts.maxAgeMs) {
         return undefined;
@@ -108,6 +155,14 @@ class SqliteCache implements Cache {
     }
   }
 
+  delete(key: string): void {
+    try {
+      this.db.prepare('DELETE FROM completions WHERE cache_key = ?').run(key);
+    } catch {
+      /* best-effort (FR-7) */
+    }
+  }
+
   clear(): void {
     try {
       this.db.exec('DELETE FROM completions');
@@ -127,6 +182,9 @@ class NoOpCache implements Cache {
     return undefined;
   }
   set(): void {
+    /* no-op */
+  }
+  delete(): void {
     /* no-op */
   }
   clear(): void {
