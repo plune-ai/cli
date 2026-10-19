@@ -26,6 +26,8 @@ export interface ImportOptions extends RunCommandDeps {
   format?: ImportFormat;
   /** The key several jobs share so their reports land in one run. */
   key?: string;
+  /** `--name`: the run's title in the list, over `PLUNE_RUN_TITLE` and the default made from the folder. */
+  name?: string;
   /** Offer tests that resolved to nothing to the review queue (the `PLUNE_CREATE=1` switch, D14). */
   create?: boolean;
   /** `--upload-concurrency`: files in flight at once, over `PLUNE_UPLOAD_CONCURRENCY`. */
@@ -160,6 +162,7 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
       token,
       ...(options.fetchImpl !== undefined ? { fetchImpl: options.fetchImpl } : {}),
       ...(options.key !== undefined ? { externalKey: options.key } : {}),
+      ...(options.name !== undefined ? { title: options.name } : {}),
       ...(options.create === true ? { offerDiscovered: true } : {}),
       ...(options.uploadConcurrency !== undefined ? { uploadConcurrency: options.uploadConcurrency } : {}),
       kind: 'automated',

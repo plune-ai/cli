@@ -136,6 +136,16 @@ describe('plune run import', () => {
     expect(lines.join('\n')).toContain('Read 2 result(s) from a junit report');
   });
 
+  it('names the run after --name, and after the folder, the time and where it ran without it', async () => {
+    const named = platform();
+    await handleRunImport({ ...deps(named.fetchImpl), file: write('results.xml', REPORT), name: 'report-1' });
+    expect(named.seen.find((s) => s.path === '/v1/runs')?.body['title']).toBe('report-1');
+
+    const plain = platform();
+    await handleRunImport({ ...deps(plain.fetchImpl), file: write('results.xml', REPORT) });
+    expect(plain.seen.find((s) => s.path === '/v1/runs')?.body['title']).toMatch(/ · \d{4}-\d\d-\d\d \d\d:\d\d · (ci|local)$/);
+  });
+
   it('tells the platform which tests the report accounts for', async () => {
     // The file IS the complete list of what ran, so the platform can derive what never ran from it
     // — and one resolve request answers every test instead of one request per result.
