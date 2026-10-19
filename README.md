@@ -144,9 +144,9 @@ Global flags: `-c, --config <path>` · `-v, --verbose` · `--no-color`.
 - **What is stored.** An answer is cached only when it has text, was not cut off by the token limit (`finish_reason` `length`), carries no provider error, and has the format the eval expects (a `json-schema` eval needs JSON in the answer). An answer that is well formed but wrong (the schema or a `contains` check fails) *is* cached: the model would say the same thing again.
 - **What is dropped.** A stored answer that no longer has the expected format is deleted and the model is asked once in the same run. A provider failure deletes nothing. A damaged entry or file is a miss, never a crash.
 - **Policy version.** `CACHE_POLICY_VERSION` is part of the key. When it is raised, older entries stop answering, are dropped, and the run says `cache policy changed, N entries are stale` once on stderr.
-- **`--cache-strict`.** Every row must be in the cache; the model is not called for completions (judge assertions such as `llm-judge` still call it). A miss ends the run with exit code `5` and lists the rows with no entry. Not combinable with `--no-cache` (exit `2`).
+- **`--cache-strict`.** Every row must be in the cache; the model is not called for completions (judge assertions such as `llm-judge` still call it). A miss ends the run with exit code `5` and lists the rows with no entry. Not combinable with `--no-cache` (exit `2`), and neither is `--cache-max-age`. An entry with the wrong format is left in place in this mode (there is no retry).
 - **`--cache-max-age <duration>`.** `90s`, `15m`, `12h`, `7d` or milliseconds. An older entry is a miss; a fresh one is a hit.
-- **Summary.** The console report and the JSON (`summary.cache`) show rows `from_cache`, `from_model` and `missed`, and the tokens and cost the cache saved (`saved`, the sum of each row's `cache_saved`).
+- **Summary.** The console report and the JSON (`summary.cache`) show rows `from_cache`, `from_model`, `missed` and `errored` (the provider failed; the four add up to the rows run), and the tokens and cost the cache saved (`saved`, the sum of each row's `cache_saved`).
 
 Design: `docs/features/C7-completion-cache/adr/0001-completion-cache-hardening.md`.
 

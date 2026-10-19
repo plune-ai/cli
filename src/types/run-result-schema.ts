@@ -80,6 +80,7 @@ const summarySchema = z.object({
       from_cache: z.number(),
       from_model: z.number(),
       missed: z.number(),
+      errored: z.number(),
       saved: z.object({ input_tokens: z.number(), output_tokens: z.number(), cost_usd: z.number() }),
     })
     .optional(),

@@ -41,6 +41,18 @@ describe('AnthropicProvider (ADR-PRV01)', () => {
     expect(res.usage).toEqual({ input_tokens: 12, output_tokens: 5 });
   });
 
+  it('maps stop_reason max_tokens to finish_reason length and passes others through', async () => {
+    const provider = makeAnthropicProvider(config, { ANTHROPIC_API_KEY: 'sk-test' });
+    for (const [stop, expected] of [['max_tokens', 'length'], ['end_turn', 'end_turn'], ['pause_turn', 'pause_turn']]) {
+      mockCreate.mockResolvedValue({
+        content: [{ type: 'text', text: 'x' }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+        stop_reason: stop,
+      });
+      expect((await provider.complete(req)).finish_reason).toBe(expected);
+    }
+  });
+
   it('sends a temperature only when asked for one — current models refuse the parameter', async () => {
     mockCreate.mockResolvedValue({ content: [{ type: 'text', text: 'x' }], usage: { input_tokens: 1, output_tokens: 1 } });
     const provider = makeAnthropicProvider(config, { ANTHROPIC_API_KEY: 'sk-test' });

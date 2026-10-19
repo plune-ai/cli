@@ -171,6 +171,11 @@ export function createProgram(): Command {
           import('./providers/errors.js'),
         ]);
         try {
+          if (options.cache === false && options.cacheMaxAge !== undefined) {
+            process.stderr.write('--no-cache and --cache-max-age cannot be used together\n');
+            process.exit(2);
+            return;
+          }
           if (options.cache === false && options.cacheStrict) {
             process.stderr.write('--no-cache and --cache-strict cannot be used together\n');
             process.exit(2);

@@ -126,6 +126,7 @@ interface GoldenSummary {
     from_cache: number;
     from_model: number;
     missed: number;
+    errored: number;
     saved: { input_tokens: number; output_tokens: number; cost_usd: number };
   };
 }

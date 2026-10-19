@@ -33,7 +33,7 @@ export interface OpenCacheOptions {
 }
 
 /** Finish reasons that mark an answer as cut off or failed: never worth replaying. */
-const UNCACHEABLE_FINISH = new Set(['length', 'max_tokens', 'error', 'content_filter']);
+const UNCACHEABLE_FINISH = new Set(['length', 'max_tokens', 'error', 'content_filter', 'pause_turn']);
 
 /**
  * The minimum check before a completion may be stored: some text, not cut off by the token limit,
@@ -61,7 +61,14 @@ export function openCache(file: string, opts: OpenCacheOptions = {}): Cache {
       db.close();
       throw err;
     }
-    return new SqliteCache(db, now, markPolicy(db, opts.policyVersion ?? CACHE_POLICY_VERSION));
+    let stale: number;
+    try {
+      stale = markPolicy(db, opts.policyVersion ?? CACHE_POLICY_VERSION);
+    } catch (err) {
+      db.close();
+      throw err;
+    }
+    return new SqliteCache(db, now, stale);
   } catch {
     // Corrupt / unopenable file → degrade to a no-op (always miss). Cache is an optimization (FR-7).
     return new NoOpCache();
@@ -96,10 +103,12 @@ function markPolicy(db: Database.Database, version: number): number {
       | undefined
   )?.value;
   if (stored === current) return 0;
-  const { n } = db.prepare('SELECT COUNT(*) AS n FROM completions').get() as { n: number };
-  db.exec('DELETE FROM completions');
-  db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run('policy_version', current);
-  return n;
+  return db.transaction((): number => {
+    const { n } = db.prepare('SELECT COUNT(*) AS n FROM completions').get() as { n: number };
+    db.exec('DELETE FROM completions');
+    db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run('policy_version', current);
+    return n;
+  })();
 }
 
 class SqliteCache implements Cache {

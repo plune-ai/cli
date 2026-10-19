@@ -71,7 +71,7 @@ export const CACHE_MISS_CODE = 'CACHE_MISS';
 /**
  * Format check for a completion, before it is cached or replayed: an eval with a `json-schema`
  * assertion needs an answer that holds JSON. Whether the JSON fits the schema is a content verdict
- * and is not asked here (ADR 0002 of the completion cache).
+ * and is not asked here (adr/0001-completion-cache-hardening.md).
  */
 export function answerParses(output: string, assertions: AssertionConfig[]): boolean {
   return assertions.every(
@@ -121,7 +121,7 @@ export async function runRow(p: RowParams): Promise<RowResult> {
     return { vars: p.row.vars, output: null, cached: false, usage, assertions: [] };
   }
 
-  // The key keeps the old default so a cache written before the change still answers.
+  // An unset temperature keys as 0 (the cache policy version, not this default, retires old entries).
   const key = cacheKey(
     {
       provider: p.providerConfig.type,
@@ -144,7 +144,8 @@ export async function runRow(p: RowParams): Promise<RowResult> {
   if (hit !== undefined && !answerParses(hit.output, p.assertions)) {
     // A stored answer that does not hold the expected format is dropped, and the model is asked
     // once in this run. (Only that entry; a provider failure never removes entries.)
-    p.cache.delete(key);
+    // Under --cache-strict no retry is possible, so the entry is left alone (CI must not mutate it).
+    if (p.cacheStrict !== true) p.cache.delete(key);
     hit = undefined;
   }
   if (hit === undefined && p.cacheStrict === true) {
@@ -313,6 +314,7 @@ export function summarize(evals: EvalResult[], durationMs: number): Summary {
     from_cache: 0,
     from_model: 0,
     missed: 0,
+    errored: 0,
     saved: { input_tokens: 0, output_tokens: 0, cost_usd: 0 },
   };
   for (const ev of evals) {
@@ -327,6 +329,7 @@ export function summarize(evals: EvalResult[], durationMs: number): Summary {
         cache.saved.cost_usd += row.cache_saved?.cost_usd ?? 0;
       } else if (row.error?.code === CACHE_MISS_CODE) cache.missed += 1;
       else if (row.output !== null) cache.from_model += 1;
+      else if (row.error !== undefined) cache.errored += 1;
     }
   }
   return { ...summary, cache };
@@ -341,6 +344,9 @@ export async function runOrchestration(
   const cacheStrict = options.cacheStrict ?? false;
   if (noCache && cacheStrict) {
     throw new RunConfigError('--no-cache and --cache-strict cannot be used together');
+  }
+  if (noCache && options.cacheMaxAgeMs !== undefined) {
+    throw new RunConfigError('--no-cache and --cache-max-age cannot be used together');
   }
   const started = deps.now();
   const dryRun = options.dryRun ?? false;

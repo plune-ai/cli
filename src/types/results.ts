@@ -25,6 +25,8 @@ export interface CacheSummary {
   from_cache: number;
   from_model: number;
   missed: number;
+  /** Rows the provider failed on: answered by neither, so the four counts add up to `total` (dry-run rows aside). */
+  errored: number;
   saved: { input_tokens: number; output_tokens: number; cost_usd: number };
 }
 

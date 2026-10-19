@@ -81,6 +81,7 @@ describe('write only after the answer is usable', () => {
     ['an empty answer', { output: '   ' }],
     ['an answer cut off by the token limit', { finish_reason: 'length' }],
     ['an answer carrying a provider error', { finish_reason: 'error' }],
+    ['a paused turn', { finish_reason: 'pause_turn' }],
   ];
   for (const [name, res] of cases) {
     it(`does not cache ${name}`, async () => {
@@ -130,18 +131,40 @@ describe('a stored answer that does not parse', () => {
     expect(cache.get(cacheKey(KEY_INPUTS))?.output).toBe('{"ok":true}');
   });
 
-  it('a provider failure removes no entries', async () => {
+  it('a valid hit never reaches the provider, and a provider error deletes nothing extra', async () => {
     const cache = open(tmpFile());
-    cache.set(cacheKey(KEY_INPUTS), { output: '{}', usage });
+    const other = { ...KEY_INPUTS, prompt_resolved: 'Q: other' };
+    cache.set(cacheKey(KEY_INPUTS), { output: 'hi', usage });
+    cache.set(cacheKey(other), { output: '{}', usage });
     const failing: Provider = {
-      complete: async () => {
+      complete: vi.fn(async () => {
         throw new Error('boom');
-      },
+      }),
       estimateCost: () => ({ cost_usd: 0 }),
     };
-    const r = await runRow(params(cache, failing, { noCache: true }));
+    // Valid hit: the (failing) provider is unreachable.
+    expect((await runRow(params(cache, failing))).cached).toBe(true);
+    expect(failing.complete).not.toHaveBeenCalled();
+
+    // Unparseable entry: deleted before the call; the call then fails; the sibling entry survives.
+    const assertions: AssertionConfig[] = [{ type: 'json-schema', schema: { type: 'object' } }];
+    cache.set(cacheKey(KEY_INPUTS), { output: 'garbage', usage });
+    const r = await runRow(params(cache, failing, { assertions }));
+    expect(failing.complete).toHaveBeenCalledTimes(1);
     expect(r.error).toBeDefined();
-    expect(cache.get(cacheKey(KEY_INPUTS))).toBeDefined();
+    expect(cache.get(cacheKey(KEY_INPUTS))).toBeUndefined();
+    expect(cache.get(cacheKey(other))?.output).toBe('{}');
+  });
+
+  it('under --cache-strict an unparseable entry is a miss and is left in place', async () => {
+    const cache = open(tmpFile());
+    const assertions: AssertionConfig[] = [{ type: 'json-schema', schema: { type: 'object' } }];
+    cache.set(cacheKey(KEY_INPUTS), { output: 'garbage', usage });
+    const fp = provider({});
+    const r = await runRow(params(cache, fp.p, { assertions, cacheStrict: true }));
+    expect(fp.complete).not.toHaveBeenCalled();
+    expect(r.error?.code).toBe('CACHE_MISS');
+    expect(cache.get(cacheKey(KEY_INPUTS))?.output).toBe('garbage');
   });
 });
 
@@ -203,7 +226,10 @@ describe('--cache-strict', () => {
     expect(CACHE_STRICT_EXIT).toBe(5);
   });
 
-  it('is refused together with --no-cache', async () => {
+  it('is refused together with --no-cache and with --cache-max-age under --no-cache', async () => {
+    await expect(
+      runOrchestration(configOf(), { noCache: true, cacheMaxAgeMs: 1000 }, {} as never),
+    ).rejects.toThrow(RunConfigError);
     await expect(
       runOrchestration(configOf(), { cacheStrict: true, noCache: true }, {} as never),
     ).rejects.toThrow(RunConfigError);
@@ -263,6 +289,30 @@ describe('damaged store', () => {
 });
 
 describe('summary', () => {
+  it('a provider-errored row lands in the errored bucket, so the buckets add up to the rows', async () => {
+    const failing: Provider = {
+      complete: async () => {
+        throw new Error('boom');
+      },
+      estimateCost: () => ({ cost_usd: 0 }),
+    };
+    const result = await runOrchestration(
+      configOf(),
+      {},
+      {
+        resolveProvider: () => failing,
+        embedder,
+        cache: open(tmpFile()),
+        now: () => 1,
+        loadDataset: () => [{ vars: { q: 'a' } }],
+        baseDir: '.',
+      },
+    );
+    const c = result.summary.cache!;
+    expect(c.errored).toBe(1);
+    expect(c.from_cache + c.from_model + c.missed + c.errored).toBe(result.summary.total);
+  });
+
   it('counts cache, model and saved totals that equal the sum over rows; console and json carry them', async () => {
     const cache = open(tmpFile());
     cache.set(cacheKey(KEY_INPUTS), { output: 'hi', usage });
@@ -284,6 +334,7 @@ describe('summary', () => {
       from_cache: 1,
       from_model: 1,
       missed: 0,
+      errored: 0,
       saved: { input_tokens: 10, output_tokens: 5, cost_usd: 0.015 },
     });
     expect(rows.reduce((n, r) => n + (r.cache_saved?.input_tokens ?? 0), 0)).toBe(10);
