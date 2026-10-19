@@ -874,6 +874,42 @@ export function createProgram(): Command {
       }
     });
 
+  program
+    .command('verify')
+    .description(
+      "Compare the project's automated cases with the Playwright tests in the code, read-only — both sides of the drift, nothing written",
+    )
+    .option('--from <file>', 'A saved `playwright test --list --reporter=json` document instead of running Playwright')
+    .option('--playwright-config <path>', 'Passed to `playwright test --config`')
+    .option('--json', 'Print the report as JSON', false)
+    .option('--fail-on-drift', 'Exit 1 when either side has something the other lacks', false)
+    .action(
+      async (
+        options: { from?: string; playwrightConfig?: string; json: boolean; failOnDrift: boolean },
+        command: Command,
+      ) => {
+        const verbose = verboseOf(command);
+        const { handleVerify, formatVerify } = await import('./cli/commands/verify.js');
+        const { reportCasesFailure } = await import('./cli/commands/cases.js');
+        try {
+          const report = await handleVerify({
+            ...(options.from === undefined ? {} : { from: options.from }),
+            ...(options.playwrightConfig === undefined ? {} : { playwrightConfig: options.playwrightConfig }),
+          });
+          process.stdout.write(options.json ? JSON.stringify(report, null, 2) + '\n' : formatVerify(report));
+          if (options.failOnDrift && report.onlyInPlatform.length + report.onlyInCode.length > 0) process.exitCode = 1;
+        } catch (err) {
+          const code = reportCasesFailure(err, (s) => process.stderr.write(s));
+          if (code !== null) {
+            maybeStack(err, verbose);
+            process.exitCode = code;
+            return;
+          }
+          failUnexpected(err, verbose);
+        }
+      },
+    );
+
   // Unknown command → exit 2 (CLI_SPEC §4.2). Registering a `command:*` listener makes commander
   // emit this event instead of its default "unknown command" error (which would exit 1).
   program.on('command:*', (operands: string[]) => {

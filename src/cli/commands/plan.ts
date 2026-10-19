@@ -76,7 +76,7 @@ async function safeErrorDetail(res: Response): Promise<string> {
  * The platform with the caller's token: a GET of a path, with the ladder of refusals `sync` has —
  * not logged in, a rejected token, an HTTP error with the platform's own words, no network.
  */
-function platformGet(deps: Omit<PlanGrepDeps, 'planId'>): <T>(path: string) => Promise<T> {
+export function platformGet(deps: Omit<PlanGrepDeps, 'planId'>): <T>(path: string) => Promise<T> {
   const apiUrl = resolveApiUrl(deps.apiUrl);
   const token = (deps.loadToken ?? loadToken)();
   if (token === null) throw new NotLoggedInError();
