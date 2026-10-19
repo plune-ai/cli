@@ -83,6 +83,16 @@ describe('plune run start', () => {
     expect(lines[0]).toContain('Started run r-1');
   });
 
+  it('names the run after --name, and not after the folder without it', async () => {
+    const named = platform();
+    await handleRunStart({ ...deps(named.fetchImpl), key: 'ci-7', name: 'report-1' });
+    expect(named.seen[0]?.body['title']).toBe('report-1');
+
+    const plain = platform();
+    await handleRunStart({ ...deps(plain.fetchImpl), key: 'ci-7' });
+    expect(plain.seen[0]?.body['title']).toMatch(/ · \d{4}-\d\d-\d\d \d\d:\d\d · (ci|local)$/);
+  });
+
   it('says it joined when the run already existed', async () => {
     const { fetchImpl } = platform(() => ({ status: 200, body: { run: { id: 'r-1' }, joined: true } }));
     const out = await handleRunStart({ ...deps(fetchImpl), key: 'ci-7' });
@@ -243,6 +253,13 @@ describe('plune run exec', () => {
     expect(calls[0]?.cmd).toBe('npx');
     expect(calls[0]?.env['PLUNE_RUN']).toBe('ci-7');
     expect(calls[0]?.env['PLUNE_PROCEED']).toBe('1');
+  });
+
+  it('opens the run under --name', async () => {
+    const { seen, fetchImpl } = platform();
+    const { impl } = fakeSpawn(0);
+    await handleRunExec({ ...deps(fetchImpl), key: 'ci-7', name: 'nightly', argv: ['true'], spawnImpl: impl });
+    expect(seen[0]?.body['title']).toBe('nightly');
   });
 
   it('returns the command exit code, not its own', async () => {

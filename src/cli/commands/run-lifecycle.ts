@@ -79,6 +79,8 @@ function runUrl(apiUrl: string, id: string): string {
 export interface StartOptions extends RunCommandDeps {
   /** The key several processes share. Generated when absent, so `exec` always has one to pass on. */
   key?: string;
+  /** `--name`: the run's title, over `PLUNE_RUN_TITLE` and the default made from the folder. */
+  name?: string;
   kind?: 'automated' | 'manual' | 'mixed' | 'eval';
   json?: boolean;
 }
@@ -102,7 +104,7 @@ export async function handleRunStart(options: StartOptions = {}): Promise<StartR
     kind: options.kind ?? 'automated',
     externalKey,
     // The same name the reporter would give it; `PLUNE_RUN_TITLE` replaces it, as everywhere.
-    title: env.config.title ?? defaultRunTitle(),
+    title: options.name ?? env.config.title ?? defaultRunTitle(),
   });
   if (!out.ok) throw new RunCommandError(`Could not start the run — ${out.detail || out.kind}.`);
 
