@@ -3,7 +3,8 @@
 // by the precomputed cacheKey() (S1). The cache is an OPTIMIZATION, not a source of truth — every
 // failure degrades to a miss / best-effort, never crashing the run (deliberate fail-loud exception).
 
-import Database from 'better-sqlite3';
+import { createRequire } from 'node:module';
+import type DatabaseType from 'better-sqlite3';
 import type { CompletionResponse } from '../types/provider.js';
 import { CACHE_POLICY_VERSION } from '../util/hash.js';
 
@@ -51,8 +52,31 @@ interface Row {
   created_at: number;
 }
 
+let missingNoted = false;
+
+/**
+ * better-sqlite3 is an optional dependency: on a machine with no prebuilt binary and no compiler
+ * npm skips it and the CLI still installs. Without it the cache is off (every call is a miss).
+ */
+function loadDatabase(): typeof DatabaseType | undefined {
+  try {
+    return createRequire(import.meta.url)('better-sqlite3') as typeof DatabaseType;
+  } catch {
+    if (!missingNoted) {
+      missingNoted = true;
+      console.error(
+        'plune: completion cache disabled (better-sqlite3 is not installed or failed to load). ' +
+          'Reinstall with a C++ toolchain and Python available, or ignore: runs work without the cache.',
+      );
+    }
+    return undefined;
+  }
+}
+
 export function openCache(file: string, opts: OpenCacheOptions = {}): Cache {
   const now = opts.now ?? Date.now;
+  const Database = loadDatabase();
+  if (Database === undefined) return new NoOpCache();
   try {
     const db = new Database(file);
     try {
@@ -75,7 +99,7 @@ export function openCache(file: string, opts: OpenCacheOptions = {}): Cache {
   }
 }
 
-function ensureSchema(db: Database.Database): void {
+function ensureSchema(db: DatabaseType.Database): void {
   db.exec(META_DDL + COMPLETIONS_DDL);
   const stored = (
     db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as
@@ -95,7 +119,7 @@ function ensureSchema(db: Database.Database): void {
  * Record the policy version. Entries written under another one can never be hit again (the version is
  * in the key), so they are counted and dropped; the count is what the run reports, once.
  */
-function markPolicy(db: Database.Database, version: number): number {
+function markPolicy(db: DatabaseType.Database, version: number): number {
   const current = String(version);
   const stored = (
     db.prepare("SELECT value FROM meta WHERE key = 'policy_version'").get() as
@@ -113,7 +137,7 @@ function markPolicy(db: Database.Database, version: number): number {
 
 class SqliteCache implements Cache {
   constructor(
-    private readonly db: Database.Database,
+    private readonly db: DatabaseType.Database,
     private readonly now: () => number,
     readonly staleEntries: number,
   ) {}
