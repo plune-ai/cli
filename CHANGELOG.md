@@ -13,6 +13,7 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ### Added
 
+- **`plune run import --name <text>` (plune-ai/plune#1715).** Names the run in the list; before, every import was called after the current folder and two imports from one folder could not be told apart. Without the flag the name is what it was (`PLUNE_RUN_TITLE`, then folder, time and where it ran). Renaming runs already created is not part of this.
 - **`plune run --cache-strict` and `--cache-max-age` (plune-ai/plune#1696).** `--cache-strict` answers every row from the cache and never calls the model for a completion (judge assertions still do); a row with no entry ends the run with exit code `5` and a list of those rows (`--no-cache` with it, or with `--cache-max-age`, is exit `2`). `--cache-max-age 12h` (also `90s`, `15m`, `7d`) opens the existing expiry. The console report and `summary.cache` in the JSON now say how many rows came from the cache, from the model, or had no entry, and the tokens and cost the cache saved.
 
 ### Changed

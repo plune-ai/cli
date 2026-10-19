@@ -412,6 +412,7 @@ export function createProgram(): Command {
     .description('Turn a report another runner wrote into a run in Plune — no provider key needed')
     .option('--format <fmt>', 'junit | playwright-json | allure; detected from the file (a folder is allure) when omitted')
     .option('--key <externalKey>', 'The key several jobs share so their reports land in one run')
+    .option('--name <text>', 'What to call the run in the list (default: the folder name, the time and where it ran; PLUNE_RUN_TITLE sets it too)')
     .option('--create', 'Offer tests nothing matched to the review queue', false)
     .option(
       '--fail-on-missing-attachments',
@@ -441,6 +442,7 @@ export function createProgram(): Command {
         options: {
           format?: string;
           key?: string;
+          name?: string;
           create: boolean;
           uploadConcurrency?: number;
           timeout?: number;
@@ -474,6 +476,7 @@ export function createProgram(): Command {
             file,
             ...(format !== undefined ? { format: format as (typeof IMPORT_FORMATS)[number] } : {}),
             ...(options.key !== undefined ? { key: options.key } : {}),
+            ...(options.name !== undefined ? { name: options.name } : {}),
             ...(options.create ? { create: true } : {}),
             ...(options.uploadConcurrency !== undefined ? { uploadConcurrency: options.uploadConcurrency } : {}),
             ...(options.timeout !== undefined ? { timeoutSec: options.timeout } : {}),
