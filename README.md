@@ -29,6 +29,8 @@ npx -y @plune-ai/cli run
 
 Requires **Node.js ≥ 20**.
 
+The completion cache uses `better-sqlite3`, an optional dependency with prebuilt binaries for Node 20 to 26 on Windows (x64, arm64), macOS and Linux. If the binary cannot be downloaded (proxy, offline mirror) and there is no C++ toolchain with Python to build it, npm skips it: the install still succeeds and `plune run` prints `completion cache disabled` and runs without the cache. To turn the cache on, fix the download or install the build tools (Visual Studio Build Tools on Windows), then run `npm rebuild better-sqlite3 -g`.
+
 ## Quickstart
 
 ```bash

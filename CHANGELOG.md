@@ -17,6 +17,7 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ### Changed
 
+- **`better-sqlite3` is an optional dependency (plune-ai/plune#1716).** When its prebuilt binary cannot be fetched and the machine has no compiler, `npm i -g @plune-ai/cli` used to stop on the node-gyp build; now npm skips the module, the install succeeds, and `plune run` prints `completion cache disabled` and runs with the cache off. README lists the install requirements and the rebuild step.
 - **The completion cache keeps only usable answers (plune-ai/plune#1696).** An empty answer, one cut off by the token limit, one carrying a provider error, or one without the format the eval expects (JSON for `json-schema`) is no longer stored; a stored answer that no longer has that format is deleted and the model is asked once in the same run. `CACHE_POLICY_VERSION` is now part of the cache key, so raising it makes older entries unreachable (the run reports `cache policy changed, N entries are stale` once). Entries written by 0.27.0 and earlier are dropped on the first run.
 
 ## [0.27.0] - 2026-10-18
