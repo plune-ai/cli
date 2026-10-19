@@ -1,0 +1,99 @@
+{
+  "suites": [
+    {
+      "title": "nested\\cart.spec.ts",
+      "file": "nested/cart.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "top level",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "c86f7738c0b97d5b1448-5cbd4d99e1927c36d7e3",
+          "file": "nested/cart.spec.ts",
+          "line": 6,
+          "column": 1
+        }
+      ],
+      "suites": [
+        {
+          "title": "cart",
+          "file": "nested/cart.spec.ts",
+          "line": 2,
+          "column": 6,
+          "specs": [
+            {
+              "title": "rejects a negative quantity",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [
+                    {
+                      "type": "PluneId",
+                      "description": "tc-1a2b"
+                    }
+                  ],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "c86f7738c0b97d5b1448-d7cbefc882c83c530e74",
+              "file": "nested/cart.spec.ts",
+              "line": 3,
+              "column": 3
+            }
+          ],
+          "suites": [
+            {
+              "title": "inner",
+              "file": "nested/cart.spec.ts",
+              "line": 4,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "adds @Ptc-9",
+                  "ok": true,
+                  "tags": [
+                    "Ptc-9"
+                  ],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "",
+                      "projectName": "",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "c86f7738c0b97d5b1448-06eaa6450cd9c49a442f",
+                  "file": "nested/cart.spec.ts",
+                  "line": 4,
+                  "column": 34
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
