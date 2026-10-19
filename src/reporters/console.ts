@@ -31,6 +31,15 @@ export function renderConsole(result: RunResult, opts: ConsoleOptions = {}): str
   lines.push(
     `${passedTxt} · ${failedTxt} · ${erroredTxt}${blockedTxt}${skippedTxt} · ${summary.total} total · $${summary.cost_usd.toFixed(4)} · ${summary.duration_ms}ms`,
   );
+  const c = summary.cache;
+  if (c !== undefined && c.from_cache + c.from_model + c.missed > 0) {
+    const missedTxt = c.missed > 0 ? ` · ${s.yellow(`${c.missed} missed`)}` : '';
+    lines.push(
+      s.dim(
+        `cache: ${c.from_cache} from cache · ${c.from_model} from model${missedTxt} · saved ${c.saved.input_tokens + c.saved.output_tokens} tokens, $${c.saved.cost_usd.toFixed(4)}`,
+      ),
+    );
+  }
   lines.push('');
 
   for (const ev of result.evals) {

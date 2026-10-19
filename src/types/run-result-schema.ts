@@ -58,6 +58,9 @@ const rowResultSchema = z.object({
   latency_ms: z.number().optional(),
   error: runErrorSchema.optional(),
   assertions: z.array(assertionResultRecordSchema),
+  cache_saved: z
+    .object({ input_tokens: z.number(), output_tokens: z.number(), cost_usd: z.number() })
+    .optional(),
   /** ADR 0045. Optional and additive — the same enum the platform validates on `POST /v1/runs`. */
   inconclusive: z.enum(ROW_INCONCLUSIVE).optional(),
 });
@@ -72,6 +75,15 @@ const summarySchema = z.object({
   skipped: z.number().optional(),
   cost_usd: z.number(),
   duration_ms: z.number(),
+  cache: z
+    .object({
+      from_cache: z.number(),
+      from_model: z.number(),
+      missed: z.number(),
+      errored: z.number(),
+      saved: z.object({ input_tokens: z.number(), output_tokens: z.number(), cost_usd: z.number() }),
+    })
+    .optional(),
 });
 
 const evalResultSchema = z.object({

@@ -38,6 +38,20 @@ describe('OpenRouterProvider (ADR-PRV01)', () => {
     );
   });
 
+  it('reports finish_reason, and an error inside the choice as error', async () => {
+    const provider = makeOpenRouterProvider(config, { OPENROUTER_API_KEY: 'sk-or-test' });
+    mockCreate.mockResolvedValue({
+      choices: [{ message: { content: 'cut' }, finish_reason: 'length' }],
+      usage: { prompt_tokens: 1, completion_tokens: 1 },
+    });
+    expect((await provider.complete(req)).finish_reason).toBe('length');
+    mockCreate.mockResolvedValue({
+      choices: [{ message: { content: '' }, finish_reason: 'stop', error: { message: 'upstream' } }],
+      usage: { prompt_tokens: 1, completion_tokens: 1 },
+    });
+    expect((await provider.complete(req)).finish_reason).toBe('error');
+  });
+
   it('completes with a namespaced model id and normalizes usage (AC-3, AC-11)', async () => {
     mockCreate.mockResolvedValue({
       choices: [{ message: { content: 'Routed reply' } }],

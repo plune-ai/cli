@@ -71,6 +71,71 @@ describe('run import takes its own --format', () => {
   });
 });
 
+describe('completion cache flags (plune-ai/plune#1696)', () => {
+  const row = (error?: { code: string; message: string }): RunResult['evals'][number]['rows'][number] => ({
+    vars: { q: 'a' },
+    output: null,
+    cached: false,
+    ...(error !== undefined ? { error } : {}),
+    assertions: [],
+  });
+  const resultOf = (failed: number, errored: number, rows: ReturnType<typeof row>[]): RunResult => ({
+    ...OK_RESULT,
+    summary: { ...OK_RESULT.summary, total: rows.length, failed, errored },
+    evals: [{ id: 'e1', tags: [], rows, passed: false }],
+  });
+  const miss = { code: 'CACHE_MISS', message: 'no usable cache entry (--cache-strict)' };
+
+  let stderr: string[];
+  let exitSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    process.exitCode = undefined;
+    stderr = [];
+    vi.spyOn(process.stderr, 'write').mockImplementation((c: string | Uint8Array) => {
+      stderr.push(typeof c === 'string' ? c : Buffer.from(c).toString());
+      return true;
+    });
+    exitSpy = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => {}) as (code?: string | number | null | undefined) => never);
+  });
+  afterEach(() => {
+    process.exitCode = undefined;
+  });
+
+  it('a strict miss exits 5 and lists the row', async () => {
+    handleRunMock.mockResolvedValueOnce(resultOf(0, 1, [row(miss)]));
+    await createProgram().parseAsync(['node', 'plune', 'run', '--cache-strict']);
+    expect(process.exitCode).toBe(5);
+    expect(stderr.join('')).toContain('e1 {"q":"a"}');
+    expect((handleRunMock.mock.calls[0]![0] as { cacheStrict?: boolean }).cacheStrict).toBe(true);
+  });
+
+  it('a run with failures and a miss still exits 5, ahead of 1 and 2', async () => {
+    handleRunMock.mockResolvedValueOnce(resultOf(1, 2, [row(miss), row({ code: 'X', message: 'boom' })]));
+    await createProgram().parseAsync(['node', 'plune', 'run', '--cache-strict']);
+    expect(process.exitCode).toBe(5);
+  });
+
+  it('--no-cache with --cache-strict is a usage error (2) and runs nothing', async () => {
+    await createProgram().parseAsync(['node', 'plune', 'run', '--no-cache', '--cache-strict']);
+    expect(exitSpy).toHaveBeenCalledWith(2);
+    expect(stderr.join('')).toContain('--no-cache and --cache-strict cannot be used together');
+    expect(handleRunMock).not.toHaveBeenCalled();
+  });
+
+  it('--no-cache with --cache-max-age is a usage error (2)', async () => {
+    await createProgram().parseAsync(['node', 'plune', 'run', '--no-cache', '--cache-max-age', '1h']);
+    expect(exitSpy).toHaveBeenCalledWith(2);
+    expect(handleRunMock).not.toHaveBeenCalled();
+  });
+
+  it('passes --cache-max-age as milliseconds', async () => {
+    await createProgram().parseAsync(['node', 'plune', 'run', '--cache-max-age', '2m']);
+    expect((handleRunMock.mock.calls[0]![0] as { cacheMaxAgeMs?: number }).cacheMaxAgeMs).toBe(120_000);
+  });
+});
+
 describe('global flags (AC-T01)', () => {
   it('parses -v/--verbose, --no-color and -c at the program level', async () => {
     const program = createProgram();

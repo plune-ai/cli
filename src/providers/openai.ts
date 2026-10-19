@@ -74,8 +74,12 @@ export function makeOpenAiCompatibleProvider(opts: OpenAiCompatibleOptions): Pro
           ? (res.usage as { cost?: number } | undefined)?.cost
           : undefined;
 
+        // OpenRouter can answer 200 with an error inside the choice; surface it as finish_reason.
+        const choice = res.choices[0] as ({ error?: unknown } & (typeof res.choices)[number]) | undefined;
+        const finish = choice?.error !== undefined ? 'error' : choice?.finish_reason;
         return {
-          output: res.choices[0]?.message?.content ?? '',
+          output: choice?.message?.content ?? '',
+          ...(typeof finish === 'string' ? { finish_reason: finish } : {}),
           usage: {
             input_tokens: res.usage?.prompt_tokens ?? 0,
             output_tokens: res.usage?.completion_tokens ?? 0,

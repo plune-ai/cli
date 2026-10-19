@@ -65,6 +65,26 @@ describe('handleRun (orchestrator wired)', () => {
     expect(fs.existsSync(path.join(tmpDir, '.plune', 'last-run.json'))).toBe(true);
   });
 
+  it('writes exactly one stale-entries line to stderr', async () => {
+    const cfgPath = path.join(tmpDir, 'plune.yaml');
+    fs.writeFileSync(cfgPath, CONFIG);
+    const lines: string[] = [];
+    vi.spyOn(process.stderr, 'write').mockImplementation((c: string | Uint8Array) => {
+      lines.push(typeof c === 'string' ? c : Buffer.from(c).toString());
+      return true;
+    });
+    await handleRun({ dryRun: false, configPath: cfgPath }, (_c, baseDir) => ({
+      resolveProvider: () => fakeProvider('hi'),
+      embedder: { embed: async (t) => t.map(() => Float32Array.from([1, 0, 0])) },
+      cache: { get: () => undefined, set: () => {}, delete: () => {}, clear: () => {}, close: () => {}, staleEntries: 3 },
+      now: () => 1000,
+      loadDataset,
+      baseDir,
+    }));
+    const stale = lines.filter((l) => l.includes('cache policy changed'));
+    expect(stale).toEqual(['cache policy changed, 3 entries are stale (dropped)\n']);
+  });
+
   it('dry-run estimates without calling the provider', async () => {
     const cfgPath = path.join(tmpDir, 'plune.yaml');
     fs.writeFileSync(cfgPath, CONFIG);

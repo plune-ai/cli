@@ -40,6 +40,8 @@ plune run [options]
 | `--dry-run` | Estimate cost/tokens without calling the model or touching the cache — so it needs no provider key. Always exits `0`. |
 | `--concurrency <n>` | Override how many rows run in parallel (default: the config's `provider.concurrency`, or 4). |
 | `--no-cache` | Ignore the cache for this run — always call the model, don't read or write cached completions. |
+| `--cache-strict` | Every row must come from the cache; no model call for completions. A miss ends the run with exit `5` and lists the rows with no entry. Cannot be combined with `--no-cache`. |
+| `--cache-max-age <duration>` | Treat cache entries older than this (`90s`, `15m`, `12h`, `7d`) as a miss. |
 | `--bail` | Stop after the first eval that fails. |
 | `--format <fmt>` | Output format: `console` (default), `json`, or `markdown`. |
 | `-o, --output <path>` | Write the report to a file instead of stdout. |

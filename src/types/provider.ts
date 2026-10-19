@@ -22,6 +22,11 @@ export interface CompletionResponse {
    * estimated downstream (ADR-PRC02). Additive + optional: existing providers omit it.
    */
   cost_usd?: number;
+  /**
+   * Why the model stopped, normalised: `length` (hit the token limit), `error` or `content_filter`
+   * mark an answer the cache must not keep. Absent when the provider does not say. Optional and additive.
+   */
+  finish_reason?: string;
 }
 
 export interface CostEstimate {
