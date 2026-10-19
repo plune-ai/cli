@@ -113,7 +113,7 @@ the last resort, used only when `PLUNE_TOKEN` is set nowhere else. Nothing write
 
 | Command | Summary |
 | ------- | ------- |
-| `plune run` | Run the suite. Flags: `--dry-run` (price the run from the model's rates — no provider key, no network), `--only <id\|tag>` (repeatable), `--bail`, `--no-cache`, `--concurrency <n>`, `--format console\|json\|markdown`, `-o, --output <file>`. |
+| `plune run` | Run the suite. Flags: `--dry-run` (price the run from the model's rates — no provider key, no network), `--only <id\|tag>` (repeatable), `--bail`, `--no-cache`, `--cache-strict`, `--cache-max-age <duration>`, `--concurrency <n>`, `--format console\|json\|markdown`, `-o, --output <file>`. |
 | `plune report` | Re-render the most recent run. Flags: `--format`, `-o`. |
 | `plune diff <baseline> <current>` | Compare two `plune run --format json` outputs and report pass→fail regressions. Flags: `--fail-on-regression`, `--format`, `-o`. |
 | `plune init` | Scaffold `plune.yaml`, a sample dataset, and `.env.example`. Flags: `--yes` (non-interactive), `--force`. |
@@ -135,7 +135,20 @@ the last resort, used only when `PLUNE_TOKEN` is set nowhere else. Nothing write
 
 Global flags: `-c, --config <path>` · `-v, --verbose` · `--no-color`.
 
-**Exit codes:** `0` everything passed · `1` an assertion failed · `2` configuration or execution error · `3` `pull` refused to overwrite uncommitted changes · `4` `push` had refusals.
+**Exit codes:** `0` everything passed · `1` an assertion failed · `2` configuration or execution error · `3` `pull` refused to overwrite uncommitted changes · `4` `push` had refusals · `5` `plune run --cache-strict` found rows with no cache entry (it wins over `1` and `2`: the run is incomplete).
+
+### Completion cache
+
+`plune run` keeps model answers in `.plune/cache.db`, keyed by provider, model, temperature, `max_tokens`, the resolved prompt and the cache policy version. Never by time or run id.
+
+- **What is stored.** An answer is cached only when it has text, was not cut off by the token limit (`finish_reason` `length`), carries no provider error, and has the format the eval expects (a `json-schema` eval needs JSON in the answer). An answer that is well formed but wrong (the schema or a `contains` check fails) *is* cached: the model would say the same thing again.
+- **What is dropped.** A stored answer that no longer has the expected format is deleted and the model is asked once in the same run. A provider failure deletes nothing. A damaged entry or file is a miss, never a crash.
+- **Policy version.** `CACHE_POLICY_VERSION` is part of the key. When it is raised, older entries stop answering, are dropped, and the run says `cache policy changed, N entries are stale` once on stderr.
+- **`--cache-strict`.** Every row must be in the cache; the model is not called for completions (judge assertions such as `llm-judge` still call it). A miss ends the run with exit code `5` and lists the rows with no entry. Not combinable with `--no-cache` (exit `2`).
+- **`--cache-max-age <duration>`.** `90s`, `15m`, `12h`, `7d` or milliseconds. An older entry is a miss; a fresh one is a hit.
+- **Summary.** The console report and the JSON (`summary.cache`) show rows `from_cache`, `from_model` and `missed`, and the tokens and cost the cache saved (`saved`, the sum of each row's `cache_saved`).
+
+Design: `docs/features/C7-completion-cache/adr/0001-completion-cache-hardening.md`.
 
 ### Requirements from a Markdown file
 

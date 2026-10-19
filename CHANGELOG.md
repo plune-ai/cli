@@ -11,6 +11,14 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **`plune run --cache-strict` and `--cache-max-age` (plune-ai/plune#1696).** `--cache-strict` answers every row from the cache and never calls the model for a completion (judge assertions still do); a row with no entry ends the run with exit code `5` and a list of those rows (`--no-cache` with it is exit `2`). `--cache-max-age 12h` (also `90s`, `15m`, `7d`) opens the existing expiry. The console report and `summary.cache` in the JSON now say how many rows came from the cache, from the model, or had no entry, and the tokens and cost the cache saved.
+
+### Changed
+
+- **The completion cache keeps only usable answers (plune-ai/plune#1696).** An empty answer, one cut off by the token limit, one carrying a provider error, or one without the format the eval expects (JSON for `json-schema`) is no longer stored; a stored answer that no longer has that format is deleted and the model is asked once in the same run. `CACHE_POLICY_VERSION` is now part of the cache key, so raising it makes older entries unreachable (the run reports `cache policy changed, N entries are stale` once). Entries written by 0.27.0 and earlier are dropped on the first run.
+
 ## [0.27.0] - 2026-10-18
 
 ### Added

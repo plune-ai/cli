@@ -251,7 +251,9 @@ describe('damaged store', () => {
   it('a store from an older schema is rebuilt, not fatal', () => {
     const file = tmpFile();
     const raw = new Database(file);
-    raw.exec("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT); INSERT INTO meta VALUES ('schema_version', '0');");
+    raw.exec(
+      "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT); INSERT INTO meta VALUES ('schema_version', '0');",
+    );
     raw.exec('CREATE TABLE completions (cache_key TEXT PRIMARY KEY, blob TEXT);');
     raw.close();
     const cache = open(file);
@@ -286,7 +288,9 @@ describe('summary', () => {
     });
     expect(rows.reduce((n, r) => n + (r.cache_saved?.input_tokens ?? 0), 0)).toBe(10);
     expect(renderConsole(result)).toContain('cache: 1 from cache');
-    const json = JSON.parse(JSON.stringify(result)) as { summary: { cache: { from_cache: number } } };
+    const json = JSON.parse(JSON.stringify(result)) as {
+      summary: { cache: { from_cache: number } };
+    };
     expect(json.summary.cache.from_cache).toBe(1);
   });
 });
