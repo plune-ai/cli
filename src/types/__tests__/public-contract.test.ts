@@ -121,6 +121,13 @@ interface GoldenSummary {
   skipped?: number;
   cost_usd: number;
   duration_ms: number;
+  /** plune-ai/plune#1696 — optional, so a RunResult written before it is still this type. */
+  cache?: {
+    from_cache: number;
+    from_model: number;
+    missed: number;
+    saved: { input_tokens: number; output_tokens: number; cost_usd: number };
+  };
 }
 interface GoldenUsage {
   input_tokens: number;
@@ -145,6 +152,8 @@ interface GoldenRowResult {
   latency_ms?: number;
   error?: GoldenRunError;
   assertions: GoldenAssertionResultRecord[];
+  /** plune-ai/plune#1696 — optional; set on a cache hit. */
+  cache_saved?: { input_tokens: number; output_tokens: number; cost_usd: number };
   /** ADR 0045 — optional, so the type is a union with `undefined` exactly as the field is. */
   inconclusive?: 'blocked' | 'skipped';
 }
