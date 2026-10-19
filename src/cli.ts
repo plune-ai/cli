@@ -284,12 +284,14 @@ export function createProgram(): Command {
     .command('start')
     .description('Open a platform run (or join one already carrying the key) and print its id')
     .option('--key <externalKey>', 'The key several processes share; generated when absent')
+    .option('--name <text>', 'What to call the run in the list (default: the folder name, the time and where it ran; PLUNE_RUN_TITLE sets it too)')
     .option('--json', 'Print one machine-readable line instead of prose', false)
-    .action(async (options: { key?: string; json: boolean }, command: Command) => {
+    .action(async (options: { key?: string; name?: string; json: boolean }, command: Command) => {
       try {
         const { handleRunStart } = await import('./cli/commands/run-lifecycle.js');
         await handleRunStart({
           ...(options.key !== undefined ? { key: options.key } : {}),
+          ...(options.name !== undefined ? { name: options.name } : {}),
           json: options.json,
         });
       } catch (err) {
@@ -331,13 +333,15 @@ export function createProgram(): Command {
       'Open a run, run a command inside it, close the run — whatever the command returns',
     )
     .option('--key <externalKey>', 'The key several processes share; generated when absent')
+    .option('--name <text>', 'What to call the run in the list (default: the folder name, the time and where it ran; PLUNE_RUN_TITLE sets it too)')
     .option('--fail-on-failures', `${FAIL_ON_FAILURES}; the command's own exit code when no result reached the run`, false)
-    .action(async (argv: string[], options: { key?: string; failOnFailures: boolean }, command: Command) => {
+    .action(async (argv: string[], options: { key?: string; name?: string; failOnFailures: boolean }, command: Command) => {
       try {
         const { handleRunExec } = await import('./cli/commands/run-lifecycle.js');
         process.exitCode = await handleRunExec({
           argv,
           ...(options.key !== undefined ? { key: options.key } : {}),
+          ...(options.name !== undefined ? { name: options.name } : {}),
           ...(options.failOnFailures ? { failOnFailures: true } : {}),
         });
       } catch (err) {
