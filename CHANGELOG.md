@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **`plune ids [--write]` (plune-ai/plune#1291).** Writes the Plune case id of each Playwright test that names none into `plune/ids.json` (`{ "<path-title>": "<case id>" }`), not into your test files. A dry run unless `--write`. Only tests whose case Plune holds get an entry; entries are only added (never overwritten or removed), the file is sorted, a rerun writes nothing, and a broken mapfile is refused with exit `2`. The reporter does not read the mapfile yet.
+
 ## [0.28.0] - 2026-10-22
 
 ### Added

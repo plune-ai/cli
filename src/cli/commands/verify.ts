@@ -54,7 +54,7 @@ export function testsOfListing(listing: { suites?: JsonSuite[] }): CodeTest[] {
   return [...found.values()];
 }
 
-interface PlatformCase {
+export interface PlatformCase {
   id: string;
   title: string;
   type: string;
@@ -118,7 +118,10 @@ function runPlaywrightList(args: string[], cwd: string): string {
   }
 }
 
-export async function handleVerify(deps: VerifyDeps): Promise<VerifyReport> {
+/** The code's tests and the project's automated cases: what `verify` and `ids` both start from. */
+export async function loadSources(
+  deps: VerifyDeps,
+): Promise<{ code: CodeTest[]; cases: PlatformCase[] }> {
   const get = platformGet(deps);
   let raw: string;
   if (deps.from !== undefined) {
@@ -151,7 +154,12 @@ export async function handleVerify(deps: VerifyDeps): Promise<VerifyReport> {
     cases.push(...page.testCases);
     cursor = page.nextCursor;
   } while (cursor !== null);
-  return compare(testsOfListing(listing), cases);
+  return { code: testsOfListing(listing), cases };
+}
+
+export async function handleVerify(deps: VerifyDeps): Promise<VerifyReport> {
+  const { code, cases } = await loadSources(deps);
+  return compare(code, cases);
 }
 
 /** The report as text: the two sides by name, then the count that matched. */
