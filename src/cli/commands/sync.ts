@@ -68,6 +68,70 @@ export class SyncHttpError extends Error {
   }
 }
 
+/** The job kind the platform lists a CLI upload under. */
+const JOB_KIND = 'cli-sync';
+/** A job report never holds the sync up for long: the upload is the work, the job only describes it. */
+const JOB_TIMEOUT_MS = 5000;
+
+/**
+ * Describes one sync to `POST /v1/jobs` so the platform can show it and fail it when it goes quiet.
+ * Best effort by design: an older server (404 / 405 on the route), a network error or any non-2xx
+ * turns the reporter off and the sync carries on exactly as before. Nothing here throws.
+ */
+class JobReporter {
+  private id: string | undefined;
+
+  constructor(
+    private readonly doFetch: typeof fetch,
+    private readonly base: string,
+    private readonly token: string,
+  ) {}
+
+  private async send(method: 'POST' | 'PATCH', url: string, body: unknown): Promise<unknown> {
+    try {
+      const res = await this.doFetch(url, {
+        method,
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${this.token}` },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(JOB_TIMEOUT_MS),
+      });
+      // Read on every status: an unread body holds the socket open (see handleSync).
+      const json: unknown = await res.json().catch(() => undefined);
+      return res.ok ? (json ?? {}) : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  async open(subjectName: string): Promise<void> {
+    const body = (await this.send('POST', `${this.base}/v1/jobs`, {
+      kind: JOB_KIND,
+      subjectName,
+      progress: 0,
+    })) as { id?: unknown } | undefined;
+    if (typeof body?.id === 'string') this.id = body.id;
+  }
+
+  async report(progress: number, cursor?: string): Promise<void> {
+    if (this.id === undefined) return;
+    await this.send('PATCH', `${this.base}/v1/jobs/${encodeURIComponent(this.id)}`, {
+      progress,
+      ...(cursor !== undefined ? { cursor } : {}),
+    });
+  }
+
+  async finish(outcome: { ok: true } | { ok: false; reason: string }): Promise<void> {
+    if (this.id === undefined) return;
+    const id = this.id;
+    this.id = undefined;
+    await this.send(
+      'PATCH',
+      `${this.base}/v1/jobs/${encodeURIComponent(id)}`,
+      outcome.ok ? { status: 'succeeded', progress: 100 } : { status: 'failed', reason: outcome.reason },
+    );
+  }
+}
+
 export interface SyncDeps {
   /** Base dir the default run file is read from (config dir or cwd). Defaults to `process.cwd()`. */
   cwd?: string;
@@ -152,35 +216,52 @@ export async function handleSync(deps: SyncDeps = {}): Promise<SyncResult> {
   const payload = JSON.stringify(run);
   const idempotencyKey = createHash('sha256').update(payload).digest('hex');
 
-  let res: Response;
+  const bearer: string = token;
+  const job = new JobReporter(doFetch, apiUrl, bearer);
+  await job.open(path.basename(deps.file !== undefined ? path.resolve(cwd, deps.file) : cwd));
   try {
-    res = await doFetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${token}`,
-        'idempotency-key': idempotencyKey,
-      },
-      body: payload,
-    });
-  } catch {
-    throw new SyncNetworkError(apiUrl); // network/DNS/TLS — clean message, no stack, no token
+    const result = await upload();
+    await job.finish({ ok: true });
+    return result;
+  } catch (err) {
+    await job.finish({ ok: false, reason: err instanceof Error ? err.message : 'Sync failed.' });
+    throw err;
   }
 
-  if (!res.ok) {
-    // Drain the body on EVERY non-2xx (via safeErrorDetail) before throwing. An unread response body
-    // leaves undici's socket half-open, which blocks a clean process exit and — on Windows — trips a
-    // libuv teardown assertion (UV_HANDLE_CLOSING) when the CLI exits. Reading it releases the socket.
-    const detail = await safeErrorDetail(res);
-    if (res.status === 401) throw new TokenRejectedError();
-    throw new SyncHttpError(res.status, detail);
-  }
+  async function upload(): Promise<SyncResult> {
+    let res: Response;
+    try {
+      res = await doFetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${bearer}`,
+          'idempotency-key': idempotencyKey,
+        },
+        body: payload,
+      });
+    } catch {
+      throw new SyncNetworkError(apiUrl); // network/DNS/TLS — clean message, no stack, no token
+    }
 
-  const body = (await res.json().catch(() => ({}))) as { id?: unknown };
-  const id = typeof body.id === 'string' ? body.id : '';
-  const result: SyncResult = { id, url: `${endpoint}/${id}` };
-  if (deps.failOnFailures === true) result.gate = gateExit(await readVerdict(doFetch, `${endpoint}/${id}/summary`, token));
-  return result;
+    if (!res.ok) {
+      // Drain the body on EVERY non-2xx (via safeErrorDetail) before throwing. An unread response body
+      // leaves undici's socket half-open, which blocks a clean process exit and — on Windows — trips a
+      // libuv teardown assertion (UV_HANDLE_CLOSING) when the CLI exits. Reading it releases the socket.
+      const detail = await safeErrorDetail(res);
+      if (res.status === 401) throw new TokenRejectedError();
+      throw new SyncHttpError(res.status, detail);
+    }
+
+    const body = (await res.json().catch(() => ({}))) as { id?: unknown };
+    const id = typeof body.id === 'string' ? body.id : '';
+    const result: SyncResult = { id, url: `${endpoint}/${id}` };
+    await job.report(deps.failOnFailures === true ? 80 : 95, id || undefined);
+    if (deps.failOnFailures === true) {
+      result.gate = gateExit(await readVerdict(doFetch, `${endpoint}/${id}/summary`, bearer));
+    }
+    return result;
+  }
 }
 
 /**

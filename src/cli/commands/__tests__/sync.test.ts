@@ -36,6 +36,8 @@ function stubFetch(
 ): { fn: typeof fetch; calls: { url: string; init: RequestInit }[] } {
   const calls: { url: string; init: RequestInit }[] = [];
   const fn = (async (url: string | URL | Request, init?: RequestInit) => {
+    // The default server is an older one: no jobs route. Job tests use `jobsFetch`.
+    if (String(url).includes('/v1/jobs')) return new Response('{}', { status: 404 });
     calls.push({ url: String(url), init: init ?? {} });
     return new Response(JSON.stringify(body), {
       status,
@@ -225,6 +227,7 @@ describe('handleSync --fail-on-failures', () => {
   function platform(summary: { status: number; body: unknown } | 'network') {
     const calls: { url: string; method: string }[] = [];
     const fn = (async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url).includes('/v1/jobs')) return new Response('{}', { status: 404 }); // older server
       calls.push({ url: String(url), method: init?.method ?? 'GET' });
       if (init?.method === 'POST') return new Response(JSON.stringify({ id: 'run_7' }), { status: 201 });
       if (summary === 'network') throw new TypeError('fetch failed');
@@ -338,7 +341,8 @@ describe('handleSync Idempotency-Key (#104)', () => {
     writeRun(tmp);
     const keys: string[] = [];
     let n = 0;
-    const flaky = (async (_u: string | URL | Request, init?: RequestInit) => {
+    const flaky = (async (u: string | URL | Request, init?: RequestInit) => {
+      if (String(u).includes('/v1/jobs')) return new Response('{}', { status: 404 });
       keys.push((init?.headers as Record<string, string>)['idempotency-key'] ?? '');
       n += 1;
       if (n === 1) throw new TypeError('fetch failed');
@@ -349,5 +353,78 @@ describe('handleSync Idempotency-Key (#104)', () => {
     await upload(tmp, flaky);
     expect(new Set(keys).size).toBe(1);
     expect(keys).toHaveLength(3);
+  });
+});
+
+describe('handleSync job reporting (plune#1769)', () => {
+  type Call = { url: string; method: string; body: unknown };
+
+  /** Routes /v1/jobs to `jobs`, everything else to a run upload answering `run`. */
+  function jobsFetch(jobs: (c: Call) => Response | Promise<Response>, run = { status: 201, body: { id: 'run_1' } }) {
+    const calls: Call[] = [];
+    const fn = (async (url: string | URL | Request, init?: RequestInit) => {
+      const call: Call = {
+        url: String(url),
+        method: init?.method ?? 'GET',
+        body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined,
+      };
+      calls.push(call);
+      if (call.url.includes('/v1/jobs')) return jobs(call);
+      return new Response(JSON.stringify(run.body), { status: run.status });
+    }) as typeof fetch;
+    return { fn, calls };
+  }
+  const ok = () => new Response(JSON.stringify({ id: 'job_1' }), { status: 201 });
+  const deps = (fn: typeof fetch) => ({ cwd: tmp, apiUrl: 'https://api.test', loadToken: () => TOKEN, fetchImpl: fn });
+  const jobCalls = (calls: Call[]) => calls.filter((c) => c.url.includes('/v1/jobs'));
+
+  it('opens a job and finishes it on success', async () => {
+    writeRun(tmp);
+    const { fn, calls } = jobsFetch(ok);
+    await handleSync(deps(fn));
+    const jobs = jobCalls(calls);
+    expect(jobs.map((c) => `${c.method} ${c.url}`)).toEqual([
+      'POST https://api.test/v1/jobs',
+      'PATCH https://api.test/v1/jobs/job_1',
+      'PATCH https://api.test/v1/jobs/job_1',
+    ]);
+    expect(jobs[0]?.body).toMatchObject({ kind: 'cli-sync', progress: 0 });
+    expect(jobs[1]?.body).toEqual({ progress: 95, cursor: 'run_1' });
+    expect(jobs[2]?.body).toEqual({ status: 'succeeded', progress: 100 });
+  });
+
+  it('fails the job with the error text when the upload fails, and still throws', async () => {
+    writeRun(tmp);
+    const { fn, calls } = jobsFetch(ok, { status: 500, body: { error: 'boom' } });
+    await expect(handleSync(deps(fn))).rejects.toBeInstanceOf(SyncHttpError);
+    const last = jobCalls(calls).at(-1);
+    expect(last?.method).toBe('PATCH');
+    expect(last?.body).toMatchObject({ status: 'failed', reason: expect.stringContaining('HTTP 500') });
+    expect(JSON.stringify(calls)).not.toContain(TOKEN);
+  });
+
+  it.each([404, 405])('changes nothing against a server that answers %i for the jobs route', async (status) => {
+    writeRun(tmp);
+    const { fn, calls } = jobsFetch(() => new Response('{}', { status }));
+    const res = await handleSync(deps(fn));
+    expect(res).toEqual({ id: 'run_1', url: 'https://api.test/v1/runs/run_1' });
+    expect(jobCalls(calls)).toHaveLength(1); // the open, nothing after it
+  });
+
+  it('does not fail the sync when job reporting errors', async () => {
+    writeRun(tmp);
+    let n = 0;
+    const { fn } = jobsFetch(() => {
+      if (n++ === 0) return ok();
+      throw new TypeError('network down');
+    });
+    const res = await handleSync(deps(fn));
+    expect(res.id).toBe('run_1');
+  });
+
+  it('does not fail the sync when opening the job answers 500', async () => {
+    writeRun(tmp);
+    const { fn } = jobsFetch(() => new Response('nope', { status: 500 }));
+    await expect(handleSync(deps(fn))).resolves.toMatchObject({ id: 'run_1' });
   });
 });
