@@ -2262,7 +2262,10 @@ describe('files go to the project’s bucket by short-lived links (plune-ai/plun
     const ended = work.finally(() => {
       done = true;
     });
-    for (let turn = 0; turn < 2000 && !done; turn += 1) {
+    // No cap on the turns: the disk takes as long as the machine takes (a busy runner needs far more than a
+    // fixed count of turns), and once the loop stops nobody fires the next pause, so the test just hangs.
+    // The test's own timeout is the bound; the loop also ends when `afterEach` puts the real timers back.
+    while (!done && vi.isFakeTimers()) {
       await vi.advanceTimersByTimeAsync(5_000);
       await new Promise((resolve) => setImmediate(resolve));
     }
