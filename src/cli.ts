@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { parseDuration } from './util/duration.js';
 import type { ReportFormat } from './reporters/index.js';
 import type { ImportFlags } from './cli/commands/requirements-import.js';
+import type { LinksFlags } from './cli/commands/requirements-links.js';
 
 // COLD-START (NFR-1, <300ms): keep this module's top-level imports tiny — commander + node
 // builtins only. The command handlers transitively load heavy deps (@huggingface/transformers,
@@ -786,7 +787,7 @@ export function createProgram(): Command {
 
   const requirementsCommand = program
     .command('requirements')
-    .description('Requirements on the platform — import them from a Markdown file');
+    .description('Requirements on the platform — import them, or their links to tests, from a Markdown file');
 
   requirementsCommand
     .command('import')
@@ -829,6 +830,43 @@ export function createProgram(): Command {
         } else {
           process.stdout.write(res.step === 'discover' ? formatDiscover(file, res.result) : formatReport(res.report));
         }
+      } catch (err) {
+        const code = reportRequirementsImportFailure(err, (s) => process.stderr.write(s));
+        if (code !== null) {
+          maybeStack(err, verbose);
+          process.exitCode = code;
+          return;
+        }
+        failUnexpected(err, verbose);
+      }
+    });
+
+  requirementsCommand
+    .command('links')
+    .argument('<file>', 'A Markdown file with a traceability matrix (UTF-8, at most 1 MiB)')
+    .description(
+      'Import a traceability matrix (requirement key -> test) as links. With no flags it lists the tables found; with them it is a dry run until --yes',
+    )
+    .option('--table <n>', 'The table with the matrix (its number from the list)')
+    .option('--requirement-column <header>', 'The column holding the requirement keys')
+    .option('--test-column <header>', 'The column holding the tests: an exact case title or a source path, one per line')
+    .option('--separator <text>', 'Splits a requirement cell into several keys, 1 to 3 characters (default ",")')
+    .option('--project <id>', 'The project (default: PLUNE_PROJECT, else the only project of the account)')
+    .option('--yes', 'Write it. Without it the import is a dry run', false)
+    .option('--json', 'Print the platform’s answer as JSON', false)
+    .option('--fail-on-unmatched', 'Exit 1 when any requirement or test of the matrix matched nothing', false)
+    .action(async (file: string, options: LinksFlags & { failOnUnmatched?: boolean }, command: Command) => {
+      const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
+      const { handleRequirementsLinks, formatLinksDiscover, formatLinks } = await import('./cli/commands/requirements-links.js');
+      const { reportRequirementsImportFailure } = await import('./cli/commands/requirements-import.js');
+      try {
+        const res = await handleRequirementsLinks({ file, ...options });
+        if (options.json === true) {
+          process.stdout.write(JSON.stringify(res.step === 'discover' ? res.result : res.report, null, 2) + '\n');
+        } else {
+          process.stdout.write(res.step === 'discover' ? formatLinksDiscover(file, res.result) : formatLinks(res.report));
+        }
+        if (options.failOnUnmatched === true && res.step === 'links' && res.report.summary.unmatched > 0) process.exitCode = 1;
       } catch (err) {
         const code = reportRequirementsImportFailure(err, (s) => process.stderr.write(s));
         if (code !== null) {
