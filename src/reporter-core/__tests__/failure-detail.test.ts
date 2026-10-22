@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { errorContextOf, failureOf, filesOf, repoRootOf, webLink } from '../failure-detail.js';
+import { errorContextFields, errorContextOf, failureOf, filesOf, repoRootOf, webLink } from '../failure-detail.js';
 import type { FailedAttempt } from '../types.js';
 
 /**
@@ -740,5 +740,66 @@ describe('filesOf — what the core uploads from (plune#913, plune#928)', () => 
     ];
 
     expect(files(kept).map((f) => f.name)).toEqual(['a', 'b', 'c']);
+  });
+});
+
+// plune-ai/plune#1281 AC-03: what the cut took out is sent as `errorContextOmitted`, in characters, never 0.
+describe('errorContextFields — errorContextOmitted (#1281 AC-03)', () => {
+  const HOME = '/home/ci-user';
+  const LIMIT = 512 * 1024;
+  const MARKER = /…\[omitted \d+ lines\]…/;
+  const fields = (text: string) => errorContextFields(attempt({ errors: [{ text }] }), HOME);
+  /** What was dropped: the original, less what is left of it once the marker and its one line break are out. */
+  const dropped = (original: string, sent: string): number => original.length - (sent.replace(MARKER, '').length - 1);
+
+  it('sends no count when nothing was cut', () => {
+    expect(fields('Error: boom')).toEqual({ errorContext: 'Error: boom' });
+    expect(fields('')).toEqual({});
+  });
+
+  it('sends no count for a text exactly at the limit', () => {
+    const text = `Error: ${'x'.repeat(LIMIT - 'Error: '.length)}`;
+    expect(fields(text)).toEqual({ errorContext: text });
+  });
+
+  it('counts the characters of the lines it left out, and nothing for the marker', () => {
+    const original = Array.from({ length: 1_000 }, (_, i) => `${String(i).padStart(4, '0')}${'a'.repeat(1_019)}`).join('\n');
+    const { errorContext, errorContextOmitted } = fields(original);
+    expect(errorContext).toMatch(MARKER);
+    expect(errorContextOmitted).toBeGreaterThanOrEqual(1);
+    expect(errorContextOmitted).toBe(dropped(original, errorContext!));
+    // 1 024 characters a line, the line break included: the count is a whole number of lines.
+    expect(errorContextOmitted! % 1_024).toBe(0);
+  });
+
+  it('counts a line over the limit, cut whole, in full', () => {
+    const value = 'z'.repeat(LIMIT + 10);
+    const { errorContext, errorContextOmitted } = fields(`head\n${value}\ntail`);
+    expect(errorContext).toBe('head\n…[omitted 1 lines]…\ntail');
+    expect(errorContextOmitted).toBe(value.length + 1);
+  });
+
+  it('counts characters, not bytes, in multi-byte text', () => {
+    // Three bytes a character: 200 characters a line, 600 bytes, so the cut falls well before 200 000 characters.
+    const original = Array.from({ length: 2_000 }, () => '日本語'.repeat(66) + '日本').join('\n');
+    const { errorContext, errorContextOmitted } = fields(original);
+    expect(errorContext).toMatch(MARKER);
+    expect(errorContextOmitted).toBe(dropped(original, errorContext!));
+    expect(errorContextOmitted! % 201).toBe(0);
+    expect(Buffer.byteLength(errorContext!)).toBeLessThanOrEqual(LIMIT);
+  });
+
+  it('counts a surrogate pair as the two units the platform counts, and never cuts through one', () => {
+    const line = '😀'.repeat(100);
+    const original = Array.from({ length: 4_000 }, () => line).join('\n');
+    const { errorContext, errorContextOmitted } = fields(original);
+    expect(errorContextOmitted).toBe(dropped(original, errorContext!));
+    expect(errorContextOmitted! % 201).toBe(0);
+    expect(errorContext).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/);
+  });
+
+  it('keeps errorContextOf the same text', () => {
+    const original = Array.from({ length: 1_000 }, () => 'a'.repeat(1_023)).join('\n');
+    expect(errorContextOf(attempt({ errors: [{ text: original }] }), HOME)).toBe(fields(original).errorContext);
   });
 });

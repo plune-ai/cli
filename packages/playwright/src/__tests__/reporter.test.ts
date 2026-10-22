@@ -26,7 +26,7 @@ vi.mock('@plune-ai/cli/reporter-core', async () => {
     readEnv: actual.readEnv,
     ciCommit: actual.ciCommit,
     // The same for what the failure detail is made of (#790): the adapter's part is the attempt.
-    errorContextOf: actual.errorContextOf,
+    errorContextFields: actual.errorContextFields,
     failureOf: actual.failureOf,
     filesOf: actual.filesOf,
     webLink: actual.webLink,

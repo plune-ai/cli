@@ -14,7 +14,7 @@
 
 import { existsSync } from 'node:fs';
 import {
-  errorContextOf,
+  errorContextFields,
   failureOf,
   filesOf,
   isTextType,
@@ -151,7 +151,7 @@ function pendingFrom(
   const stated = statedIdOf(test, spec.title ?? '');
   const expected = test.expectedStatus;
   const attempt = attemptOf(result, file, ctx);
-  const errorContext = errorContextOf(attempt);
+  const errorContext = errorContextFields(attempt);
   const failure = NOT_FAILED.has(attempt.status) ? undefined : failureOf(attempt);
   const files = filesOf(attempt);
   const keys: KeyRef[] = [
@@ -187,7 +187,7 @@ function pendingFrom(
           },
         }
       : {}),
-    ...(errorContext !== '' ? { errorContext } : {}),
+    ...errorContext,
     ...(failure !== undefined ? { failure } : {}),
     ...(files.length > 0 ? { files } : {}),
   };
