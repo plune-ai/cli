@@ -910,6 +910,44 @@ export function createProgram(): Command {
       },
     );
 
+  program
+    .command('ids')
+    .description(
+      'Write the Plune case id of each Playwright test that names none into plune/ids.json (dry run unless --write); test sources are not touched',
+    )
+    .option('--write', 'Write the file; without it only shows what would be written', false)
+    .option('--file <path>', 'The mapfile', 'plune/ids.json')
+    .option('--from <file>', 'A saved `playwright test --list --reporter=json` document instead of running Playwright')
+    .option('--playwright-config <path>', 'Passed to `playwright test --config`')
+    .option('--json', 'Print the report as JSON', false)
+    .action(
+      async (
+        options: { write: boolean; file: string; from?: string; playwrightConfig?: string; json: boolean },
+        command: Command,
+      ) => {
+        const verbose = verboseOf(command);
+        const { handleIds, formatIds } = await import('./cli/commands/ids.js');
+        const { reportCasesFailure } = await import('./cli/commands/cases.js');
+        try {
+          const report = await handleIds({
+            write: options.write,
+            file: options.file,
+            ...(options.from === undefined ? {} : { from: options.from }),
+            ...(options.playwrightConfig === undefined ? {} : { playwrightConfig: options.playwrightConfig }),
+          });
+          process.stdout.write(options.json ? JSON.stringify(report, null, 2) + '\n' : formatIds(report, options.write));
+        } catch (err) {
+          const code = reportCasesFailure(err, (s) => process.stderr.write(s));
+          if (code !== null) {
+            maybeStack(err, verbose);
+            process.exitCode = code;
+            return;
+          }
+          failUnexpected(err, verbose);
+        }
+      },
+    );
+
   // Unknown command → exit 2 (CLI_SPEC §4.2). Registering a `command:*` listener makes commander
   // emit this event instead of its default "unknown command" error (which would exit 1).
   program.on('command:*', (operands: string[]) => {
