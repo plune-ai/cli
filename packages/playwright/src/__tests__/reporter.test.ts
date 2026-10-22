@@ -1,5 +1,7 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { FullConfig, FullResult, Suite, TestCase, TestResult } from '@playwright/test/reporter';
 import type { PendingResult } from '@plune-ai/cli/reporter-core';
 
@@ -395,6 +397,88 @@ describe('identity and timing', () => {
 
     expect(added[0]?.errorContext).toContain('at cart.spec.ts:12');
     expect(added[1]?.errorContext).toBeUndefined();
+  });
+});
+
+describe('the ids mapfile (plune-ai/plune#1291)', () => {
+  const PATH_TITLE = 'tests/cart.spec.ts#cart#rejects a negative quantity';
+  let stderr: MockInstance<Parameters<typeof process.stderr.write>, boolean>;
+  beforeEach(() => {
+    stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  });
+  afterEach(() => {
+    stderr.mockRestore();
+  });
+
+  /** A mapfile on disk, named by the reporter option. */
+  function mapfile(content: string): string {
+    const file = join(mkdtempSync(join(tmpdir(), 'plune-ids-')), 'ids.json');
+    writeFileSync(file, content);
+    return file;
+  }
+  const withMap = (entries: Record<string, string>): string => mapfile(JSON.stringify(entries));
+  const warnings = (): number => stderr.mock.calls.filter((c) => String(c[0]).includes('ids')).length;
+
+  it('lets the annotation win over the mapfile', async () => {
+    const test = fakeTest({ annotations: [{ type: 'PluneId', description: 'tc-annotated' }] });
+    await run(new PluneReporter({ idsFile: withMap({ [PATH_TITLE]: 'tc-mapped' }) }), [test], [fakeResult()]);
+
+    expect(added[0]?.testCaseId).toBe('tc-annotated');
+  });
+
+  it('lets @P in the title win over the mapfile', async () => {
+    const test = fakeTest({ title: 'rejects a negative quantity @Ptc-token' });
+    const file = withMap({ 'tests/cart.spec.ts#cart#rejects a negative quantity @Ptc-token': 'tc-mapped' });
+    await run(new PluneReporter({ idsFile: file }), [test], [fakeResult()]);
+
+    expect(added[0]?.testCaseId).toBe('tc-token');
+  });
+
+  it('uses the entry when the test names no id', async () => {
+    await run(new PluneReporter({ idsFile: withMap({ [PATH_TITLE]: 'tc-mapped' }) }), [fakeTest()], [fakeResult()]);
+
+    expect(added[0]?.testCaseId).toBe('tc-mapped');
+  });
+
+  it('falls through to the keys when the mapfile has no entry for the test', async () => {
+    await run(new PluneReporter({ idsFile: withMap({ 'other.spec.ts#x': 'tc-other' }) }), [fakeTest()], [fakeResult()]);
+
+    expect(added[0]?.testCaseId).toBeUndefined();
+    expect(added[0]?.keys.map((k) => k.kind)).toEqual(['playwright-id', 'path-title']);
+    expect(warnings()).toBe(0);
+  });
+
+  it('behaves as before when the file is missing', async () => {
+    await run(new PluneReporter({ idsFile: join(tmpdir(), 'plune-no-such-dir', 'ids.json') }), [fakeTest()], [fakeResult()]);
+
+    expect(added[0]?.testCaseId).toBeUndefined();
+    expect(warnings()).toBe(0);
+  });
+
+  it.each([['{ not json'], ['["tc-1"]'], ['{"a#b": 5}'], ['{"a#b": ""}']])(
+    'warns once and falls through on an invalid mapfile (%s)',
+    async (content) => {
+      const second = fakeTest({ id: 'tid-2', title: 'second' });
+      await run(new PluneReporter({ idsFile: mapfile(content) }), [fakeTest(), second], [fakeResult(), fakeResult()]);
+
+      expect(added.map((r) => r.testCaseId)).toEqual([undefined, undefined]);
+      expect(warnings()).toBe(1);
+    },
+  );
+
+  it('keeps the case of a renamed test: the entry follows the key, not the title', async () => {
+    const renamed = fakeTest({ title: 'rejects a negative amount' });
+    const file = withMap({ 'tests/cart.spec.ts#cart#rejects a negative amount': 'tc-kept' });
+    await run(new PluneReporter({ idsFile: file }), [renamed], [fakeResult()]);
+
+    expect(added[0]?.testCaseId).toBe('tc-kept');
+  });
+
+  it('reads the file named by PLUNE_IDS_FILE when no option is given', async () => {
+    vi.stubEnv('PLUNE_IDS_FILE', withMap({ [PATH_TITLE]: 'tc-env' }));
+    await run(new PluneReporter(), [fakeTest()], [fakeResult()]);
+
+    expect(added[0]?.testCaseId).toBe('tc-env');
   });
 });
 

@@ -111,8 +111,12 @@ In order, first match wins:
    follows `@P` with **no space**: `@Ptc-1a2b`;
 3. an `application/plune.metadata+json` attachment — for a fixture or helper that knows the id, or
    a key from another tool: `{"id": "tc-1a2b"}` or `{"keys": [{"kind": "qase", "value": "Q-9"}]}`;
-4. the Playwright test id (`playwright-id`), stable across shards and merges;
-5. the file and title path (`path-title`) — the spec file relative to your `testDir`, then each
+4. an entry for the test's `path-title` in the mapfile `plune/ids.json` (what `plune ids --write`
+   writes), so a case id survives renaming the test without editing the source. Looked up under the
+   directory the run starts in; `PLUNE_IDS_FILE` or the `idsFile` option names another path. A missing
+   file is skipped, an invalid one is warned about once and skipped;
+5. the Playwright test id (`playwright-id`), stable across shards and merges;
+6. the file and title path (`path-title`) — the spec file relative to your `testDir`, then each
    `describe` and the test title, e.g. `cart.spec.ts#cart#rejects a negative quantity`.
 
 ```ts
