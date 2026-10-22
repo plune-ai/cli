@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import type { FullConfig, FullResult, Suite, TestCase, TestError, TestResult, TestStep } from '@playwright/test/reporter';
 import {
@@ -50,6 +51,12 @@ export interface PluneReporterOptions {
   batchSize?: number;
   /** Where unsent batches are written. Defaults to `.plune/pending-results.jsonl`. */
   fallbackPath?: string;
+  /**
+   * The mapfile `plune ids --write` keeps, `{ "<path-title>": "<case id>" }`. Defaults to `PLUNE_IDS_FILE`,
+   * then `plune/ids.json` under the directory the run starts in. Missing is fine; a broken one is
+   * warned about once and ignored (plune-ai/plune#1291).
+   */
+  idsFile?: string;
 }
 
 /**
@@ -88,10 +95,14 @@ function titlesOf(test: TestCase): string[] {
  * it the first ask. `path-title` is the readable one a person can write into a case by hand, and
  * the one that survives a project being renamed.
  */
+function pathTitleOf(test: TestCase): string {
+  return [fileOf(test), ...titlesOf(test)].join('#');
+}
+
 function keysFor(test: TestCase): KeyRef[] {
   return [
     { kind: 'playwright-id', value: test.id },
-    { kind: 'path-title', value: [fileOf(test), ...titlesOf(test)].join('#') },
+    { kind: 'path-title', value: pathTitleOf(test) },
   ];
 }
 
@@ -133,14 +144,50 @@ function metadataOf(result: TestResult): PluneMetadata | undefined {
  * helper writes on the test's behalf — later than both, because a person editing a title should not
  * be overruled by something generated.
  */
-function statedIdOf(test: TestCase, metadata: PluneMetadata | undefined): string | undefined {
+function statedIdOf(
+  test: TestCase,
+  metadata: PluneMetadata | undefined,
+  mapped?: string,
+): string | undefined {
   const annotation = test.annotations.find((a) => a.type === 'PluneId')?.description;
   if (annotation !== undefined && annotation !== '') return annotation;
 
   const token = TOKEN.exec(test.title)?.[1];
   if (token !== undefined) return token;
 
-  return metadata?.id !== undefined && metadata.id !== '' ? metadata.id : undefined;
+  if (metadata?.id !== undefined && metadata.id !== '') return metadata.id;
+
+  // The mapfile is the last thing that names a case outright: it is read before any key is asked
+  // for, so a renamed test with an entry keeps its case instead of drifting (#1291).
+  return mapped;
+}
+
+/** The mapfile as `plune ids` writes it: an object of path-title to non-empty case id strings.
+ * Missing is `{}`; unreadable or malformed is `{}` after one warning. */
+function readIds(file: string): Record<string, string> {
+  let raw: string;
+  try {
+    raw = readFileSync(file, 'utf8');
+  } catch {
+    return {};
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      !Array.isArray(parsed) &&
+      Object.values(parsed).every((v) => typeof v === 'string' && v !== '')
+    )
+      return parsed as Record<string, string>;
+  } catch {
+    // falls through to the warning
+  }
+  process.stderr.write(
+    `plune: ${file} is not a JSON object of path-title to case id strings - ignored, tests resolve as if it were absent
+`,
+  );
+  return {};
 }
 
 /** The statuses of an attempt that has no failure detail (#790 AC-02b). */
@@ -198,9 +245,18 @@ function attemptOf(test: TestCase, result: TestResult, ctx: RunContext): FailedA
   };
 }
 
-function pendingFrom(test: TestCase, result: TestResult, ctx: RunContext): PendingResult {
+function pendingFrom(
+  test: TestCase,
+  result: TestResult,
+  ctx: RunContext,
+  ids: Record<string, string> = {},
+): PendingResult {
   const metadata = metadataOf(result);
-  const pluneId = statedIdOf(test, metadata);
+  const pluneId = statedIdOf(
+    test,
+    metadata,
+    Object.hasOwn(ids, pathTitleOf(test)) ? ids[pathTitleOf(test)] : undefined,
+  );
   const expected = test.expectedStatus;
   const attempt = attemptOf(test, result, ctx);
   const errorContext = errorContextFields(attempt);
@@ -253,6 +309,8 @@ export default class PluneReporter {
   /** Kept whole: `metadata.ci` is written into it after `onConfigure`, so it is read at the run's opening. */
   private config: FullConfig | null = null;
   private context: RunContext = {};
+  /** The mapfile, read on the first result so a run that reports nothing never touches the disk. */
+  private ids: Record<string, string> | null = null;
 
   constructor(options: PluneReporterOptions = {}) {
     this.options = options;
@@ -325,7 +383,10 @@ export default class PluneReporter {
     // chain — a batch still in flight then freezes `notRun` without it (#790 AC-15).
     this.chain = this.chain
       .then(async () => {
-        await (await session).add(pendingFrom(test, result, this.context));
+        this.ids ??= readIds(
+          resolve(this.options.idsFile ?? process.env['PLUNE_IDS_FILE'] ?? 'plune/ids.json'),
+        );
+        await (await session).add(pendingFrom(test, result, this.context, this.ids));
       })
       .catch((err: unknown) => this.giveUp(err));
   }
