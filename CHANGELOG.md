@@ -11,6 +11,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-10-22
+
 ### Added
 
 - **`plune run start --name` and `plune run exec --name` (plune-ai/plune#1715).** Same as `plune run import --name`: the text is the run's title and wins over `PLUNE_RUN_TITLE`; without it the name is what it was. For `exec`, the reporter inside the command joins the run and keeps that title.
