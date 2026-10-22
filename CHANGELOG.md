@@ -11,6 +11,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-10-22
+
 ### Added
 
 - **`plune sync` reports itself as a job (plune-ai/plune#1769).** Against a platform that has `POST /v1/jobs`, a sync opens a job of kind `cli-sync` named after the project directory (or the `--file` name), reports progress with the run id as the cursor once the upload is in, and finishes it, as failed with the error text when the sync fails. A platform that answers 404 or 405 for the route, or any error on a job report, changes nothing: the sync runs as before and its exit code is the same. The request shapes for updating and finishing a job are not confirmed against a real platform.
