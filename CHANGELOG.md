@@ -11,6 +11,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-10-22
+
 ### Added
 
 - **`plune requirements links <file.md>` (plune-ai/plune#1608).** Imports a traceability matrix (requirement key to test) as links between requirements and cases. No flags lists the tables; `--table <n> --requirement-column <header> --test-column <header>` is a dry run until `--yes`, with `--separator` (1 to 3 characters, default `,`) for several keys in one cell and `--project`. The report lists links to make, links already there and every unmatched key or test with its reason; `--json` prints the platform's answer, `--fail-on-unmatched` exits `1` on any unmatched row. Same errors and exit codes as `requirements import`. Not run against a real platform.
