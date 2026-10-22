@@ -13,6 +13,7 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ### Added
 
+- **`errorContextOmitted` when the reporter cuts an error text (plune-ai/plune#1281).** An error text over the 512 KiB transport limit is cut by whole lines, with `…[omitted N lines]…` where they were. Now the result also carries `errorContextOmitted`: how many characters that cut took out (counted in characters, not bytes, the marker not included). The platform keeps it as `errorContextMeta.omittedByReporter` and ends Copy prompt with `[truncated by the reporter: N characters omitted]`. The key is left out when nothing was cut, never 0. Applies to `plune run import` (Playwright JSON, Allure) and the Playwright reporter; JUnit text is not cut by the CLI.
 - **`plune ids [--write]` (plune-ai/plune#1291).** Writes the Plune case id of each Playwright test that names none into `plune/ids.json` (`{ "<path-title>": "<case id>" }`), not into your test files. A dry run unless `--write`. Only tests whose case Plune holds get an entry; entries are only added (never overwritten or removed), the file is sorted, a rerun writes nothing, and a broken mapfile is refused with exit `2`. The reporter does not read the mapfile yet.
 
 ## [0.28.0] - 2026-10-22

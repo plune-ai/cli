@@ -14,7 +14,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { errorContextOf, failureOf, printable } from '../reporter-core/failure-detail.js';
+import { errorContextFields, failureOf, printable } from '../reporter-core/failure-detail.js';
 import { resultKey } from '../reporter-core/result-key.js';
 import type { DeclaredStep, FailedAttempt, PendingResult, ResultFile } from '../reporter-core/types.js';
 import { MARKERS_PER_TEST, reportFolders, resolveAttachment, typeOfFile, type MissingAttachment } from './attachments.js';
@@ -337,7 +337,7 @@ function pendingOf(r: AllureResult, retry: number, ctx: Context): PendingResult 
     })),
     testFile: '',
   };
-  const errorContext = errorContextOf(attempt);
+  const errorContext = errorContextFields(attempt);
   const failure = FAILED.has(status) ? failureOf(attempt) : undefined;
 
   const pkg = labelOf(r, 'package');
@@ -366,7 +366,7 @@ function pendingOf(r: AllureResult, retry: number, ctx: Context): PendingResult 
           },
         }
       : {}),
-    ...(errorContext !== '' ? { errorContext } : {}),
+    ...errorContext,
     ...(failure !== undefined ? { failure } : {}),
     ...(files.length > 0 ? { files } : {}),
   };

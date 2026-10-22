@@ -3,7 +3,7 @@ import { stripVTControlCharacters } from 'node:util';
 import type { FullConfig, FullResult, Suite, TestCase, TestError, TestResult, TestStep } from '@playwright/test/reporter';
 import {
   ciCommit,
-  errorContextOf,
+  errorContextFields,
   failureOf,
   filesOf,
   readEnv,
@@ -203,7 +203,7 @@ function pendingFrom(test: TestCase, result: TestResult, ctx: RunContext): Pendi
   const pluneId = statedIdOf(test, metadata);
   const expected = test.expectedStatus;
   const attempt = attemptOf(test, result, ctx);
-  const errorContext = errorContextOf(attempt);
+  const errorContext = errorContextFields(attempt);
   const failure = NOT_FAILED.has(result.status) ? undefined : failureOf(attempt);
   const files = filesOf(attempt);
   const startedAt = result.startTime;
@@ -234,7 +234,7 @@ function pendingFrom(test: TestCase, result: TestResult, ctx: RunContext): Pendi
       retry: result.retry,
       worker: String(result.workerIndex),
     },
-    ...(errorContext !== '' ? { errorContext } : {}),
+    ...errorContext,
     ...(failure !== undefined ? { failure } : {}),
     // Every attempt's, a passed one's too; the core uploads the screenshots and the text files once the result is stored.
     ...(files.length > 0 ? { files } : {}),

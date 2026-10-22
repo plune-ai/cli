@@ -55,6 +55,27 @@ export function repoRootOf(dir: string, stopAt?: string): string | undefined {
  * searched for credentials: the platform does that before its own cut (ADR-0005).
  */
 export function errorContextOf(attempt: FailedAttempt, home: string = homedir()): string {
+  return cutErrorContext(attempt, home).text;
+}
+
+/**
+ * The `errorContext` and `errorContextOmitted` keys of a result (plune-ai/plune#1281 AC-03), ready to spread:
+ * none for an empty text, and `errorContextOmitted` only when the cut took something out, a whole number of at
+ * least 1 (the platform refuses 0). Counted in characters of the text as it would have been sent (`.length`,
+ * the unit the platform counts in), never bytes; the `…[omitted N lines]…` marker is not counted.
+ */
+export function errorContextFields(
+  attempt: FailedAttempt,
+  home: string = homedir(),
+): { errorContext?: string; errorContextOmitted?: number } {
+  const { text, omitted } = cutErrorContext(attempt, home);
+  return {
+    ...(text !== '' ? { errorContext: text } : {}),
+    ...(omitted > 0 ? { errorContextOmitted: omitted } : {}),
+  };
+}
+
+function cutErrorContext(attempt: FailedAttempt, home: string): { text: string; omitted: number } {
   const text = attempt.errors
     .map((e) => e.text)
     .filter((t) => t !== '')
@@ -176,10 +197,11 @@ const fileNameOf = (name: string): string =>
 /**
  * At most `TEXT_LIMIT` bytes as a batch carries it, by whole lines: lines from the head, then from the
  * tail, and one `…[omitted N lines]…` where the rest were. A line longer than the limit goes whole, so
- * no part of a one-line credential can show; the lines left out never leave the machine.
+ * no part of a one-line credential can show; the lines left out never leave the machine. `omitted` is how many
+ * characters (`.length`) the cut took out, 0 when it took none.
  */
-function cut(text: string): string {
-  if (jsonBytes(text) <= TEXT_LIMIT) return text;
+function cut(text: string): { text: string; omitted: number } {
+  if (jsonBytes(text) <= TEXT_LIMIT) return { text, omitted: 0 };
   const lines = text.split('\n');
   // A line and the `\n` after it, which JSON writes in two bytes; the marker's separator is one of them.
   const size = lines.map((line) => jsonBytes(line) + 2);
@@ -189,7 +211,8 @@ function cut(text: string): string {
   let tail = lines.length;
   while (head < tail && used + size[head]! <= budget / 2) used += size[head++]!;
   while (tail > head && used + size[tail - 1]! <= budget) used += size[--tail]!;
-  return [...lines.slice(0, head), omitted(tail - head), ...lines.slice(tail)].join('\n');
+  const kept = [...lines.slice(0, head), ...lines.slice(tail)].join('\n');
+  return { text: [...lines.slice(0, head), omitted(tail - head), ...lines.slice(tail)].join('\n'), omitted: text.length - kept.length };
 }
 
 const omitted = (lines: number): string => `…[omitted ${lines} lines]…`;

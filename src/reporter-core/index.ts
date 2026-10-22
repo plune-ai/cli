@@ -24,7 +24,7 @@ export { appendBatch, DEFAULT_FALLBACK_PATH } from './fallback.js';
 export type { DeferredBatch, DeferredResult } from './fallback.js';
 
 /** What failed and where, the text of every error and the files kept, from one normalized attempt — the same for both roads (#790). */
-export { errorContextOf, failureOf, filesOf, repoRootOf, webLink } from './failure-detail.js';
+export { errorContextFields, errorContextOf, failureOf, filesOf, repoRootOf, webLink } from './failure-detail.js';
 
 /** The client itself, for the CLI commands that drive a run without a runner (C5). */
 export { createClient } from './client.js';
