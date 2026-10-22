@@ -261,7 +261,7 @@ export function buildImportBody(f: ImportFlags): Record<string, unknown> | null 
 
 // ---- the file ----
 
-function readMarkdown(cwd: string, file: string): string {
+export function readMarkdown(cwd: string, file: string): string {
   const target = resolve(cwd, file);
   let size: number;
   try {
@@ -290,7 +290,7 @@ function readMarkdown(cwd: string, file: string): string {
 const SUPPORT = 'This platform does not support requirements import yet. Nothing was sent to a project; try a newer Plune platform.';
 
 /** A failed outcome → the message a person can act on. */
-function refusal(out: Extract<ClientOutcome<unknown>, { ok: false }>, apiUrl: string, projectId: string): RequirementsImportError {
+export function refusal(out: Extract<ClientOutcome<unknown>, { ok: false }>, apiUrl: string, projectId: string): RequirementsImportError {
   const d = out.detail;
   const said = d === '' ? '' : ` (${d})`;
   switch (out.status) {
@@ -316,7 +316,7 @@ function refusal(out: Extract<ClientOutcome<unknown>, { ok: false }>, apiUrl: st
   }
 }
 
-async function resolveProject(client: ReturnType<typeof createClient>, explicit: string | undefined, apiUrl: string): Promise<string> {
+export async function resolveProject(client: ReturnType<typeof createClient>, explicit: string | undefined, apiUrl: string): Promise<string> {
   const given = (explicit ?? process.env['PLUNE_PROJECT'])?.trim();
   if (given !== undefined && given !== '') return given;
   const out = await client.get<{ projects?: { id: string; name?: string }[] }>('/v1/projects');
@@ -360,9 +360,9 @@ export async function handleRequirementsImport(deps: ImportDeps): Promise<Import
 // ---- the terminal ----
 
 const SHOWN = 50;
-const flat = (s: string): string => s.replace(/\s+/g, ' ').trim();
-const cut = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
-const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
+export const flat = (s: string): string => s.replace(/\s+/g, ' ').trim();
+export const cut = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+export const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
 
 export function formatDiscover(file: string, r: DiscoverResult): string {
   const out: string[] = [`${file}: ${plural(r.tables.length, 'table')}, ${plural(r.sections.length, 'section')}`];
