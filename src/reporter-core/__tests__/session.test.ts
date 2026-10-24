@@ -46,6 +46,8 @@ interface PlatformOptions {
   known?: Record<string, string>;
   /** Status to answer `POST /v1/runs` with (201 created, 200 joined). */
   startStatus?: number;
+  /** The platform's CHECK on a run's configuration (plune#1949): a start that carries one is answered 413. */
+  refuseConfiguration?: boolean;
   /** Force a reply on `…/results`: a status + error message, or a thrown network failure. */
   resultsFailure?: { status: number; error: string } | 'network';
   /** Only this call to `…/results` (from 0) meets `resultsFailure`; absent means every call does. */
@@ -194,6 +196,9 @@ function platform(opts: PlatformOptions = {}) {
     }
     if (target.endsWith('/v1/runs')) {
       seen.starts.push({ body });
+      if (opts.refuseConfiguration === true && body['configuration'] !== undefined) {
+        return json({ error: 'the run configuration is over the 1 MiB a run keeps: name the expected cases by testCaseId, or send fewer of them per run' }, 413);
+      }
       const status = opts.startStatus ?? 201;
       const described =
         opts.storesDescription === false
@@ -369,6 +374,37 @@ describe('startRun — what the run intended to run (AC-09)', () => {
     await startRun(config(fetchImpl));
 
     expect(seen.starts[0]?.body['configuration']).toBeUndefined();
+  });
+});
+
+// plune#1949: a list of expected tests over what a run keeps (1 MiB) refused the start, and every result of the run
+// went to the fallback file, which CI deletes with the job: 9 512 results of the platform's own CI were lost that way.
+describe('startRun — a list too large for the run does not cost the results', () => {
+  const declared = [[{ kind: 'playwright-id' as const, value: 'a' }]];
+
+  it('starts again without the list when the platform refuses the start as too large, and the results land', async () => {
+    const { seen, fetchImpl } = platform({ known: { a: 'tc-a' }, refuseConfiguration: true });
+    const cfg = config(fetchImpl, { full: true });
+    const run = await startRun(cfg, declared);
+    await run.add(result('a'));
+    await run.flush();
+
+    expect(seen.starts).toHaveLength(2);
+    expect(seen.starts[0]?.body['configuration']).toMatchObject({ full: true });
+    // Without the list, and so without the full-run claim that travels with it.
+    expect(seen.starts[1]?.body).not.toHaveProperty('configuration');
+    expect(run.runId).toBe('r-1');
+    expect(seen.results.map((r) => r.runId)).toEqual(['r-1']);
+    expect(logOf(cfg).join('\n')).toMatch(/expected tests .*too large.* starting without it/);
+  });
+
+  it('does not start again for a refusal that is not about size', async () => {
+    const { seen, fetchImpl } = platform({ known: { a: 'tc-a' }, startStatus: 400 });
+    const cfg = config(fetchImpl);
+    await startRun(cfg, declared);
+
+    expect(seen.starts).toHaveLength(1);
+    expect(logOf(cfg).join('\n')).toMatch(/could not start the run/);
   });
 });
 

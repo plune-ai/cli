@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Fixed
+
+- **A run whose list of expected tests is too large no longer loses its results (plune-ai/plune#1949).** When the platform answers the start of a run with 413 (the run's configuration is over the 1 MiB a run keeps, or the request over its body limit), the reporter starts the run again without `configuration` and says so. The results land as before; that run has no not-run count and no full-run claim (`PLUNE_FULL_RUN`), since both travel with the list. Before, the refused start sent every result of the run to the fallback file, which a CI job deletes with itself. Any other refusal of the start behaves as before. Applies to `plune run import` and the Playwright reporter, the two that send a list; `plune run start` and `plune run exec` start a run without one.
+
 ## [0.30.0] - 2026-10-22
 
 ### Added
