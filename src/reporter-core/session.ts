@@ -555,7 +555,7 @@ export async function startRun(
       ...(cfg.labels !== undefined ? { labels: cfg.labels } : {}),
     };
 
-    const start = await client.post<{ run: RunEcho; joined: boolean }>('/v1/runs', {
+    const request = {
       schemaVersion: 2,
       kind: cfg.kind ?? 'automated',
       ...(externalKey !== null ? { externalKey } : {}),
@@ -566,7 +566,21 @@ export async function startRun(
       // a person will miss, and a deployment older than the field must not be nagged on every run.
       title: defaultRunTitle(),
       ...described,
-    });
+    };
+    let start = await client.post<{ run: RunEcho; joined: boolean }>('/v1/runs', request);
+
+    // plune#1949: the one refusal that is worth a second start. A 413 is the run being too large to keep, and the
+    // list of expected tests is nearly all of a start's bytes: over the 1 MiB a run keeps, 9 512 results of the
+    // platform's own CI went to a fallback file the job then deleted. Without the list the run still takes every
+    // result; what it loses is said here — no not-run count, and no full-run claim, which travels with the list.
+    // The limit stays the platform's to state (D13): this reacts to its refusal rather than copying the number.
+    if (!start.ok && start.status === 413 && configuration !== undefined) {
+      log(
+        `plune: the platform refused the run's list of expected tests as too large (${start.detail || start.kind}) — ` +
+          'starting without it: the results still land, but this run counts no tests that did not run, and claims no full run.',
+      );
+      start = await client.post<{ run: RunEcho; joined: boolean }>('/v1/runs', { ...request, configuration: undefined });
+    }
 
     if (start.ok && typeof start.body?.run?.id === 'string') {
       runId = start.body.run.id;
