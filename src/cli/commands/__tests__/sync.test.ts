@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import type { ParsedRunResult } from '../../../types/run-result-schema.js';
 import {
   handleSync,
@@ -356,10 +357,59 @@ describe('handleSync Idempotency-Key (#104)', () => {
   });
 });
 
-describe('handleSync job reporting (plune#1769)', () => {
-  type Call = { url: string; method: string; body: unknown };
+describe('CLI · sync · job reporting, held to the platform contract (plune#1769, cli#139)', () => {
+  type Call = { url: string; method: string; body: unknown; status?: number };
 
-  /** Routes /v1/jobs to `jobs`, everything else to a run upload answering `run`. */
+  // The platform's job contract as plune-ai/plune has it on master (ae9f9ec1): `src/contracts/job.ts` and
+  // `src/contracts/job-states.ts`, copied because the CLI does not depend on the platform. Before cli#139 the fake
+  // server here took whatever the CLI sent, so a body the real one answers 400 passed.
+  const count = z.number().int().nonnegative().max(2_147_483_647);
+  const cursor = z.string().min(1).max(2000).nullable();
+  const attempt = z.number().int().positive().max(2_147_483_647).optional();
+  const JOB_STATES = ['in_progress', 'action_needed', 'paused', 'blocked', 'completed', 'failed', 'cancelled'] as const;
+  const STOPPED: readonly string[] = ['action_needed', 'paused', 'blocked', 'failed'];
+  const jobCreateSchema = z.strictObject({
+    kind: z.string().trim().min(1).max(64),
+    subjectId: z.string().min(1).max(200).optional(),
+    subjectName: z.string().trim().min(1).max(200).optional(),
+    progress: z
+      .strictObject({ done: count, total: count.min(1) })
+      .refine((p) => p.done <= p.total)
+      .optional(),
+    cursor: cursor.unwrap().optional(),
+  });
+  const jobProgressReportSchema = z
+    .strictObject({ done: count.nullable(), total: count.min(1).nullable(), cursor: cursor.optional(), attempt })
+    .refine((p) => (p.done === null) === (p.total === null))
+    .refine((p) => p.done === null || p.total === null || p.done <= p.total);
+  const jobStateReportSchema = z
+    .strictObject({
+      state: z.enum(JOB_STATES),
+      reason: z.string().trim().min(1).max(2000).optional(),
+      cursor: cursor.optional(),
+      attempt,
+    })
+    .refine((b) => b.state === 'cancelled' || STOPPED.includes(b.state) === (b.reason !== undefined));
+  /** The producer's routes as `src/server/jobs/v1-routes.ts` mounts them, each with the schema it judges the body by. */
+  const ROUTES: Record<string, z.ZodType> = {
+    'POST /v1/jobs': jobCreateSchema,
+    'PATCH /v1/jobs/:id/progress': jobProgressReportSchema,
+    'PATCH /v1/jobs/:id/state': jobStateReportSchema,
+  };
+
+  /** The jobs routes as the platform answers them: 400 for a body its schema refuses, 404 for a route it does not have. */
+  function platformJobs(call: Call): Response {
+    const route = `${call.method} ${new URL(call.url).pathname.replace(/^\/v1\/jobs\/[^/]+/, '/v1/jobs/:id')}`;
+    const schema = ROUTES[route];
+    if (schema === undefined) return new Response(JSON.stringify({ error: 'not found' }), { status: 404 });
+    const parsed = schema.safeParse(call.body);
+    if (!parsed.success) {
+      return new Response(JSON.stringify({ error: `validation failed — ${parsed.error.message}` }), { status: 400 });
+    }
+    return new Response(JSON.stringify({ id: 'job_1' }), { status: route === 'POST /v1/jobs' ? 201 : 200 });
+  }
+
+  /** Routes /v1/jobs to `jobs`, everything else to a run upload answering `run`. Each job call keeps the status it got. */
   function jobsFetch(jobs: (c: Call) => Response | Promise<Response>, run = { status: 201, body: { id: 'run_1' } }) {
     const calls: Call[] = [];
     const fn = (async (url: string | URL | Request, init?: RequestInit) => {
@@ -369,37 +419,51 @@ describe('handleSync job reporting (plune#1769)', () => {
         body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined,
       };
       calls.push(call);
-      if (call.url.includes('/v1/jobs')) return jobs(call);
-      return new Response(JSON.stringify(run.body), { status: run.status });
+      if (!call.url.includes('/v1/jobs')) return new Response(JSON.stringify(run.body), { status: run.status });
+      const res = await jobs(call);
+      call.status = res.status;
+      return res;
     }) as typeof fetch;
     return { fn, calls };
   }
-  const ok = () => new Response(JSON.stringify({ id: 'job_1' }), { status: 201 });
   const deps = (fn: typeof fetch) => ({ cwd: tmp, apiUrl: 'https://api.test', loadToken: () => TOKEN, fetchImpl: fn });
   const jobCalls = (calls: Call[]) => calls.filter((c) => c.url.includes('/v1/jobs'));
+  const routes = (calls: Call[]) => jobCalls(calls).map((c) => `${c.status} ${c.method} ${c.url}`);
 
-  it('opens a job and finishes it on success', async () => {
-    writeRun(tmp);
-    const { fn, calls } = jobsFetch(ok);
-    await handleSync(deps(fn));
-    const jobs = jobCalls(calls);
-    expect(jobs.map((c) => `${c.method} ${c.url}`)).toEqual([
-      'POST https://api.test/v1/jobs',
-      'PATCH https://api.test/v1/jobs/job_1',
-      'PATCH https://api.test/v1/jobs/job_1',
+  it('opens a job of the kind the queue panel names, reports the upload and completes it, every call taken', async () => {
+    writeRun(tmp); // summary.total: 2
+    const { fn, calls } = jobsFetch(platformJobs);
+    const res = await handleSync(deps(fn));
+    expect(routes(calls)).toEqual([
+      '201 POST https://api.test/v1/jobs',
+      '200 PATCH https://api.test/v1/jobs/job_1/progress',
+      '200 PATCH https://api.test/v1/jobs/job_1/state',
     ]);
-    expect(jobs[0]?.body).toMatchObject({ kind: 'cli-sync', progress: 0 });
-    expect(jobs[1]?.body).toEqual({ progress: 95, cursor: 'run_1' });
-    expect(jobs[2]?.body).toEqual({ status: 'succeeded', progress: 100 });
+    const [open, progress, state] = jobCalls(calls);
+    // `sync` is a kind the panel has words for (`app/src/i18n/en.json`: `queue.kind.sync` «Sync», `queue.verb.sync` «Synced»).
+    expect(open?.body).toEqual({ kind: 'sync', subjectName: basename(tmp), progress: { done: 0, total: 2 } });
+    expect(progress?.body).toEqual({ done: 2, total: 2, cursor: 'run_1' });
+    expect(state?.body).toEqual({ state: 'completed' });
+    expect(res).toEqual({ id: 'run_1', url: 'https://api.test/v1/runs/run_1' });
   });
 
-  it('fails the job with the error text when the upload fails, and still throws', async () => {
+  it('opens a run with no rows without a size and reports it as still counting, never 0 / 0', async () => {
+    writeRun(tmp, runResult({ summary: { total: 0, passed: 0, failed: 0, errored: 0, cost_usd: 0, duration_ms: 0 } }));
+    const { fn, calls } = jobsFetch(platformJobs);
+    const res = await handleSync(deps(fn));
+    expect(jobCalls(calls).map((c) => c.status)).toEqual([201, 200, 200]);
+    const [open, progress] = jobCalls(calls);
+    expect(open?.body).toEqual({ kind: 'sync', subjectName: basename(tmp) });
+    expect(progress?.body).toEqual({ done: null, total: null, cursor: 'run_1' });
+    expect(res.jobProblem).toBeUndefined();
+  });
+
+  it('fails the job with the error text, cut to what the platform keeps, when the upload fails, and still throws', async () => {
     writeRun(tmp);
-    const { fn, calls } = jobsFetch(ok, { status: 500, body: { error: 'boom' } });
+    const { fn, calls } = jobsFetch(platformJobs, { status: 500, body: { error: 'boom '.repeat(1000) } });
     await expect(handleSync(deps(fn))).rejects.toBeInstanceOf(SyncHttpError);
-    const last = jobCalls(calls).at(-1);
-    expect(last?.method).toBe('PATCH');
-    expect(last?.body).toMatchObject({ status: 'failed', reason: expect.stringContaining('HTTP 500') });
+    expect(routes(calls)).toEqual(['201 POST https://api.test/v1/jobs', '200 PATCH https://api.test/v1/jobs/job_1/state']);
+    expect(jobCalls(calls)[1]?.body).toEqual({ state: 'failed', reason: expect.stringContaining('HTTP 500') });
     expect(JSON.stringify(calls)).not.toContain(TOKEN);
   });
 
@@ -411,20 +475,29 @@ describe('handleSync job reporting (plune#1769)', () => {
     expect(jobCalls(calls)).toHaveLength(1); // the open, nothing after it
   });
 
-  it('does not fail the sync when job reporting errors', async () => {
+  it('does not fail the sync when job reporting errors, and says what went wrong first', async () => {
     writeRun(tmp);
     let n = 0;
-    const { fn } = jobsFetch(() => {
-      if (n++ === 0) return ok();
+    const { fn } = jobsFetch((call) => {
+      if (n++ === 0) return platformJobs(call);
       throw new TypeError('network down');
     });
     const res = await handleSync(deps(fn));
     expect(res.id).toBe('run_1');
+    expect(res.jobProblem).toBe('network down');
   });
 
-  it('does not fail the sync when opening the job answers 500', async () => {
+  it('does not fail the sync when opening the job answers 500, and says so', async () => {
     writeRun(tmp);
     const { fn } = jobsFetch(() => new Response('nope', { status: 500 }));
-    await expect(handleSync(deps(fn))).resolves.toMatchObject({ id: 'run_1' });
+    await expect(handleSync(deps(fn))).resolves.toMatchObject({ id: 'run_1', jobProblem: 'HTTP 500' });
+  });
+
+  it('names the refusal when the platform refuses a job report', async () => {
+    writeRun(tmp);
+    const { fn } = jobsFetch((call) =>
+      call.method === 'POST' ? platformJobs(call) : new Response(JSON.stringify({ error: 'job_finished' }), { status: 409 }),
+    );
+    await expect(handleSync(deps(fn))).resolves.toMatchObject({ id: 'run_1', jobProblem: 'HTTP 409 — job_finished' });
   });
 });
