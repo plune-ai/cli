@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, onTestFinished } from 'vitest';
 import { createServer, type IncomingHttpHeaders, type Server, type ServerResponse } from 'node:http';
 import { subscribe, unsubscribe } from 'node:diagnostics_channel';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -6,6 +6,18 @@ import type { AddressInfo, Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createClient, nodeTransport } from '../client.js';
+
+// The real `fs`, with every stream `createReadStream` opens kept: a test below checks that the upload let its file go.
+const { opened } = vi.hoisted(() => ({ opened: [] as import('node:fs').ReadStream[] }));
+vi.mock('node:fs', async (original) => {
+  const actual = await original<typeof import('node:fs')>();
+  const createReadStream = ((...args: Parameters<typeof actual.createReadStream>) => {
+    const stream = actual.createReadStream(...args);
+    opened.push(stream);
+    return stream;
+  }) as typeof actual.createReadStream;
+  return { ...actual, createReadStream, default: { ...actual, createReadStream } };
+});
 
 const TOKEN = 'plune_tok_do_not_leak_me';
 
@@ -404,17 +416,19 @@ describe('put — a file to a short-lived link of the project’s bucket (plune-
     // would let Node close the socket at once and run it.
     const cut = (): void => void link?.destroy();
     subscribe('http.client.response.finish', cut);
+    onTestFinished(() => void unsubscribe('http.client.response.finish', cut));
     await new Promise<void>((resolve) => refusing.listen(0, '127.0.0.1', resolve));
     const at = join(dir, 'trace.zip');
     writeFileSync(at, Buffer.alloc(40 * 1024 * 1024, 'z'));
-    const out = await real()
-      .put(`http://127.0.0.1:${(refusing.address() as AddressInfo).port}/o`, {}, { path: at, size: 40 * 1024 * 1024 })
-      .finally(() => unsubscribe('http.client.response.finish', cut));
+    opened.length = 0;
+    const out = await real().put(`http://127.0.0.1:${(refusing.address() as AddressInfo).port}/o`, {}, { path: at, size: 40 * 1024 * 1024 });
     await new Promise((resolve) => refusing.close(resolve));
 
     expect(out).toEqual({ ok: false, status: 403, code: 'bucket_403' });
-    // A file still held open cannot be removed on Windows.
-    rmSync(at);
+    // The file is let go: the one stream it was read through is closed, its descriptor given back, though the
+    // body never reached its end. A stream merely `.pipe()`d into the request would stay open here.
+    expect(opened).toHaveLength(1);
+    await vi.waitFor(() => expect(opened[0]?.closed).toBe(true));
   });
 
   it('tries a 429 again after the pause the bucket asked for', async () => {
