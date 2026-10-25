@@ -479,8 +479,9 @@ describe('CLI · sync · job reporting, held to the platform contract (plune#176
     writeRun(tmp);
     let n = 0;
     const { fn } = jobsFetch((call) => {
-      if (n++ === 0) return platformJobs(call);
-      throw new TypeError('network down');
+      n += 1;
+      if (n === 1) return platformJobs(call);
+      throw new TypeError(n === 2 ? 'network down' : 'socket hang up');
     });
     const res = await handleSync(deps(fn));
     expect(res.id).toBe('run_1');
@@ -499,5 +500,16 @@ describe('CLI · sync · job reporting, held to the platform contract (plune#176
       call.method === 'POST' ? platformJobs(call) : new Response(JSON.stringify({ error: 'job_finished' }), { status: 409 }),
     );
     await expect(handleSync(deps(fn))).resolves.toMatchObject({ id: 'run_1', jobProblem: 'HTTP 409 — job_finished' });
+  });
+
+  it('says so when the job is gone after the open: a 404 is "older server" only for the open itself', async () => {
+    writeRun(tmp);
+    const { fn } = jobsFetch((call) => {
+      if (call.method === 'POST') return platformJobs(call);
+      return call.url.endsWith('/progress')
+        ? new Response(JSON.stringify({ error: 'not found' }), { status: 404 })
+        : new Response(JSON.stringify({ error: 'job_finished' }), { status: 409 });
+    });
+    await expect(handleSync(deps(fn))).resolves.toMatchObject({ id: 'run_1', jobProblem: 'HTTP 404 — not found' });
   });
 });
