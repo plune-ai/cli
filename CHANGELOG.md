@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Fixed
+
+- **`plune sync` shows up in the platform's job queue (#139).** 0.30.0 and 0.30.1 promised a job for every sync, but the platform answered the very first request with 400, so no job ever opened and the sync went on without one, silently. The CLI sent `progress: 0` where the platform takes `{ done, total }` or nothing, updated the job through `PATCH /v1/jobs/:id`, which does not exist, and named the kind `cli-sync`, which the queue panel has no words for. Now a sync opens a job of kind `sync` with the run's rows as its size (none while the run has no rows, never `0 / 0`), reports the upload through `PATCH /v1/jobs/:id/progress` with the run id as the cursor, and ends it through `PATCH /v1/jobs/:id/state`: completed, or failed with the error text. A job report still never fails the sync or changes its exit code, but when the sync itself goes through, a job report the platform did not take is now said once on stderr (`plune: could not report this sync to the job queue (…)`); an older platform without the route is still not told. The tests now hold the requests to the platform's own job schemas instead of a fake server that took anything.
+
 ## [0.30.1] - 2026-10-24
 
 Also `@plune-ai/playwright` **0.6.0** - the adapter embeds `reporter-core`, and its last release, 0.5.0,

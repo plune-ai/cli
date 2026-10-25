@@ -1,6 +1,7 @@
 // END-TO-END for `--fail-on-failures` (plune-ai/plune#1247), against the REAL built binary (dist/cli.cjs) and a
 // platform on a real socket. Run with `pnpm test:e2e` (builds first). What it pins is the wiring: each of the four
 // commands takes the flag, and the process exits with the gate's code — and exits as before without it.
+// Also the one line `plune sync` writes when the platform refuses its job report (cli#139).
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { spawn } from 'node:child_process';
@@ -19,6 +20,8 @@ const ONE_FAILED = { counts: { passed: 1, failed: 1 }, notRun: [], total: 2 };
 
 /** What `finish` freezes and the summary reads: set by each test. */
 let verdict: typeof MUTED_ONLY = MUTED_ONLY;
+/** Answer `POST /v1/jobs` with 400 instead of the older server's 404. */
+let refuseJobs = false;
 let server: Server;
 let url = '';
 let tmp = '';
@@ -50,6 +53,7 @@ beforeAll(async () => {
         });
       }
       if (at.endsWith('/events')) return send(200, { run: { id: 'r-1', statusEvent: 'finished' }, summary: verdict, detached: 0 });
+      if (at === '/v1/jobs' && refuseJobs) return send(400, { error: 'validation failed' });
       if (at.endsWith('/summary')) {
         return send(200, { counts: verdict.counts, notRun: verdict.notRun, run: { statusEvent: 'finished' } });
       }
@@ -91,25 +95,26 @@ const file = (name: string, text: string): string => {
   return at;
 };
 
+const runJson = () =>
+  file(
+    'run.json',
+    JSON.stringify({
+      schemaVersion: 1,
+      plune_version: '0.0.0',
+      started_at: '2026-10-12T10:00:00.000Z',
+      finished_at: '2026-10-12T10:00:01.000Z',
+      config_hash: 'cfg',
+      summary: { total: 0, passed: 0, failed: 0, errored: 0, cost_usd: 0, duration_ms: 1 },
+      evals: [],
+    }),
+  );
+
 describe('--fail-on-failures on the built binary', () => {
   const report = () =>
     file(
       'results.xml',
       '<testsuites><testsuite name="s" file="s.spec.ts"><testcase classname="s" name="a"/>' +
         '<testcase classname="s" name="b"><failure message="no"/></testcase></testsuite></testsuites>',
-    );
-  const runJson = () =>
-    file(
-      'run.json',
-      JSON.stringify({
-        schemaVersion: 1,
-        plune_version: '0.0.0',
-        started_at: '2026-10-12T10:00:00.000Z',
-        finished_at: '2026-10-12T10:00:01.000Z',
-        config_hash: 'cfg',
-        summary: { total: 0, passed: 0, failed: 0, errored: 0, cost_usd: 0, duration_ms: 1 },
-        evals: [],
-      }),
     );
   // The runner exits 1, as one does on a muted case it knows nothing about.
   const failingRunner = () => ['node', file('runner.cjs', 'process.exit(1)')];
@@ -141,5 +146,19 @@ describe('--fail-on-failures on the built binary', () => {
     const r = await plune(args([]));
     expect(r.out).not.toContain('gate');
     expect(r.code).toBe(before);
+  });
+});
+
+describe('plune sync job report on the built binary (cli#139)', () => {
+  it('says once on stderr that the platform refused the job report, and still exits 0', async () => {
+    refuseJobs = true;
+    try {
+      const r = await plune(['sync', '--file', runJson()]);
+      const line = 'plune: could not report this sync to the job queue (HTTP 400 — validation failed) — the run is uploaded.';
+      expect(r.out.split(line)).toHaveLength(2);
+      expect(r.code).toBe(0);
+    } finally {
+      refuseJobs = false;
+    }
   });
 });

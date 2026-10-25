@@ -668,13 +668,16 @@ export function createProgram(): Command {
       // Mirror `report`: a global -c points sync at the run saved beside that config, else cwd.
       const cwd = globals.config !== undefined ? dirname(resolve(globals.config)) : process.cwd();
       try {
-        const { id, url, gate } = await handleSync({
+        const { id, url, gate, jobProblem } = await handleSync({
           cwd,
           ...(options.file !== undefined ? { file: options.file } : {}),
           ...(options.failOnFailures ? { failOnFailures: true } : {}),
         });
         // Print only the id + read-back URL — never the token.
         process.stdout.write(`Synced run ${id} → ${url}\n`);
+        if (jobProblem !== undefined) {
+          process.stderr.write(`plune: could not report this sync to the job queue (${jobProblem}) — the run is uploaded.\n`);
+        }
         if (gate !== undefined) {
           process.stdout.write(`${gate.line}\n`);
           process.exitCode = gate.code;
