@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createServer, type IncomingHttpHeaders, type Server, type ServerResponse } from 'node:http';
+import { subscribe, unsubscribe } from 'node:diagnostics_channel';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import type { AddressInfo } from 'node:net';
+import type { AddressInfo, Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createClient, nodeTransport } from '../client.js';
@@ -389,15 +390,26 @@ describe('put — a file to a short-lived link of the project’s bucket (plune-
 
   it('reads the 403 the bucket sent while the body was still going out as that 403, not as a broken connection, and lets the file go', async () => {
     await new Promise((resolve) => bucket.close(resolve));
+    let link: Socket | undefined;
     const refusing = createServer((req, res) => {
-      // The link is dead: say so at once, and cut the connection under a body that is still arriving.
-      res.writeHead(403, { connection: 'close' });
-      res.end(() => setTimeout(() => req.socket.destroy(), 100));
+      // The link is dead: say so at once, with the body still arriving and never read. The answer is left
+      // open, so the reset below reaches a client still in the middle of it, and the status has to win.
+      link = req.socket;
+      res.writeHead(403, { connection: 'close' }).flushHeaders();
     });
+    // Then the connection is cut under that body, but only once the client holds the status: the channel is
+    // published as the client parses the status line and headers (#140). A reset that gets there first takes
+    // the unread 403 with it, since the OS drops a socket's unread bytes on a RST (RFC 9112 §9.6), and no
+    // client reads what is gone. That race is the transport's limit, not a behaviour to test; `res.end()` here
+    // would let Node close the socket at once and run it.
+    const cut = (): void => void link?.destroy();
+    subscribe('http.client.response.finish', cut);
     await new Promise<void>((resolve) => refusing.listen(0, '127.0.0.1', resolve));
     const at = join(dir, 'trace.zip');
     writeFileSync(at, Buffer.alloc(40 * 1024 * 1024, 'z'));
-    const out = await real().put(`http://127.0.0.1:${(refusing.address() as AddressInfo).port}/o`, {}, { path: at, size: 40 * 1024 * 1024 });
+    const out = await real()
+      .put(`http://127.0.0.1:${(refusing.address() as AddressInfo).port}/o`, {}, { path: at, size: 40 * 1024 * 1024 })
+      .finally(() => unsubscribe('http.client.response.finish', cut));
     await new Promise((resolve) => refusing.close(resolve));
 
     expect(out).toEqual({ ok: false, status: 403, code: 'bucket_403' });
