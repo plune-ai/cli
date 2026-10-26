@@ -9,8 +9,10 @@
 // authored (Plune ADR 0010 / ADR-CI-03). The counters printed at the end say exactly what happened.
 //
 // Reading the artifact is `cairn-artifact.ts`; this file is the network edge. Same failure discipline
-// as `sync`: typed errors, actionable messages, never a stack trace, never the token.
+// as `sync`: typed errors, actionable messages, never a stack trace, never the token. And the same job report:
+// the platform's queue shows the ingest from start to end (plune#2047), and the report never decides the exit code.
 
+import * as path from 'node:path';
 import { resolveApiUrl } from '../api-url.js';
 import { loadToken } from '../credentials.js';
 import {
@@ -23,6 +25,7 @@ import {
   NoCairnRunsError,
   type CairnIngestPayload,
 } from './cairn-artifact.js';
+import { JobReporter } from './job-reporter.js';
 
 /** No saved token — the user must `plune login` first. (exit 2) */
 export class IngestNotLoggedInError extends Error {
@@ -75,6 +78,8 @@ export interface IngestResult {
   linked: number;
   proposed: number;
   skipped: number;
+  /** Why the platform's job queue did not take this ingest's report: the first refusal or error. The run is recorded. */
+  jobProblem?: string;
 }
 
 /** Read a non-2xx body for its message, always draining it — an unread body leaves the socket open. */
@@ -106,30 +111,48 @@ export async function handleIngest(deps: IngestDeps): Promise<IngestResult> {
   const doFetch = deps.fetchImpl ?? fetch;
   const endpoint = `${apiUrl}/v1/ingest/cairn`;
 
-  let res: Response;
+  // Opened only once the run reads cleanly, so a refusal above still sends nothing. Sized by the cases sent; named
+  // after the run's directory, as a sync is after its folder.
+  const job = new JobReporter(doFetch, apiUrl, token, 'ingest');
+  await job.open(path.basename(path.resolve(dir)), payload.cases.length);
   try {
-    res = await doFetch(endpoint, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-      body: JSON.stringify(payload),
-    });
-  } catch {
-    throw new IngestNetworkError(apiUrl);
+    const result = await upload();
+    // The run the ingest landed in names the job, so the run's page lists it (#1279).
+    await job.uploaded({ subjectId: result.runId || undefined });
+    await job.finish({ ok: true });
+    if (job.problem !== undefined) result.jobProblem = job.problem;
+    return result;
+  } catch (err) {
+    await job.finish({ ok: false, reason: err instanceof Error ? err.message : 'Ingest failed.' });
+    throw err;
   }
 
-  if (!res.ok) {
-    const detail = await safeErrorDetail(res);
-    if (res.status === 401) throw new IngestTokenRejectedError();
-    throw new IngestHttpError(res.status, detail);
-  }
+  async function upload(): Promise<IngestResult> {
+    let res: Response;
+    try {
+      res = await doFetch(endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload),
+      });
+    } catch {
+      throw new IngestNetworkError(apiUrl);
+    }
 
-  const body = (await res.json().catch(() => ({}))) as Partial<IngestResult>;
-  return {
-    runId: typeof body.runId === 'string' ? body.runId : '',
-    linked: typeof body.linked === 'number' ? body.linked : 0,
-    proposed: typeof body.proposed === 'number' ? body.proposed : 0,
-    skipped: typeof body.skipped === 'number' ? body.skipped : 0,
-  };
+    if (!res.ok) {
+      const detail = await safeErrorDetail(res);
+      if (res.status === 401) throw new IngestTokenRejectedError();
+      throw new IngestHttpError(res.status, detail);
+    }
+
+    const body = (await res.json().catch(() => ({}))) as Partial<IngestResult>;
+    return {
+      runId: typeof body.runId === 'string' ? body.runId : '',
+      linked: typeof body.linked === 'number' ? body.linked : 0,
+      proposed: typeof body.proposed === 'number' ? body.proposed : 0,
+      skipped: typeof body.skipped === 'number' ? body.skipped : 0,
+    };
+  }
 }
 
 /**

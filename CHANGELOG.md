@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **`plune ingest` shows up in the platform's job queue (plune#2047).** A long import from Cairn used to leave no trace in the queue, so an import that died half-way was noticed late. Now an ingest opens a job of kind `ingest` once the run reads cleanly, sized by the cases it sends (`0 / N`), reports the upload through `PATCH /v1/jobs/:id/progress` with the run the import landed in as the job's `subjectId`, so the run's page lists it, and ends it completed, or failed with the line the CLI prints. As with `plune sync`: an older platform without `POST /v1/jobs` is not told, a job report never fails the ingest or changes its exit code, and when the ingest goes through, a report the platform did not take is said once on stderr (`plune: could not report this ingest to the job queue (…)`). Naming the run needs a platform that takes `subjectId` in a progress report (beta 0.1.45 and later); an older one refuses that one report, which is said on stderr, and the job still ends.
+
 ## [0.30.2] - 2026-10-25
 
 ### Fixed

@@ -3,7 +3,6 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { z } from 'zod';
 import type { ParsedRunResult } from '../../../types/run-result-schema.js';
 import {
   handleSync,
@@ -14,6 +13,7 @@ import {
   SyncNetworkError,
   TokenRejectedError,
 } from '../sync.js';
+import { jobCalls, jobRoutes as routes, jobsFetch as jobsFetchOn, platformJobs, type JobCall } from '../../__tests__/job-platform.js';
 
 const TOKEN = 'plune_secret_do_not_leak';
 
@@ -358,77 +358,10 @@ describe('handleSync Idempotency-Key (#104)', () => {
 });
 
 describe('CLI · sync · job reporting, held to the platform contract (plune#1769, cli#139)', () => {
-  type Call = { url: string; method: string; body: unknown; status?: number };
-
-  // The platform's job contract as plune-ai/plune has it on master (ae9f9ec1): `src/contracts/job.ts` and
-  // `src/contracts/job-states.ts`, copied because the CLI does not depend on the platform. Before cli#139 the fake
-  // server here took whatever the CLI sent, so a body the real one answers 400 passed.
-  const count = z.number().int().nonnegative().max(2_147_483_647);
-  const cursor = z.string().min(1).max(2000).nullable();
-  const attempt = z.number().int().positive().max(2_147_483_647).optional();
-  const JOB_STATES = ['in_progress', 'action_needed', 'paused', 'blocked', 'completed', 'failed', 'cancelled'] as const;
-  const STOPPED: readonly string[] = ['action_needed', 'paused', 'blocked', 'failed'];
-  const jobCreateSchema = z.strictObject({
-    kind: z.string().trim().min(1).max(64),
-    subjectId: z.string().min(1).max(200).optional(),
-    subjectName: z.string().trim().min(1).max(200).optional(),
-    progress: z
-      .strictObject({ done: count, total: count.min(1) })
-      .refine((p) => p.done <= p.total)
-      .optional(),
-    cursor: cursor.unwrap().optional(),
-  });
-  const jobProgressReportSchema = z
-    .strictObject({ done: count.nullable(), total: count.min(1).nullable(), cursor: cursor.optional(), attempt })
-    .refine((p) => (p.done === null) === (p.total === null))
-    .refine((p) => p.done === null || p.total === null || p.done <= p.total);
-  const jobStateReportSchema = z
-    .strictObject({
-      state: z.enum(JOB_STATES),
-      reason: z.string().trim().min(1).max(2000).optional(),
-      cursor: cursor.optional(),
-      attempt,
-    })
-    .refine((b) => b.state === 'cancelled' || STOPPED.includes(b.state) === (b.reason !== undefined));
-  /** The producer's routes as `src/server/jobs/v1-routes.ts` mounts them, each with the schema it judges the body by. */
-  const ROUTES: Record<string, z.ZodType> = {
-    'POST /v1/jobs': jobCreateSchema,
-    'PATCH /v1/jobs/:id/progress': jobProgressReportSchema,
-    'PATCH /v1/jobs/:id/state': jobStateReportSchema,
-  };
-
-  /** The jobs routes as the platform answers them: 400 for a body its schema refuses, 404 for a route it does not have. */
-  function platformJobs(call: Call): Response {
-    const route = `${call.method} ${new URL(call.url).pathname.replace(/^\/v1\/jobs\/[^/]+/, '/v1/jobs/:id')}`;
-    const schema = ROUTES[route];
-    if (schema === undefined) return new Response(JSON.stringify({ error: 'not found' }), { status: 404 });
-    const parsed = schema.safeParse(call.body);
-    if (!parsed.success) {
-      return new Response(JSON.stringify({ error: `validation failed — ${parsed.error.message}` }), { status: 400 });
-    }
-    return new Response(JSON.stringify({ id: 'job_1' }), { status: route === 'POST /v1/jobs' ? 201 : 200 });
-  }
-
-  /** Routes /v1/jobs to `jobs`, everything else to a run upload answering `run`. Each job call keeps the status it got. */
-  function jobsFetch(jobs: (c: Call) => Response | Promise<Response>, run = { status: 201, body: { id: 'run_1' } }) {
-    const calls: Call[] = [];
-    const fn = (async (url: string | URL | Request, init?: RequestInit) => {
-      const call: Call = {
-        url: String(url),
-        method: init?.method ?? 'GET',
-        body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined,
-      };
-      calls.push(call);
-      if (!call.url.includes('/v1/jobs')) return new Response(JSON.stringify(run.body), { status: run.status });
-      const res = await jobs(call);
-      call.status = res.status;
-      return res;
-    }) as typeof fetch;
-    return { fn, calls };
-  }
+  // The platform's job routes, each body judged by its schema, as `job-platform.ts` copies them from plune master.
+  const jobsFetch = (jobs: (c: JobCall) => Response | Promise<Response>, run = { status: 201, body: { id: 'run_1' } as unknown }) =>
+    jobsFetchOn(jobs, run);
   const deps = (fn: typeof fetch) => ({ cwd: tmp, apiUrl: 'https://api.test', loadToken: () => TOKEN, fetchImpl: fn });
-  const jobCalls = (calls: Call[]) => calls.filter((c) => c.url.includes('/v1/jobs'));
-  const routes = (calls: Call[]) => jobCalls(calls).map((c) => `${c.status} ${c.method} ${c.url}`);
 
   it('opens a job of the kind the queue panel names, reports the upload and completes it, every call taken', async () => {
     writeRun(tmp); // summary.total: 2

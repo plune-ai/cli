@@ -16,6 +16,7 @@ import { parseRunResult, type ParsedRunResult } from '../../types/run-result-sch
 import { resolveApiUrl } from '../api-url.js';
 import { loadToken } from '../credentials.js';
 import { gateExit, type Verdict } from '../gate.js';
+import { JobReporter } from './job-reporter.js';
 
 // ponytail: alpha points at beta — the only live, token-issuing surface today. Flip to
 // https://api.plune.ai once prod is deployed and the alpha graduates. `PLUNE_API_URL` overrides
@@ -65,88 +66,6 @@ export class SyncHttpError extends Error {
   ) {
     super(`Sync failed — the server returned HTTP ${status}${detail ? ` (${detail})` : ''}.`);
     this.name = 'SyncHttpError';
-  }
-}
-
-/** The kind the platform's queue panel has words for: «Sync», «Synced» (plune `app/src/i18n/en.json`, `queue.kind.sync`). */
-const JOB_KIND = 'sync';
-/** A job report never holds the sync up for long: the upload is the work, the job only describes it. */
-const JOB_TIMEOUT_MS = 5000;
-/** What the platform keeps of a name and of a reason, and refuses past (`JOB_SUBJECT_NAME_MAX`, `JOB_REASON_MAX`). */
-const JOB_SUBJECT_NAME_MAX = 200;
-const JOB_REASON_MAX = 2000;
-
-/**
- * Describes one sync to the platform's job queue so it can show it and fail it when it goes quiet, in the shape
- * plune `src/contracts/job.ts` takes (cli#139): `POST /v1/jobs` opens it, `PATCH /v1/jobs/:id/progress` says how
- * far, `PATCH /v1/jobs/:id/state` ends it. Progress counts the run's rows as `{ done, total }`, and is left out
- * while there are none to count: never `0 / 0`.
- * Best effort by design: nothing here throws, and the sync carries on whatever the platform answers. An older
- * server (404 / 405 on opening) has no queue, so nothing is said; any other failure is kept, the first, as `problem`.
- */
-class JobReporter {
-  private id: string | undefined;
-  /** The run's rows, the job's `total`; `null` while there are none to count. */
-  private size: number | null = null;
-  /** The first report the platform did not take, for the CLI to say once. */
-  problem: string | undefined;
-
-  constructor(
-    private readonly doFetch: typeof fetch,
-    private readonly base: string,
-    private readonly token: string,
-  ) {}
-
-  private async send(method: 'POST' | 'PATCH', route: string, body: unknown): Promise<{ id?: unknown } | undefined> {
-    try {
-      const res = await this.doFetch(`${this.base}/v1/jobs${route}`, {
-        method,
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${this.token}` },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(JOB_TIMEOUT_MS),
-      });
-      // Read on every status: an unread body holds the socket open (see handleSync).
-      const json = (await res.json().catch(() => undefined)) as { id?: unknown; error?: unknown } | undefined;
-      if (res.ok) return json ?? {};
-      if (route === '' && (res.status === 404 || res.status === 405)) return undefined; // an older server: no queue
-      this.problem ??= `HTTP ${res.status}${typeof json?.error === 'string' ? ` — ${json.error}` : ''}`;
-    } catch (err) {
-      this.problem ??= err instanceof Error ? err.message : String(err);
-    }
-    return undefined;
-  }
-
-  async open(subjectName: string, rows: number): Promise<void> {
-    this.size = Number.isInteger(rows) && rows > 0 ? rows : null;
-    // A sync from a drive root has an empty basename, which the platform refuses: that job goes unnamed instead.
-    const name = subjectName.trim().slice(0, JOB_SUBJECT_NAME_MAX);
-    const body = await this.send('POST', '', {
-      kind: JOB_KIND,
-      ...(name !== '' ? { subjectName: name } : {}),
-      ...(this.size !== null ? { progress: { done: 0, total: this.size } } : {}),
-    });
-    if (typeof body?.id === 'string') this.id = body.id;
-  }
-
-  /** The upload is in: every row of the run is on the platform. */
-  async uploaded(cursor: string | undefined): Promise<void> {
-    if (this.id === undefined) return;
-    await this.send('PATCH', `/${encodeURIComponent(this.id)}/progress`, {
-      done: this.size,
-      total: this.size,
-      ...(cursor !== undefined ? { cursor } : {}),
-    });
-  }
-
-  async finish(outcome: { ok: true } | { ok: false; reason: string }): Promise<void> {
-    if (this.id === undefined) return;
-    const id = this.id;
-    this.id = undefined;
-    await this.send(
-      'PATCH',
-      `/${encodeURIComponent(id)}/state`,
-      outcome.ok ? { state: 'completed' } : { state: 'failed', reason: outcome.reason.slice(0, JOB_REASON_MAX) },
-    );
   }
 }
 
@@ -237,7 +156,7 @@ export async function handleSync(deps: SyncDeps = {}): Promise<SyncResult> {
   const idempotencyKey = createHash('sha256').update(payload).digest('hex');
 
   const bearer: string = token;
-  const job = new JobReporter(doFetch, apiUrl, bearer);
+  const job = new JobReporter(doFetch, apiUrl, bearer, 'sync');
   await job.open(path.basename(deps.file !== undefined ? path.resolve(cwd, deps.file) : cwd), run.summary.total);
   try {
     const result = await upload();
@@ -277,7 +196,7 @@ export async function handleSync(deps: SyncDeps = {}): Promise<SyncResult> {
     const body = (await res.json().catch(() => ({}))) as { id?: unknown };
     const id = typeof body.id === 'string' ? body.id : '';
     const result: SyncResult = { id, url: `${endpoint}/${id}` };
-    await job.uploaded(id || undefined);
+    await job.uploaded({ cursor: id || undefined });
     if (deps.failOnFailures === true) {
       result.gate = gateExit(await readVerdict(doFetch, `${endpoint}/${id}/summary`, bearer));
     }
