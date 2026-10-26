@@ -197,6 +197,7 @@ describe('CLI · ingest · job reporting, held to the platform contract (plune#2
       throw new TypeError(n === 2 ? 'network down' : 'socket hang up');
     });
     expect(await ingest(fn)).toEqual({ ...COUNTERS, jobProblem: 'network down' });
+    expect(n, 'the state report is still tried after the progress report failed').toBe(3);
   });
 
   it('does not fail the ingest when opening the job answers 500, and says so', async () => {

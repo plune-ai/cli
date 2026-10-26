@@ -117,13 +117,14 @@ export async function handleIngest(deps: IngestDeps): Promise<IngestResult> {
   await job.open(path.basename(path.resolve(dir)), payload.cases.length);
   try {
     const result = await upload();
-    // The run the ingest landed in names the job, so the run's page lists it (#1279).
+    // The run the ingest landed in is the job's subject, so the run's page lists it (#1279).
     await job.uploaded({ subjectId: result.runId || undefined });
     await job.finish({ ok: true });
     if (job.problem !== undefined) result.jobProblem = job.problem;
     return result;
   } catch (err) {
-    await job.finish({ ok: false, reason: err instanceof Error ? err.message : 'Ingest failed.' });
+    // An empty message would be a reason the platform refuses (400), leaving the job to the stale sweep.
+    await job.finish({ ok: false, reason: (err instanceof Error && err.message.trim()) || 'Ingest failed.' });
     throw err;
   }
 
