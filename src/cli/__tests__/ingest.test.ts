@@ -10,6 +10,8 @@ import {
   IngestNotLoggedInError,
   IngestTokenRejectedError,
 } from '../commands/ingest.js';
+import { readCairnRun } from '../commands/cairn-artifact.js';
+import { jobCalls, jobRoutes, jobsFetch, platformJobs } from './job-platform.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fixture = (name: string): string => path.join(here, 'fixtures', 'cairn', name);
@@ -138,5 +140,69 @@ describe('formatIngestResult', () => {
 
   it('tells the reader where proposed cases went', () => {
     expect(formatIngestResult({ runId: 'r1', linked: 1, proposed: 2, skipped: 3 })).toMatch(/review/i);
+  });
+});
+
+// plune#2047: an ingest shows in the platform's queue from start to end, as `plune sync` does since 0.30.2.
+describe('CLI · ingest · job reporting, held to the platform contract (plune#2047)', () => {
+  const COUNTERS = { runId: 'run-1', linked: 0, proposed: 29, skipped: 0 };
+  const ingest = (fn: typeof fetch) => handleIngest(deps({ fetchImpl: fn }));
+  const imported = (jobs: Parameters<typeof jobsFetch>[0]) => jobsFetch(jobs, { status: 201, body: COUNTERS });
+
+  it('opens a job of kind ingest, names the run it landed in, and completes it, every call taken', async () => {
+    const cases = (await readCairnRun(fixture('design'))).cases.length;
+    const { fn, calls } = imported(platformJobs);
+    expect(await ingest(fn)).toEqual(COUNTERS);
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+      'POST https://api.test/v1/jobs',
+      'POST https://api.test/v1/ingest/cairn',
+      'PATCH https://api.test/v1/jobs/job_1/progress',
+      'PATCH https://api.test/v1/jobs/job_1/state',
+    ]);
+    expect(jobCalls(calls).map((c) => c.status)).toEqual([201, 200, 200]);
+    const [open, progress, state] = jobCalls(calls);
+    // `ingest` is a kind the panel has words for (`app/src/i18n/en.json`: `queue.kind.ingest`).
+    expect(open?.body).toEqual({ kind: 'ingest', subjectName: 'design', progress: { done: 0, total: cases } });
+    // The run id the ingest answered is the job's subject: the run page lists the jobs naming it (#1279).
+    expect(progress?.body).toEqual({ done: cases, total: cases, subjectId: 'run-1' });
+    expect(state?.body).toEqual({ state: 'completed' });
+  });
+
+  it('fails the job with the line the CLI prints when the import fails, and still throws', async () => {
+    const { fn, calls } = jobsFetch(platformJobs, { status: 500, body: { error: 'boom' } });
+    const err = await ingest(fn).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(IngestHttpError);
+    expect(jobRoutes(calls)).toEqual(['201 POST https://api.test/v1/jobs', '200 PATCH https://api.test/v1/jobs/job_1/state']);
+    expect(jobCalls(calls)[1]?.body).toEqual({ state: 'failed', reason: (err as Error).message });
+    expect(JSON.stringify(calls)).not.toContain('plune_test_token');
+  });
+
+  it.each([404, 405])('changes nothing, exit code included, against a server that answers %i for the jobs route', async (status) => {
+    const older = () => new Response('{}', { status });
+    const ok = imported(older);
+    expect(await ingest(ok.fn)).toEqual(COUNTERS);
+    expect(jobCalls(ok.calls)).toHaveLength(1); // the open, nothing after it
+
+    const failing = jobsFetch(older, { status: 500, body: { error: 'boom' } });
+    const err = await ingest(failing.fn).catch((e: unknown) => e);
+    expect(reportIngestFailure(err, () => {})).toBe(1);
+    expect(jobCalls(failing.calls)).toHaveLength(1);
+  });
+
+  it('does not fail the ingest when job reporting errors, and says what went wrong first', async () => {
+    let n = 0;
+    const { fn } = imported((call) => {
+      n += 1;
+      if (n === 1) return platformJobs(call);
+      throw new TypeError(n === 2 ? 'network down' : 'socket hang up');
+    });
+    expect(await ingest(fn)).toEqual({ ...COUNTERS, jobProblem: 'network down' });
+    expect(n, 'the state report is still tried after the progress report failed').toBe(3);
+  });
+
+  it('does not fail the ingest when opening the job answers 500, and says so', async () => {
+    const { fn, calls } = imported(() => new Response('nope', { status: 500 }));
+    expect(await ingest(fn)).toEqual({ ...COUNTERS, jobProblem: 'HTTP 500' });
+    expect(jobCalls(calls)).toHaveLength(1);
   });
 });

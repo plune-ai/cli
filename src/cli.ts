@@ -707,9 +707,11 @@ export function createProgram(): Command {
       try {
         // Spread rather than `{ dir }`: under `exactOptionalPropertyTypes` an explicit `undefined`
         // is not the same as an absent key, and absent is what "look it up yourself" means here.
-        process.stdout.write(
-          formatIngestResult(await handleIngest({ ...(dir !== undefined ? { dir } : {}) })),
-        );
+        const result = await handleIngest({ ...(dir !== undefined ? { dir } : {}) });
+        process.stdout.write(formatIngestResult(result));
+        if (result.jobProblem !== undefined) {
+          process.stderr.write(`plune: could not report this ingest to the job queue (${result.jobProblem}) — the run is recorded.\n`);
+        }
       } catch (err) {
         const code = reportIngestFailure(err, (s) => process.stderr.write(s));
         if (code !== null) {
