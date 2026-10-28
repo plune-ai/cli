@@ -132,6 +132,50 @@ describe('PLUNE_FULL_RUN — the claim that this run is the whole suite (D20)', 
   });
 });
 
+describe('PLUNE_CONFIGURATION — the combination a job of a matrix runs (plune#1251)', () => {
+  const read = (raw: string) => readEnv(env({ PLUNE_CONFIGURATION: raw }));
+
+  it('reads Group=Value pairs split at ;', () => {
+    expect(read('Browser=Chrome;Operating system=Windows').config.configuration).toEqual({
+      Browser: 'Chrome',
+      'Operating system': 'Windows',
+    });
+  });
+
+  // `;;` and a `;` at the end are what a template leaves when a matrix had nothing for a slot.
+  it('trims both sides, splits a pair at its first =, and drops blank pairs', () => {
+    expect(read(' ; Browser = Chrome ;; Build = a=b ; ').config.configuration).toEqual({
+      Browser: 'Chrome',
+      Build: 'a=b',
+    });
+  });
+
+  it('keeps a group called __proto__ as a key of its own', () => {
+    expect(Object.keys(read('__proto__=x').config.configuration ?? {})).toEqual(['__proto__']);
+  });
+
+  it('says nothing when unset, blank or only separators', () => {
+    for (const vars of [{}, { PLUNE_CONFIGURATION: '' }, { PLUNE_CONFIGURATION: '  ' }, { PLUNE_CONFIGURATION: ' ;; ' }]) {
+      const settings = readEnv(env(vars));
+      expect('configuration' in settings.config).toBe(false);
+      expect(settings.configurationError).toBeUndefined();
+    }
+  });
+
+  it.each([
+    ['Browser', '"Browser" has no "="'],
+    ['Browser=Chrome;=Windows', '"=Windows" has no group name'],
+    ['Browser= ;Operating system=Windows', '"Browser=" has no value'],
+    ['Browser=Chrome;browser=Firefox', '"browser=Firefox" names the group "Browser" a second time'],
+  ])('refuses %j as a configuration error, naming the variable and the pair', (raw, why) => {
+    const settings = read(raw);
+    expect(settings.configurationError).toBe(
+      `PLUNE_CONFIGURATION: ${why} - write it as "Group=Value;Group=Value" (for example "Browser=Chrome;Operating system=Windows") - nothing was sent.`,
+    );
+    expect('configuration' in settings.config).toBe(false);
+  });
+});
+
 /**
  * plune-ai/plune#927. The panel of a run says where it ran: the branch and the commit. Neither
  * reached the platform before, so every row read empty.

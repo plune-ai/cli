@@ -365,6 +365,7 @@ export async function startRun(
   const env = readEnv();
   // A typo here must not turn into a run that never closes: refuse before anything is sent.
   if (env.shardError !== undefined) throw new Error(env.shardError);
+  if (env.configurationError !== undefined) throw new Error(env.configurationError);
   const stated = Object.fromEntries(Object.entries(passed).filter(([, v]) => v !== undefined));
   const cfg: ReporterConfig = { ...env.config, ...stated };
 
@@ -483,6 +484,7 @@ export async function startRun(
       externalKey,
       session: sessionMarker,
       ...(cfg.meta !== undefined ? { meta: cfg.meta } : {}),
+      ...(cfg.configuration !== undefined ? { configuration: cfg.configuration } : {}),
       results: results.map(onDisk),
     });
     stats.deferred += results.length;
@@ -1272,7 +1274,8 @@ export async function startRun(
       }
       const out = await client.post<{ counts: Record<keyof RunStats, number>; items?: BatchItem[] }>(
         `/v1/runs/${runId}/results`,
-        { results: part },
+        // The job's combination on every batch (plune-ai/plune#1251); a refusal of it is a 422 said below as it came.
+        { results: part, ...(cfg.configuration !== undefined ? { configuration: cfg.configuration } : {}) },
       );
       // A success with no counts says nothing about what was stored: kept for a replay, not guessed —
       // and counts with no number in them say no more (#790 re-review C7).

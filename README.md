@@ -424,6 +424,37 @@ The shard that is the Nth also prints `plune: run closed` just above that line, 
   and leaves the run open, as `PLUNE_SHARED_RUN` does: close it with `plune run finish`.
 - With `--fail-on-failures`, the shard that closes the run gates on its summary; the others have no verdict yet.
 
+#### A combination per job of a matrix: `PLUNE_CONFIGURATION`
+
+The jobs of a matrix of browsers and systems report into one run, each under its own combination of
+configuration values (plune-ai/plune#1251):
+
+```yaml
+strategy:
+  matrix:
+    browser: [Chrome, Firefox]
+    os: [Windows, macOS]
+env:
+  PLUNE_RUN: ${{ github.run_id }}-${{ github.run_attempt }}
+  PLUNE_SHARED_RUN: 1
+  PLUNE_CONFIGURATION: "Browser=${{ matrix.browser }};Operating system=${{ matrix.os }}"
+```
+
+`PLUNE_CONFIGURATION` is `Group=Value` pairs split by `;`, with the names of the groups and values as in
+Settings → Configurations. Case does not matter, spaces around a name or a value are dropped, and so is an
+empty pair (`;;`, a `;` at the end); a value may hold `=`, since a pair splits at its first one. Every results
+batch of `plune run import` and of the Playwright reporter carries it, and Plune files the results under that
+combination of the run: one the run already has (a run launched from the dashboard with configurations, joined
+by its key), or one it adds. A value that is not in Settings is taken as sent, marked "not in the list". Unset
+or blank, the batch is sent as before. The run is closed once at the end, as above.
+
+- A pair without `=`, without a group or without a value, or one group named twice, is a configuration error:
+  nothing is sent and the command fails.
+- Every job of a run names the same groups. Plune refuses with 422 a batch that names other groups, or one that
+  would take the run past its limits (25 combinations, 40 000 results to expect); its message is printed as it
+  came, and the batch goes to the fallback file like any other refused batch.
+- The fallback file keeps the combination, and `plune run report` sends the batch back into it.
+
 ### A time limit for the import
 
 The whole `plune run import` stops after 600 seconds by default, so a platform that stops answering cannot hold a CI job until its own timeout kills it. Raise it for a very large report, or turn it off with `0`:

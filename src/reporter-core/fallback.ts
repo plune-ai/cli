@@ -34,12 +34,17 @@ export const DEFAULT_FALLBACK_PATH = path.join('.plune', 'pending-results.jsonl'
  * A run of 24 tests at a batch of 10 is three lines, and replay opens one run for the lines that share a
  * marker rather than one for each. A line written before the field existed has none, and is one run's
  * worth by itself — nothing in it says otherwise.
+ *
+ * `configuration` is the combination the job named (`PLUNE_CONFIGURATION`, plune-ai/plune#1251), recorded for
+ * the same reason as `meta`: replay sends the batch into the combination it ran in, whatever the machine that
+ * replays it has set. A line without it was written by a job that named none, or before the field existed.
  */
 export interface DeferredBatch {
   runId: string | null;
   externalKey: string | null;
   session?: string;
   meta?: RunMeta;
+  configuration?: Record<string, string>;
   results: DeferredResult[];
 }
 
@@ -62,6 +67,7 @@ export function appendBatch(file: string, batch: DeferredBatch): void {
     externalKey: batch.externalKey,
     ...(batch.session !== undefined ? { session: batch.session } : {}),
     ...(batch.meta !== undefined ? { meta: batch.meta } : {}),
+    ...(batch.configuration !== undefined ? { configuration: batch.configuration } : {}),
     results: batch.results,
   };
   fs.appendFileSync(file, `${JSON.stringify(line)}\n`, 'utf8');

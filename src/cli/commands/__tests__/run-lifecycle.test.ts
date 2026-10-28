@@ -621,6 +621,38 @@ describe('plune run report', () => {
     expect(out).toMatchObject({ sent: 0, failed: 1 });
     expect(lines.join('\n')).toContain('closed');
   });
+
+  // plune#1251. A batch goes back into the combination its job named (`PLUNE_CONFIGURATION`), as the line
+  // recorded it, whether its run was reached or not; a line that recorded none is sent as it always was.
+  it('sends each batch into the combination its line recorded, and none for a line that has none', async () => {
+    const configuration = { Browser: 'Chrome', 'Operating system': 'Windows' };
+    fs.writeFileSync(
+      file,
+      [
+        JSON.stringify({ runId: 'r-9', externalKey: 'ci-7', configuration, results: [submission] }),
+        JSON.stringify({ runId: 'r-9', externalKey: 'ci-7', results: [submission] }),
+        JSON.stringify({ runId: null, externalKey: 'ci-8', configuration, results: [unresolved('b')] }),
+      ].join('\n') + '\n',
+    );
+    const { seen, fetchImpl } = platform(knowing);
+    const out = await handleRunReport({ ...deps(fetchImpl), file });
+
+    const batches = seen.filter((s) => s.path.endsWith('/results')).map((s) => s.body);
+    expect(batches.map((b) => b['configuration'])).toEqual([configuration, undefined, configuration]);
+    expect(batches[1]).not.toHaveProperty('configuration');
+    expect(out).toMatchObject({ sent: 3, failed: 0 });
+  });
+
+  it('says the platform’s 422 about a combination as it came', async () => {
+    const error = 'this run has 25 configuration combinations — a run takes at most 25, and «Edge · Windows» would be one more';
+    const configuration = { Browser: 'Edge', 'Operating system': 'Windows' };
+    fs.writeFileSync(file, JSON.stringify({ runId: 'r-9', externalKey: null, configuration, results: [submission] }) + '\n');
+    const { fetchImpl } = platform((url) => (url.endsWith('/results') ? { status: 422, body: { error } } : undefined));
+    const out = await handleRunReport({ ...deps(fetchImpl), file });
+
+    expect(out).toMatchObject({ sent: 0, failed: 1 });
+    expect(lines).toContain(`Could not send 1 result(s) to run r-9 — ${error}.`);
+  });
 });
 
 /**

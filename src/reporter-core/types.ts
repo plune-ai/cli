@@ -362,6 +362,11 @@ export interface ReporterConfig {
   environment?: string;
   /** How the run is marked — smoke, nightly, a team. */
   labels?: string[];
+  /**
+   * The combination this job runs, group name → value label (`PLUNE_CONFIGURATION`, plune-ai/plune#1251):
+   * sent as `configuration` on every results batch. Not the run's own `configuration` (what it expects).
+   */
+  configuration?: Record<string, string>;
   /** Results per request. The platform's ceiling is 500. */
   batchSize?: number;
   /** Files in flight at once (`PLUNE_UPLOAD_CONCURRENCY`, 1 to 32, default 16). */

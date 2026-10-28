@@ -47,6 +47,42 @@ function shardOf(env: NodeJS.ProcessEnv): { shard?: ShardOf; error?: string } {
   };
 }
 
+/**
+ * `PLUNE_CONFIGURATION="Browser=Chrome;Operating system=Windows"` (plune-ai/plune#1251): the combination a
+ * CI job of a matrix runs, group name → value label, sent on every results batch. Names, because a job knows
+ * no ids; the platform matches them without case. Pairs split at `;`, a pair at its first `=` (a label may
+ * hold one), both sides trimmed; a blank pair is what a template leaves and is dropped.
+ *
+ * A pair with no `=`, no name or no value, or a group named twice, would land the results in a combination
+ * nobody meant, so it is refused before anything is sent, as `PLUNE_SHARD` is. The limits of a run (how many
+ * combinations, which groups) are the platform's, said in its own 422.
+ */
+function configurationOf(env: NodeJS.ProcessEnv): { configuration?: Record<string, string>; error?: string } {
+  const raw = value(env, 'PLUNE_CONFIGURATION');
+  if (raw === undefined) return {};
+  const pairs: [string, string][] = [];
+  for (const pair of raw.split(';').map((s) => s.trim()).filter((s) => s !== '')) {
+    const at = pair.indexOf('=');
+    const name = at < 0 ? '' : pair.slice(0, at).trim();
+    const label = at < 0 ? '' : pair.slice(at + 1).trim();
+    const twice = pairs.find(([seen]) => seen.toLowerCase() === name.toLowerCase());
+    const why =
+      at < 0 ? 'has no "="'
+      : name === '' ? 'has no group name'
+      : label === '' ? 'has no value'
+      : twice !== undefined ? `names the group ${JSON.stringify(twice[0])} a second time`
+      : undefined;
+    if (why !== undefined) {
+      return {
+        error: `PLUNE_CONFIGURATION: ${JSON.stringify(pair.slice(0, 40))} ${why} - write it as "Group=Value;Group=Value" (for example "Browser=Chrome;Operating system=Windows") - nothing was sent.`,
+      };
+    }
+    pairs.push([name, label]);
+  }
+  // `fromEntries`, not assignment: a group called `__proto__` stays a key of its own.
+  return pairs.length === 0 ? {} : { configuration: Object.fromEntries(pairs) };
+}
+
 export interface EnvSettings {
   /** Config fields the environment supplied. Anything passed explicitly outranks these. */
   config: Partial<ReporterConfig>;
@@ -56,6 +92,8 @@ export interface EnvSettings {
   shard?: ShardOf;
   /** `PLUNE_SHARD` was set to something that is not `k/N`. A configuration error: the caller refuses to start. */
   shardError?: string;
+  /** `PLUNE_CONFIGURATION` was set to something that is not `Group=Value;…`. Refused the same way. */
+  configurationError?: string;
   /** `PLUNE_IMPORT_TIMEOUT` in seconds, when set and usable. */
   importTimeout?: number;
   /** Variables that were set and have nowhere to land. The caller says so once. */
@@ -145,6 +183,7 @@ export function readEnv(env: NodeJS.ProcessEnv = process.env): EnvSettings {
   // the job that runs everything should say so — a filtered run with this set detaches the rest.
   const full = flag(env, 'PLUNE_FULL_RUN');
   const { shard, error: shardError } = shardOf(env);
+  const { configuration, error: configurationError } = configurationOf(env);
 
   return {
     config: {
@@ -158,6 +197,7 @@ export function readEnv(env: NodeJS.ProcessEnv = process.env): EnvSettings {
       ...(title !== undefined ? { title } : {}),
       ...(environment !== undefined ? { environment } : {}),
       ...(labels !== undefined ? { labels } : {}),
+      ...(configuration !== undefined ? { configuration } : {}),
       // Only when set: `false` here would outrank a config file that asked for it, and an unset
       // variable is not an instruction.
       ...(offerDiscovered ? { offerDiscovered } : {}),
@@ -171,6 +211,7 @@ export function readEnv(env: NodeJS.ProcessEnv = process.env): EnvSettings {
     keepOpen: flag(env, 'PLUNE_SHARED_RUN') || flag(env, 'PLUNE_PROCEED') || shard !== undefined || shardError !== undefined,
     ...(shard !== undefined ? { shard } : {}),
     ...(shardError !== undefined ? { shardError } : {}),
+    ...(configurationError !== undefined ? { configurationError } : {}),
     ...(importTimeout !== undefined ? { importTimeout } : {}),
     ignored: UNSUPPORTED_VARS.filter((name) => value(env, name) !== undefined),
     warnings,

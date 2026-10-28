@@ -866,6 +866,75 @@ describe('a deferred line says where its run came from (plune#927)', () => {
 });
 
 /**
+ * plune-ai/plune#1251. A job of a CI matrix names its combination in `PLUNE_CONFIGURATION`, and every
+ * results batch carries it; the platform finds the combination in the run or appends it. Without the
+ * variable a batch is exactly what it was.
+ */
+describe('every batch names the combination the job runs (plune#1251)', () => {
+  afterEach(() => vi.unstubAllEnvs());
+  const named = { Browser: 'Chrome', 'Operating system': 'Windows' };
+  /** The bodies posted to `…/results`, refused ones included, as they went. */
+  function recording(fetchImpl: typeof fetch) {
+    const bodies: Record<string, unknown>[] = [];
+    const spy = (async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url).endsWith('/results')) bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return fetchImpl(url, init);
+    }) as unknown as typeof fetch;
+    return { bodies, spy };
+  }
+
+  it('sends PLUNE_CONFIGURATION beside the results of every batch', async () => {
+    vi.stubEnv('PLUNE_CONFIGURATION', 'Browser=Chrome;Operating system=Windows');
+    const { fetchImpl } = platform({ known: { a: 'tc-a', b: 'tc-b', c: 'tc-c' } });
+    const { bodies, spy } = recording(fetchImpl);
+    const run = await startRun(config(spy, { batchSize: 2 }));
+    for (const id of ['a', 'b', 'c']) await run.add(result(id));
+    await run.flush();
+
+    expect(bodies.map((b) => b['configuration'])).toEqual([named, named]);
+    expect(run.stats.accepted).toBe(3);
+  });
+
+  it('sends a batch of results and nothing else when the variable is not set', async () => {
+    vi.stubEnv('PLUNE_CONFIGURATION', '');
+    const { fetchImpl } = platform({ known: { a: 'tc-a' } });
+    const { bodies, spy } = recording(fetchImpl);
+    const run = await startRun(config(spy));
+    await run.add(result('a'));
+    await run.flush();
+
+    expect(bodies.map((b) => Object.keys(b))).toEqual([['results']]);
+  });
+
+  it('refuses a variable it cannot read before anything is sent', async () => {
+    vi.stubEnv('PLUNE_CONFIGURATION', 'Browser');
+    const calls: string[] = [];
+    const fetchImpl = (async (url: string | URL | Request) => {
+      calls.push(String(url));
+      return new Response('{}', { status: 500 });
+    }) as unknown as typeof fetch;
+
+    await expect(startRun(config(fetchImpl))).rejects.toThrow('PLUNE_CONFIGURATION: "Browser" has no "="');
+    expect(calls).toEqual([]);
+  });
+
+  it('says the platform’s 422 as it came, and keeps the batch with its combination for the replay', async () => {
+    const error = "this run's combinations are of the groups Browser, Operating system — a batch names exactly these, this one names Browser";
+    vi.stubEnv('PLUNE_CONFIGURATION', 'Browser=Chrome');
+    const { fetchImpl } = platform({ known: { a: 'tc-a' }, resultsFailure: { status: 422, error } });
+    const cfg = config(fetchImpl);
+    const run = await startRun(cfg);
+    await run.add(result('a'));
+    await run.flush();
+
+    expect(logOf(cfg)).toContain(`plune: could not send results (${error}).`);
+    expect(run.stats.deferred).toBe(1);
+    const line = JSON.parse(fs.readFileSync(cfg.fallbackPath as string, 'utf8').trim()) as Record<string, unknown>;
+    expect(line['configuration']).toEqual({ Browser: 'Chrome' });
+  });
+});
+
+/**
  * plune-ai/cli#45. A reporter that cannot reach the platform writes one line per batch, and `plune run
  * report` used to open a run for every one of them: a run of 24 tests at a batch of 10 became three open
  * runs. The lines of one session are told apart from another's by a marker that session makes for itself.

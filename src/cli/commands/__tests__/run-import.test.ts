@@ -136,6 +136,22 @@ describe('plune run import', () => {
     expect(lines.join('\n')).toContain('Read 2 result(s) from a junit report');
   });
 
+  // plune#1251. The import sends the reporter's way, so a job of a matrix lands in its combination too.
+  it('sends the combination PLUNE_CONFIGURATION names with the results, and refuses one it cannot read before sending', async () => {
+    vi.stubEnv('PLUNE_CONFIGURATION', 'Browser=Chrome');
+    const { seen, fetchImpl } = platform();
+    await handleRunImport({ ...deps(fetchImpl), file: write('results.xml', REPORT) });
+    const batches = seen.filter((s) => s.path === '/v1/runs/r-9/results');
+    expect(batches.map((s) => s.body['configuration'])).toEqual([{ Browser: 'Chrome' }]);
+
+    vi.stubEnv('PLUNE_CONFIGURATION', 'Browser=Chrome;browser=Firefox');
+    const refused = platform();
+    await expect(handleRunImport({ ...deps(refused.fetchImpl), file: write('results.xml', REPORT) })).rejects.toThrow(
+      /^PLUNE_CONFIGURATION: "browser=Firefox" names the group "Browser" a second time/,
+    );
+    expect(refused.seen).toEqual([]);
+  });
+
   it('names the run after --name, and after the folder, the time and where it ran without it', async () => {
     const named = platform();
     await handleRunImport({ ...deps(named.fetchImpl), file: write('results.xml', REPORT), name: 'report-1' });
