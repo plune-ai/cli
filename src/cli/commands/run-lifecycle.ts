@@ -308,7 +308,11 @@ export async function handleRunReport(options: ReportOptions = {}): Promise<Repo
     for (const line of group) {
       const ready = line.results.filter((r): r is ResultSubmission => !isPending(r));
       if (line.runId !== null && ready.length > 0) {
-        const out = await client.post(`/v1/runs/${line.runId}/results`, { results: ready });
+        // Into the combination the job named, as the line recorded it (plune-ai/plune#1251).
+        const out = await client.post(`/v1/runs/${line.runId}/results`, {
+          results: ready,
+          ...(line.configuration !== undefined ? { configuration: line.configuration } : {}),
+        });
         if (out.ok) result.sent += ready.length;
         else {
           result.failed += ready.length;
@@ -331,6 +335,8 @@ export async function handleRunReport(options: ReportOptions = {}): Promise<Repo
         ...(first.externalKey !== null ? { externalKey: first.externalKey } : {}),
         // Where the run came from, as the reporter recorded it (plune#927) — never this machine's own.
         ...(first.meta !== undefined ? { meta: first.meta } : {}),
+        // The combination the line recorded, or none (`{}`) — never this machine's `PLUNE_CONFIGURATION` (plune-ai/plune#1251).
+        configuration: first.configuration ?? {},
         // The replay does not know whether the run is complete, so it must not say that it is.
         log: write,
       });

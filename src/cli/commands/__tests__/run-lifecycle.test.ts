@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -620,6 +620,80 @@ describe('plune run report', () => {
 
     expect(out).toMatchObject({ sent: 0, failed: 1 });
     expect(lines.join('\n')).toContain('closed');
+  });
+
+  // plune#1251. A batch goes back into the combination its job named (`PLUNE_CONFIGURATION`), as the line
+  // recorded it, whether its run was reached or not; a line that recorded none is sent as it always was.
+  it('sends each batch into the combination its line recorded, and none for a line that has none', async () => {
+    const configuration = { Browser: 'Chrome', 'Operating system': 'Windows' };
+    fs.writeFileSync(
+      file,
+      [
+        JSON.stringify({ runId: 'r-9', externalKey: 'ci-7', configuration, results: [submission] }),
+        JSON.stringify({ runId: 'r-9', externalKey: 'ci-7', results: [submission] }),
+        JSON.stringify({ runId: null, externalKey: 'ci-8', configuration, results: [unresolved('b')] }),
+      ].join('\n') + '\n',
+    );
+    const { seen, fetchImpl } = platform(knowing);
+    const out = await handleRunReport({ ...deps(fetchImpl), file });
+
+    const batches = seen.filter((s) => s.path.endsWith('/results')).map((s) => s.body);
+    expect(batches.map((b) => b['configuration'])).toEqual([configuration, undefined, configuration]);
+    expect(batches[1]).not.toHaveProperty('configuration');
+    expect(out).toMatchObject({ sent: 3, failed: 0 });
+  });
+
+  it('says the platform’s 422 about a combination as it came', async () => {
+    const error = 'this run has 25 configuration combinations — a run takes at most 25, and «Edge · Windows» would be one more';
+    const configuration = { Browser: 'Edge', 'Operating system': 'Windows' };
+    fs.writeFileSync(file, JSON.stringify({ runId: 'r-9', externalKey: null, configuration, results: [submission] }) + '\n');
+    const { fetchImpl } = platform((url) => (url.endsWith('/results') ? { status: 422, body: { error } } : undefined));
+    const out = await handleRunReport({ ...deps(fetchImpl), file });
+
+    expect(out).toMatchObject({ sent: 0, failed: 1 });
+    expect(lines).toContain(`Could not send 1 result(s) to run r-9 — ${error}.`);
+  });
+
+  // The job that wrote the line knew its combination; the machine that replays it may be a job of
+  // another cell of the matrix. Its `PLUNE_CONFIGURATION` is not read at all, a typo in it included.
+  describe('never with the combination of the machine that replays', () => {
+    afterEach(() => vi.unstubAllEnvs());
+    const results = (seen: { path: string; body: Record<string, unknown> }[]) =>
+      seen.filter((s) => s.path.endsWith('/results')).map((s) => s.body);
+
+    it('sends no combination for a line that recorded none, whether its run was reached or not', async () => {
+      vi.stubEnv('PLUNE_CONFIGURATION', 'Browser=Firefox');
+      fs.writeFileSync(
+        file,
+        [
+          JSON.stringify({ runId: 'r-9', externalKey: 'ci-7', results: [submission] }),
+          JSON.stringify({ runId: null, externalKey: 'ci-8', results: [unresolved('b')] }),
+        ].join('\n') + '\n',
+      );
+      const { seen, fetchImpl } = platform(knowing);
+      const out = await handleRunReport({ ...deps(fetchImpl), file });
+
+      expect(seen.filter((s) => s.path.endsWith('/results')).map((s) => s.path)).toEqual(['/v1/runs/r-9/results', '/v1/runs/r-1/results']);
+      for (const body of results(seen)) expect(body).not.toHaveProperty('configuration');
+      expect(out).toMatchObject({ sent: 2, failed: 0 });
+    });
+
+    it('is not stopped by a variable it cannot read, and sends what each line recorded', async () => {
+      vi.stubEnv('PLUNE_CONFIGURATION', 'Browser');
+      const configuration = { Browser: 'Chrome' };
+      fs.writeFileSync(
+        file,
+        [
+          JSON.stringify({ runId: 'r-9', externalKey: 'ci-7', configuration, results: [submission] }),
+          JSON.stringify({ runId: null, externalKey: 'ci-8', configuration, results: [unresolved('b')] }),
+        ].join('\n') + '\n',
+      );
+      const { seen, fetchImpl } = platform(knowing);
+      const out = await handleRunReport({ ...deps(fetchImpl), file });
+
+      expect(results(seen).map((b) => b['configuration'])).toEqual([configuration, configuration]);
+      expect(out).toMatchObject({ sent: 2, failed: 0 });
+    });
   });
 });
 

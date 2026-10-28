@@ -50,6 +50,7 @@ fills in what you left out. Anything set in the config file wins.
 |---|---|
 | `PLUNE_TOKEN` | the API token — so a CI job need not run `plune login` |
 | `PLUNE_RUN` | the shared run key: every process with the same value lands in one run |
+| `PLUNE_CONFIGURATION` | the combination this job runs, `Browser=Chrome;Operating system=Windows`: its results land under that combination of the run (see [A matrix](#a-matrix-one-run-a-combination-per-job)) |
 | `PLUNE_API_URL` | the deployment to report to |
 | `PLUNE_SHARED_RUN` | this process is one of several — do not close the run |
 | `PLUNE_SHARD` | `k/N`: this process is shard k of N; it reports itself done and the run closes when all N have (implies `PLUNE_SHARED_RUN`) |
@@ -101,6 +102,40 @@ env:
 A shard **never closes the run** — it cannot know the others have finished. Whoever does know
 closes it: your `merge-reports` step, or `plune run finish <id>`. Until then the run reads as
 still running, which is the truth.
+
+## A matrix: one run, a combination per job
+
+The jobs of a matrix of browsers and systems report into one run, each under its own combination of
+configuration values, when they share `PLUNE_RUN` and each names its cell in `PLUNE_CONFIGURATION`:
+
+```yaml
+strategy:
+  matrix:
+    browser: [Chrome, Firefox]
+    os: [Windows, macOS]
+env:
+  PLUNE_RUN: ${{ github.run_id }}-${{ github.run_attempt }}
+  PLUNE_SHARED_RUN: 1
+  PLUNE_CONFIGURATION: "Browser=${{ matrix.browser }};Operating system=${{ matrix.os }}"
+```
+
+`PLUNE_SHARED_RUN` keeps each job from closing the run its siblings still report into; close it
+once at the end with `plune run finish <id>`.
+
+`PLUNE_CONFIGURATION` is `Group=Value` pairs split by `;`, with the names of the groups and values
+as in Settings → Configurations. Case does not matter, spaces around a name or a value are dropped,
+and so is an empty pair (`;;`, a `;` at the end); a value may hold `=`, since a pair splits at its
+first one. Every results batch carries it, and Plune files the results under that combination of the
+run: one the run already has (a run launched from the dashboard with configurations, joined by its
+key), or one it adds. A value that is not in Settings is taken as sent, marked "not in the list".
+Unset or blank, the batch is sent as before.
+
+- A pair without `=`, without a group or without a value, or one group named twice, is a
+  configuration error: the reporter sends nothing and says why.
+- Every job of a run names the same groups. Plune refuses with 422 a batch that names other groups,
+  or one that would take the run past its limits (25 combinations, 40 000 results to expect); the
+  reporter prints the platform's message as it came, and the batch goes to the fallback file, which
+  keeps the combination for `plune run report`.
 
 ## How a result finds its test case
 
