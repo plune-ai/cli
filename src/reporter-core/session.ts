@@ -365,9 +365,12 @@ export async function startRun(
   const env = readEnv();
   // A typo here must not turn into a run that never closes: refuse before anything is sent.
   if (env.shardError !== undefined) throw new Error(env.shardError);
-  if (env.configurationError !== undefined) throw new Error(env.configurationError);
+  // A caller that states the combination (a replay, from its line) never reads the variable, so a typo in it is not theirs.
+  if (env.configurationError !== undefined && passed.configuration === undefined) throw new Error(env.configurationError);
   const stated = Object.fromEntries(Object.entries(passed).filter(([, v]) => v !== undefined));
   const cfg: ReporterConfig = { ...env.config, ...stated };
+  /** The combination every batch names; `{}` names none, and the platform takes a batch with at least one group. */
+  const configuration = cfg.configuration !== undefined && Object.keys(cfg.configuration).length > 0 ? cfg.configuration : undefined;
 
   const log = cfg.log ?? ((line: string) => void process.stderr.write(`${line}\n`));
   const fallbackPath = cfg.fallbackPath ?? DEFAULT_FALLBACK_PATH;
@@ -484,7 +487,7 @@ export async function startRun(
       externalKey,
       session: sessionMarker,
       ...(cfg.meta !== undefined ? { meta: cfg.meta } : {}),
-      ...(cfg.configuration !== undefined ? { configuration: cfg.configuration } : {}),
+      ...(configuration !== undefined ? { configuration } : {}),
       results: results.map(onDisk),
     });
     stats.deferred += results.length;
@@ -1275,7 +1278,7 @@ export async function startRun(
       const out = await client.post<{ counts: Record<keyof RunStats, number>; items?: BatchItem[] }>(
         `/v1/runs/${runId}/results`,
         // The job's combination on every batch (plune-ai/plune#1251); a refusal of it is a 422 said below as it came.
-        { results: part, ...(cfg.configuration !== undefined ? { configuration: cfg.configuration } : {}) },
+        { results: part, ...(configuration !== undefined ? { configuration } : {}) },
       );
       // A success with no counts says nothing about what was stored: kept for a replay, not guessed —
       // and counts with no number in them say no more (#790 re-review C7).

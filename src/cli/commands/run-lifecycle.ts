@@ -335,7 +335,8 @@ export async function handleRunReport(options: ReportOptions = {}): Promise<Repo
         ...(first.externalKey !== null ? { externalKey: first.externalKey } : {}),
         // Where the run came from, as the reporter recorded it (plune#927) — never this machine's own.
         ...(first.meta !== undefined ? { meta: first.meta } : {}),
-        ...(first.configuration !== undefined ? { configuration: first.configuration } : {}),
+        // The combination the line recorded, or none (`{}`) — never this machine's `PLUNE_CONFIGURATION` (plune-ai/plune#1251).
+        configuration: first.configuration ?? {},
         // The replay does not know whether the run is complete, so it must not say that it is.
         log: write,
       });

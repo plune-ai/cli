@@ -918,6 +918,18 @@ describe('every batch names the combination the job runs (plune#1251)', () => {
     expect(calls).toEqual([]);
   });
 
+  // What a replay passes for a line that recorded none: the platform takes a combination of one group or more.
+  it('sends none for a stated `{}`, and then reads no variable, a typo in it included', async () => {
+    vi.stubEnv('PLUNE_CONFIGURATION', 'Browser');
+    const { fetchImpl } = platform({ known: { a: 'tc-a' } });
+    const { bodies, spy } = recording(fetchImpl);
+    const run = await startRun(config(spy, { configuration: {} }));
+    await run.add(result('a'));
+    await run.flush();
+
+    expect(bodies.map((b) => Object.keys(b))).toEqual([['results']]);
+  });
+
   it('says the platform’s 422 as it came, and keeps the batch with its combination for the replay', async () => {
     const error = "this run's combinations are of the groups Browser, Operating system — a batch names exactly these, this one names Browser";
     vi.stubEnv('PLUNE_CONFIGURATION', 'Browser=Chrome');
