@@ -11,6 +11,11 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-10-30
+
+Also `@plune-ai/playwright` **0.7.0** - the adapter embeds `reporter-core`, so `PLUNE_CONFIGURATION` below reaches the
+Playwright reporter only with this version.
+
 ### Added
 
 - **`PLUNE_CONFIGURATION` names the combination a CI job runs (plune-ai/plune#1251).** `PLUNE_CONFIGURATION="Browser=Chrome;Operating system=Windows"` sends `configuration` (group name → value label) on every results batch of the Playwright reporter and `plune run import`, so the jobs of a matrix that share `PLUNE_RUN` land in one run, each under its own combination: one the run already has, or one Plune adds. Pairs split at `;`, a pair at its first `=`, both sides trimmed; blank pairs are dropped, and an unset or blank variable sends the batch as before. A pair without `=`, a name or a value, or a group named twice (case not mattering), stops the command before anything is sent, as a bad `PLUNE_SHARD` does. A 422 from the platform (other groups than the run's, past 25 combinations or 40 000 results to expect) is printed as it came, and the batch goes to the fallback file, whose line now records the combination. `plune run report` sends a batch with the combination its line recorded, and with none for a line that recorded none; it does not read `PLUNE_CONFIGURATION`, so a replay in another cell of the matrix cannot move results into its own, and a typo in the variable there does not stop it. Needs a platform that takes `configuration` on `POST /v1/runs/:id/results` (plune-ai/plune#2131, release 0.1.50).
