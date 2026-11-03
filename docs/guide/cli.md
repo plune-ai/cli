@@ -163,8 +163,8 @@ every `*.xml` of the folder that is a JUnit report, in the order of the file nam
 says so outright). Subfolders (Gradle's `binary/`) and other files are not opened, links are not followed; an
 `*.xml` that is not JUnit is skipped with a line in the output. A `[[ATTACHMENT|path]]` counts from the folder the
 XML file is in; Gradle writes a test's output into its testcase only with `reports.junitXml.outputPerTestCase = true`.
-A folder with neither a `*-result.json` nor a JUnit file is an error that names both and the files it skipped as
-not JUnit (exit 2). Surefire writes no `timestamp` on a suite, so Maven tests arrive without a duration for now
+A folder with neither a `*-result.json` nor a JUnit file is an error that names both and up to three of the files it
+skipped as not JUnit (exit 2). Surefire writes no `timestamp` on a suite, so Maven tests arrive without a duration for now
 (plune-ai/plune#2310).
 
 **`exec`** is the whole thing in one line: it opens a run, gives the command `PLUNE_RUN` and

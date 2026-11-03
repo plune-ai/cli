@@ -400,7 +400,9 @@ void checkout() {
 Jest has no per-test output in JUnit; `allure-jest` gives it one (`allure.attachment(...)` in a test or a step).
 Tests are matched to Plune cases by the same key as a JUnit report's, `classname#name`, where the adapter's
 names allow it (pytest, JUnit 5, Playwright); for Vitest, Jest and Cypress the key is the runner, the file and the
-test's full name (`vt:test/cart.test.js#cart adds an item`, `jest:…`, `cy:…`). A file whose name starts with `_`
+test's full name (`vt:test/cart.test.js#cart adds an item`, `jest:…`, `cy:…`). For JUnit 5 the name carries the
+method's parentheses in Allure and in Gradle's JUnit XML (`shop.CartTest#coupon()`) but not in Surefire's
+(`shop.CartTest#coupon`), so a project that moves between Allure and Surefire meets its cases under other keys. A file whose name starts with `_`
 is not sent: the core hides it as Playwright's own reports do, and Allure has no such convention, so name
 attachments without a leading underscore.
 
