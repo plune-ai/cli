@@ -231,8 +231,15 @@ function boundKey(key: KeyRef): KeyRef {
 }
 
 /**
+ * A key as the platform keeps it: its kind and its value together, because two kinds can hold one string — a Qase `7` and a
+ * TestRail `7` are two cases (cli#156). Branded, so a bare `value` does not type-check as a key of a map that remembers keys.
+ */
+type KeyId = string & { readonly __keyId: true };
+const keyId = (key: KeyRef): KeyId => `${key.kind ?? ''}\u0000${key.value}` as KeyId;
+
+/**
  * Why the platform would not take an offer (cli#71). It names the ceiling it met in its own words and in
- * nothing else — both are a 429 (`src/server/db/quota.ts`) — so the words are what tells a full queue
+ * nothing else — both are a 429 from its quota check — so the words are what tells a full queue
  * from a project at its case limit. An answer that says neither, or says it with another status, is
  * something else: the line printed with the failure carries the platform's reason, whatever it was.
  */
@@ -416,18 +423,22 @@ export async function startRun(
   };
   /** `null` records a key we already asked about and the platform did not know — asking twice
    * would cost a request to learn the same thing. */
-  const resolved = new Map<string, string | null>();
+  const resolved = new Map<KeyId, string | null>();
   let buffer: PendingResult[] = [];
   /**
    * Tests that resolved to nothing, held until the run ends (D14).
    *
    * Accumulated rather than offered per batch for one reason: a retried test appears several times,
    * and a queue that grew a row per attempt would be unusable by the second flaky suite. Keyed by
-   * the identity the platform would use, so a repeat replaces rather than adds.
+   * the first key as sent - a retry carries the same keys - so a repeat replaces rather than adds.
+   * The platform names the test by its highest-ranked key instead; `held` below answers to that.
    */
-  const discoveries = new Map<string, DiscoveredTest>();
-  /** The results behind `discoveries`, by the same key: a case the platform creates from an offer gets its result recorded (plune-ai/plune#1581). */
-  const held = new Map<string, PendingResult>();
+  const discoveries = new Map<KeyId, DiscoveredTest>();
+  /**
+   * The results behind `discoveries`, by each of their keys: a case the platform creates from an offer gets its result recorded
+   * (plune-ai/plune#1581), and the platform names that test by its highest-ranked key, which need not be the first one sent (cli#156).
+   */
+  const held = new Map<KeyId, PendingResult>();
   /** Cases created from an offer, and how many of them have a result delivered; the summary says "recorded" only when they match. */
   let createdWithResult = 0;
   let createdUndelivered = 0;
@@ -495,7 +506,7 @@ export async function startRun(
 
   /** Ask the platform about every key we have not asked about yet. */
   async function resolveKeys(values: readonly KeyRef[]): Promise<void> {
-    const unknown = values.filter((k) => !resolved.has(k.value));
+    const unknown = values.filter((k) => !resolved.has(keyId(k)));
     // Deliberately not gated on a run: `/v1/test-cases/resolve` is about cases, not runs, and
     // needing the run first is what made the run's own configuration unusable (see below).
     if (unknown.length === 0 || offline) return;
@@ -513,7 +524,7 @@ export async function startRun(
       }
       for (const row of out.body.results) {
         // A row with no key names no test: its result stays unanswered, and so deferred (#790 re-review C7).
-        if (typeof row?.key?.value === 'string') resolved.set(row.key.value, row.testCaseId);
+        if (typeof row?.key?.value === 'string') resolved.set(keyId(row.key), row.testCaseId);
       }
     }
   }
@@ -536,7 +547,7 @@ export async function startRun(
         ? undefined
         : {
             expected: stated.flatMap<ExpectedEntry>((keys) => {
-              const hit = keys.map((k) => resolved.get(k.value)).find((v) => typeof v === 'string');
+              const hit = keys.map((k) => resolved.get(keyId(k))).find((v) => typeof v === 'string');
               if (typeof hit === 'string') return [{ testCaseId: hit }];
               // Unresolved: say what we know rather than dropping the entry. The platform cannot
               // count it, but the run still declares how many tests it meant to run.
@@ -616,7 +627,7 @@ export async function startRun(
     if (result.testCaseId !== undefined) return { kind: 'found', testCaseId: result.testCaseId };
     let unanswered = false;
     for (const key of result.keys) {
-      const hit = resolved.get(key.value);
+      const hit = resolved.get(keyId(key));
       if (typeof hit === 'string') return { kind: 'found', testCaseId: hit };
       if (hit === undefined) unanswered = true;
     }
@@ -637,14 +648,14 @@ export async function startRun(
     if (result.keys.length === 0) return;
     const title = boundTitle(result.title);
     if (title !== result.title) shortened.add(result.title);
-    discoveries.set(result.keys[0]!.value, {
+    discoveries.set(keyId(result.keys[0]!), {
       keys: result.keys,
       title,
       source: result.source,
       specRef: result.specRef,
       rawStatus: result.rawStatus,
     });
-    held.set(result.keys[0]!.value, result);
+    for (const key of result.keys) held.set(keyId(key), result);
   }
 
   /**
@@ -692,9 +703,9 @@ export async function startRun(
       const submissions: ResultSubmission[] = [];
       const filesByKey = new Map<string, ResultFile[]>();
       for (const r of made) {
-        const pending = typeof r.id === 'string' && r.id !== '' ? held.get(r.key?.value) : undefined;
+        const pending = typeof r.id === 'string' && r.id !== '' && typeof r.key?.value === 'string' ? held.get(keyId(r.key)) : undefined;
         if (pending === undefined) continue;
-        held.delete(r.key.value); // never twice in one process
+        for (const key of pending.keys) held.delete(keyId(key)); // never twice in one process
         const { keys: _keys, files, ...rest } = pending;
         submissions.push({ ...rest, testCaseId: r.id! });
         if (files !== undefined) filesByKey.set(pending.resultKey, files);
