@@ -2824,6 +2824,17 @@ describe('one value in two kinds — the kind is part of the key (cli#156)', () 
     expect(caseOf(seen)).toEqual({ 'a#0': 'tc-qase', 'b#0': 'tc-testrail' });
   });
 
+  it('keeps a key that names no kind apart from one that does', async () => {
+    // The public type lets a key omit its kind; the platform then ranks the kinds itself, and that answer is not the Qase one.
+    const { seen, fetchImpl } = platform({ known: { 'qase:7': 'tc-qase', '7': 'tc-ranked' } });
+    const run = await startRun(config(fetchImpl));
+    await run.add(result('a', { keys: [{ kind: 'qase', value: '7' }] }));
+    await run.add(result('b', { keys: [{ value: '7' }] }));
+    await run.finish();
+
+    expect(caseOf(seen)).toEqual({ 'a#0': 'tc-qase', 'b#0': 'tc-ranked' });
+  });
+
   it('names the case of each kind in the run’s list of expected tests', async () => {
     const { seen, fetchImpl } = platform({ known });
     await startRun(config(fetchImpl), [[{ kind: 'qase', value: '7' }], [{ kind: 'testrail', value: '7' }]]);

@@ -239,7 +239,7 @@ const keyId = (key: KeyRef): KeyId => `${key.kind ?? ''}\u0000${key.value}` as K
 
 /**
  * Why the platform would not take an offer (cli#71). It names the ceiling it met in its own words and in
- * nothing else — both are a 429 (`src/server/db/quota.ts`) — so the words are what tells a full queue
+ * nothing else — both are a 429 from its quota check — so the words are what tells a full queue
  * from a project at its case limit. An answer that says neither, or says it with another status, is
  * something else: the line printed with the failure carries the platform's reason, whatever it was.
  */
@@ -430,7 +430,8 @@ export async function startRun(
    *
    * Accumulated rather than offered per batch for one reason: a retried test appears several times,
    * and a queue that grew a row per attempt would be unusable by the second flaky suite. Keyed by
-   * the identity the platform would use, so a repeat replaces rather than adds.
+   * the first key as sent - a retry carries the same keys - so a repeat replaces rather than adds.
+   * The platform names the test by its highest-ranked key instead; `held` below answers to that.
    */
   const discoveries = new Map<KeyId, DiscoveredTest>();
   /**
