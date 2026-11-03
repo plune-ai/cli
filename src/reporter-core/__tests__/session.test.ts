@@ -7,9 +7,11 @@ import * as path from 'node:path';
 import { handleRunReport } from '../../cli/commands/run-lifecycle.js';
 import { errorContextOf, failureOf } from '../failure-detail.js';
 import { startRun } from '../session.js';
-import type { FailedAttempt, KeyRef, PendingResult, ReporterConfig, ResultFile } from '../types.js';
+import type { ExternalKeyKind, FailedAttempt, KeyRef, PendingResult, ReporterConfig, ResultFile } from '../types.js';
 
 const TOKEN = 'plune_tok_never_print_me';
+/** The platform's order of kinds (its contract's list): a discovered test is named by the first of them it carries. */
+const RANK: readonly ExternalKeyKind[] = ['playwright-id', 'path-title', 'allure-history', 'cairn-stable', 'eval-id', 'qase', 'testrail'];
 
 let dir: string;
 beforeEach(() => {
@@ -42,7 +44,10 @@ interface Seen {
 }
 
 interface PlatformOptions {
-  /** Which keys the platform knows. Anything else resolves to null. */
+  /**
+   * Which keys the platform knows: by `value` in any kind, or by `kind:value` in that kind only — as the platform keeps a key,
+   * where two kinds can hold one string (cli#156). Anything else resolves to null.
+   */
   known?: Record<string, string>;
   /** Status to answer `POST /v1/runs` with (201 created, 200 joined). */
   startStatus?: number;
@@ -191,7 +196,7 @@ function platform(opts: PlatformOptions = {}) {
       const keys = body['keys'] as KeyRef[];
       seen.resolves.push({ keys });
       return json({
-        results: keys.map((k) => ({ key: k, testCaseId: known[k.value] ?? null, matchedKind: null })),
+        results: keys.map((k) => ({ key: k, testCaseId: known[`${k.kind}:${k.value}`] ?? known[k.value] ?? null, matchedKind: null })),
       });
     }
     if (target.endsWith('/v1/runs')) {
@@ -241,10 +246,13 @@ function platform(opts: PlatformOptions = {}) {
       seen.discovered.push({ body });
       const offered = body['discovered'] as { keys: KeyRef[] }[];
       return json({
-        results: offered.map((d, i) => ({
-          key: d.keys[0],
-          outcome: opts.discoverOutcomes?.[i] ?? 'queued',
-        })),
+        results: offered.map((d, i) => {
+          // As the platform answers: a test is named by its highest-ranked key, not by the first one sent (cli#156).
+          const key = [...d.keys].sort((a, b) => RANK.indexOf(a.kind!) - RANK.indexOf(b.kind!))[0]!;
+          const outcome = opts.discoverOutcomes?.[i] ?? 'queued';
+          // A `created` answer names the new case (plune-ai/plune#1581).
+          return { key, outcome, ...(outcome === 'created' ? { id: `tc-new-${key.value}` } : {}) };
+        }),
       });
     }
     const events = /\/v1\/runs\/([^/]+)\/events$/.exec(target);
@@ -2794,5 +2802,60 @@ describe('files go to the project’s bucket by short-lived links (plune-ai/plun
   it('keeps a file’s stats at zero for a result that had none', async () => {
     const { run } = await report([result('a')], { bucket: true });
     expect(run.stats).toMatchObject({ screenshots: zero, textFiles: zero, otherFiles: zero });
+  });
+});
+
+/**
+ * cli#156: the platform keeps a key as its kind and its value, and two kinds can hold one string — a Qase `7` and a TestRail `7`
+ * are two cases. Everything this side remembers about a key has to tell them apart the same way, or a result lands on the other
+ * case in silence.
+ */
+describe('one value in two kinds — the kind is part of the key (cli#156)', () => {
+  const caseOf = (seen: Seen) => Object.fromEntries(seen.results.flatMap((b) => b.results).map((r) => [r['resultKey'], r['testCaseId']]));
+  const known = { 'qase:7': 'tc-qase', 'testrail:7': 'tc-testrail' };
+
+  it.each([500, 1])('records each result on the case of its own kind (batches of %i)', async (batchSize) => {
+    const { seen, fetchImpl } = platform({ known });
+    const run = await startRun(config(fetchImpl, { batchSize }));
+    await run.add(result('a', { keys: [{ kind: 'qase', value: '7' }] }));
+    await run.add(result('b', { keys: [{ kind: 'testrail', value: '7' }] }));
+    await run.finish();
+
+    expect(caseOf(seen)).toEqual({ 'a#0': 'tc-qase', 'b#0': 'tc-testrail' });
+  });
+
+  it('names the case of each kind in the run’s list of expected tests', async () => {
+    const { seen, fetchImpl } = platform({ known });
+    await startRun(config(fetchImpl), [[{ kind: 'qase', value: '7' }], [{ kind: 'testrail', value: '7' }]]);
+
+    const configuration = seen.starts[0]?.body['configuration'] as { expected: { testCaseId?: string }[] };
+    expect(configuration.expected.map((e) => e.testCaseId)).toEqual(['tc-qase', 'tc-testrail']);
+  });
+
+  it('offers both tests when neither has a case', async () => {
+    const { seen, fetchImpl } = platform();
+    const run = await startRun(config(fetchImpl, { offerDiscovered: true }));
+    const where = { title: 'cart › adds an item', specRef: 'e2e/checkout.spec.ts:12' };
+    await run.add(result('a', { keys: [{ kind: 'qase', value: '7' }], ...where }));
+    await run.add(result('b', { keys: [{ kind: 'testrail', value: '7' }], ...where }));
+    await run.finish();
+
+    expect(seen.discovered[0]?.body['discovered']).toHaveLength(2);
+  });
+
+  it('records the result of a case the platform created, though the platform names the test by another of its keys', async () => {
+    const { seen, fetchImpl } = platform({ discoverOutcomes: ['created'] });
+    const run = await startRun(config(fetchImpl, { offerDiscovered: true }));
+    // A Playwright test with a Qase id in its metadata: the adapter sends that key first, and the platform ranks `playwright-id` above it.
+    await run.add(
+      result('pw-9', {
+        keys: [{ kind: 'qase', value: 'Q-9' }, { kind: 'playwright-id', value: 'pw-9' }],
+        title: 'cart › adds an item',
+        specRef: 'e2e/checkout.spec.ts:12',
+      }),
+    );
+    await run.finish();
+
+    expect(caseOf(seen)).toEqual({ 'pw-9#0': 'tc-new-pw-9' });
   });
 });

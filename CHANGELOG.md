@@ -11,6 +11,11 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Fixed
+
+- **A key's kind is part of its identity in the reporter (#156).** Plune keeps a test's key as its kind and its value, so a Qase `7` and a TestRail `7` can name two different cases. The reporter remembered its lookups by the value alone: with both keys in one run, the second answer overwrote the first, or the second key was never asked about, and a result was recorded on the other case without an error. The run's list of expected tests and the offer of unknown tests (two tests with one value offered as one) had the same flaw. Now every lookup is remembered by kind and value. `plune run import` was not affected: its keys are `path-title` and `playwright-id` only.
+- **A case created from an offer gets its result when Plune names the test by another of its keys (#156).** Plune names a discovered test by its highest-ranked key, and the reporter held the result under the first key it sent. A Playwright test with a Qase or TestRail id in its metadata sends that id first, so the case was created and the run's result for it was not recorded. The result is now held under each of its keys.
+
 ## [0.32.1] - 2026-11-03
 
 `@plune-ai/playwright` stays at **0.7.0**: `reporter-core` and `packages/playwright` are unchanged since 0.31.0.
