@@ -120,7 +120,7 @@ async function timeoutMessage(limit: number, runId: string | null, ours: boolean
 export async function handleRunImport(options: ImportOptions): Promise<ImportResult> {
   const write = options.write ?? ((line: string) => void process.stdout.write(`${line}\n`));
 
-  // A folder is an allure-results report (plune-ai/plune#1221); anything else is a file.
+  // A folder is an allure-results report (plune-ai/plune#1221) or JUnit files (plune-ai/plune#2309); anything else is a file.
   let read: { format: ImportFormat; results: PendingResult[]; missing: MissingAttachment[]; notes: string[]; ciUrl?: string; ci?: unknown };
   if (isFolder(options.file)) {
     read = readFolder(options.file, options.format);

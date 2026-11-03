@@ -189,9 +189,13 @@ describe('CLI · run import · Allure · a folder that is not a report', () => {
     expect(platform.results).toEqual([]);
   });
 
-  it('--format junit on a folder is refused, and --format allure on a file is too', async () => {
+  // plune-ai/plune#2309: --format junit reads a folder as JUnit files, and an allure-results folder has none.
+  it('--format junit on an allure-results folder, --format playwright-json on a folder and --format allure on a file are refused', async () => {
     await expect(importIt(copyOf('pytest'), '--format', 'junit')).rejects.toThrow('the command exited with 2');
-    expect(printed.join('')).toMatch(/only allure-results is read from one/);
+    expect(printed.join('')).toMatch(/no JUnit XML files in it/);
+    printed = [];
+    await expect(importIt(copyOf('pytest'), '--format', 'playwright-json')).rejects.toThrow('the command exited with 2');
+    expect(printed.join('')).toMatch(/only allure-results or JUnit XML files are read from one/);
     printed = [];
     const file = path.join(dir, 'r.xml');
     fs.writeFileSync(file, '<testsuite name="s"><testcase name="t"/></testsuite>');

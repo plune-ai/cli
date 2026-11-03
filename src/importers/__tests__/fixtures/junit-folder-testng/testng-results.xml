@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Written by hand, NOT taken from a live run: the shape of TestNG's own XML report (TestNG 7). Not JUnit. -->
+<testng-results ignored="0" total="2" passed="1" failed="1" skipped="0">
+  <reporter-output>
+  </reporter-output>
+  <suite started-at="2026-11-03T09:15:02 UTC" name="Surefire suite" finished-at="2026-11-03T09:15:02 UTC" duration-ms="412">
+    <groups>
+    </groups>
+    <test started-at="2026-11-03T09:15:02 UTC" name="Surefire test" finished-at="2026-11-03T09:15:02 UTC" duration-ms="412">
+      <class name="com.example.CartTest">
+        <test-method signature="addsAnItem()" started-at="2026-11-03T09:15:02 UTC" name="addsAnItem" finished-at="2026-11-03T09:15:02 UTC" duration-ms="11" status="PASS"/>
+        <test-method signature="rejectsANegativeQuantity()" started-at="2026-11-03T09:15:02 UTC" name="rejectsANegativeQuantity" finished-at="2026-11-03T09:15:02 UTC" duration-ms="8" status="FAIL">
+          <exception class="java.lang.AssertionError">
+            <message><![CDATA[expected [0] but found [1]]]></message>
+          </exception>
+        </test-method>
+      </class>
+    </test>
+  </suite>
+</testng-results>

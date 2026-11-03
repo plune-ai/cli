@@ -8,8 +8,11 @@
  * correct, and the two would drift on the day one of them was fixed.
  */
 
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { printable } from '../reporter-core/failure-detail.js';
 import type { PendingResult } from '../reporter-core/types.js';
-import { isFolder, readAllure } from './allure.js';
+import { AllureReportError, RESULT, isFolder, namesIn, readAllure } from './allure.js';
 import type { MissingAttachment } from './attachments.js';
 import { looksLikeJUnit, readJUnit } from './junit.js';
 import { looksLikePlaywrightJson, readPlaywrightJson } from './playwright-json.js';
@@ -48,17 +51,46 @@ export function detectFormat(source: string, file: string): ImportFormat {
 
 export { isFolder };
 
-/** Read an `allure-results` folder (plune-ai/plune#1221); any other `format` asked for is refused. */
+/**
+ * Read a folder: an `allure-results` one (plune-ai/plune#1221) when a `*-result.json` is in it, otherwise the
+ * JUnit files Maven Surefire and Gradle write one per class (plune-ai/plune#2309), all of them one run.
+ * `--format` says which outright; `playwright-json` is never a folder.
+ */
 export function readFolder(
   dir: string,
   format?: ImportFormat,
 ): { format: ImportFormat; results: PendingResult[]; missing: MissingAttachment[]; notes: string[] } {
-  if (format !== undefined && format !== 'allure') {
-    throw new UnknownFormatError(dir, `this is a folder, and only allure-results is read from one, not ${format}.`);
+  if (format === 'playwright-json') {
+    throw new UnknownFormatError(dir, 'this is a folder, and only allure-results or JUnit XML files are read from one, not playwright-json.');
   }
   const missing: MissingAttachment[] = [];
   const notes: string[] = [];
-  return { format: 'allure', results: readAllure(dir, missing, notes), missing, notes };
+  if (format === 'allure' || (format === undefined && namesIn(dir, RESULT).length > 0)) {
+    return { format: 'allure', results: readAllure(dir, missing, notes), missing, notes };
+  }
+  // The files of the folder itself, by name: Gradle's binary/ beside them is not walked, a link is not opened.
+  const results: PendingResult[] = [];
+  let reports = 0;
+  for (const name of namesIn(dir, /\.xml$/)) {
+    const file = path.join(dir, name);
+    const source = fs.readFileSync(file, 'utf8');
+    if (!looksLikeJUnit(source)) {
+      notes.push(`plune: ${printable(file)} is not a JUnit report — skipped.`);
+      continue;
+    }
+    reports += 1;
+    // A file's markers count from its own folder; a test in two files is sent twice, as twice in one file is.
+    for (const r of readJUnit(source, file, missing, notes)) results.push(r);
+  }
+  if (reports === 0) {
+    // Without --format the folder has no *-result.json either, or it would have been read as Allure.
+    throw new AllureReportError(
+      `${printable(dir)} — no ${format === undefined ? '*-result.json files and no ' : ''}JUnit XML files in it, so there is no report to read. ` +
+        'Point at the folder an Allure adapter wrote (pytest --alluredir, allure-results), the one Maven or Gradle wrote ' +
+        '(target/surefire-reports, build/test-results/test), or at a JUnit or Playwright JSON file.',
+    );
+  }
+  return { format: 'junit', results, missing, notes };
 }
 
 /**

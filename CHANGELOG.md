@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **`plune run import` reads a folder of JUnit XML files (plune-ai/plune#2309).** Maven Surefire (`target/surefire-reports`) and Gradle (`build/test-results/test`) write a `TEST-<class>.xml` per class, so a Java suite no longer needs Allure to reach Plune: `plune run import target/surefire-reports` reads every `*.xml` of the folder that is a JUnit report, in the order of the file names, and sends them as one run (`meta.runner` is `junit`, as for one file). Only the folder's own regular files are read: subfolders (Gradle's `binary/`) and links are not opened. An `*.xml` that is not JUnit is skipped with one line in the output. A `[[ATTACHMENT|path]]` counts from the folder the XML file is in, as for one file. A folder with a `*-result.json` in it is still read as `allure-results`; `--format junit` reads a folder as JUnit files, and `--format playwright-json` on a folder is refused. A folder with neither is an error that names both (exit 2, as before for a folder without `*-result.json`). The README's Java section now starts with Maven and Gradle without Allure, and names the Allure adapter `io.qameta.allure:allure-jupiter` (`allure-junit5` is a relocation to it since 2.35.1) and `allure.results.directory` for where its folder goes.
+
 ## [0.31.0] - 2026-10-30
 
 Also `@plune-ai/playwright` **0.7.0** - the adapter embeds `reporter-core`, so `PLUNE_CONFIGURATION` below reaches the
