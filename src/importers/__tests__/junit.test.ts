@@ -68,10 +68,8 @@ describe('reading a JUnit report', () => {
     expect(readJUnit(both, 'r.xml')[0]?.rawStatus).toBe('error');
   });
 
-  it('takes the time from the case and the start from the suite, and nothing from this machine', () => {
-    // The format has no per-case start. The suite's timestamp is the closest thing IN THE FILE;
-    // the file's mtime would be a guess wearing a fact's clothes, so a report without a timestamp
-    // reports no execution at all rather than an invented one.
+  it('takes the time from the case and the start from the suite when the suite has a timestamp', () => {
+    // The format has no per-case start. The suite's timestamp is the closest thing IN THE FILE.
     const [first] = readJUnit(REPORT, 'results.xml');
     expect(first?.execution).toEqual({
       startedAt: '2026-09-09T10:00:00.000Z',
@@ -79,9 +77,24 @@ describe('reading a JUnit report', () => {
       durationMs: 125,
       retry: 0,
     });
+  });
 
-    const undated = readJUnit('<testsuite name="s"><testcase classname="c" name="t" time="9"/></testsuite>', 'r.xml');
-    expect(undated[0]?.execution).toBeUndefined();
+  it('without a timestamp (Surefire), the duration still arrives, as the span that ends when the report is read', () => {
+    // plune-ai/plune#2310: the duration is what Plune sorts and averages; dropping it with the missing start lost every
+    // Maven duration. The file's mtime stays out: a report copied from another job would carry the copy's time.
+    const now = new Date('2026-11-03T12:00:00.000Z');
+    const read = (xml: string) => readJUnit(xml, 'r.xml', [], [], now)[0]?.execution;
+    const span = { startedAt: '2026-11-03T11:59:51.000Z', finishedAt: '2026-11-03T12:00:00.000Z', durationMs: 9000, retry: 0 };
+
+    expect(read('<testsuite name="s"><testcase classname="c" name="t" time="9"/></testsuite>')).toEqual(span);
+    // A timestamp that is not a date is no start either.
+    expect(read('<testsuite name="s" timestamp="soon"><testcase classname="c" name="t" time="9"/></testsuite>')).toEqual(span);
+    // Neither a start nor a time: nothing was measured, so nothing is sent.
+    expect(read('<testsuite name="s"><testcase classname="c" name="t"/></testsuite>')).toBeUndefined();
+    expect(read('<testsuite name="s"><testcase classname="c" name="t" time="-1"/></testsuite>')).toBeUndefined();
+    // A time no date can hold is not a reason to stop the import.
+    expect(read('<testsuite name="s"><testcase classname="c" name="t" time="1e16"/></testsuite>')).toBeUndefined();
+    expect(read('<testsuite name="s" timestamp="2026-11-03T12:00:00Z"><testcase classname="c" name="t" time="1e16"/></testsuite>')).toBeUndefined();
   });
 
   describe('where the test lives', () => {

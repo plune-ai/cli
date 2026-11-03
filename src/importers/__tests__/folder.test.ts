@@ -54,7 +54,9 @@ function thrown(fn: () => unknown): unknown {
 
 describe('CLI · run import · JUnit folder · Maven Surefire 3.5.6', () => {
   it('two TEST-*.xml give four results in the order of the file names; the .txt summaries are passed over without a word', () => {
+    const before = Date.now();
     const read = readFolder(SUREFIRE_LIVE);
+    const after = Date.now();
 
     expect(read.format).toBe('junit');
     expect(read.results.map((r) => [r.keys[0]?.value, r.rawStatus])).toEqual([
@@ -65,14 +67,16 @@ describe('CLI · run import · JUnit folder · Maven Surefire 3.5.6', () => {
     ]);
     expect(read.notes).toEqual([]);
     expect(read.missing).toEqual([]);
-    // Surefire writes no `timestamp` on <testsuite>, so a test has no start and its duration is dropped with it.
-    // The behaviour today, pinned so the change is seen: plune-ai/plune#2310 changes it.
-    expect(read.results.map((r) => r.execution)).toEqual([
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-    ]);
+    // Surefire writes no `timestamp` on <testsuite> (plune-ai/plune#2310): each case's `time` still arrives, as the span
+    // that ends when the import read the report. `appliesACoupon` was skipped with time="0.0", a real zero.
+    expect(read.results.map((r) => r.execution?.durationMs)).toEqual([22, 12, 0, 27]);
+    for (const r of read.results) {
+      const finished = Date.parse(r.execution?.finishedAt ?? '');
+      expect(finished).toBeGreaterThanOrEqual(before);
+      expect(finished).toBeLessThanOrEqual(after);
+      expect(finished - Date.parse(r.execution?.startedAt ?? '')).toBe(r.execution?.durationMs);
+      expect(r.execution?.retry).toBe(0);
+    }
   });
 });
 
