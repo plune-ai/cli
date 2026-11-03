@@ -147,13 +147,12 @@ function specRefOf(test: XmlElement, suite: XmlElement | undefined, classname: s
  * is the closest thing the file actually contains, so every case in a suite reports the suite's
  * start — approximate, but derived from the report rather than from this machine's clock.
  *
- * Surefire writes no `timestamp` (plune-ai/plune#2310). The duration is the part Plune uses — the one
- * field of `execution` it keeps in a column, to sort and average results by; it reads neither a
- * result's start nor its end — so a case with a `time` still sends it, as the span that ends at `now`:
- * the moment the import read the report. That is how the dashboard sends a duration a person typed
- * (`executionOf` in plune-ai/plune `app/src/api.ts`). The file's mtime stays out of it: a report copied
- * from another job would carry the copy's time and look like a fact. A case with neither a `timestamp`
- * nor a `time` records no execution.
+ * Surefire writes no `timestamp` (plune-ai/plune#2310). The duration is the part Plune sorts and
+ * averages results by, and dropping it with the missing start lost every Maven duration; so a case with
+ * a `time` still sends it, as the span that ends at `now`: the moment the import read the report. That
+ * is how Plune's own dashboard sends a duration a person typed. The file's mtime stays out of it: a
+ * report copied from another job would carry the copy's time and look like a fact. A case with neither
+ * a `timestamp` nor a `time` records no execution.
  */
 function executionOf(test: XmlElement, suite: XmlElement | undefined, now: Date): PendingResult['execution'] {
   const seconds = Number.parseFloat(test.attrs['time'] ?? '');
