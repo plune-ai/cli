@@ -10,6 +10,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { RunCommandError } from '../cli/commands/run-lifecycle.js';
 import { printable } from '../reporter-core/failure-detail.js';
 import type { PendingResult } from '../reporter-core/types.js';
 import { AllureReportError, RESULT, isFolder, namesIn, readAllure } from './allure.js';
@@ -70,11 +71,19 @@ export function readFolder(
   }
   // The files of the folder itself, by name: Gradle's binary/ beside them is not walked, a link is not opened.
   const results: PendingResult[] = [];
+  const skipped: string[] = [];
   let reports = 0;
   for (const name of namesIn(dir, /\.xml$/)) {
     const file = path.join(dir, name);
-    const source = fs.readFileSync(file, 'utf8');
+    let source: string;
+    try {
+      source = fs.readFileSync(file, 'utf8');
+    } catch {
+      // As one file that cannot be read is said (run-import.ts): exit 1.
+      throw new RunCommandError(`Cannot read ${printable(file)}.`);
+    }
     if (!looksLikeJUnit(source)) {
+      skipped.push(name);
       notes.push(`plune: ${printable(file)} is not a JUnit report — skipped.`);
       continue;
     }
@@ -83,9 +92,12 @@ export function readFolder(
     for (const r of readJUnit(source, file, missing, notes)) results.push(r);
   }
   if (reports === 0) {
-    // Without --format the folder has no *-result.json either, or it would have been read as Allure.
+    // Without --format the folder has no *-result.json either, or it would have been read as Allure. The notes
+    // are never printed when the import stops here, so the files skipped are named in the error.
+    const names = skipped.slice(0, 3).map(printable).join(', ') + (skipped.length > 3 ? ` and ${skipped.length - 3} more` : '');
     throw new AllureReportError(
-      `${printable(dir)} — no ${format === undefined ? '*-result.json files and no ' : ''}JUnit XML files in it, so there is no report to read. ` +
+      `${printable(dir)} — no ${format === undefined ? '*-result.json files and no ' : ''}JUnit XML files in it` +
+        `${skipped.length > 0 ? ` (skipped, not JUnit: ${names})` : ''}, so there is no report to read. ` +
         'Point at the folder an Allure adapter wrote (pytest --alluredir, allure-results), the one Maven or Gradle wrote ' +
         '(target/surefire-reports, build/test-results/test), or at a JUnit or Playwright JSON file.',
     );

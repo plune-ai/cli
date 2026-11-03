@@ -371,8 +371,10 @@ plune run import build/test-results/test
 Every `*.xml` in the folder that is a JUnit report is read, in the order of the file names, and together they make
 one run. The folder's other files and its subfolders (Gradle's `binary/`) are not opened; an `*.xml` that is not a
 JUnit report is skipped with a line in the output. Each test arrives with its class and name as the key
-(`cart.CartTest#addsAnItem()`), its status (`pass`, `failure`, `error`, `skipped`), the failure's message, type and
-stack trace, and its duration when the suite has a `timestamp` (Gradle writes one). A file reaches a test only
+(`cart.CartTest#addsAnItem` from Surefire; Gradle keeps the brackets, `cart.CartTest#addsAnItem()`), its status
+(`pass`, `failure`, `error`, `skipped`), the failure's message, type and stack trace, and its duration when the suite
+has a `timestamp`. Gradle writes one; Surefire's report has none, so Maven tests arrive without a duration for now
+(plune-ai/plune#2310). A file reaches a test only
 through a `[[ATTACHMENT|path]]` line in its own output, [as above](#files-from-a-junit-report), the path counted from
 the folder the XML file is in. Gradle puts that output in the test's testcase only with
 `reports.junitXml.outputPerTestCase = true` (by default it writes it once per suite).

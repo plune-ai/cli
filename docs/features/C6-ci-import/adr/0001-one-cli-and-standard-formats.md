@@ -2,7 +2,7 @@
 status: Accepted
 owner: "Leonid (AZANIR)"
 reviewers: ["Tech Lead"]
-updated_at: "2026-10-10"
+updated_at: "2026-11-03"
 feature_size: "M"
 ticket: "https://github.com/plune-ai/plune/issues/1219"
 ---
@@ -59,7 +59,7 @@ ticket: "https://github.com/plune-ai/plune/issues/1219"
 4. Тека без `*-result.json` і без JUnit-файла — помилка, що називає обидва формати (код виходу 2).
 
 Позначка `[[ATTACHMENT|path]]` рахується від теки свого XML-файла, як і для одного файла. Пункти 1, 3 і 4
-рішення це доповнення не змінює; у пункті 2 «каталог читається без прапора» тепер стосується теки з
+розділу Decision це доповнення не змінює; у пункті 2 «каталог читається без прапора» тепер стосується теки з
 `*-result.json`.
 
 ## Consequences

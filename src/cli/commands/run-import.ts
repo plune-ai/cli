@@ -129,7 +129,7 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
     try {
       source = fs.readFileSync(options.file, 'utf8');
     } catch {
-      throw new RunCommandError(`Cannot read ${options.file}.`);
+      throw new RunCommandError(`Cannot read ${printable(options.file)}.`);
     }
     read = readReport(source, options.file, options.format);
   }
