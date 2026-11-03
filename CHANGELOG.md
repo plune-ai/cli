@@ -11,6 +11,11 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.32.2] - 2026-11-03
+
+Also `@plune-ai/playwright` **0.7.1** - the adapter embeds `reporter-core`, so both fixes below reach the
+Playwright reporter only with this version.
+
 ### Fixed
 
 - **A key's kind is part of its identity in the reporter (#156).** Plune keeps a test's key as its kind and its value, so a Qase `7` and a TestRail `7` can name two different cases. The reporter remembered its lookups by the value alone: with both keys in one run, the second answer overwrote the first, or the second key was never asked about, and a result was recorded on the other case without an error. The run's list of expected tests and the offer of unknown tests (two tests with one value offered as one) had the same flaw. Now every lookup is remembered by kind and value. `plune run import` was not affected: it sends `path-title` and `playwright-id` keys only, and a `path-title` always holds a `#` while a Playwright id never does, so its two kinds never share a value.
