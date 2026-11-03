@@ -122,7 +122,7 @@ the last resort, used only when `PLUNE_TOKEN` is set nowhere else. Nothing write
 | `plune login` | Save a [Plune platform](https://plune.ai/platform) API token so `sync` and `ingest` can reach it. The token is **checked against the API before it is saved**, so a wrong one fails here rather than two commands later. Get one at `https://beta.plune.ai` → Account → API tokens. Flags: `--token <token>` (omit to paste it or pipe it via stdin), `--skip-verify` (save without checking, for offline setup). In CI, skip this step: every platform command reads `PLUNE_TOKEN` from the environment first, and the saved login only when it is not set. |
 | `plune logout` | Remove the saved token. |
 | `plune sync` | Upload the latest local run to the platform. Flags: `--file <path>` to send a specific run JSON, `--fail-on-failures` to read the run's summary back once after the upload and exit with [the gate](#a-release-gate---fail-on-failures)'s code. Each upload carries an `Idempotency-Key` (SHA-256 of the body), so sending the same run again returns the same run rather than creating a second one. Against a platform with `POST /v1/jobs` the upload is also reported as a job (kind `sync`, counting the run's rows) that ends completed, or failed with the error text if the sync fails; an older platform without the route is not told, and a job report never fails the sync: when the sync goes through, one the platform did not take is said in one line on stderr. |
-| `plune run import <file>` | Turn a **JUnit XML** or **Playwright JSON** report, or an **Allure `allure-results` folder**, into a run in Plune. Needs no provider key — nothing is generated. Flags: `--format junit\|playwright-json\|allure` (detected from the file when omitted; a folder is Allure), `--name <text>` to call the run something other than the [folder-based default](#what-the-run-is-called), `--key <externalKey>` to land several reports in one run (with `PLUNE_SHARED_RUN=1` — see below), `--create` to offer unmatched tests to the review queue, `--fail-on-missing-attachments` to exit 1 when a file a JUnit report names with `[[ATTACHMENT\|path]]`, or an Allure result names as a `source`, is not there (the results are sent either way), `--upload-concurrency <n>` for files uploaded at once ([1 to 32, default 16](#many-screenshots-upload-concurrency-and-retries)), `--fail-on-failures` to exit with [the gate](#a-release-gate---fail-on-failures)'s code on the summary the platform froze when this import finished the run. |
+| `plune run import <file \| folder>` | Turn a **JUnit XML** or **Playwright JSON** report, a **folder of JUnit XML files** (Maven Surefire's `target/surefire-reports`, Gradle's `build/test-results/test`), or an **Allure `allure-results` folder**, into a run in Plune. Needs no provider key — nothing is generated. Flags: `--format junit\|playwright-json\|allure` (detected when omitted: a folder with a `*-result.json` is Allure, any other folder is read as the JUnit `*.xml` files in it), `--name <text>` to call the run something other than the [folder-based default](#what-the-run-is-called), `--key <externalKey>` to land several reports in one run (with `PLUNE_SHARED_RUN=1` — see below), `--create` to offer unmatched tests to the review queue, `--fail-on-missing-attachments` to exit 1 when a file a JUnit report names with `[[ATTACHMENT\|path]]`, or an Allure result names as a `source`, is not there (the results are sent either way), `--upload-concurrency <n>` for files uploaded at once ([1 to 32, default 16](#many-screenshots-upload-concurrency-and-retries)), `--fail-on-failures` to exit with [the gate](#a-release-gate---fail-on-failures)'s code on the summary the platform froze when this import finished the run. |
 | `plune run start` | Open a platform run — or join the one already carrying `--key` — and print its id. Flags: `--key <externalKey>` (generated when absent), `--name <text>` to call the run something other than the [default](#what-the-run-is-called), `--json` for one machine-readable line. |
 | `plune run finish <id>` | Close a platform run. This is what the reporter tells you to do for a run it had to leave open. Flags: `--terminate` to record it as cut short, `--reason <text>`, `--fail-on-failures` to exit with [the gate](#a-release-gate---fail-on-failures)'s code on the summary the platform froze. |
 | `plune run exec -- <command>` | Open a run, run the command inside it, close the run — and exit with whatever the command returned. Sets `PLUNE_SHARED_RUN` for you, so anything reporting inside joins that run. Flags: `--key <externalKey>`, `--name <text>` (as on `run start`), `--fail-on-failures` to exit with [the gate](#a-release-gate---fail-on-failures)'s code instead — or with the command's own when no result reached the run. |
@@ -239,6 +239,7 @@ costs nothing beyond a Plune token.
 ```bash
 plune login                           # once, on your machine; in CI export PLUNE_TOKEN instead
 plune run import ./junit.xml          # Jest, Vitest, pytest, PHPUnit, Surefire, Cypress, …
+plune run import target/surefire-reports   # or a folder of JUnit files: Maven, Gradle — see Java below
 plune run import ./playwright.json    # or Playwright's own JSON report
 plune run import ./allure-results     # or the folder an Allure adapter wrote — see below
 ```
@@ -301,13 +302,15 @@ pytest --junitxml=report.xml -o junit_logging=system-out
 plune run import report.xml
 ```
 
-Java, JUnit 5 (Maven Surefire writes the test's output into its testcase):
+Java, JUnit 5 (Maven Surefire writes the test's output into its testcase; Gradle only with
+`reports.junitXml.outputPerTestCase = true`). The path counts from the folder the XML file is in
+(`target/surefire-reports`, `build/test-results/test`), so the file has to be below it:
 
 ```java
 @Test
 void checkout() {
-    // ...
-    System.out.println("[[ATTACHMENT|target/artifacts/checkout.png]]");
+    // ... save the screenshot as target/surefire-reports/artifacts/checkout.png
+    System.out.println("[[ATTACHMENT|artifacts/checkout.png]]");
 }
 ```
 
@@ -330,7 +333,7 @@ For Jest, use Allure below.
 
 Every Allure adapter (pytest, JUnit 5, TestNG, Playwright, Cypress, Jest, Vitest, WebdriverIO, .NET) writes
 the same folder: a `*-result.json` per test, a `*-container.json` per suite, and the files the tests attached.
-Point `plune run import` at the folder (a folder is read as Allure, no flag needed). Each test arrives with its
+Point `plune run import` at the folder (a folder with a `*-result.json` in it is read as Allure, no flag needed). Each test arrives with its
 name, its status as Allure shows it (`passed`, `failed`, `broken`, `skipped`), its time, the failure message and
 trace, and its steps; a test run again (same `historyId`) is one test with attempts, the last one counting.
 The files come from the test, from its steps and from its fixtures (`befores`, `afters`), each with the
@@ -354,11 +357,36 @@ def test_checkout(page):
         allure.attach.file("artifacts/checkout.png", name="checkout", attachment_type=allure.attachment_type.PNG)
 ```
 
-Java, JUnit 5 (`allure-junit5`, with the AspectJ agent from Allure's setup; the results folder is
-`target/allure-results` unless `allure.results.directory` says otherwise):
+Java. Maven Surefire and Gradle write JUnit XML on their own, a `TEST-<class>.xml` per class, so a Java suite
+needs no Allure: point the import at the folder.
 
 ```bash
 mvn test
+plune run import target/surefire-reports
+
+./gradlew test
+plune run import build/test-results/test
+```
+
+Every `*.xml` in the folder that is a JUnit report is read, in the order of the file names, and together they make
+one run. The folder's other files and its subfolders (Gradle's `binary/`) are not opened; an `*.xml` that is not a
+JUnit report is skipped with a line in the output. Each test arrives with its class and name as the key
+(`cart.CartTest#addsAnItem` from Surefire; Gradle keeps the brackets, `cart.CartTest#addsAnItem()`), its status
+(`pass`, `failure`, `error`, `skipped`), the failure's message, type and stack trace, and its duration when the suite
+has a `timestamp`. Gradle writes one; Surefire's report has none, so Maven tests arrive without a duration for now
+(plune-ai/plune#2310). A file reaches a test only
+through a `[[ATTACHMENT|path]]` line in its own output, [as above](#files-from-a-junit-report), the path counted from
+the folder the XML file is in. Gradle puts that output in the test's testcase only with
+`reports.junitXml.outputPerTestCase = true` (by default it writes it once per suite).
+
+Allure adds the steps, and files attached without printing a line. The JUnit 5 adapter is
+`io.qameta.allure:allure-jupiter` (from 2.35.1, `allure-junit5` is only a relocation to it, with no jar), with the
+AspectJ agent from Allure's setup. It writes `allure-results` in the working folder; to have it in the build's
+output, set `allure.results.directory` (in `src/test/resources/allure.properties`, or as a system property) to
+`target/allure-results` for Maven or `build/allure-results` for Gradle:
+
+```bash
+mvn test                                  # with allure.results.directory=target/allure-results
 plune run import target/allure-results
 ```
 
@@ -372,11 +400,13 @@ void checkout() {
 Jest has no per-test output in JUnit; `allure-jest` gives it one (`allure.attachment(...)` in a test or a step).
 Tests are matched to Plune cases by the same key as a JUnit report's, `classname#name`, where the adapter's
 names allow it (pytest, JUnit 5, Playwright); for Vitest, Jest and Cypress the key is the runner, the file and the
-test's full name (`vt:test/cart.test.js#cart adds an item`, `jest:…`, `cy:…`). A file whose name starts with `_`
+test's full name (`vt:test/cart.test.js#cart adds an item`, `jest:…`, `cy:…`). For JUnit 5 the name carries the
+method's parentheses in Allure and in Gradle's JUnit XML (`shop.CartTest#coupon()`) but not in Surefire's
+(`shop.CartTest#coupon`), so a project that moves between Allure and Surefire meets its cases under other keys. A file whose name starts with `_`
 is not sent: the core hides it as Playwright's own reports do, and Allure has no such convention, so name
 attachments without a leading underscore.
 
-Check that the output reaches the report: Gradle writes it only with `reports.junitXml.outputPerTestCase = true`,
+For a JUnit report, check that the output reaches the report: Gradle writes it only with `reports.junitXml.outputPerTestCase = true`,
 and Maven Surefire moves it out of the XML when `redirectTestOutputToFile` is `true`. As in the Playwright
 reporter, a file whose name starts with an underscore is skipped, and a file several tests name is uploaded once per test.
 

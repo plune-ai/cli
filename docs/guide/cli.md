@@ -141,7 +141,8 @@ line (`Imported 120 results · 34 files uploaded · 2 files not found`); the imp
 folder of the report is refused the same way and never read. Examples for pytest and Java are in the README.
 
 **`import` reads an Allure `allure-results` folder.** Give it the folder instead of a file
-(`plune run import allure-results`; `--format allure` is the same, and a folder is never anything else). Tests
+(`plune run import allure-results`; `--format allure` is the same). A folder is Allure when a `*-result.json` is
+in it; any other folder is read as JUnit files (below), and `--format playwright-json` on a folder is refused. Tests
 come from `*-result.json` with their status (`passed`, `failed`, `broken`, `skipped`), time, failure message
 and trace, and steps; the suite name comes from `*-container.json`. The files are the `attachments[]` of the
 test, of its steps and of its fixtures (`befores`, `afters`), sent with the `type` Allure wrote or, without
@@ -149,9 +150,22 @@ one, the file's extension. The same test run again (same `historyId`) counts as 
 stop being the result. A file keeps the name Allure gave it with the file's extension added when the name has
 none (`after add` becomes `after add.png`). A `source` is counted from the folder, which may be reached through
 a link; a missing one, a `source` that leaves the folder and `--fail-on-missing-attachments` behave as for JUnit
-above. At most 100 files of one test are read, as for JUnit, and the rest is said in one line. A folder with no `*-result.json` is an error
-(exit 2), never an import of nothing. Examples for pytest (`allure-pytest --alluredir`) and Java
-(`allure-junit5`) are in the README.
+above. At most 100 files of one test are read, as for JUnit, and the rest is said in one line. With
+`--format allure`, a folder with no `*-result.json` is an error (exit 2), never an import of nothing; without the
+flag such a folder is read as JUnit files (below). Examples for pytest (`allure-pytest --alluredir`) and Java
+(`io.qameta.allure:allure-jupiter`; `allure-junit5` is only a relocation to it from 2.35.1, with no jar) are in the
+README. pytest writes the folder `--alluredir` names; Allure for Java (allure-java) writes `allure-results` in the
+working folder unless `allure.results.directory` names another.
+
+**`import` reads a folder of JUnit files.** Maven Surefire (`target/surefire-reports`) and Gradle
+(`build/test-results/test`) write a `TEST-<class>.xml` per class; `plune run import target/surefire-reports` reads
+every `*.xml` of the folder that is a JUnit report, in the order of the file names, as one run (`--format junit`
+says so outright). Subfolders (Gradle's `binary/`) and other files are not opened, links are not followed; an
+`*.xml` that is not JUnit is skipped with a line in the output. A `[[ATTACHMENT|path]]` counts from the folder the
+XML file is in; Gradle writes a test's output into its testcase only with `reports.junitXml.outputPerTestCase = true`.
+A folder with neither a `*-result.json` nor a JUnit file is an error that names both and up to three of the files it
+skipped as not JUnit (exit 2). Surefire writes no `timestamp` on a suite, so Maven tests arrive without a duration for now
+(plune-ai/plune#2310).
 
 **`exec`** is the whole thing in one line: it opens a run, gives the command `PLUNE_RUN` and
 `PLUNE_PROCEED` so any reporter inside joins without closing it, waits, then closes the run and

@@ -31,7 +31,7 @@ export class XmlParseError extends Error {
     readonly line: number,
     detail: string,
   ) {
-    super(`${file}:${line} — ${detail}`);
+    super(`${printable(file)}:${line} — ${detail}`);
     this.name = 'XmlParseError';
   }
 }

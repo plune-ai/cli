@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { handleRunImport } from '../run-import.js';
 import { NoTokenError, RunCommandError } from '../run-lifecycle.js';
 import { XmlParseError, UnknownFormatError } from '../../../importers/index.js';
@@ -1168,5 +1169,31 @@ describe('a platform that stops answering (plune-ai/plune#1473)', () => {
       expect(out.runId).toBe('r-9');
       expect(out.accepted).toBe(2);
     }
+  });
+});
+
+/** plune-ai/plune#2309. The fixture is written by hand to Surefire's format, not taken from a live Maven run. */
+describe('CLI · run import · JUnit folder · Maven Surefire', () => {
+  const SUREFIRE = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'importers', '__tests__', 'fixtures', 'junit-folder-surefire');
+
+  it('a folder of two TEST-*.xml files is one run with the results of both', async () => {
+    const { seen, fetchImpl } = platform();
+    const out = await handleRunImport({ ...deps(fetchImpl), file: SUREFIRE });
+
+    expect(seen.filter((s) => s.path === '/v1/runs')).toHaveLength(1);
+    expect(seen.find((s) => s.path === '/v1/runs')?.body['meta']).toEqual({ runner: 'junit' });
+    const sent = seen
+      .filter((s) => s.path === '/v1/runs/r-9/results')
+      .flatMap((s) => (s.body['results'] as { resultKey: string }[]).map((r) => r.resultKey));
+    expect(sent).toEqual([
+      'com.example.CartTest#addsAnItem()#0',
+      'com.example.CartTest#rejectsANegativeQuantity()#0',
+      'com.example.CheckoutTest#paysByCard()#0',
+      'com.example.CheckoutTest#refusesAnExpiredCard()#0',
+      'com.example.CheckoutTest#appliesAGiftCard()#0',
+    ]);
+    expect(out).toMatchObject({ format: 'junit', parsed: 5, accepted: 5, announced: true });
+    expect(lines).toContain('Read 5 result(s) from a junit report: 5 accepted, 0 already there, 0 unmatched, 0 not delivered.');
+    expect(lines.some((l) => l.startsWith('Imported 5 results · '))).toBe(true);
   });
 });

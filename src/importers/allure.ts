@@ -62,7 +62,7 @@ interface AllureContainer {
   afters?: AllureStep[];
 }
 
-const RESULT = /-result\.json$/;
+export const RESULT = /-result\.json$/;
 const CONTAINER = /-container\.json$/;
 
 /** The largest JSON file read: a result is kilobytes, and a file of a gigabyte is not an Allure result. */
@@ -72,7 +72,7 @@ const MAX_DEPTH = 256;
 /** The latest time `Date` can hold (ms). */
 const MAX_TIME = 8.64e15;
 
-/** Whether `path` is a folder — the shape of an `allure-results` report, which is the only one that is. */
+/** Whether `path` is a folder: an `allure-results` report, or a folder of JUnit files (plune-ai/plune#2309). */
 export function isFolder(path: string): boolean {
   try {
     return fs.statSync(path).isDirectory();
@@ -82,7 +82,7 @@ export function isFolder(path: string): boolean {
 }
 
 /** The regular files of `dir` that match: a link, a pipe or a device with such a name is not a result and is never opened. */
-const namesIn = (dir: string, pattern: RegExp): string[] =>
+export const namesIn = (dir: string, pattern: RegExp): string[] =>
   fs
     .readdirSync(dir, { withFileTypes: true })
     .filter((d) => d.isFile() && pattern.test(d.name))

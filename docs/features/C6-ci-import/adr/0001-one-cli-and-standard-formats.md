@@ -2,7 +2,7 @@
 status: Accepted
 owner: "Leonid (AZANIR)"
 reviewers: ["Tech Lead"]
-updated_at: "2026-10-10"
+updated_at: "2026-11-03"
 feature_size: "M"
 ticket: "https://github.com/plune-ai/plune/issues/1219"
 ---
@@ -44,6 +44,23 @@ ticket: "https://github.com/plune-ai/plune/issues/1219"
 Файли з імпорту йдуть тим самим шляхом, що й з репортера: `reporter-core` (бакет за посиланням,
 `direct` для картинок і тексту, назва, якщо бакета немає), з тими самими лімітами й попередженнями.
 Нового шляху завантаження імпорт не має.
+
+**Доповнення (03.11.2026, plune-ai/plune#2309): `run import` читає й теку JUnit-файлів.** Maven Surefire
+(`target/surefire-reports`) і Gradle (`build/test-results/test`) пишуть по `TEST-<клас>.xml` на клас, і вся тека
+стає одним прогоном. Для Java тоді не потрібна залежність `allure-jupiter`. Рішення оператора: «А (рекомендую):
+навчити run import читати теку JUnit-файлів підтримую робим». Правила:
+
+1. Без `--format` тека, у якій є хоч один звичайний файл `*-result.json`, — це Allure, як і раніше. Інакше це
+   JUnit: кожен звичайний файл `*.xml` у самій теці, за назвою файла. Підтеки (`binary/` у Gradle) не
+   обходяться, посилання не відкриваються.
+2. `--format junit` читає теку як JUnit, `--format allure` — як Allure, `--format playwright-json` на теці
+   відхиляється.
+3. `*.xml`, що не є JUnit, пропускається, і про це є рядок у виводі.
+4. Тека без `*-result.json` і без JUnit-файла — помилка, що називає обидва формати (код виходу 2).
+
+Позначка `[[ATTACHMENT|path]]` рахується від теки свого XML-файла, як і для одного файла. Пункти 1, 3 і 4
+розділу Decision це доповнення не змінює; у пункті 2 «каталог читається без прапора» тепер стосується теки з
+`*-result.json`.
 
 ## Consequences
 

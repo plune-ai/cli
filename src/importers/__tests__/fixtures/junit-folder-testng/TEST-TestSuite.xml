@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Written by hand, NOT taken from a live run: what Maven Surefire writes for a TestNG suite (maven-surefire-plugin 3.x,
+     TestNG provider): one TEST-TestSuite.xml in JUnit form, beside TestNG's own testng-results.xml and the
+     junitreports/ folder TestNG fills with a JUnit file per class (the same tests again). -->
+<testsuite xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://maven.apache.org/surefire/maven-surefire-plugin/xsd/surefire-test-report-3.0.xsd" version="3.0" name="TestSuite" time="0.412" tests="2" errors="0" skipped="0" failures="1">
+  <properties>
+    <property name="java.version" value="21.0.4"/>
+  </properties>
+  <testcase name="addsAnItem" classname="com.example.CartTest" time="0.011"/>
+  <testcase name="rejectsANegativeQuantity" classname="com.example.CartTest" time="0.008">
+    <failure message="expected [0] but found [1]" type="java.lang.AssertionError"><![CDATA[java.lang.AssertionError: expected [0] but found [1]
+	at com.example.CartTest.rejectsANegativeQuantity(CartTest.java:19)
+]]></failure>
+  </testcase>
+</testsuite>

@@ -413,9 +413,15 @@ export function createProgram(): Command {
 
   runCommand
     .command('import')
-    .argument('<file>', 'A JUnit XML or Playwright JSON report, or an Allure allure-results folder')
+    .argument(
+      '<file>',
+      'A JUnit XML or Playwright JSON report, a folder of JUnit XML files (target/surefire-reports, build/test-results/test), or an Allure allure-results folder',
+    )
     .description('Turn a report another runner wrote into a run in Plune — no provider key needed')
-    .option('--format <fmt>', 'junit | playwright-json | allure; detected from the file (a folder is allure) when omitted')
+    .option(
+      '--format <fmt>',
+      'junit | playwright-json | allure; detected when omitted (a folder with a *-result.json is allure, any other folder is its *.xml files as junit)',
+    )
     .option('--key <externalKey>', 'The key several jobs share so their reports land in one run')
     .option('--name <text>', 'What to call the run in the list (default: the folder name, the time and where it ran; PLUNE_RUN_TITLE sets it too)')
     .option('--create', 'Offer tests nothing matched to the review queue', false)

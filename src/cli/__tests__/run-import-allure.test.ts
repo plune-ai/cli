@@ -189,14 +189,33 @@ describe('CLI · run import · Allure · a folder that is not a report', () => {
     expect(platform.results).toEqual([]);
   });
 
-  it('--format junit on a folder is refused, and --format allure on a file is too', async () => {
+  // plune-ai/plune#2309: --format junit reads a folder as JUnit files, and an allure-results folder has none.
+  it('--format junit on an allure-results folder, --format playwright-json on a folder and --format allure on a file are refused', async () => {
     await expect(importIt(copyOf('pytest'), '--format', 'junit')).rejects.toThrow('the command exited with 2');
-    expect(printed.join('')).toMatch(/only allure-results is read from one/);
+    expect(printed.join('')).toMatch(/— no JUnit XML files in it/);
+    expect(printed.join('')).not.toMatch(/\*-result\.json/);
+    printed = [];
+    await expect(importIt(copyOf('pytest'), '--format', 'playwright-json')).rejects.toThrow('the command exited with 2');
+    expect(printed.join('')).toMatch(/only allure-results or JUnit XML files are read from one/);
     printed = [];
     const file = path.join(dir, 'r.xml');
     fs.writeFileSync(file, '<testsuite name="s"><testcase name="t"/></testsuite>');
     await expect(importIt(file, '--format', 'allure')).rejects.toThrow('the command exited with 2');
     expect(printed.join('')).toMatch(/is a folder, and this is a file/);
+  });
+});
+
+// plune-ai/plune#2309: the line about a skipped file is never printed when the import stops, so the error says it.
+describe('CLI · run import · JUnit folder · only XML that is not JUnit', () => {
+  it('a folder with testng-results.xml alone: exit 2, the message names the file it skipped, and nothing is sent', async () => {
+    const only = path.join(dir, 'surefire-reports');
+    fs.mkdirSync(only);
+    fs.copyFileSync(path.join(fixtures, '..', 'junit-folder-testng', 'testng-results.xml'), path.join(only, 'testng-results.xml'));
+
+    await expect(importIt(only)).rejects.toThrow('the command exited with 2');
+
+    expect(printed.join('')).toMatch(/no JUnit XML files in it \(skipped, not JUnit: testng-results\.xml\), /);
+    expect(platform.results).toEqual([]);
   });
 });
 
