@@ -141,21 +141,30 @@ function specRefOf(test: XmlElement, suite: XmlElement | undefined, classname: s
 }
 
 /**
- * When the test ran, if the file is in a position to say.
+ * When the test ran, and for how long, as far as the file can say.
  *
  * `time` is per case and exact; a start time is not in the format at all. The suite's `timestamp`
  * is the closest thing the file actually contains, so every case in a suite reports the suite's
- * start — approximate, but derived from the report rather than from this machine's clock. Without
- * a `timestamp` there is no honest `startedAt`, and the duration goes unrecorded rather than being
- * hung off a guess: the file's mtime would look exactly like a fact.
+ * start — approximate, but derived from the report rather than from this machine's clock.
+ *
+ * Surefire writes no `timestamp` (plune-ai/plune#2310). The duration is the part Plune uses — the one
+ * field of `execution` it keeps in a column, to sort and average results by; it reads neither a
+ * result's start nor its end — so a case with a `time` still sends it, as the span that ends at `now`:
+ * the moment the import read the report. That is how the dashboard sends a duration a person typed
+ * (`executionOf` in plune-ai/plune `app/src/api.ts`). The file's mtime stays out of it: a report copied
+ * from another job would carry the copy's time and look like a fact. A case with neither a `timestamp`
+ * nor a `time` records no execution.
  */
-function executionOf(test: XmlElement, suite: XmlElement | undefined): PendingResult['execution'] {
-  const stamp = suite?.attrs['timestamp'];
-  if (stamp === undefined || stamp === '') return undefined;
-  const started = new Date(stamp);
-  if (Number.isNaN(started.getTime())) return undefined;
+function executionOf(test: XmlElement, suite: XmlElement | undefined, now: Date): PendingResult['execution'] {
   const seconds = Number.parseFloat(test.attrs['time'] ?? '');
-  const durationMs = Number.isFinite(seconds) && seconds >= 0 ? Math.round(seconds * 1000) : 0;
+  const timed = Number.isFinite(seconds) && seconds >= 0;
+  const durationMs = timed ? Math.round(seconds * 1000) : 0;
+  const stamp = suite?.attrs['timestamp'];
+  const dated = stamp === undefined || stamp === '' ? undefined : new Date(stamp);
+  let started: Date;
+  if (dated !== undefined && !Number.isNaN(dated.getTime())) started = dated;
+  else if (timed) started = new Date(now.getTime() - durationMs);
+  else return undefined;
   return {
     startedAt: started.toISOString(),
     finishedAt: new Date(started.getTime() + durationMs).toISOString(),
@@ -177,6 +186,7 @@ export function readJUnit(
   file: string,
   missing: MissingAttachment[] = [],
   notes: string[] = [],
+  now: Date = new Date(),
 ): PendingResult[] {
   const doc = parseXml(source, file);
   const { lexical, real: folder } = reportFolders(file);
@@ -195,7 +205,7 @@ export function readJUnit(
     const stated = TOKEN.exec(playwright?.titles.at(-1) ?? name)?.[1];
     const specRef = specRefOf(test, suite, classname);
     const errorContext = errorTextOf(detail);
-    const execution = executionOf(test, suite);
+    const execution = executionOf(test, suite, now);
     const title = titleOf(classname, name);
     const rkey = resultKey(key.value, 0);
     const files = filesOfTest(test, folder, title, missing, { lexical, resultKey: rkey, notes });

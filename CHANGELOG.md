@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Fixed
+
+- **A JUnit report without a suite `timestamp` keeps its durations (plune-ai/plune#2310).** Maven Surefire writes no `timestamp` on `<testsuite>`, and `plune run import` dropped every Maven test's `time` with the missing start, so a Java run arrived with no durations at all. Now a case with a `time` sends it as the span that ends when the import read the report, as the dashboard sends a duration a person typed: `durationMs` is what Plune keeps in a column and sorts and averages by, and it reads neither a result's start nor its end. A suite with a `timestamp` (Gradle, pytest, Jest) is read as before; a `timestamp` that is not a date counts as none. A case with neither a `timestamp` nor a `time` still sends no execution. The file's mtime is still not used: a report copied from another job would carry the copy's time.
+
 ## [0.32.0] - 2026-11-03
 
 `@plune-ai/playwright` stays at **0.7.0**: `reporter-core` and `packages/playwright` are unchanged since 0.31.0.
