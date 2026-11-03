@@ -13,7 +13,7 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ### Fixed
 
-- **A JUnit report without a suite `timestamp` keeps its durations (plune-ai/plune#2310).** Maven Surefire writes no `timestamp` on `<testsuite>`, and `plune run import` dropped every Maven test's `time` with the missing start, so a Java run arrived with no durations at all. Now a case with a `time` sends it as the span that ends when the import read the report, as Plune's dashboard sends a duration a person typed: the duration is what Plune sorts and averages results by. A suite with a `timestamp` (Gradle, pytest, Jest) is read as before; a `timestamp` that is not a date counts as none. A case with neither a `timestamp` nor a `time` still sends no execution. The file's mtime is still not used: a report copied from another job would carry the copy's time.
+- **A JUnit report without a suite `timestamp` keeps its durations (plune-ai/plune#2310).** Maven Surefire writes no `timestamp` on `<testsuite>`, and `plune run import` dropped every Maven test's `time` with the missing start, so a Java run arrived with no durations at all. Now a case with a `time` sends it as the span that ends when the import read the report, as Plune's dashboard sends a duration a person typed: the duration is what Plune sorts and averages results by. A suite with a `timestamp` (Gradle, pytest, Jest) is read as before; a `timestamp` that does not parse as a date counts as none, and a `time` too large for any date sends no execution instead of stopping the import. A case with neither a `timestamp` nor a `time` still sends no execution. The file's mtime is still not used: a report copied from another job would carry the copy's time.
 
 ## [0.32.0] - 2026-11-03
 

@@ -92,6 +92,9 @@ describe('reading a JUnit report', () => {
     // Neither a start nor a time: nothing was measured, so nothing is sent.
     expect(read('<testsuite name="s"><testcase classname="c" name="t"/></testsuite>')).toBeUndefined();
     expect(read('<testsuite name="s"><testcase classname="c" name="t" time="-1"/></testsuite>')).toBeUndefined();
+    // A time no date can hold is not a reason to stop the import.
+    expect(read('<testsuite name="s"><testcase classname="c" name="t" time="1e16"/></testsuite>')).toBeUndefined();
+    expect(read('<testsuite name="s" timestamp="2026-11-03T12:00:00Z"><testcase classname="c" name="t" time="1e16"/></testsuite>')).toBeUndefined();
   });
 
   describe('where the test lives', () => {

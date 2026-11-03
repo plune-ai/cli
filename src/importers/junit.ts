@@ -164,9 +164,12 @@ function executionOf(test: XmlElement, suite: XmlElement | undefined, now: Date)
   if (dated !== undefined && !Number.isNaN(dated.getTime())) started = dated;
   else if (timed) started = new Date(now.getTime() - durationMs);
   else return undefined;
+  // A `time` no clock can hold (1e16 s) gives no date at all, and `toISOString` would throw on it.
+  const finished = new Date(started.getTime() + durationMs);
+  if (Number.isNaN(started.getTime()) || Number.isNaN(finished.getTime())) return undefined;
   return {
     startedAt: started.toISOString(),
-    finishedAt: new Date(started.getTime() + durationMs).toISOString(),
+    finishedAt: finished.toISOString(),
     durationMs,
     // The base format has no reruns. Surefire's `<rerunFailure>` does, and reading it is work for
     // the day somebody asks; reporting 0 says «first attempt», which is true of every case here.
