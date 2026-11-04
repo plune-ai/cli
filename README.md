@@ -425,6 +425,23 @@ thresholds is refused (exit 2) and nothing is imported: k6 judged nothing, so th
 A threshold is known by the file's name as well as the metric and the expression, so `smoke.json` and
 `load.json` imported under one `--key` stay two results each; renaming the summary file starts a new test.
 
+Only the file's base name counts, not its folder: `a/summary.json` and `b/summary.json` give the same keys.
+So when the jobs of a matrix import into one run under one `--key`, each job names its summary file
+apart, or every job's thresholds land on one result (the same key twice is a duplicate, not a second
+result) and all but one job's verdict is lost:
+
+```yaml
+- run: k6 run --summary-export=summary-${{ matrix.scenario }}.json script.js
+```
+
+What a verdict does: a crossed k6 threshold, or a Lighthouse category under its bar, is a **failed** result,
+and only that. The run takes it like any other failed test and is finished as usual — neither the run nor
+the import is stopped or refused for it — and `plune run import` exits 0. To have the job fail, add
+[`--fail-on-failures`](#a-release-gate---fail-on-failures): the command then exits 1 when the summary the
+platform froze has a failed (or broken) result, 0 when every threshold held and every category reached its
+bar. The results are sent either way. A shard that leaves a shared run open has no verdict yet; gate on the
+step that finishes it.
+
 **Lighthouse.** Import the JSON report, `lighthouse <url> --output=json --output-path=lighthouse.json`. Each
 category in it (`performance`, `accessibility`, `best-practices`, `seo`, …) is one result, named after the
 category, the page and the form factor Lighthouse ran as (`performance (https://example.com/, mobile)`), so a
