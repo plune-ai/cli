@@ -16,7 +16,7 @@ import type { PendingResult } from '../reporter-core/types.js';
 import { AllureReportError, RESULT, isFolder, namesIn, readAllure } from './allure.js';
 import type { MissingAttachment } from './attachments.js';
 import { looksLikeJUnit, readJUnit } from './junit.js';
-import { looksLikePlaywrightJson, readPlaywrightJson } from './playwright-json.js';
+import { JsonReportError, looksLikePlaywrightJson, readPlaywrightJson } from './playwright-json.js';
 import { isK6Summary, readK6 } from './k6.js';
 import { isLighthouseReport, readLighthouse } from './lighthouse.js';
 
@@ -144,13 +144,17 @@ export function readReport(
   const missing: MissingAttachment[] = [];
   if (chosen === 'allure') throw new UnknownFormatError(file, 'allure-results is a folder, and this is a file.');
   const notes: string[] = [];
+  // Refused, not ignored: a bar that judged nothing reads as a bar that was met, and no run is opened for it.
   if (chosen !== 'lighthouse' && options.minScores !== undefined && Object.keys(options.minScores).length > 0) {
-    notes.push(`plune: --min-score is for Lighthouse reports, and ${printable(file)} is ${chosen} — ignored.`);
+    throw new JsonReportError(
+      file,
+      `--min-score is for Lighthouse reports, and this is a ${chosen} report: there is no score here to hold to it. Drop --min-score for this file.`,
+    );
   }
   if (chosen === 'junit') return { format: chosen, results: readJUnit(source, file, missing, notes), missing, notes };
   if (chosen === 'k6') return { format: chosen, results: readK6(source, file), missing, notes };
   if (chosen === 'lighthouse') {
-    return { format: chosen, results: readLighthouse(source, file, options.minScores, notes), missing, notes };
+    return { format: chosen, results: readLighthouse(source, file, options.minScores), missing, notes };
   }
   // A Playwright JSON report names its files itself; nothing in it can be announced and then absent.
   return { format: chosen, ...readPlaywrightJson(source, file), missing, notes };

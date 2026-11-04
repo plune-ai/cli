@@ -66,6 +66,12 @@ describe('k6 summary import', () => {
     expect(readReport(read('k6-summary-export.json'), fixture('k6-summary-export.json')).format).toBe('k6');
   });
 
+  it('is detected as k6 even when a group of the run is named "suites"', () => {
+    const summary = JSON.parse(read('k6-handle-summary.json')) as { root_group: { groups: unknown[] } };
+    summary.root_group.groups = [{ name: 'suites', path: '::suites', id: 'a', groups: [], checks: [] }];
+    expect(detectFormat(JSON.stringify(summary), 'x.json')).toBe('k6');
+  });
+
   it('refuses a JSON file that is not a k6 summary when --format k6 says it is', () => {
     expect(() => readReport('{"name":"pkg"}', 'package.json', 'k6')).toThrow(/no "metrics" object/);
   });

@@ -5,7 +5,8 @@
  * category, passed when its score — 0–100, rounded as Lighthouse shows it — is at least the bar.
  * The bar is `--min-score <category>=<n>`, or Lighthouse's own "good" band (90 and up) for a
  * category nobody named. A score Lighthouse could not compute (`null`) is never a pass, and a report
- * that stopped on a `runtimeError` fails every category with that error's words.
+ * that stopped on a `runtimeError` fails every category with that error's words. A bar for a category
+ * the report does not have is refused, not ignored: a bar that judged nothing reads as a bar that was met.
  */
 
 import * as path from 'node:path';
@@ -36,6 +37,11 @@ export function isLighthouseReport(parsed: unknown): boolean {
   return isObject(parsed) && typeof parsed['lighthouseVersion'] === 'string' && isObject(parsed['categories']);
 }
 
+/** A category's id: its own `id`, or the key it sits under. */
+function idOf(key: string, category: Category): string {
+  return typeof category.id === 'string' && category.id !== '' ? category.id : key;
+}
+
 /** When the run happened, from the report's own clock: `fetchTime` and `timing.total`. */
 function executionOf(report: Record<string, unknown>): Execution | undefined {
   const started = typeof report['fetchTime'] === 'string' ? new Date(report['fetchTime']) : undefined;
@@ -50,11 +56,15 @@ function executionOf(report: Record<string, unknown>): Execution | undefined {
   };
 }
 
-/** The runtime error's own words, or nothing when the run did not stop on one. */
+/**
+ * The runtime error's own words, or nothing when the run did not stop on one. Older Lighthouse writes
+ * `{ code: 'NO_ERROR', message: '' }` into every report that ran clean, and that is no error.
+ */
 function runtimeErrorOf(report: Record<string, unknown>): string | undefined {
   const err = report['runtimeError'];
   if (!isObject(err)) return undefined;
   const code = typeof err['code'] === 'string' ? err['code'] : undefined;
+  if (code === 'NO_ERROR') return undefined;
   const message = typeof err['message'] === 'string' ? err['message'] : undefined;
   if (code === undefined && message === undefined) return undefined;
   return `Lighthouse stopped with ${code ?? 'a runtime error'}${message !== undefined ? `: ${message}` : ''}`;
@@ -62,13 +72,12 @@ function runtimeErrorOf(report: Record<string, unknown>): string | undefined {
 
 /**
  * Read a Lighthouse report. `minScores` is `--min-score`; a category it names that the report lacks
- * is said in `notes`, since a bar that silently judged nothing reads as a bar that was met.
+ * is refused (exit 2) before anything is sent, with the categories the report does have.
  */
 export function readLighthouse(
   source: string,
   file: string,
   minScores: Record<string, number> = {},
-  notes: string[] = [],
 ): PendingResult[] {
   let parsed: unknown;
   try {
@@ -86,8 +95,19 @@ export function readLighthouse(
   const execution = executionOf(report);
   const specRef = path.basename(file);
 
-  for (const [id, score] of Object.entries(minScores)) {
-    if (!(id in categories)) notes.push(`plune: --min-score ${id}=${score} names a category ${printable(file)} does not have — ignored.`);
+  // A report that stopped before it scored anything has no category to hold a bar to, and fails as it is.
+  const known = Object.entries(categories)
+    .filter(([, raw]) => isObject(raw))
+    .map(([key, raw]) => idOf(key, raw as Category));
+  if (known.length > 0) {
+    for (const [id, score] of Object.entries(minScores)) {
+      if (!known.includes(id)) {
+        throw new JsonReportError(
+          file,
+          `--min-score ${printable(id)}=${score} names a category the report does not have; it has ${known.map(printable).join(', ')}.`,
+        );
+      }
+    }
   }
 
   const out: PendingResult[] = [];
@@ -107,7 +127,7 @@ export function readLighthouse(
   for (const [key, raw] of Object.entries(categories)) {
     if (!isObject(raw)) continue;
     const category = raw as Category;
-    const id = typeof category.id === 'string' && category.id !== '' ? category.id : key;
+    const id = idOf(key, category);
     const name = typeof category.title === 'string' && category.title !== '' ? category.title : id;
     const bar = minScores[id] ?? DEFAULT_MIN_SCORE;
     let passed = false;

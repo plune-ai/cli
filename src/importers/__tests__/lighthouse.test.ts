@@ -73,10 +73,38 @@ describe('Lighthouse report import', () => {
     expect(results[0]!.errorContext).toMatch(/^Lighthouse stopped with NO_FCP: /);
   });
 
-  it('notes a --min-score for a category the report does not have', () => {
-    const notes: string[] = [];
-    readLighthouse(REPORT, 'lh.json', { pwa: 50 }, notes);
-    expect(notes).toEqual(['plune: --min-score pwa=50 names a category lh.json does not have — ignored.']);
+  it('reads a runtimeError of NO_ERROR, which older Lighthouse writes into every good report, as no error', () => {
+    const report = JSON.parse(REPORT) as Record<string, unknown>;
+    report['runtimeError'] = { code: 'NO_ERROR', message: '' };
+    const without = readLighthouse(REPORT, 'lh.json');
+    const withField = readLighthouse(JSON.stringify(report), 'lh.json');
+    expect(withField.map((r) => r.rawStatus)).toEqual(['passed', 'failed', 'passed', 'passed']);
+    expect(withField.map((r) => [r.rawStatus, r.errorContext])).toEqual(without.map((r) => [r.rawStatus, r.errorContext]));
+  });
+
+  it('refuses a --min-score for a category the report does not have, naming the ones it has', () => {
+    expect(() => readLighthouse(REPORT, 'lh.json', { perf: 95 })).toThrow(JsonReportError);
+    expect(() => readLighthouse(REPORT, 'lh.json', { performance: 90, perf: 95 })).toThrow(
+      'lh.json — --min-score perf=95 names a category the report does not have; it has performance, accessibility, best-practices, seo.',
+    );
+  });
+
+  it('holds --min-score to the categories by their own id, and an entry that is not a category to nothing', () => {
+    const report = JSON.parse(REPORT) as { categories: Record<string, unknown> };
+    report.categories['broken'] = null;
+    report.categories['custom'] = { id: 'my-budget', title: 'My budget', score: 0.5 };
+    const results = readLighthouse(JSON.stringify(report), 'lh.json', { 'my-budget': 40 });
+    expect(results.map((r) => [r.title, r.rawStatus])).toContainEqual(['my-budget (http://localhost:4173/)', 'passed']);
+    expect(() => readLighthouse(JSON.stringify(report), 'lh.json', { broken: 10 })).toThrow(
+      'it has performance, accessibility, best-practices, seo, my-budget.',
+    );
+  });
+
+  it('holds a report that stopped before it scored anything to its failure, whatever --min-score names', () => {
+    const report = JSON.parse(read('lighthouse-runtime-error.json')) as { categories: object };
+    report.categories = {};
+    const results = readLighthouse(JSON.stringify(report), 'lh.json', { performance: 90 });
+    expect(results.map((r) => r.rawStatus)).toEqual(['failed']);
   });
 
   it('reads --min-score as category=0..100 and refuses anything else', () => {
@@ -95,6 +123,23 @@ describe('Lighthouse report import', () => {
 
   it('refuses a JSON file that is not a Lighthouse report when --format lighthouse says it is', () => {
     expect(() => readReport('{"categories":{}}', 'x.json', 'lighthouse')).toThrow(JsonReportError);
+  });
+
+  it('is detected as Lighthouse even when a string in the report is "suites"', () => {
+    const report = JSON.parse(REPORT) as { audits: Record<string, Record<string, unknown>> };
+    report.audits['first-contentful-paint']!['details'] = { type: 'list', items: [{ label: 'suites' }] };
+    expect(detectFormat(JSON.stringify(report), 'report.json')).toBe('lighthouse');
+  });
+
+  it('refuses --min-score for a report that is not Lighthouse', () => {
+    const k6 = fs.readFileSync(fixture('k6-summary-export.json'), 'utf8');
+    expect(() => readReport(k6, 'summary.json', undefined, { minScores: { performance: 90 } })).toThrow(JsonReportError);
+    expect(() => readReport(k6, 'summary.json', undefined, { minScores: { performance: 90 } })).toThrow(
+      'summary.json — --min-score is for Lighthouse reports, and this is a k6 report: there is no score here to hold to it. Drop --min-score for this file.',
+    );
+    const junit = '<testsuite name="s" tests="1"><testcase name="t" classname="c"/></testsuite>';
+    expect(() => readReport(junit, 'TEST-a.xml', undefined, { minScores: { seo: 80 } })).toThrow(/this is a junit report/);
+    expect(readReport(junit, 'TEST-a.xml', undefined, { minScores: {} }).results).toHaveLength(1);
   });
 
   it('refuses an unrelated JSON file with the formats it looked for', () => {

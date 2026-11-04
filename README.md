@@ -428,7 +428,10 @@ category in it (`performance`, `accessibility`, `best-practices`, `seo`, …) is
 category and the page, with the score as Lighthouse shows it, 0–100. It passes at or above the bar:
 `--min-score performance=80` sets it per category (repeat the flag), and a category you do not name needs 90,
 where Lighthouse's own "good" band starts. A category Lighthouse could not score (`null`) fails and says so;
-a report that stopped on a runtime error (`NO_FCP`, …) fails every category with that error's message.
+a report that stopped on a runtime error (`NO_FCP`, …) fails every category with that error's message
+(`NO_ERROR`, which older Lighthouse writes into a clean report, is no error). A `--min-score` for a category
+the report does not have (`perf=95` for `performance`) is refused with exit 2 and the categories it does have,
+and so is `--min-score` for any report that is not Lighthouse; no run is opened either way.
 
 ```bash
 plune run import summary.json

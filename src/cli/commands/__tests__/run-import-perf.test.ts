@@ -83,6 +83,38 @@ describe('plune run import of performance reports', () => {
     expect(sentResults(seen).map((r) => r.rawStatus)).toEqual(['failed', 'passed', 'passed', 'passed']);
   });
 
+  it('opens no run when --min-score names a category the Lighthouse report does not have', async () => {
+    const { seen, fetchImpl } = platform();
+    await expect(
+      handleRunImport({ ...deps(fetchImpl), file: fixture('lighthouse-report.json'), minScores: { perf: 95 } }),
+    ).rejects.toThrow(/--min-score perf=95 names a category the report does not have; it has performance, accessibility, best-practices, seo\./);
+    expect(seen).toEqual([]);
+  });
+
+  it('opens no run when --min-score is given for a k6 summary', async () => {
+    const { seen, fetchImpl } = platform();
+    await expect(
+      handleRunImport({ ...deps(fetchImpl), file: fixture('k6-summary-export.json'), minScores: { performance: 90 } }),
+    ).rejects.toThrow(JsonReportError);
+    expect(seen).toEqual([]);
+  });
+
+  it('refuses k6 and Lighthouse as the format of a folder, before any run is opened', async () => {
+    const { seen, fetchImpl } = platform();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plune-perf-'));
+    try {
+      fs.copyFileSync(fixture('k6-summary-export.json'), path.join(dir, 'summary.json'));
+      for (const format of ['k6', 'lighthouse'] as const) {
+        await expect(handleRunImport({ ...deps(fetchImpl), file: dir, format })).rejects.toThrow(
+          `this is a folder, and only allure-results or JUnit XML files are read from one, not ${format}.`,
+        );
+      }
+      expect(seen).toEqual([]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('opens no run for a k6 summary with no thresholds', async () => {
     const { seen, fetchImpl } = platform();
     await expect(handleRunImport({ ...deps(fetchImpl), file: fixture('k6-no-thresholds.json') })).rejects.toThrow(JsonReportError);
