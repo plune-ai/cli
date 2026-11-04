@@ -43,13 +43,21 @@ describe('k6 summary import', () => {
     );
   });
 
-  it('keys each threshold by source, metric and expression, the same in both shapes', () => {
-    const exported = readK6(read('k6-summary-export.json'), fixture('k6-summary-export.json'));
-    const handled = readK6(read('k6-handle-summary.json'), fixture('k6-handle-summary.json'));
-    expect(exported[0]!.keys).toEqual([{ kind: 'path-title', value: 'k6#http_req_duration#p(95)<500' }]);
+  it('keys each threshold by source, file, metric and expression, the same in both shapes', () => {
+    const exported = readK6(read('k6-summary-export.json'), 'summary.json');
+    const handled = readK6(read('k6-handle-summary.json'), 'summary.json');
+    expect(exported[0]!.keys).toEqual([{ kind: 'path-title', value: 'k6#summary.json#http_req_duration#p(95)<500' }]);
     expect(handled.map((r) => r.keys)).toEqual(exported.map((r) => r.keys));
     expect(exported[0]!.source).toBe('k6');
-    expect(exported[0]!.specRef).toBe('k6-summary-export.json');
+    expect(readK6(read('k6-summary-export.json'), fixture('k6-summary-export.json'))[0]!.specRef).toBe('k6-summary-export.json');
+  });
+
+  it('keeps the same threshold in two summary files as two results', () => {
+    const smoke = readK6(read('k6-summary-export.json'), 'perf/smoke.json');
+    const load = readK6(read('k6-summary-export.json'), 'perf/load.json');
+    expect(smoke[0]!.keys).toEqual([{ kind: 'path-title', value: 'k6#smoke.json#http_req_duration#p(95)<500' }]);
+    const smokeKeys = new Set(smoke.map((r) => r.resultKey));
+    expect(load.filter((r) => smokeKeys.has(r.resultKey))).toEqual([]);
   });
 
   it('refuses a summary with no thresholds, saying there is nothing to pass or fail', () => {

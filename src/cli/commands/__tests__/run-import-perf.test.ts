@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { handleRunImport } from '../run-import.js';
-import { JsonReportError, UnknownFormatError } from '../../../importers/index.js';
+import { JsonReportError, UnknownFormatError, readReportFile } from '../../../importers/index.js';
 
 /**
  * A k6 summary and a Lighthouse report go the way every other report goes: the same run, the same
@@ -45,6 +45,8 @@ function platform() {
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 }
+
+const JUNIT = '<?xml version="1.0" encoding="UTF-8"?>\n<testsuite name="s" tests="1"><testcase name="t" classname="c"/></testsuite>\n';
 
 const lines: string[] = [];
 const deps = (fetchImpl: typeof fetch) => ({
@@ -113,6 +115,56 @@ describe('plune run import of performance reports', () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it('opens no run when --min-score is given for a folder, with the exit code of a k6 file', async () => {
+    const { seen, fetchImpl } = platform();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plune-perf-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'TEST-a.xml'), JUNIT);
+      await expect(handleRunImport({ ...deps(fetchImpl), file: dir, minScores: { performance: 90 } })).rejects.toThrow(JsonReportError);
+      await expect(handleRunImport({ ...deps(fetchImpl), file: dir, minScores: { performance: 90 } })).rejects.toThrow(
+        '--min-score is for Lighthouse reports, and this is a folder: there is no score here to hold to it. Drop --min-score for this folder.',
+      );
+      expect(seen).toEqual([]);
+      // An empty --min-score is no bar, and the folder reads as it did.
+      await expect(handleRunImport({ ...deps(fetchImpl), file: dir, minScores: {} })).resolves.toMatchObject({ format: 'junit', parsed: 1 });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  describe('a report file that starts with a UTF-8 BOM', () => {
+    let dir: string;
+    beforeEach(() => void (dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plune-bom-'))));
+    afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+    it('is read as a Lighthouse report', async () => {
+      const file = path.join(dir, 'lighthouse.json');
+      fs.writeFileSync(file, `\uFEFF${fs.readFileSync(fixture('lighthouse-report.json'), 'utf8')}`);
+      await expect(handleRunImport({ ...deps(platform().fetchImpl), file })).resolves.toMatchObject({ format: 'lighthouse', parsed: 4 });
+    });
+
+    it('is read as a JUnit report', async () => {
+      const file = path.join(dir, 'TEST-a.xml');
+      fs.writeFileSync(file, `\uFEFF${JUNIT}`);
+      const { seen, fetchImpl } = platform();
+      await expect(handleRunImport({ ...deps(fetchImpl), file })).resolves.toMatchObject({ format: 'junit', parsed: 1 });
+      expect(sentResults(seen)).toHaveLength(1);
+    });
+
+    it('reaches every parser without its BOM, and only one is taken off', () => {
+      const file = path.join(dir, 'TEST-a.xml');
+      fs.writeFileSync(file, `\uFEFF${JUNIT}`);
+      expect(readReportFile(file)).toBe(JUNIT);
+      fs.writeFileSync(file, `\uFEFF\uFEFF${JUNIT}`);
+      expect(readReportFile(file)).toBe(`\uFEFF${JUNIT}`);
+    });
+
+    it('is read as a JUnit report from a folder', async () => {
+      fs.writeFileSync(path.join(dir, 'TEST-a.xml'), `\uFEFF${JUNIT}`);
+      await expect(handleRunImport({ ...deps(platform().fetchImpl), file: dir })).resolves.toMatchObject({ format: 'junit', parsed: 1 });
+    });
   });
 
   it('opens no run for a k6 summary with no thresholds', async () => {

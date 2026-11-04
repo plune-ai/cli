@@ -81,7 +81,8 @@ export function readK6(source: string, file: string): PendingResult[] {
       // A verdict in neither shape is k6's to give, not ours to guess: it is not a pass.
       const status = passed === true ? 'passed' : 'failed';
       const said = passed === undefined ? 'no verdict in the summary' : status;
-      const value = `${SOURCE}#${name}#${expression}`;
+      // The file's name too: smoke.json and load.json with the same threshold under one --key are two results, not a duplicate.
+      const value = `${SOURCE}#${specRef}#${name}#${expression}`;
       out.push({
         resultKey: resultKey(value, 0),
         keys: [{ kind: 'path-title', value }],

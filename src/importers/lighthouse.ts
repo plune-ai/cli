@@ -91,6 +91,10 @@ export function readLighthouse(
   const report = parsed as Record<string, unknown>;
   const categories = report['categories'] as Record<string, unknown>;
   const url = ['requestedUrl', 'finalDisplayedUrl', 'finalUrl'].map((k) => report[k]).find((u): u is string => typeof u === 'string' && u !== '');
+  // A mobile and a desktop report of one page are two runs of it: the form factor keeps their results apart.
+  const settings = report['configSettings'];
+  const formFactor =
+    isObject(settings) && typeof settings['formFactor'] === 'string' && settings['formFactor'] !== '' ? settings['formFactor'] : undefined;
   const runtimeError = runtimeErrorOf(report);
   const execution = executionOf(report);
   const specRef = path.basename(file);
@@ -112,13 +116,14 @@ export function readLighthouse(
 
   const out: PendingResult[] = [];
   const result = (id: string, passed: boolean, message: string): void => {
-    const value = `${SOURCE}#${url ?? ''}#${id}`;
+    const value = `${SOURCE}#${url ?? ''}#${formFactor !== undefined ? `${formFactor}#` : ''}${id}`;
+    const where = [url, formFactor].filter((part): part is string => part !== undefined);
     out.push({
       resultKey: resultKey(value, 0),
       keys: [{ kind: 'path-title', value }],
       source: SOURCE,
       rawStatus: passed ? 'passed' : 'failed',
-      title: url !== undefined ? `${id} (${url})` : id,
+      title: where.length > 0 ? `${id} (${where.join(', ')})` : id,
       specRef,
       ...(execution !== undefined ? { execution } : {}),
       errorContext: message,
@@ -129,7 +134,8 @@ export function readLighthouse(
     const category = raw as Category;
     const id = idOf(key, category);
     const name = typeof category.title === 'string' && category.title !== '' ? category.title : id;
-    const bar = minScores[id] ?? DEFAULT_MIN_SCORE;
+    // Own keys only: `constructor` is a category id too, and the object's prototype is no bar.
+    const bar = (Object.hasOwn(minScores, id) ? minScores[id] : undefined) ?? DEFAULT_MIN_SCORE;
     let passed = false;
     let message: string;
     if (runtimeError !== undefined) {

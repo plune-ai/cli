@@ -20,11 +20,11 @@ describe('Lighthouse report import', () => {
     expect(DEFAULT_MIN_SCORE).toBe(90);
     const results = readLighthouse(REPORT, fixture('lighthouse-report.json'));
     expect(results.map((r) => [r.title, r.rawStatus])).toEqual([
-      ['performance (http://localhost:4173/)', 'passed'],
-      ['accessibility (http://localhost:4173/)', 'failed'],
-      ['best-practices (http://localhost:4173/)', 'passed'],
+      ['performance (http://localhost:4173/, mobile)', 'passed'],
+      ['accessibility (http://localhost:4173/, mobile)', 'failed'],
+      ['best-practices (http://localhost:4173/, mobile)', 'passed'],
       // 0.895 is the 90 Lighthouse shows, and the 90 is what is compared.
-      ['seo (http://localhost:4173/)', 'passed'],
+      ['seo (http://localhost:4173/, mobile)', 'passed'],
     ]);
     expect(results[1]!.errorContext).toBe('Lighthouse Accessibility score: 84, below the 90 needed to pass.');
     expect(results[0]!.errorContext).toBe('Lighthouse Performance score: 97, at least the 90 needed to pass.');
@@ -38,7 +38,7 @@ describe('Lighthouse report import', () => {
 
   it('keys a category by the page it scored, and times the run from the report', () => {
     const [first] = readLighthouse(REPORT, fixture('lighthouse-report.json'));
-    expect(first!.keys).toEqual([{ kind: 'path-title', value: 'lighthouse#http://localhost:4173/#performance' }]);
+    expect(first!.keys).toEqual([{ kind: 'path-title', value: 'lighthouse#http://localhost:4173/#mobile#performance' }]);
     expect(first!.source).toBe('lighthouse');
     expect(first!.execution).toEqual({
       startedAt: '2026-11-04T09:15:02.118Z',
@@ -46,6 +46,34 @@ describe('Lighthouse report import', () => {
       durationMs: 8235,
       retry: 0,
     });
+  });
+
+  it('keys and names a mobile and a desktop report of one page apart, the URL as it is', () => {
+    const report = JSON.parse(REPORT) as { configSettings: Record<string, unknown> };
+    const mobile = readLighthouse(REPORT, 'mobile.json');
+    report.configSettings['formFactor'] = 'desktop';
+    const desktop = readLighthouse(JSON.stringify(report), 'desktop.json');
+    expect(desktop[0]!.keys).toEqual([{ kind: 'path-title', value: 'lighthouse#http://localhost:4173/#desktop#performance' }]);
+    expect(desktop[0]!.title).toBe('performance (http://localhost:4173/, desktop)');
+    const mobileKeys = new Set(mobile.map((r) => r.resultKey));
+    expect(desktop.filter((r) => mobileKeys.has(r.resultKey))).toEqual([]);
+  });
+
+  it('keys a report with no form factor by the page and the category alone', () => {
+    const report = JSON.parse(REPORT) as Record<string, unknown>;
+    delete report['configSettings'];
+    const [first] = readLighthouse(JSON.stringify(report), 'lh.json');
+    expect(first!.keys).toEqual([{ kind: 'path-title', value: 'lighthouse#http://localhost:4173/#performance' }]);
+    expect(first!.title).toBe('performance (http://localhost:4173/)');
+  });
+
+  it('holds a category named like an Object property (constructor) to the default bar', () => {
+    const report = JSON.parse(REPORT) as { categories: Record<string, unknown> };
+    report.categories = { constructor: { id: 'constructor', title: 'Constructor', score: 0.95 } };
+    const results = readLighthouse(JSON.stringify(report), 'lh.json');
+    expect(results.map((r) => [r.rawStatus, r.errorContext])).toEqual([
+      ['passed', 'Lighthouse Constructor score: 95, at least the 90 needed to pass.'],
+    ]);
   });
 
   it('fails a category Lighthouse could not score, and says so', () => {
@@ -94,7 +122,7 @@ describe('Lighthouse report import', () => {
     report.categories['broken'] = null;
     report.categories['custom'] = { id: 'my-budget', title: 'My budget', score: 0.5 };
     const results = readLighthouse(JSON.stringify(report), 'lh.json', { 'my-budget': 40 });
-    expect(results.map((r) => [r.title, r.rawStatus])).toContainEqual(['my-budget (http://localhost:4173/)', 'passed']);
+    expect(results.map((r) => [r.title, r.rawStatus])).toContainEqual(['my-budget (http://localhost:4173/, mobile)', 'passed']);
     expect(() => readLighthouse(JSON.stringify(report), 'lh.json', { broken: 10 })).toThrow(
       'it has performance, accessibility, best-practices, seo, my-budget.',
     );

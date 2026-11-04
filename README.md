@@ -422,16 +422,19 @@ Each threshold of each metric is one result, named after the metric and the expr
 (`http_req_duration p(95)<500`): passed when k6 says the threshold held, failed when it was crossed. The
 metric's measured values (`avg`, `p(95)`, `rate`, …) are the result's message. A summary with no
 thresholds is refused (exit 2) and nothing is imported: k6 judged nothing, so there is nothing to pass or fail.
+A threshold is known by the file's name as well as the metric and the expression, so `smoke.json` and
+`load.json` imported under one `--key` stay two results each; renaming the summary file starts a new test.
 
 **Lighthouse.** Import the JSON report, `lighthouse <url> --output=json --output-path=lighthouse.json`. Each
 category in it (`performance`, `accessibility`, `best-practices`, `seo`, …) is one result, named after the
-category and the page, with the score as Lighthouse shows it, 0–100. It passes at or above the bar:
+category, the page and the form factor Lighthouse ran as (`performance (https://example.com/, mobile)`), so a
+mobile and a desktop report of one page imported under one `--key` are two sets of results, with the score as Lighthouse shows it, 0–100. It passes at or above the bar:
 `--min-score performance=80` sets it per category (repeat the flag), and a category you do not name needs 90,
 where Lighthouse's own "good" band starts. A category Lighthouse could not score (`null`) fails and says so;
 a report that stopped on a runtime error (`NO_FCP`, …) fails every category with that error's message
 (`NO_ERROR`, which older Lighthouse writes into a clean report, is no error). A `--min-score` for a category
 the report does not have (`perf=95` for `performance`) is refused with exit 2 and the categories it does have,
-and so is `--min-score` for any report that is not Lighthouse; no run is opened either way.
+and so is `--min-score` for any report that is not Lighthouse, a folder included; no run is opened either way.
 
 ```bash
 plune run import summary.json
@@ -439,7 +442,8 @@ plune run import lighthouse.json --min-score performance=80 --min-score seo=95
 ```
 
 Both are recognised by their own keys (`metrics` for k6, `lighthouseVersion` and `categories` for
-Lighthouse), never by the file name; `--format k6` or `--format lighthouse` says it outright.
+Lighthouse), never by the file name; `--format k6` or `--format lighthouse` says it outright. A report file
+that starts with a UTF-8 byte order mark is read as if it did not, in every format.
 
 ### Several jobs, one run
 
