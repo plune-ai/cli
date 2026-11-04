@@ -411,6 +411,16 @@ describe('CLI · run import · Allure · a folder that is not a report', () => {
     fs.writeFileSync(path.join(dir, 'broken-result.json'), '{"name": ');
     expect(() => readAllure(dir)).toThrow(/broken-result\.json/);
   });
+
+  it('a result that starts with a byte order mark (an editor or a Windows tool wrote it) still reads, as passed', () => {
+    const dir = path.join(tmp, 'allure-results');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'bom-result.json'), `﻿${JSON.stringify(t())}`, 'utf8');
+    const [r, ...rest] = readAllure(dir);
+    expect(rest).toHaveLength(0);
+    expect(r?.title).toBe('adds');
+    expect(r?.rawStatus).toBe('passed');
+  });
 });
 
 // ---- review: what a folder may hold, and what a hostile file may do ---------------------------------------------
