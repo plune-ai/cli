@@ -1,0 +1,52 @@
+{
+  "lighthouseVersion": "12.8.2",
+  "requestedUrl": "http://localhost:4173/",
+  "mainDocumentUrl": "http://localhost:4173/",
+  "finalDisplayedUrl": "http://localhost:4173/",
+  "finalUrl": "http://localhost:4173/",
+  "fetchTime": "2026-11-04T09:15:02.118Z",
+  "gatherMode": "navigation",
+  "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.0.0 Safari/537.36",
+  "environment": { "networkUserAgent": "", "hostUserAgent": "", "benchmarkIndex": 1500 },
+  "audits": {
+    "first-contentful-paint": {
+      "id": "first-contentful-paint",
+      "title": "First Contentful Paint",
+      "score": 0.97,
+      "scoreDisplayMode": "numeric",
+      "numericValue": 1102.4,
+      "numericUnit": "millisecond",
+      "displayValue": "1.1 s"
+    }
+  },
+  "configSettings": { "output": ["json"], "formFactor": "mobile", "onlyCategories": null },
+  "categories": {
+    "performance": {
+      "title": "Performance",
+      "id": "performance",
+      "score": 0.97,
+      "auditRefs": [{ "id": "first-contentful-paint", "weight": 10, "group": "metrics" }]
+    },
+    "accessibility": {
+      "title": "Accessibility",
+      "id": "accessibility",
+      "score": 0.84,
+      "auditRefs": []
+    },
+    "best-practices": {
+      "title": "Best Practices",
+      "id": "best-practices",
+      "score": 1,
+      "auditRefs": []
+    },
+    "seo": {
+      "title": "SEO",
+      "id": "seo",
+      "score": 0.895,
+      "auditRefs": []
+    }
+  },
+  "categoryGroups": {},
+  "timing": { "total": 8234.6 },
+  "i18n": { "rendererFormattedStrings": {} }
+}

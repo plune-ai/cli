@@ -18,6 +18,7 @@ import { errorContextFields, failureOf, printable } from '../reporter-core/failu
 import { resultKey } from '../reporter-core/result-key.js';
 import type { DeclaredStep, FailedAttempt, PendingResult, ResultFile } from '../reporter-core/types.js';
 import { MARKERS_PER_TEST, reportFolders, resolveAttachment, typeOfFile, type MissingAttachment } from './attachments.js';
+import { readReportFile } from './read-file.js';
 
 const SOURCE = 'allure';
 
@@ -101,7 +102,7 @@ function load<T>(file: string, maxBytes: number): T {
   }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    parsed = JSON.parse(readReportFile(file));
   } catch (err) {
     throw new AllureReportError(`${printable(file)} — not JSON — ${printable(err instanceof Error ? err.message : String(err))}`);
   }

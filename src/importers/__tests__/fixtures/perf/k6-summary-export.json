@@ -1,0 +1,62 @@
+{
+  "root_group": {
+    "name": "",
+    "path": "",
+    "id": "d41d8cd98f00b204e9800998ecf8427e",
+    "groups": [],
+    "checks": [
+      {
+        "name": "status is 200",
+        "path": "::status is 200",
+        "id": "548d37ca5f33793206f7832e7cea54fb",
+        "passes": 40,
+        "fails": 0
+      }
+    ]
+  },
+  "options": {
+    "summaryTrendStats": ["avg", "min", "med", "max", "p(90)", "p(95)"],
+    "summaryTimeUnit": "",
+    "noColor": false
+  },
+  "state": {
+    "isStdOutTTY": false,
+    "isStdErrTTY": false,
+    "testRunDurationMs": 4012.3
+  },
+  "metrics": {
+    "checks": {
+      "passes": 40,
+      "fails": 0,
+      "value": 1
+    },
+    "http_req_duration": {
+      "avg": 12.41,
+      "min": 3.02,
+      "med": 9.87,
+      "max": 61.5,
+      "p(90)": 24.3,
+      "p(95)": 38.71,
+      "thresholds": {
+        "p(95)<500": false,
+        "p(90)<20": true
+      }
+    },
+    "http_req_failed": {
+      "passes": 0,
+      "fails": 40,
+      "value": 0,
+      "thresholds": {
+        "rate<0.01": false
+      }
+    },
+    "http_reqs": {
+      "count": 40,
+      "rate": 9.97
+    },
+    "iterations": {
+      "count": 40,
+      "rate": 9.97
+    }
+  }
+}

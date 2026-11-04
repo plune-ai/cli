@@ -9,10 +9,9 @@
 // lookup, the same fallback file when the platform is down, the same review-queue offer for a test
 // nobody has a case for. What this file adds is a parser and a summary.
 
-import * as fs from 'node:fs';
 import { startRun, type RunSession } from '../../reporter-core/session.js';
 import { printable } from '../../reporter-core/failure-detail.js';
-import { isFolder, readFolder, readReport, type ImportFormat, type MissingAttachment } from '../../importers/index.js';
+import { isFolder, readFolder, readReport, readReportFile, type ImportFormat, type MissingAttachment } from '../../importers/index.js';
 import { NoTokenError, RunCommandError, handleRunFinish, type RunCommandDeps } from './run-lifecycle.js';
 import { resolveApiUrl, dashboardUrl } from '../api-url.js';
 import { loadToken } from '../credentials.js';
@@ -26,6 +25,8 @@ export interface ImportOptions extends RunCommandDeps {
   format?: ImportFormat;
   /** The key several jobs share so their reports land in one run. */
   key?: string;
+  /** `--min-score category=n`: the score a Lighthouse category needs to pass; 90 for one not named. */
+  minScores?: Record<string, number>;
   /** `--name`: the run's title in the list, over `PLUNE_RUN_TITLE` and the default made from the folder. */
   name?: string;
   /** Offer tests that resolved to nothing to the review queue (the `PLUNE_CREATE=1` switch, D14). */
@@ -123,15 +124,19 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
   // A folder is an allure-results report (plune-ai/plune#1221) or JUnit files (plune-ai/plune#2309); anything else is a file.
   let read: { format: ImportFormat; results: PendingResult[]; missing: MissingAttachment[]; notes: string[]; ciUrl?: string; ci?: unknown };
   if (isFolder(options.file)) {
-    read = readFolder(options.file, options.format);
+    read = readFolder(options.file, options.format, {
+      ...(options.minScores !== undefined ? { minScores: options.minScores } : {}),
+    });
   } else {
     let source: string;
     try {
-      source = fs.readFileSync(options.file, 'utf8');
+      source = readReportFile(options.file);
     } catch {
       throw new RunCommandError(`Cannot read ${printable(options.file)}.`);
     }
-    read = readReport(source, options.file, options.format);
+    read = readReport(source, options.file, options.format, {
+      ...(options.minScores !== undefined ? { minScores: options.minScores } : {}),
+    });
   }
   const { format, results, missing, notes, ciUrl, ci } = read;
   if (results.length === 0) {
