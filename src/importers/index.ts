@@ -17,13 +17,15 @@ import { AllureReportError, RESULT, isFolder, namesIn, readAllure } from './allu
 import type { MissingAttachment } from './attachments.js';
 import { looksLikeJUnit, readJUnit } from './junit.js';
 import { looksLikePlaywrightJson, readPlaywrightJson } from './playwright-json.js';
+import { isK6Summary, readK6 } from './k6.js';
+import { isLighthouseReport, readLighthouse } from './lighthouse.js';
 
 export { XmlParseError } from './xml.js';
 export { JsonReportError } from './playwright-json.js';
 export { AllureReportError } from './allure.js';
 export type { MissingAttachment } from './attachments.js';
 
-export const IMPORT_FORMATS = ['junit', 'playwright-json', 'allure'] as const;
+export const IMPORT_FORMATS = ['junit', 'playwright-json', 'allure', 'k6', 'lighthouse'] as const;
 export type ImportFormat = (typeof IMPORT_FORMATS)[number];
 
 /** Neither sniff matched, or the name given is not one we have. Exit 2 — the user can fix it. */
@@ -43,11 +45,29 @@ export class UnknownFormatError extends Error {
  */
 export function detectFormat(source: string, file: string): ImportFormat {
   if (looksLikeJUnit(source)) return 'junit';
+  // The two performance reports by their own top-level keys, before Playwright's: its check is a word
+  // anywhere in the text, and a Lighthouse audit's prose may hold "suites".
+  const perf = perfFormatOf(source);
+  if (perf !== undefined) return perf;
   if (looksLikePlaywrightJson(source)) return 'playwright-json';
   throw new UnknownFormatError(
     file,
-    'no <testsuite> and no Playwright "suites" — this is not a report we can read.',
+    'no <testsuite>, no Playwright "suites", no k6 "metrics" and no Lighthouse "lighthouseVersion" — this is not a report we can read.',
   );
+}
+
+/** A k6 summary or a Lighthouse report, by the keys of the parsed object; parsed only when one of them is in the text. */
+function perfFormatOf(source: string): 'k6' | 'lighthouse' | undefined {
+  if (!/^\s*\{/.test(source) || !(source.includes('"lighthouseVersion"') || source.includes('"metrics"'))) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(source);
+  } catch {
+    return undefined;
+  }
+  if (isLighthouseReport(parsed)) return 'lighthouse';
+  if (isK6Summary(parsed)) return 'k6';
+  return undefined;
 }
 
 export { isFolder };
@@ -61,8 +81,8 @@ export function readFolder(
   dir: string,
   format?: ImportFormat,
 ): { format: ImportFormat; results: PendingResult[]; missing: MissingAttachment[]; notes: string[] } {
-  if (format === 'playwright-json') {
-    throw new UnknownFormatError(dir, 'this is a folder, and only allure-results or JUnit XML files are read from one, not playwright-json.');
+  if (format === 'playwright-json' || format === 'k6' || format === 'lighthouse') {
+    throw new UnknownFormatError(dir, `this is a folder, and only allure-results or JUnit XML files are read from one, not ${format}.`);
   }
   const missing: MissingAttachment[] = [];
   const notes: string[] = [];
@@ -105,6 +125,11 @@ export function readFolder(
   return { format: 'junit', results, missing, notes };
 }
 
+/** What a format reads beside the file: `--min-score` for Lighthouse, by category. */
+export interface ReadOptions {
+  minScores?: Record<string, number>;
+}
+
 /**
  * Parse a report into results — and, where the format names one, the CI run that wrote it (`ciUrl`) and
  * the runner's own record of that CI (`ci`, for the commit and branch). `format` omitted means detect it.
@@ -113,12 +138,20 @@ export function readReport(
   source: string,
   file: string,
   format?: ImportFormat,
+  options: ReadOptions = {},
 ): { format: ImportFormat; results: PendingResult[]; missing: MissingAttachment[]; notes: string[]; ciUrl?: string; ci?: unknown } {
   const chosen = format ?? detectFormat(source, file);
   const missing: MissingAttachment[] = [];
   if (chosen === 'allure') throw new UnknownFormatError(file, 'allure-results is a folder, and this is a file.');
   const notes: string[] = [];
+  if (chosen !== 'lighthouse' && options.minScores !== undefined && Object.keys(options.minScores).length > 0) {
+    notes.push(`plune: --min-score is for Lighthouse reports, and ${printable(file)} is ${chosen} — ignored.`);
+  }
   if (chosen === 'junit') return { format: chosen, results: readJUnit(source, file, missing, notes), missing, notes };
+  if (chosen === 'k6') return { format: chosen, results: readK6(source, file), missing, notes };
+  if (chosen === 'lighthouse') {
+    return { format: chosen, results: readLighthouse(source, file, options.minScores, notes), missing, notes };
+  }
   // A Playwright JSON report names its files itself; nothing in it can be announced and then absent.
   return { format: chosen, ...readPlaywrightJson(source, file), missing, notes };
 }

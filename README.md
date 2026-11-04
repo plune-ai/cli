@@ -122,7 +122,7 @@ the last resort, used only when `PLUNE_TOKEN` is set nowhere else. Nothing write
 | `plune login` | Save a [Plune platform](https://plune.ai/platform) API token so `sync` and `ingest` can reach it. The token is **checked against the API before it is saved**, so a wrong one fails here rather than two commands later. Get one at `https://beta.plune.ai` → Account → API tokens. Flags: `--token <token>` (omit to paste it or pipe it via stdin), `--skip-verify` (save without checking, for offline setup). In CI, skip this step: every platform command reads `PLUNE_TOKEN` from the environment first, and the saved login only when it is not set. |
 | `plune logout` | Remove the saved token. |
 | `plune sync` | Upload the latest local run to the platform. Flags: `--file <path>` to send a specific run JSON, `--fail-on-failures` to read the run's summary back once after the upload and exit with [the gate](#a-release-gate---fail-on-failures)'s code. Each upload carries an `Idempotency-Key` (SHA-256 of the body), so sending the same run again returns the same run rather than creating a second one. Against a platform with `POST /v1/jobs` the upload is also reported as a job (kind `sync`, counting the run's rows) that ends completed, or failed with the error text if the sync fails; an older platform without the route is not told, and a job report never fails the sync: when the sync goes through, one the platform did not take is said in one line on stderr. |
-| `plune run import <file \| folder>` | Turn a **JUnit XML** or **Playwright JSON** report, a **folder of JUnit XML files** (Maven Surefire's `target/surefire-reports`, Gradle's `build/test-results/test`), or an **Allure `allure-results` folder**, into a run in Plune. Needs no provider key — nothing is generated. Flags: `--format junit\|playwright-json\|allure` (detected when omitted: a folder with a `*-result.json` is Allure, any other folder is read as the JUnit `*.xml` files in it), `--name <text>` to call the run something other than the [folder-based default](#what-the-run-is-called), `--key <externalKey>` to land several reports in one run (with `PLUNE_SHARED_RUN=1` — see below), `--create` to offer unmatched tests to the review queue, `--fail-on-missing-attachments` to exit 1 when a file a JUnit report names with `[[ATTACHMENT\|path]]`, or an Allure result names as a `source`, is not there (the results are sent either way), `--upload-concurrency <n>` for files uploaded at once ([1 to 32, default 16](#many-screenshots-upload-concurrency-and-retries)), `--fail-on-failures` to exit with [the gate](#a-release-gate---fail-on-failures)'s code on the summary the platform froze when this import finished the run. |
+| `plune run import <file \| folder>` | Turn a **JUnit XML** or **Playwright JSON** report, a **k6 summary** or **Lighthouse JSON** report, a **folder of JUnit XML files** (Maven Surefire's `target/surefire-reports`, Gradle's `build/test-results/test`), or an **Allure `allure-results` folder**, into a run in Plune. Needs no provider key — nothing is generated. Flags: `--format junit\|playwright-json\|allure\|k6\|lighthouse` (detected when omitted: a folder with a `*-result.json` is Allure, any other folder is read as the JUnit `*.xml` files in it), `--name <text>` to call the run something other than the [folder-based default](#what-the-run-is-called), `--min-score <category>=<0-100>` (repeatable) for the score a [Lighthouse](#a-k6-summary-or-a-lighthouse-report) category needs to pass, `--key <externalKey>` to land several reports in one run (with `PLUNE_SHARED_RUN=1` — see below), `--create` to offer unmatched tests to the review queue, `--fail-on-missing-attachments` to exit 1 when a file a JUnit report names with `[[ATTACHMENT\|path]]`, or an Allure result names as a `source`, is not there (the results are sent either way), `--upload-concurrency <n>` for files uploaded at once ([1 to 32, default 16](#many-screenshots-upload-concurrency-and-retries)), `--fail-on-failures` to exit with [the gate](#a-release-gate---fail-on-failures)'s code on the summary the platform froze when this import finished the run. |
 | `plune run start` | Open a platform run — or join the one already carrying `--key` — and print its id. Flags: `--key <externalKey>` (generated when absent), `--name <text>` to call the run something other than the [default](#what-the-run-is-called), `--json` for one machine-readable line. |
 | `plune run finish <id>` | Close a platform run. This is what the reporter tells you to do for a run it had to leave open. Flags: `--terminate` to record it as cut short, `--reason <text>`, `--fail-on-failures` to exit with [the gate](#a-release-gate---fail-on-failures)'s code on the summary the platform froze. |
 | `plune run exec -- <command>` | Open a run, run the command inside it, close the run — and exit with whatever the command returned. Sets `PLUNE_SHARED_RUN` for you, so anything reporting inside joins that run. Flags: `--key <externalKey>`, `--name <text>` (as on `run start`), `--fail-on-failures` to exit with [the gate](#a-release-gate---fail-on-failures)'s code instead — or with the command's own when no result reached the run. |
@@ -242,6 +242,8 @@ plune run import ./junit.xml          # Jest, Vitest, pytest, PHPUnit, Surefire,
 plune run import target/surefire-reports   # or a folder of JUnit files: Maven, Gradle — see Java below
 plune run import ./playwright.json    # or Playwright's own JSON report
 plune run import ./allure-results     # or the folder an Allure adapter wrote — see below
+plune run import ./summary.json       # or a k6 summary, thresholds as pass or fail — see below
+plune run import ./lighthouse.json    # or a Lighthouse report, a category per result — see below
 ```
 
 The format is read from the file, not from its name. Statuses go over as the report wrote them and
@@ -409,6 +411,32 @@ attachments without a leading underscore.
 For a JUnit report, check that the output reaches the report: Gradle writes it only with `reports.junitXml.outputPerTestCase = true`,
 and Maven Surefire moves it out of the XML when `redirectTestOutputToFile` is `true`. As in the Playwright
 reporter, a file whose name starts with an underscore is skipped, and a file several tests name is uploaded once per test.
+
+### A k6 summary or a Lighthouse report
+
+Plune runs no load or page-speed tests of its own: it takes the results of the tools that do, as a run.
+
+**k6.** Import the end-of-test summary, written with `k6 run --summary-export=summary.json script.js` or
+from `handleSummary` (`return { 'summary.json': JSON.stringify(data) }`; both have the same `metrics`).
+Each threshold of each metric is one result, named after the metric and the expression
+(`http_req_duration p(95)<500`): passed when k6 says the threshold held, failed when it was crossed. The
+metric's measured values (`avg`, `p(95)`, `rate`, …) are the result's message. A summary with no
+thresholds is refused (exit 2) and nothing is imported: k6 judged nothing, so there is nothing to pass or fail.
+
+**Lighthouse.** Import the JSON report, `lighthouse <url> --output=json --output-path=lighthouse.json`. Each
+category in it (`performance`, `accessibility`, `best-practices`, `seo`, …) is one result, named after the
+category and the page, with the score as Lighthouse shows it, 0–100. It passes at or above the bar:
+`--min-score performance=80` sets it per category (repeat the flag), and a category you do not name needs 90,
+where Lighthouse's own "good" band starts. A category Lighthouse could not score (`null`) fails and says so;
+a report that stopped on a runtime error (`NO_FCP`, …) fails every category with that error's message.
+
+```bash
+plune run import summary.json
+plune run import lighthouse.json --min-score performance=80 --min-score seo=95
+```
+
+Both are recognised by their own keys (`metrics` for k6, `lighthouseVersion` and `categories` for
+Lighthouse), never by the file name; `--format k6` or `--format lighthouse` says it outright.
 
 ### Several jobs, one run
 

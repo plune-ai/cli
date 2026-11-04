@@ -26,6 +26,8 @@ export interface ImportOptions extends RunCommandDeps {
   format?: ImportFormat;
   /** The key several jobs share so their reports land in one run. */
   key?: string;
+  /** `--min-score category=n`: the score a Lighthouse category needs to pass; 90 for one not named. */
+  minScores?: Record<string, number>;
   /** `--name`: the run's title in the list, over `PLUNE_RUN_TITLE` and the default made from the folder. */
   name?: string;
   /** Offer tests that resolved to nothing to the review queue (the `PLUNE_CREATE=1` switch, D14). */
@@ -131,7 +133,9 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
     } catch {
       throw new RunCommandError(`Cannot read ${printable(options.file)}.`);
     }
-    read = readReport(source, options.file, options.format);
+    read = readReport(source, options.file, options.format, {
+      ...(options.minScores !== undefined ? { minScores: options.minScores } : {}),
+    });
   }
   const { format, results, missing, notes, ciUrl, ci } = read;
   if (results.length === 0) {

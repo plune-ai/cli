@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync, realpathSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseDuration } from './util/duration.js';
+import { parseMinScore } from './importers/min-score.js';
 import type { ReportFormat } from './reporters/index.js';
 import type { ImportFlags } from './cli/commands/requirements-import.js';
 import type { LinksFlags } from './cli/commands/requirements-links.js';
@@ -415,12 +416,23 @@ export function createProgram(): Command {
     .command('import')
     .argument(
       '<file>',
-      'A JUnit XML or Playwright JSON report, a folder of JUnit XML files (target/surefire-reports, build/test-results/test), or an Allure allure-results folder',
+      'A JUnit XML or Playwright JSON report, a k6 summary or Lighthouse JSON report, a folder of JUnit XML files (target/surefire-reports, build/test-results/test), or an Allure allure-results folder',
     )
     .description('Turn a report another runner wrote into a run in Plune — no provider key needed')
     .option(
       '--format <fmt>',
-      'junit | playwright-json | allure; detected when omitted (a folder with a *-result.json is allure, any other folder is its *.xml files as junit)',
+      'junit | playwright-json | allure | k6 | lighthouse; detected when omitted (a folder with a *-result.json is allure, any other folder is its *.xml files as junit)',
+    )
+    .option(
+      '--min-score <category=score>',
+      'Lighthouse: the score (0-100) a category needs to pass, e.g. performance=90; repeat it per category. A category not named needs 90',
+      (v: string, previous: Record<string, number> | undefined) => {
+        try {
+          return parseMinScore(v, previous);
+        } catch (err) {
+          throw new InvalidArgumentError((err as Error).message);
+        }
+      },
     )
     .option('--key <externalKey>', 'The key several jobs share so their reports land in one run')
     .option('--name <text>', 'What to call the run in the list (default: the folder name, the time and where it ran; PLUNE_RUN_TITLE sets it too)')
@@ -454,6 +466,7 @@ export function createProgram(): Command {
           format?: string;
           key?: string;
           name?: string;
+          minScore?: Record<string, number>;
           create: boolean;
           uploadConcurrency?: number;
           timeout?: number;
@@ -488,6 +501,7 @@ export function createProgram(): Command {
             ...(format !== undefined ? { format: format as (typeof IMPORT_FORMATS)[number] } : {}),
             ...(options.key !== undefined ? { key: options.key } : {}),
             ...(options.name !== undefined ? { name: options.name } : {}),
+            ...(options.minScore !== undefined ? { minScores: options.minScore } : {}),
             ...(options.create ? { create: true } : {}),
             ...(options.uploadConcurrency !== undefined ? { uploadConcurrency: options.uploadConcurrency } : {}),
             ...(options.timeout !== undefined ? { timeoutSec: options.timeout } : {}),

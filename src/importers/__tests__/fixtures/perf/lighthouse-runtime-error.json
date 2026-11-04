@@ -1,0 +1,17 @@
+{
+  "lighthouseVersion": "12.8.2",
+  "requestedUrl": "http://localhost:4173/",
+  "finalDisplayedUrl": "http://localhost:4173/",
+  "fetchTime": "2026-11-04T09:20:44.501Z",
+  "runtimeError": {
+    "code": "NO_FCP",
+    "message": "The page did not paint any content. Please ensure you keep the browser window in the foreground during the load and try again. (NO_FCP)"
+  },
+  "runWarnings": [],
+  "audits": {},
+  "categories": {
+    "performance": { "title": "Performance", "id": "performance", "score": null, "auditRefs": [] },
+    "seo": { "title": "SEO", "id": "seo", "score": null, "auditRefs": [] }
+  },
+  "timing": { "total": 30412.0 }
+}
