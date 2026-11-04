@@ -415,7 +415,7 @@ describe('CLI · run import · Allure · a folder that is not a report', () => {
   it('a result that starts with a byte order mark (an editor or a Windows tool wrote it) still reads, as passed', () => {
     const dir = path.join(tmp, 'allure-results');
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'bom-result.json'), `﻿${JSON.stringify(t())}`, 'utf8');
+    fs.writeFileSync(path.join(dir, 'bom-result.json'), `\uFEFF${JSON.stringify(t())}`, 'utf8');
     const [r, ...rest] = readAllure(dir);
     expect(rest).toHaveLength(0);
     expect(r?.title).toBe('adds');
