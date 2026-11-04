@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **`usage.priced` tells a known $0 from a price nobody knows (#151).** `plune sync` wrote `usage.cost_usd: 0` both for a model whose price is unknown and for a model whose price is known and zero (an OpenRouter `:free` model, `pricing: 0` for a local model), so the platform could not tell them apart. Now `usage` carries `priced: boolean`: `true` when the price is known, a zero price and a provider-reported actual cost included; `false` when no price exists for the model. A row is `priced: false` if any of its calls (the answer or a judge call) was unpriced; a cache hit takes the flag from the model's price. The field is optional in the RunResult contract and its schema, so a report written before it validates and reads as before, and `schemaVersion` stays 1. `resolveCostEntry` returns the cost with the flag; `resolveCost` is unchanged.
+
 ## [0.32.2] - 2026-11-03
 
 Also `@plune-ai/playwright` **0.7.1** - the adapter embeds `reporter-core`, so both fixes below reach the

@@ -31,6 +31,8 @@ export interface CompletionResponse {
 
 export interface CostEstimate {
   cost_usd: number;
+  /** Whether `cost_usd` is a known price (zero included) rather than the 0 of an unpriced model. Optional and additive. */
+  priced?: boolean;
 }
 
 export interface Provider<_TConfig extends ProviderConfig = ProviderConfig> {

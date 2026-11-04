@@ -41,6 +41,12 @@ export interface Usage {
   input_tokens: number;
   output_tokens: number;
   cost_usd: number;
+  /**
+   * plune-ai/cli#151. `true` when the price of the model is known, a zero price included (a `:free`
+   * model, `pricing: 0`); `false` when nobody has a price and `cost_usd` is a placeholder 0. Optional
+   * and additive: a report without it reads as before, and `schemaVersion` stays 1.
+   */
+  priced?: boolean;
 }
 
 export interface RunError {

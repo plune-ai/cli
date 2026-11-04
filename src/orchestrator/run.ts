@@ -106,6 +106,17 @@ function estimateUsage(
   return { input_tokens: Math.ceil(prompt.length / 4), output_tokens: maxTokens };
 }
 
+function pricedField(priced: boolean | undefined): { priced?: boolean } {
+  return priced === undefined ? {} : { priced };
+}
+
+function costFields(c: { cost_usd: number; priced?: boolean }): {
+  cost_usd: number;
+  priced?: boolean;
+} {
+  return { cost_usd: c.cost_usd, ...pricedField(c.priced) };
+}
+
 export async function runRow(p: RowParams): Promise<RowResult> {
   const t0 = p.now();
   const prompt = resolvePrompt(p.template, p.row.vars);
@@ -117,7 +128,8 @@ export async function runRow(p: RowParams): Promise<RowResult> {
   // --dry-run: estimate cost only; never touch the network or cache (FR-8).
   if (p.dryRun) {
     const est = estimateUsage(prompt, maxTokens);
-    const usage: Usage = { ...est, cost_usd: p.provider.estimateCost(est).cost_usd };
+    const cost = p.provider.estimateCost(est);
+    const usage: Usage = { ...est, ...costFields(cost) };
     return { vars: p.row.vars, output: null, cached: false, usage, assertions: [] };
   }
 
@@ -165,6 +177,8 @@ export async function runRow(p: RowParams): Promise<RowResult> {
       input_tokens: hit.usage.input_tokens,
       output_tokens: hit.usage.output_tokens,
       cost_usd: 0,
+      // A hit costs nothing, but whether that 0 is a known price depends on the model.
+      ...pricedField(p.provider.estimateCost(hit.usage).priced),
     };
     cacheSaved = {
       input_tokens: hit.usage.input_tokens,
@@ -181,12 +195,13 @@ export async function runRow(p: RowParams): Promise<RowResult> {
         prompt_resolved: prompt,
       });
       output = res.output;
+      const cost = p.provider.estimateCost(res.usage, res.cost_usd);
       usage = {
         input_tokens: res.usage.input_tokens,
         output_tokens: res.usage.output_tokens,
         // Prefer the provider-reported actual cost (res.cost_usd) when present; resolveCost still
         // lets a config pricing override win, else falls back to the table estimate (ADR-PRC01).
-        cost_usd: p.provider.estimateCost(res.usage, res.cost_usd).cost_usd,
+        ...costFields(cost),
       };
       // Stored only once the answer is usable: some text, not cut off, no provider error, and the
       // expected format. A wrong-but-well-formed answer (assertions fail below) stays cached.
@@ -208,8 +223,11 @@ export async function runRow(p: RowParams): Promise<RowResult> {
 
   // Row-local judge so judge-call cost is attributed to this row (ADR-OR02).
   let judgeCost = 0;
+  let judgeUnpriced = false;
   const judge = buildJudge(p.provider, p.providerConfig, (u) => {
-    judgeCost += p.provider.estimateCost(u).cost_usd;
+    const c = p.provider.estimateCost(u);
+    judgeCost += c.cost_usd;
+    if (c.priced === false) judgeUnpriced = true;
   });
 
   const records: AssertionResultRecord[] = [];
@@ -237,7 +255,12 @@ export async function runRow(p: RowParams): Promise<RowResult> {
     }
   }
 
-  const finalUsage: Usage = { ...usage, cost_usd: usage.cost_usd + judgeCost };
+  const finalUsage: Usage = {
+    ...usage,
+    cost_usd: usage.cost_usd + judgeCost,
+    // A row is priced only when every call in it was; the field stays absent if the provider never said.
+    ...(judgeUnpriced ? { priced: false } : {}),
+  };
   return {
     vars: p.row.vars,
     output,

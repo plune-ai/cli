@@ -120,6 +120,37 @@ describe('runRow', () => {
     expect(r.usage!.cost_usd).toBeCloseTo(0.5);
   });
 
+  it('usage.priced follows the provider: true for a known $0, false for an unknown price (#151)', async () => {
+    const make = (priced: boolean): Provider => ({
+      complete: async () => ({ output: 'hi', usage: { input_tokens: 1, output_tokens: 1 } }),
+      estimateCost: () => ({ cost_usd: 0, priced }),
+    });
+    const known = await runRow(params({ provider: make(true) }));
+    expect(known.usage).toMatchObject({ cost_usd: 0, priced: true });
+    const unknown = await runRow(params({ provider: make(false) }));
+    expect(unknown.usage).toMatchObject({ cost_usd: 0, priced: false });
+  });
+
+  it('a row is priced only if its judge calls are priced too (#151)', async () => {
+    const provider: Provider = {
+      complete: vi.fn(async () => ({
+        output: '{"passed": true, "reason": "ok"}',
+        usage: { input_tokens: 1, output_tokens: 1 },
+      })),
+      // the answer is priced; the judge call (no reported cost) is not
+      estimateCost: (_u, reported) => ({ cost_usd: 0, priced: reported !== undefined }),
+    };
+    const assertions: AssertionConfig[] = [{ type: 'llm-judge', criteria: 'is a greeting' }];
+    const complete = provider.complete as ReturnType<typeof vi.fn>;
+    complete.mockResolvedValueOnce({
+      output: 'hi',
+      usage: { input_tokens: 1, output_tokens: 1 },
+      cost_usd: 0,
+    });
+    const r = await runRow(params({ assertions, provider }));
+    expect(r.usage!.priced).toBe(false);
+  });
+
   it('on a ProviderError: row.error, output null, no assertions (AC-5)', async () => {
     const complete = vi.fn(async () => {
       throw new ProviderError('PROVIDER_TRANSIENT_EXHAUSTED', 'down');

@@ -43,6 +43,8 @@ const usageSchema = z.object({
   input_tokens: z.number(),
   output_tokens: z.number(),
   cost_usd: z.number(),
+  /** cli#151. Optional and additive — a RunResult written before it validates unchanged. */
+  priced: z.boolean().optional(),
 });
 
 const runErrorSchema = z.object({
