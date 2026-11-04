@@ -51,14 +51,51 @@ export function computeCost(
   return priceFrom(price, usage);
 }
 
+export interface CostEntry {
+  cost_usd: number;
+  /** `true` when the price is known, a zero price included; `false` when nobody knows it (#151). */
+  priced: boolean;
+}
+
 /**
- * Resolve a completion's USD cost, preferring the provider's reported actual cost (ADR-PRC01).
+ * Resolve a completion's USD cost, preferring the provider's reported actual cost (ADR-PRC01), and
+ * say whether that cost is a known price or the `0` of a model nobody has a price for.
  * Priority:
  *   1. config `overrides[model]` (explicit user intent wins — even over a reported actual)
  *   2. `reportedCostUsd` from the provider response (the real charge, e.g. OpenRouter)
  *   3. built-in `table[model]` (token-based estimate)
- *   4. nothing → `0` + one warning (preserves ADR-PRV04)
+ *   4. nothing → `0`, `priced: false` + one warning (preserves ADR-PRV04)
+ * Cases 1–3 are `priced: true`, even when the cost is 0 (a `:free` model, `pricing: 0`).
  */
+export function resolveCostEntry(
+  usage: Usage,
+  model: string,
+  reportedCostUsd: number | undefined,
+  overrides?: PricingMap,
+  deps: ComputeCostDeps = {},
+): CostEntry {
+  const table = deps.table ?? PRICE_TABLE;
+  const warn = deps.warn ?? defaultWarn;
+
+  const override = overrides?.[model];
+  if (override !== undefined) {
+    return { cost_usd: priceFrom(override, usage), priced: true };
+  }
+  if (reportedCostUsd !== undefined) {
+    return { cost_usd: reportedCostUsd, priced: true };
+  }
+  const tablePrice = table[model];
+  if (tablePrice !== undefined) {
+    return { cost_usd: priceFrom(tablePrice, usage), priced: true };
+  }
+  warn(
+    `plune: no price for model "${model}" — reporting cost_usd=0. ` +
+      `Set pricing["${model}"] in plune.yaml to track its cost.`,
+  );
+  return { cost_usd: 0, priced: false };
+}
+
+/** The cost alone; see {@link resolveCostEntry} for whether it is a known price. */
 export function resolveCost(
   usage: Usage,
   model: string,
@@ -66,23 +103,5 @@ export function resolveCost(
   overrides?: PricingMap,
   deps: ComputeCostDeps = {},
 ): number {
-  const table = deps.table ?? PRICE_TABLE;
-  const warn = deps.warn ?? defaultWarn;
-
-  const override = overrides?.[model];
-  if (override !== undefined) {
-    return priceFrom(override, usage);
-  }
-  if (reportedCostUsd !== undefined) {
-    return reportedCostUsd;
-  }
-  const tablePrice = table[model];
-  if (tablePrice !== undefined) {
-    return priceFrom(tablePrice, usage);
-  }
-  warn(
-    `plune: no price for model "${model}" — reporting cost_usd=0. ` +
-      `Set pricing["${model}"] in plune.yaml to track its cost.`,
-  );
-  return 0;
+  return resolveCostEntry(usage, model, reportedCostUsd, overrides, deps).cost_usd;
 }

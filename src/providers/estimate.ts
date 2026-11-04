@@ -7,7 +7,7 @@
 
 import type { Provider } from '../types/provider.js';
 import type { ProviderConfig, PricingMap } from '../types/config.js';
-import { resolveCost, type Usage } from './cost.js';
+import { resolveCostEntry, type Usage } from './cost.js';
 
 export function makeEstimateProvider(config: ProviderConfig, pricing?: PricingMap): Provider {
   return {
@@ -15,8 +15,7 @@ export function makeEstimateProvider(config: ProviderConfig, pricing?: PricingMa
       Promise.reject(
         new Error('The --dry-run provider only estimates cost; it never calls a model.'),
       ),
-    estimateCost: (usage: Usage, reportedCostUsd?: number) => ({
-      cost_usd: resolveCost(usage, config.model, reportedCostUsd, pricing),
-    }),
+    estimateCost: (usage: Usage, reportedCostUsd?: number) =>
+      resolveCostEntry(usage, config.model, reportedCostUsd, pricing),
   };
 }

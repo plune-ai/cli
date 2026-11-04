@@ -9,7 +9,7 @@ import type {
 } from '../types/provider.js';
 import type { ProviderConfig, PricingMap } from '../types/config.js';
 import { withRetry } from './retry.js';
-import { resolveCost, type Usage } from './cost.js';
+import { resolveCostEntry, type Usage } from './cost.js';
 import { AuthError, normalizeProviderError } from './errors.js';
 
 const ENV_VAR = 'ANTHROPIC_API_KEY';
@@ -72,7 +72,7 @@ export function makeAnthropicProvider(
 
     estimateCost(usage: Usage, reportedCostUsd?: number): CostEstimate {
       // Anthropic does not report cost → reportedCostUsd is undefined here; resolveCost estimates.
-      return { cost_usd: resolveCost(usage, config.model, reportedCostUsd, pricing) };
+      return resolveCostEntry(usage, config.model, reportedCostUsd, pricing);
     },
   };
 }

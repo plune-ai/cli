@@ -10,7 +10,7 @@ import type {
 } from '../types/provider.js';
 import type { ProviderConfig, PricingMap } from '../types/config.js';
 import { withRetry } from './retry.js';
-import { resolveCost, type Usage } from './cost.js';
+import { resolveCostEntry, type Usage } from './cost.js';
 import { AuthError, normalizeProviderError } from './errors.js';
 
 const DEFAULT_MAX_RETRIES = 2;
@@ -92,7 +92,7 @@ export function makeOpenAiCompatibleProvider(opts: OpenAiCompatibleOptions): Pro
     },
 
     estimateCost(usage: Usage, reportedCostUsd?: number): CostEstimate {
-      return { cost_usd: resolveCost(usage, config.model, reportedCostUsd, pricing) };
+      return resolveCostEntry(usage, config.model, reportedCostUsd, pricing);
     },
   };
 }

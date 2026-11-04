@@ -177,3 +177,39 @@ describe('runResultSchema — summary blocked / skipped (plune#1245)', () => {
     expect(runResultSchema.safeParse(bad).success).toBe(false);
   });
 });
+
+describe('runResultSchema — usage.priced (#151)', () => {
+  const withUsage = (usage: Record<string, unknown>): unknown => ({
+    ...realCliOutput,
+    evals: [
+      {
+        ...realCliOutput.evals[0]!,
+        rows: [{ ...realCliOutput.evals[0]!.rows[0]!, usage }],
+      },
+    ],
+  });
+
+  it('an old report without usage.priced still validates', () => {
+    const r = runResultSchema.safeParse(
+      withUsage({ input_tokens: 1, output_tokens: 1, cost_usd: 0 }),
+    );
+    expect(r.success).toBe(true);
+  });
+
+  it('accepts usage.priced true and false, and keeps it', () => {
+    for (const priced of [true, false]) {
+      const r = runResultSchema.safeParse(
+        withUsage({ input_tokens: 1, output_tokens: 1, cost_usd: 0, priced }),
+      );
+      expect(r.success).toBe(true);
+      expect(r.success && r.data.evals[0]!.rows[0]!.usage?.priced).toBe(priced);
+    }
+  });
+
+  it('rejects a priced that is not a boolean', () => {
+    const r = runResultSchema.safeParse(
+      withUsage({ input_tokens: 1, output_tokens: 1, cost_usd: 0, priced: 'yes' }),
+    );
+    expect(r.success).toBe(false);
+  });
+});

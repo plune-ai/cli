@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { computeCost, resolveCost } from '../cost.js';
+import { computeCost, resolveCost, resolveCostEntry } from '../cost.js';
 import { PRICE_TABLE } from '../prices.js';
 
 const table = { 'model-x': { input_per_1k_usd: 1, output_per_1k_usd: 2 } };
@@ -84,5 +84,39 @@ describe('resolveCost (provider-reported-cost, ADR-PRC01)', () => {
     expect(resolveCost(usage, 'no-such-model', undefined, undefined, { table, warn })).toBe(0);
     expect(warn).toHaveBeenCalledOnce();
     expect(String(warn.mock.calls[0]![0])).toContain('no-such-model');
+  });
+});
+
+describe('resolveCostEntry — priced tells a known $0 from an unknown price (#151)', () => {
+  const usage = { input_tokens: 1000, output_tokens: 1000 };
+  const zero = { 'free-model': { input_per_1k_usd: 0, output_per_1k_usd: 0 } };
+
+  it('priced is false for a model with no price', () => {
+    const warn = vi.fn();
+    expect(resolveCostEntry(usage, 'no-such-model', undefined, undefined, { table, warn })).toEqual(
+      { cost_usd: 0, priced: false },
+    );
+  });
+
+  it('priced is true for a model with a price, a zero price included', () => {
+    expect(resolveCostEntry(usage, 'model-x', undefined, undefined, { table })).toEqual({
+      cost_usd: 3,
+      priced: true,
+    });
+    expect(resolveCostEntry(usage, 'free-model', undefined, zero, { table })).toEqual({
+      cost_usd: 0,
+      priced: true,
+    });
+    expect(resolveCostEntry(usage, 'free-model', undefined, undefined, { table: zero })).toEqual({
+      cost_usd: 0,
+      priced: true,
+    });
+  });
+
+  it('a provider-reported cost, zero included, counts as a known price', () => {
+    expect(resolveCostEntry(usage, 'no-such-model', 0, undefined, { table })).toEqual({
+      cost_usd: 0,
+      priced: true,
+    });
   });
 });
