@@ -11,6 +11,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-11-05
+
 ### Added
 
 - **k6 summaries and Lighthouse reports import as runs (#149).** `plune run import` reads a k6 end-of-test summary (`--summary-export`, or the `handleSummary` data) and a Lighthouse JSON report, detected by their own keys or named with `--format k6 | lighthouse`. A k6 threshold is one result, `<metric> <expression>`, passed or failed as k6 judged it, with the metric's measured values as its message; a summary with no thresholds is refused with exit 2, since there is nothing to pass or fail. A Lighthouse category is one result, its score shown 0–100 and passed at or above `--min-score <category>=<n>` (repeatable) or 90 for a category not named; a `null` score fails and says so, and a `runtimeError` fails every category with its message (`NO_ERROR`, which older Lighthouse writes into a clean report, is no error). A `--min-score` naming a category the report does not have, or given for a report that is not Lighthouse or for a folder, is refused with exit 2 before any run is opened. A k6 threshold is keyed by the summary file's name too, so two summaries with the same threshold under one `--key` are two results (renaming the file starts a new test); a Lighthouse category is keyed and named by its form factor too (`configSettings.formFactor`), so a mobile and a desktop report of one page both land. A report file that starts with a UTF-8 BOM is read without it, in every format. The results go through the same run and batches as every other import.
