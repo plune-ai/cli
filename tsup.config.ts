@@ -29,7 +29,13 @@ export default defineConfig([
     // lists it separately: an adapter bundles what it imports, and importing the package root
     // would pull the CLI's dependency graph into a project that only wanted to report results
     // (feature ADR C1/0001). Nothing in `src/index.ts` re-exports it, so the two never merge.
-    entry: { index: 'src/index.ts', 'reporter-core': 'src/reporter-core/index.ts' },
+    // `mcp-tools` is separate for the same reason: the platform's built-in agent imports the tool contract and the
+    // executor, never the MCP transport or the CLI.
+    entry: {
+      index: 'src/index.ts',
+      'reporter-core': 'src/reporter-core/index.ts',
+      'mcp-tools': 'src/mcp-tools/index.ts',
+    },
     format: ['esm', 'cjs'],
     target: 'node20',
     // No banner: this is a library entry, imported/required — not an executable.
