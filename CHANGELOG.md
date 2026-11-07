@@ -11,6 +11,15 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-11-07
+
+### Added
+
+- **`plune mcp serve`: the Plune tools for AI agents over MCP stdio (#146, plune-ai/plune#1284).** Claude Code, Codex or any MCP client gets the Plune a token reaches — project context, cases, the review queue, missions, sources, questions, strategy, reports — as tools. At most 20 are listed at once; the rest are found with `plune_discover_tools`. Every write tool takes `dry_run`, a batch stops at 100 items, and every request carries `X-Plune-Session`, so the platform holds the caller to its agent rules: a proposed case lands in the review queue, a bulk decision needs a confirm, and a delete is refused. The token is read as every platform command reads it (`PLUNE_TOKEN`, else the saved login); `--project <id>` (default `PLUNE_PROJECT`) picks the project and `--read-only` offers only the read tools. Without a token it exits 2. stdout carries only the protocol.
+- **`@plune-ai/cli/mcp-tools`: the same tool contract without a transport.** The tool definitions, their input and output schemas and the executor, importing only `zod`, `node:crypto` and `fetch`, so a service can give an agent the same tools without the CLI or MCP.
+
+The adapter stays 0.7.1: nothing it embeds changed.
+
 ## [0.33.0] - 2026-11-05
 
 ### Added
