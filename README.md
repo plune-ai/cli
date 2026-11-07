@@ -121,6 +121,7 @@ the last resort, used only when `PLUNE_TOKEN` is set nowhere else. Nothing write
 | `plune init` | Scaffold `plune.yaml`, a sample dataset, and `.env.example`. Flags: `--yes` (non-interactive), `--force`. |
 | `plune login` | Save a [Plune platform](https://plune.ai/platform) API token so `sync` and `ingest` can reach it. The token is **checked against the API before it is saved**, so a wrong one fails here rather than two commands later. Get one at `https://beta.plune.ai` → Account → API tokens. Flags: `--token <token>` (omit to paste it or pipe it via stdin), `--skip-verify` (save without checking, for offline setup). In CI, skip this step: every platform command reads `PLUNE_TOKEN` from the environment first, and the saved login only when it is not set. |
 | `plune logout` | Remove the saved token. |
+| `plune mcp serve` | Serve the Plune tools to an AI agent (Claude Code, Codex, any MCP client) over **MCP stdio**. See [Plune tools for AI agents](#plune-tools-for-ai-agents-plune-mcp). Flags: `--project <id>` (default `PLUNE_PROJECT`), `--read-only` (offer only the read tools). |
 | `plune sync` | Upload the latest local run to the platform. Flags: `--file <path>` to send a specific run JSON, `--fail-on-failures` to read the run's summary back once after the upload and exit with [the gate](#a-release-gate---fail-on-failures)'s code. Each upload carries an `Idempotency-Key` (SHA-256 of the body), so sending the same run again returns the same run rather than creating a second one. Against a platform with `POST /v1/jobs` the upload is also reported as a job (kind `sync`, counting the run's rows) that ends completed, or failed with the error text if the sync fails; an older platform without the route is not told, and a job report never fails the sync: when the sync goes through, one the platform did not take is said in one line on stderr. |
 | `plune run import <file \| folder>` | Turn a **JUnit XML** or **Playwright JSON** report, a **k6 summary** or **Lighthouse JSON** report, a **folder of JUnit XML files** (Maven Surefire's `target/surefire-reports`, Gradle's `build/test-results/test`), or an **Allure `allure-results` folder**, into a run in Plune. Needs no provider key — nothing is generated. Flags: `--format junit\|playwright-json\|allure\|k6\|lighthouse` (detected when omitted: a folder with a `*-result.json` is Allure, any other folder is read as the JUnit `*.xml` files in it), `--name <text>` to call the run something other than the [folder-based default](#what-the-run-is-called), `--min-score <category>=<0-100>` (repeatable) for the score a [Lighthouse](#a-k6-summary-or-a-lighthouse-report) category needs to pass, `--key <externalKey>` to land several reports in one run (with `PLUNE_SHARED_RUN=1` — see below), `--create` to offer unmatched tests to the review queue, `--fail-on-missing-attachments` to exit 1 when a file a JUnit report names with `[[ATTACHMENT\|path]]`, or an Allure result names as a `source`, is not there (the results are sent either way), `--upload-concurrency <n>` for files uploaded at once ([1 to 32, default 16](#many-screenshots-upload-concurrency-and-retries)), `--fail-on-failures` to exit with [the gate](#a-release-gate---fail-on-failures)'s code on the summary the platform froze when this import finished the run. |
 | `plune run start` | Open a platform run — or join the one already carrying `--key` — and print its id. Flags: `--key <externalKey>` (generated when absent), `--name <text>` to call the run something other than the [default](#what-the-run-is-called), `--json` for one machine-readable line. |
@@ -621,6 +622,32 @@ The token is stored at `~/.config/plune/credentials.json` (mode `0600`, honours 
 and is never printed or logged. `PLUNE_API_URL` points `sync`, `pull` and `push` at a different server —
 useful for a self-hosted backend. The Markdown format `pull` writes and `push` reads is documented at
 [docs.plune.ai/platform/cases/markdown](https://docs.plune.ai/platform/cases/markdown/).
+
+### Plune tools for AI agents: `plune mcp`
+
+`plune mcp serve` gives an agent the same Plune your token reaches — the review queue, cases,
+missions, questions, strategy, reports — as MCP tools over stdio. The agent sees at most 20 tools at
+once; the rest it finds with `plune_discover_tools`. Every write tool takes `dry_run`, batches stop at
+100 items, and the agent is held to the platform's agent rules: a proposed case lands in the review
+queue, a bulk decision needs a confirm, and nothing is deleted through MCP.
+
+Claude Code:
+
+```bash
+claude mcp add plune -- npx -y @plune-ai/cli mcp serve
+```
+
+Codex (`~/.codex/config.toml`):
+
+```toml
+[mcp_servers.plune]
+command = "npx"
+args = ["-y", "@plune-ai/cli", "mcp", "serve"]
+```
+
+The server reads the token the way every platform command does: `PLUNE_TOKEN` from the environment
+(set it in the client's `env` block), else the login `plune login` saved. A read token, or
+`--read-only`, offers only the read tools.
 
 ## Programmatic API
 

@@ -677,6 +677,32 @@ export function createProgram(): Command {
     });
 
   program
+    .command('mcp')
+    .description('Plune tools for AI agents over the Model Context Protocol')
+    .command('serve')
+    .description('Serve the Plune tools over MCP stdio, for Claude Code, Codex and other MCP clients')
+    .option('--project <id>', 'Project the tools work in (default: PLUNE_PROJECT, else the token\'s own project)')
+    .option('--read-only', 'Offer only the read tools, as for a read token', false)
+    .action(async (options: { project?: string; readOnly: boolean }, command: Command) => {
+      const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
+      const { handleMcpServe } = await import('./cli/commands/mcp.js');
+      const { NotLoggedInError } = await import('./cli/commands/sync.js');
+      try {
+        await handleMcpServe(
+          { project: options.project, readOnly: options.readOnly },
+          { version: pkg.version },
+        );
+      } catch (err) {
+        if (err instanceof NotLoggedInError) {
+          process.stderr.write(`plune: ${err.message}\n`);
+          process.exitCode = 2;
+          return;
+        }
+        failUnexpected(err, verbose);
+      }
+    });
+
+  program
     .command('sync')
     .description('Upload your latest local run to the Plune platform (POST /v1/runs)')
     .option('--file <path>', 'Sync a specific run JSON instead of .plune/last-run.json')
