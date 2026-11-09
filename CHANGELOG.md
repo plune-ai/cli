@@ -15,6 +15,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 - **`plune_review_decide` names `policy_refused` (plune-ai/plune#2499).** The tool's description now tells the agent that an entry the platform skips as `policy_refused` was refused by the project's review policy: it is not retried, it needs another reviewer, and its `detail` says why.
 
+### Fixed
+
+- A dataset line that is not valid JSON, or a row without a `vars` object, now stops `plune run` with `<file>:<line>` and exit 2 instead of an internal error (plune-ai/plune#2543).
+
 ## [0.34.2] - 2026-11-09
 
 ### Added
