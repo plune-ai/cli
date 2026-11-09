@@ -38,6 +38,12 @@ export interface RunDiffSummary {
   stablePasses: number;
   errored: number;
   removed: number;
+  /**
+   * Evals with no verdict (plune#2414): the current run errored on them, or the baseline errored
+   * and the current run fails, so there was nothing to compare against. Not a regression, but a
+   * gate must not call such a run green.
+   */
+  unmeasured: number;
   hasRegression: boolean;
 }
 
@@ -88,6 +94,9 @@ export function diffRuns(baseline: RunResult, current: RunResult): RunDiff {
     stablePasses: count('stable-pass'),
     errored: count('errored'),
     removed: count('removed'),
+    unmeasured: evals.filter(
+      (e) => e.current === 'errored' || (e.baseline === 'errored' && e.current === 'failed'),
+    ).length,
     hasRegression: count('regression') > 0,
   };
 

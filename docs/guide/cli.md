@@ -103,6 +103,18 @@ case $code in
 esac
 ```
 
+`plune diff <baseline> <current>` always prints the comparison. With `--fail-on-regression` it sets:
+
+| Exit | Meaning |
+|------|---------|
+| `0` | No regression, and every eval of the current run was measured. Without the flag, always `0`. |
+| `1` | At least one eval went from passed to failed — a regression. |
+| `2` | An input file is missing or is not a `plune run --format json` result. |
+| `3` | No regression, but at least one eval was **not measured**: it errored in the current run, or it errored in the baseline and fails now, so there was nothing to compare. Re-run it. |
+
+An eval new in the current run that fails is reported (`new-fail`) and does not gate. The summary's
+`unmeasured` field holds the count, and the report's headline names it instead of «No regressions».
+
 ---
 
 ## `plune run start · finish · exec · report`

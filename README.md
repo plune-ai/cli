@@ -117,7 +117,7 @@ the last resort, used only when `PLUNE_TOKEN` is set nowhere else. Nothing write
 | ------- | ------- |
 | `plune run` | Run the suite. Flags: `--dry-run` (price the run from the model's rates — no provider key, no network), `--only <id\|tag>` (repeatable), `--bail`, `--no-cache`, `--cache-strict`, `--cache-max-age <duration>`, `--concurrency <n>`, `--format console\|json\|markdown`, `-o, --output <file>`. |
 | `plune report` | Re-render the most recent run. Flags: `--format`, `-o`. |
-| `plune diff <baseline> <current>` | Compare two `plune run --format json` outputs and report pass→fail regressions. Flags: `--fail-on-regression`, `--format`, `-o`. |
+| `plune diff <baseline> <current>` | Compare two `plune run --format json` outputs and report pass→fail regressions. Flags: `--fail-on-regression` (exit `1` on a regression, `3` when none but an eval was not measured), `--format`, `-o`. |
 | `plune init` | Scaffold `plune.yaml`, a sample dataset, and `.env.example`. Flags: `--yes` (non-interactive), `--force`. |
 | `plune login` | Save a [Plune platform](https://plune.ai/platform) API token so `sync` and `ingest` can reach it. The token is **checked against the API before it is saved**, so a wrong one fails here rather than two commands later. Get one at `https://beta.plune.ai` → Account → API tokens. Flags: `--token <token>` (omit to paste it or pipe it via stdin), `--skip-verify` (save without checking, for offline setup). In CI, skip this step: every platform command reads `PLUNE_TOKEN` from the environment first, and the saved login only when it is not set. |
 | `plune logout` | Remove the saved token. |

@@ -115,6 +115,37 @@ describe('plune diff command', () => {
     expect(process.exitCode).toBe(1);
   });
 
+  it('exits 3 WITH --fail-on-regression when nothing regressed but an eval was not measured (#2414)', async () => {
+    const errored: EvalResult = {
+      id: 'a',
+      tags: [],
+      passed: false,
+      rows: [{ vars: {}, output: null, cached: false, error: { code: 'PROVIDER_TRANSIENT_EXHAUSTED', message: 'down' }, assertions: [] }],
+    };
+    const base = write('base.json', runResult([ev('a', true)]));
+    const cur = write('cur.json', runResult([errored]));
+    captureStdout();
+    await createProgram().parseAsync(['node', 'plune', 'diff', base, cur, '--fail-on-regression']);
+    expect(process.exitCode).toBe(3);
+    process.exitCode = 0;
+    await createProgram().parseAsync(['node', 'plune', 'diff', base, cur]);
+    expect(process.exitCode).toBe(0);
+  });
+
+  it('a regression wins over unmeasured evals: exit 1', async () => {
+    const errored: EvalResult = {
+      id: 'b',
+      tags: [],
+      passed: false,
+      rows: [{ vars: {}, output: null, cached: false, error: { code: 'PROVIDER_TRANSIENT_EXHAUSTED', message: 'down' }, assertions: [] }],
+    };
+    const base = write('base.json', runResult([ev('a', true), ev('b', true)]));
+    const cur = write('cur.json', runResult([ev('a', false), errored]));
+    captureStdout();
+    await createProgram().parseAsync(['node', 'plune', 'diff', base, cur, '--fail-on-regression']);
+    expect(process.exitCode).toBe(1);
+  });
+
   it('exits 2 when an input file is missing (AC-6.2)', async () => {
     const cur = write('cur.json', runResult([ev('a', true)]));
     vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
