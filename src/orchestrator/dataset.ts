@@ -3,7 +3,6 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { datasetRowSchema } from '../config/schema.js';
 import type { DatasetRef, DatasetRow } from '../types/config.js';
 import { RunConfigError } from './run.js';
 
@@ -17,19 +16,20 @@ export function loadDataset(ref: DatasetRef, baseDir: string): DatasetRow[] {
     if (line.trim().length === 0) return;
     let row: unknown;
     try {
-      row = JSON.parse(line);
+      // trim() also drops a UTF-8 BOM (U+FEFF), which Notepad and PowerShell write.
+      row = JSON.parse(line.trim());
     } catch (err) {
       throw new RunConfigError(`${ref}:${i + 1}: not valid JSON (${(err as Error).message})`);
     }
-    // Each file row is held to the shape inline `examples:` rows are. The row itself is returned,
-    // not zod's copy, so what a valid file gives the run is unchanged.
-    const checked = datasetRowSchema.safeParse(row);
-    if (!checked.success) {
-      const hasVars = typeof row === 'object' && row !== null && 'vars' in row;
-      const issue = checked.error.issues[0];
-      const why = hasVars
-        ? `${issue?.path.join('.') ?? ''}: ${issue?.message ?? 'invalid'}`
-        : 'this row has no "vars"';
+    // Only the shape that would otherwise crash the run is checked: an object with a `vars` object.
+    // Anything looser that loads today (`expected` not a string, `vars` values null or arrays) still
+    // passes, and the row is returned as parsed, so what a valid file gives the run is unchanged.
+    const vars = isObject(row) ? row['vars'] : undefined;
+    if (!isObject(vars)) {
+      const why =
+        isObject(row) && 'vars' in row
+          ? `vars: Invalid input: expected record, received ${typeName(vars)}`
+          : 'this row has no "vars"';
       throw new RunConfigError(
         `${ref}:${i + 1}: a dataset row must be { "vars": { ... } }; ${why}`,
       );
@@ -37,4 +37,12 @@ export function loadDataset(ref: DatasetRef, baseDir: string): DatasetRow[] {
     rows.push(row as DatasetRow);
   });
   return rows;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function typeName(value: unknown): string {
+  return value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value;
 }

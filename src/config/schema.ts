@@ -23,7 +23,7 @@ const pricingSchema = z.record(z.string(), modelPriceSchema);
 
 // --- Dataset ---
 
-export const datasetRowSchema = z.object({
+const datasetRowSchema = z.object({
   vars: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
   expected: z.string().optional(),
 });
