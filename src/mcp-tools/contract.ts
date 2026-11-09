@@ -127,7 +127,7 @@ export const PLUNE_TOOLS = [
     name: 'plune_review_decide',
     title: 'Decide queue entries',
     description:
-      'Approve or reject up to 100 review queue entries in one decision. The first call changes nothing and returns a preview with a confirm value; repeat the same call with confirm to apply it.',
+      'Approve or reject up to 100 review queue entries in one decision. The first call changes nothing and returns a preview with a confirm value; repeat the same call with confirm to apply it. An entry skipped as policy_refused was refused by the review policy of the project (for example, the person who proposed it cannot approve it): do not retry it — it needs another reviewer; its detail says why.',
     input: z.strictObject({
       itemIds: z
         .array(z.string().min(1))

@@ -143,6 +143,13 @@ describe('the tool contract', () => {
     expect(generate.description).toContain('plune_cases_generation_get');
   });
 
+  it('tells the agent a policy_refused entry needs another reviewer, not a retry (plune-ai/plune#2499)', () => {
+    const decide = pluneTool('plune_review_decide');
+    expect(decide.description).toContain('policy_refused');
+    expect(decide.description).toMatch(/do not retry/);
+    expect(decide.description).toMatch(/another reviewer/);
+  });
+
   it('lookups by an unknown name fail loudly', () => {
     expect(() => pluneTool('plune_nope')).toThrow(/unknown tool/);
   });
