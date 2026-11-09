@@ -47,7 +47,7 @@ evals:                           # required — one or more evals
 |-------|----------|---------|
 | `version` | yes | Schema version. Always `1`. |
 | `provider` | yes | Default model for all evals (see below). |
-| `defaults.assertions` | no | Assertions merged into every eval (shared checks). |
+| `defaults.assertions` | no | Assertions run on every eval (shared checks), ahead of the eval's own. A check listed both here and in an eval runs twice (an `llm-judge` one is also paid twice). An eval that relies on these alone still writes `assertions: []`. |
 | `pricing` | no | Per-model USD price overrides used for cost reporting. |
 | `evals` | yes | The list of evals to run (≥ 1). |
 
