@@ -16,6 +16,7 @@ const BADGE: Record<EvalDiffStatus, string> = {
   'new-pass': '🟢 new pass',
   'stable-pass': '✅ stable',
   errored: '⚠️ errored',
+  unmeasured: '⚠️ not measured (baseline errored)',
   removed: '➖ removed',
 };
 

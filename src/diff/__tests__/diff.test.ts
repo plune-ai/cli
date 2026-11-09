@@ -87,7 +87,8 @@ describe('diffRuns', () => {
       run([ev('a', 'errored'), ev('b', 'errored'), ev('c', 'failed'), ev('d', 'passed'), ev('e', 'passed')]),
     );
     expect(d.summary.unmeasured).toBe(3); // a, b, c
-    expect(d.evals.find((e) => e.id === 'c')!.status).toBe('pre-existing-fail'); // status names stay
+    expect(d.evals.find((e) => e.id === 'c')!.status).toBe('unmeasured'); // not an old failure
+    expect(d.summary.preExistingFails).toBe(0);
     expect(d.evals.find((e) => e.id === 'd')!.status).toBe('improvement'); // measured now and green
     expect(d.summary.hasRegression).toBe(false);
   });

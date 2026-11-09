@@ -112,8 +112,10 @@ esac
 | `2` | An input file is missing or is not a `plune run --format json` result. |
 | `3` | No regression, but at least one eval was **not measured**: it errored in the current run, or it errored in the baseline and fails now, so there was nothing to compare. Re-run it. |
 
-An eval new in the current run that fails is reported (`new-fail`) and does not gate. The summary's
-`unmeasured` field holds the count, and the report's headline names it instead of «No regressions».
+An eval new in the current run that fails is reported (`new-fail`) and does not gate. An eval that
+errored in the baseline and fails now is reported as `unmeasured`, not as a pre-existing fail. The
+summary's `unmeasured` field holds the count, and the report's headline names it instead of «No
+regressions». An eval with at least one failed row counts as failed even if other rows errored.
 
 ---
 
