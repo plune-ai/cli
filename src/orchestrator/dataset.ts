@@ -4,15 +4,45 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { DatasetRef, DatasetRow } from '../types/config.js';
+import { RunConfigError } from './run.js';
 
 export function loadDataset(ref: DatasetRef, baseDir: string): DatasetRow[] {
   if (typeof ref !== 'string') {
     return ref.examples;
   }
   const content = fs.readFileSync(path.resolve(baseDir, ref), 'utf8');
-  return content
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .map((line) => JSON.parse(line) as DatasetRow);
+  const rows: DatasetRow[] = [];
+  content.split(/\r?\n/).forEach((line, i) => {
+    if (line.trim().length === 0) return;
+    let row: unknown;
+    try {
+      // trim() also drops a UTF-8 BOM (U+FEFF), which Notepad and PowerShell write.
+      row = JSON.parse(line.trim());
+    } catch (err) {
+      throw new RunConfigError(`${ref}:${i + 1}: not valid JSON (${(err as Error).message})`);
+    }
+    // Only the shape that would otherwise crash the run is checked: an object with a `vars` object.
+    // Anything looser that loads today (`expected` not a string, `vars` values null or arrays) still
+    // passes, and the row is returned as parsed, so what a valid file gives the run is unchanged.
+    const vars = isObject(row) ? row['vars'] : undefined;
+    if (!isObject(vars)) {
+      const why =
+        isObject(row) && 'vars' in row
+          ? `vars: Invalid input: expected record, received ${typeName(vars)}`
+          : 'this row has no "vars"';
+      throw new RunConfigError(
+        `${ref}:${i + 1}: a dataset row must be { "vars": { ... } }; ${why}`,
+      );
+    }
+    rows.push(row as DatasetRow);
+  });
+  return rows;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function typeName(value: unknown): string {
+  return value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value;
 }
