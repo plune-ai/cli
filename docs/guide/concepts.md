@@ -72,6 +72,11 @@ The point: **a model being down is not the same as your prompt being wrong.** Pl
 exit-codes them separately so an outage in CI doesn't look like a quality regression. `--bail` stops
 the run after the first failing eval.
 
+An errored row is not a pass either. When `plune diff` compares two runs, an eval whose rows errored in
+the current run, or one that errored in the baseline and fails now, has no verdict: it is counted as
+`unmeasured`. With `--fail-on-regression`, a run with no regression but with unmeasured evals exits `3`
+rather than `0` (a regression still exits `1`). See [`plune diff` exit codes](./cli.md#exit-codes).
+
 A row in a RunResult may also say it was never judged: `"inconclusive": "blocked"` or `"skipped"`.
 That word comes first: such a row counts as `blocked` or `skipped` in the summary, whatever its
 assertions or its error say, and it moves no exit code. `plune run` always writes both counters, and

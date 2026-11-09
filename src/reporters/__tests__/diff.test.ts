@@ -21,6 +21,7 @@ const withRegression: RunDiff = {
     stablePasses: 1,
     errored: 1,
     removed: 0,
+    unmeasured: 1,
     hasRegression: true,
   },
 };
@@ -36,8 +37,18 @@ const clean: RunDiff = {
     stablePasses: 1,
     errored: 0,
     removed: 0,
+    unmeasured: 0,
     hasRegression: false,
   },
+};
+
+// plune#2414 — nothing regressed, but one eval was never measured.
+const unmeasured: RunDiff = {
+  evals: [
+    { id: 'err', status: 'errored', baseline: 'passed', current: 'errored' },
+    { id: 'ok', status: 'stable-pass', baseline: 'passed', current: 'passed' },
+  ],
+  summary: { ...clean.summary, errored: 1, unmeasured: 1 },
 };
 
 describe('renderDiffMarkdown', () => {
@@ -57,6 +68,15 @@ describe('renderDiffMarkdown', () => {
     const md = renderDiffMarkdown(clean);
     expect(md).toMatch(/no regress/i);
     expect(md).toContain(STICKY_MARKER);
+  });
+
+  it('an unmeasured eval takes the green «no regressions» header away and is counted (#2414)', () => {
+    const md = renderDiffMarkdown(unmeasured);
+    expect(md).not.toMatch(/no regress/i);
+    expect(md).not.toContain('✅ No');
+    expect(md).toContain('### ⚠️ 1 eval(s) not measured');
+    expect(md).toContain('1 not measured');
+    expect(renderDiff(unmeasured, 'console')).toMatch(/^Plune eval diff: 1 eval\(s\) not measured/);
   });
 
   it('contains no ANSI escapes', () => {

@@ -20,6 +20,7 @@ export type EvalDiffStatus =
   | 'new-pass' // absent in baseline → current passed
   | 'stable-pass' // passed on both
   | 'errored' // current errored — execution error, never a regression (AC-2.6)
+  | 'unmeasured' // baseline errored → current failed: nothing to compare against, not an old failure (plune#2414)
   | 'removed'; // present in baseline, absent in current
 
 export interface EvalDiff {
@@ -38,6 +39,12 @@ export interface RunDiffSummary {
   stablePasses: number;
   errored: number;
   removed: number;
+  /**
+   * Evals with no verdict (plune#2414): the current run errored on them, or the baseline errored
+   * and the current run fails, so there was nothing to compare against. Not a regression, but a
+   * gate must not call such a run green.
+   */
+  unmeasured: number;
   hasRegression: boolean;
 }
 
@@ -64,7 +71,8 @@ function classify(baseline: EvalPresence, current: EvalPresence): EvalDiffStatus
   // baseline ∈ {passed, failed, errored}; current ∈ {passed, failed}
   if (baseline === 'passed') return current === 'passed' ? 'stable-pass' : 'regression';
   // baseline failed or errored → there was no green baseline to regress from
-  return current === 'passed' ? 'improvement' : 'pre-existing-fail';
+  if (current === 'passed') return 'improvement';
+  return baseline === 'errored' ? 'unmeasured' : 'pre-existing-fail';
 }
 
 export function diffRuns(baseline: RunResult, current: RunResult): RunDiff {
@@ -88,6 +96,7 @@ export function diffRuns(baseline: RunResult, current: RunResult): RunDiff {
     stablePasses: count('stable-pass'),
     errored: count('errored'),
     removed: count('removed'),
+    unmeasured: count('errored') + count('unmeasured'),
     hasRegression: count('regression') > 0,
   };
 

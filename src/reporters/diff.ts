@@ -16,8 +16,16 @@ const BADGE: Record<EvalDiffStatus, string> = {
   'new-pass': '🟢 new pass',
   'stable-pass': '✅ stable',
   errored: '⚠️ errored',
+  unmeasured: '⚠️ not measured (baseline errored)',
   removed: '➖ removed',
 };
+
+// The headline: a regression first, then evals never measured (plune#2414), and only then green.
+function headline(d: RunDiff): { mark: string; text: string } | null {
+  if (d.summary.hasRegression) return { mark: '❌', text: `${d.summary.regressions} regression(s)` };
+  if (d.summary.unmeasured > 0) return { mark: '⚠️', text: `${d.summary.unmeasured} eval(s) not measured` };
+  return null;
+}
 
 function summaryLine(d: RunDiff): string {
   const s = d.summary;
@@ -28,17 +36,15 @@ function summaryLine(d: RunDiff): string {
     `${s.preExistingFails} pre-existing-fail`,
     `${s.errored} errored`,
     `${s.removed} removed`,
+    `${s.unmeasured} not measured`,
     `${s.stablePasses} stable`,
   ].join(' · ');
 }
 
 export function renderDiffMarkdown(d: RunDiff): string {
   const out: string[] = [STICKY_MARKER, '## Plune eval diff', ''];
-  out.push(
-    d.summary.hasRegression
-      ? `### ❌ ${d.summary.regressions} regression(s)`
-      : '### ✅ No regressions',
-  );
+  const head = headline(d);
+  out.push(head ? `### ${head.mark} ${head.text}` : '### ✅ No regressions');
   out.push('');
 
   // Stable passes are summarized, not listed — only changes are worth a row.
@@ -56,11 +62,8 @@ export function renderDiffMarkdown(d: RunDiff): string {
 }
 
 function renderDiffConsole(d: RunDiff): string {
-  const out: string[] = [
-    d.summary.hasRegression
-      ? `Plune eval diff: ${d.summary.regressions} regression(s)`
-      : 'Plune eval diff: no regressions',
-  ];
+  const head = headline(d);
+  const out: string[] = [`Plune eval diff: ${head ? head.text : 'no regressions'}`];
   for (const e of d.evals) {
     if (e.status === 'stable-pass') continue;
     out.push(`  ${e.id}: ${e.baseline} -> ${e.current} [${e.status}]`);

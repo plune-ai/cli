@@ -567,7 +567,11 @@ export function createProgram(): Command {
     .argument('<baseline>', 'Path to the baseline run JSON (e.g. from main)')
     .argument('<current>', 'Path to the current run JSON (e.g. from the PR)')
     .option('--format <fmt>', 'console | json | markdown', 'console')
-    .option('--fail-on-regression', 'Exit 1 when a pass→fail regression is detected', false)
+    .option(
+      '--fail-on-regression',
+      'Exit 1 when a pass→fail regression is detected, 3 when none is but an eval was not measured',
+      false,
+    )
     .option('-o, --output <path>', 'Write the diff to a file instead of stdout')
     .action(
       async (
@@ -586,8 +590,12 @@ export function createProgram(): Command {
           writeReport(renderDiff(diff, toFormat(options.format)), options.output);
           // Regression gating is opt-in (AC-4): the diff is always reported; only
           // --fail-on-regression turns a pass→fail regression into a non-zero exit (→ 1, like a
-          // failed run). Input errors take the exit-2 path below.
-          process.exitCode = options.failOnRegression && diff.summary.hasRegression ? 1 : 0;
+          // failed run). With no regression, an eval that was never measured (errored) gives 3:
+          // the gate has no verdict, so it is not green either (plune#2414). Input errors take the
+          // exit-2 path below.
+          process.exitCode = 0;
+          if (options.failOnRegression && diff.summary.hasRegression) process.exitCode = 1;
+          else if (options.failOnRegression && diff.summary.unmeasured > 0) process.exitCode = 3;
         } catch (err) {
           if (err instanceof DiffInputError) {
             process.stderr.write(err.message + '\n');
