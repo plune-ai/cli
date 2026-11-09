@@ -631,6 +631,16 @@ once; the rest it finds with `plune_discover_tools`. Every write tool takes `dry
 100 items, and the agent is held to the platform's agent rules: a proposed case lands in the review
 queue, a bulk decision needs a confirm, and nothing is deleted through MCP.
 
+`plune_cases_generate` asks the project's AI for case proposals from pasted text (a requirement, a
+story, a ticket's text; 20 words to 12 000 characters, up to 12 proposals, 8 by default). It spends the
+project's AI budget, and its proposals wait in the review queue like any other until a person approves
+them. The run is queued: the tool answers with its id, and `plune_cases_generation_get` reads where it
+stands, what it produced and what it cost. A Jira ticket by its key is not taken over MCP: paste its
+text. The platform's refusals (409 `duplicate_source` until `confirmDuplicates: true`, 422 for text
+too short or too long, 429 limits, 503 / 409 when the project's AI is not set up) come back with
+their `code` as the platform sent them. Both tools work in the server's `--project` unless the call
+names a `projectId`.
+
 Claude Code:
 
 ```bash

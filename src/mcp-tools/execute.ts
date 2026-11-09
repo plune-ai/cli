@@ -48,6 +48,8 @@ export const CONFIRM_TTL_MS = 5 * 60 * 1000;
 
 const READ_ONLY_REFUSAL = 'read-only token';
 
+const NO_PROJECT = 'projectId is needed: the server was started without a project (--project or PLUNE_PROJECT). plune_project_context lists the projects.';
+
 const readScopeMessage = (what: string) =>
   `This token has the read scope, so ${what}. Use a token with the write scope (Plune → Account → API tokens) and restart the server.`;
 
@@ -245,6 +247,20 @@ export function createPluneToolExecutor(opts: PluneToolExecutorOptions): PluneTo
       const summary = asRecord((await call(req)).body);
       const proposed = summary['proposed'];
       return { dryRun: false, requested: cases.length, applied: typeof proposed === 'number' ? proposed : 0, report: summary };
+    },
+
+    async plune_cases_generate(i) {
+      const { dry_run, projectId, ...body } = i;
+      const project = (projectId as string | undefined) ?? opts.projectId;
+      if (project === undefined) return fail('invalid_input', NO_PROJECT);
+      return write({ method: 'POST', path: path('/v1/projects/:id/case-generations', project), body: withoutUndefined(body) }, dry_run as boolean | undefined);
+    },
+
+    async plune_cases_generation_get(i) {
+      const project = (i['projectId'] as string | undefined) ?? opts.projectId;
+      if (project === undefined) return fail('invalid_input', NO_PROJECT);
+      const res = await call({ method: 'GET', path: path('/v1/projects/:id/case-generations/:generationId', project, str(i['generationId'])) });
+      return { generation: asRecord(res.body) };
     },
 
     async plune_mission_create(i) {
