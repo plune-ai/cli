@@ -203,6 +203,39 @@ export const proposedCase = z.strictObject({
   rationale: z.string().min(1).max(400).optional().describe('Why the case is worth having'),
 });
 
+// --- Cases from pasted text (plune#1876, plune#1995) ---------------------------------------------
+
+/** The platform's bounds of a run (`POST /v1/projects/:id/case-generations`). */
+export const CASE_GENERATION_TITLE_MAX = 300;
+export const CASE_GENERATION_MAX_CASES = 12;
+export const CASE_GENERATION_DEFAULT_CASES = 8;
+/** Checked by the platform, not here: its 422 (`ticket_too_empty`, `text_too_long`) is what the caller gets back. */
+export const CASE_GENERATION_MIN_WORDS = 20;
+export const CASE_GENERATION_TEXT_MAX = 12_000;
+
+/** The body of the start, pasted text only: a Jira ticket by its key is a person's to start, from the dashboard. */
+export const caseGenerationBody = {
+  input: z.strictObject({
+    kind: z.literal('pasted-text'),
+    text: z
+      .string()
+      .describe(`The requirement, story or ticket text, at least ${CASE_GENERATION_MIN_WORDS} words and at most ${CASE_GENERATION_TEXT_MAX} characters`),
+    title: z.string().trim().max(CASE_GENERATION_TITLE_MAX).optional(),
+  }),
+  maxCases: z
+    .number()
+    .int()
+    .min(1)
+    .max(CASE_GENERATION_MAX_CASES)
+    .optional()
+    .describe(`How many proposals at most; ${CASE_GENERATION_DEFAULT_CASES} when left out`),
+  language: z.string().trim().min(2).max(35).optional().describe("The cases' language; the project's AI language when left out"),
+  confirmDuplicates: z
+    .boolean()
+    .optional()
+    .describe('true: go ahead although cases or proposals from this text exist (the platform answers 409 duplicate_source first)'),
+};
+
 // --- API catalog proposals (#2192) --------------------------------------------------------------
 
 export const API_METHODS = ['GET', 'PUT', 'POST', 'DELETE', 'OPTIONS', 'HEAD', 'PATCH', 'TRACE'] as const;

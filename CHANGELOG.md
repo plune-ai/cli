@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **`plune mcp serve`: cases from pasted text (plune-ai/plune#1876).** `plune_cases_generate` starts a run of the project's AI on pasted text (`POST /v1/projects/:id/case-generations`) with the platform's own body: `input: { kind: 'pasted-text', text, title? }`, `maxCases` (1–12, 8 when left out), `language`, `confirmDuplicates`, plus `dry_run` and an optional `projectId`. The run spends the project's AI budget; its proposals land in the review queue and none becomes a case until a person approves it. The Jira-ticket input is refused before any request. `plune_cases_generation_get` reads a run by the id the start answered with — its state (`queued`, `running`, `done`, `failed`, `cancelled`), counters and cost. A platform refusal (409 `duplicate_source`, 422 `ticket_too_empty` / `text_too_long`, 429, 503 / 409 for the project's AI) comes back with its status, `code` and body unchanged. Both tools are listed from the start; the default list grows from 15 to 17 of at most 20. Starting a run with a token needs a platform version that lets a token start one from pasted text; an older one answers 403.
+
 ## [0.34.1] - 2026-11-09
 
 ### Changed

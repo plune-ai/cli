@@ -226,6 +226,90 @@ describe('plune_case_propose', () => {
   });
 });
 
+describe('plune_cases_generate — cases from pasted text (plune-ai/plune#1876)', () => {
+  const text = 'A shopper adds an item to the cart, reloads the page and still sees the item with its price and quantity kept.';
+  const RUN = {
+    id: 'gen-1',
+    state: 'queued',
+    inputKind: 'pasted-text',
+    maxCases: 8,
+    language: 'en',
+    fetched: { title: 4, text: text.length },
+    redactions: 0,
+    produced: 0,
+    skipped: 0,
+    cost: { inputTokens: null, outputTokens: null, costUsd: null },
+    requestedBy: 'u1',
+    createdAt: '2026-11-09T10:00:00.000Z',
+    startedAt: null,
+    finishedAt: null,
+  };
+
+  it('posts exactly the body the platform takes, under the project, and hands back the run with its id', async () => {
+    const { exec, seen } = executor(() => ({ status: 202, body: RUN }));
+    const data = await ok(exec, 'plune_cases_generate', { input: { kind: 'pasted-text', text, title: 'Cart' }, maxCases: 5, language: 'en', confirmDuplicates: true });
+    expect(seen.map((r) => `${r.method} ${r.url.pathname}`)).toEqual(['POST /v1/projects/proj-1/case-generations']);
+    expect(seen[0]?.body).toEqual({ input: { kind: 'pasted-text', text, title: 'Cart' }, maxCases: 5, language: 'en', confirmDuplicates: true });
+    expect(data).toMatchObject({ dryRun: false, result: { id: 'gen-1', state: 'queued' } });
+  });
+
+  it('sends no field the caller left out, and none of its own (projectId, dry_run)', async () => {
+    const { exec, seen } = executor(() => ({ status: 202, body: RUN }));
+    await ok(exec, 'plune_cases_generate', { projectId: 'proj-2', input: { kind: 'pasted-text', text } });
+    expect(seen[0]?.url.pathname).toBe('/v1/projects/proj-2/case-generations');
+    expect(seen[0]?.body).toEqual({ input: { kind: 'pasted-text', text } });
+  });
+
+  it('dry_run describes the request and sends nothing', async () => {
+    const { exec, seen } = executor();
+    const data = await ok(exec, 'plune_cases_generate', { input: { kind: 'pasted-text', text }, dry_run: true });
+    expect(seen).toHaveLength(0);
+    expect(data).toEqual({ dryRun: true, request: { method: 'POST', path: '/v1/projects/proj-1/case-generations', body: { input: { kind: 'pasted-text', text } } } });
+  });
+
+  it('refuses a Jira ticket before any request', async () => {
+    const { exec, seen } = executor();
+    const out = await exec.execute('plune_cases_generate', { input: { kind: 'jira-ticket', key: 'PROJ-123' } });
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.error.code).toBe('invalid_input');
+    expect(seen).toHaveLength(0);
+  });
+
+  it('asks for a project when the server was started without one', async () => {
+    const platform = fakePlatform();
+    const exec = createPluneToolExecutor({ token: 't', apiUrl: 'https://api.test', fetchImpl: platform.fetchImpl });
+    const out = await exec.execute('plune_cases_generate', { input: { kind: 'pasted-text', text } });
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.error).toMatchObject({ code: 'invalid_input', message: expect.stringContaining('projectId') });
+    expect(platform.seen).toHaveLength(0);
+  });
+
+  it.each([
+    [409, { error: 'cases or proposals from this text already exist — send confirmDuplicates: true to generate anyway', code: 'duplicate_source', duplicates: [] }],
+    [422, { error: 'the text has fewer than 20 words — too little to write cases from', code: 'ticket_too_empty', minWords: 20 }],
+    [422, { error: 'the text is 12001 characters; at most 12000 go to the model — shorten it', code: 'text_too_long', limit: 12_000 }],
+    [429, { error: 'rate limit exceeded — you can start another case generation in 20 minutes', code: 'member_limit' }],
+    [503, { error: 'AI platform not configured — contact your operator', code: 'platform_not_configured' }],
+    [409, { error: 'no AI provider is connected for this project', code: 'ai_not_connected' }],
+    [409, { error: 'AI is disabled for this project', code: 'ai_disabled' }],
+  ])('passes the platform refusal %i through with its error and code', async (status, body) => {
+    const { exec } = executor(() => ({ status, body }));
+    const out = await exec.execute('plune_cases_generate', { input: { kind: 'pasted-text', text } });
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.error).toMatchObject({ status, code: body.code, details: body });
+    expect(out.error.message).toContain(body.error);
+  });
+
+  it('reads where a run stands, with its counters and cost', async () => {
+    const done = { ...RUN, state: 'done', produced: 6, skipped: 1, cost: { inputTokens: 900, outputTokens: 1200, costUsd: 0.004 } };
+    const { exec, seen } = executor(() => ({ status: 200, body: done }), { scope: 'read' });
+    const data = await ok(exec, 'plune_cases_generation_get', { generationId: 'gen-1' });
+    expect(seen.map((r) => `${r.method} ${r.url.pathname}`)).toEqual(['GET /v1/projects/proj-1/case-generations/gen-1']);
+    expect(data).toEqual({ generation: done });
+  });
+});
+
 describe('batch writes report how many were applied', () => {
   it('updates cases one by one and counts the refusals', async () => {
     const { exec, seen } = executor((r) => (r.url.pathname.endsWith('/b') ? { status: 404, body: { error: "test case 'b' not found" } } : { status: 200, body: { id: 'a' } }));

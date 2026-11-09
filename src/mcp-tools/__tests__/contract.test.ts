@@ -44,6 +44,8 @@ describe('the tool contract', () => {
       'plune_review_decide',
       'plune_api_request',
       'plune_discover_tools',
+      'plune_cases_generate',
+      'plune_cases_generation_get',
     ])
       expect(pluneTool(name).name).toBe(name);
   });
@@ -103,9 +105,9 @@ describe('the tool contract', () => {
   });
 
   it('marks which tools write, and every mission writer needs the write scope', () => {
-    for (const name of ['plune_mission_create', 'plune_mission_update', 'plune_source_add', 'plune_question_ask', 'plune_case_propose', 'plune_strategy_propose', 'plune_report_request', 'plune_review_decide', 'plune_cases_update', 'plune_results_write', 'plune_run_create'])
+    for (const name of ['plune_mission_create', 'plune_mission_update', 'plune_source_add', 'plune_question_ask', 'plune_case_propose', 'plune_strategy_propose', 'plune_report_request', 'plune_review_decide', 'plune_cases_update', 'plune_results_write', 'plune_run_create', 'plune_cases_generate'])
       expect(pluneTool(name).write, name).toBe(true);
-    for (const name of ['plune_project_context', 'plune_mission_get', 'plune_question_list', 'plune_get', 'plune_cases_search', 'plune_review_list', 'plune_discover_tools'])
+    for (const name of ['plune_project_context', 'plune_mission_get', 'plune_question_list', 'plune_get', 'plune_cases_search', 'plune_review_list', 'plune_discover_tools', 'plune_cases_generation_get'])
       expect(pluneTool(name).write, name).toBe(false);
   });
 
@@ -124,6 +126,21 @@ describe('the tool contract', () => {
     expect(propose.safeParse({ target: 'https://shop.example', cases: Array(101).fill(one) }).success).toBe(false);
     const update = pluneTool('plune_cases_update').input;
     expect(update.safeParse({ cases: Array(101).fill({ id: 'c', changes: { title: 't' } }) }).success).toBe(false);
+  });
+
+  it('starts cases from pasted text only: the Jira-ticket mode is not offered (plune-ai/plune#1876)', () => {
+    const generate = pluneTool('plune_cases_generate');
+    expect(generate.visibility).toBe('core');
+    const text = 'A shopper adds an item to the cart, reloads the page and still sees the item with its price and quantity kept.';
+    expect(generate.input.safeParse({ input: { kind: 'pasted-text', text } }).success).toBe(true);
+    expect(generate.input.safeParse({ input: { kind: 'pasted-text', text, title: 'Cart' }, maxCases: 12, language: 'en', confirmDuplicates: true }).success).toBe(true);
+    expect(generate.input.safeParse({ input: { kind: 'jira-ticket', key: 'PROJ-123' } }).success).toBe(false);
+    expect(generate.input.safeParse({ input: { kind: 'pasted-text', text, key: 'PROJ-123' } }).success).toBe(false);
+    expect(generate.input.safeParse({ input: { kind: 'pasted-text', text }, maxCases: 13 }).success).toBe(false);
+    expect(generate.input.safeParse({ input: { kind: 'pasted-text', text, title: 'x'.repeat(301) } }).success).toBe(false);
+    expect(generate.description).toMatch(/review queue/);
+    expect(generate.description).toMatch(/AI budget/);
+    expect(generate.description).toContain('plune_cases_generation_get');
   });
 
   it('lookups by an unknown name fail loudly', () => {

@@ -7,6 +7,7 @@ import {
   MISSION_LINK_KINDS,
   batchOutput,
   bulkPreview,
+  caseGenerationBody,
   dryRun,
   entity,
   id,
@@ -53,6 +54,7 @@ const listPage = {
 };
 
 const missionId = id('The mission id');
+const projectId = z.string().min(1).optional().describe('The project; the one the server was started with when left out');
 
 export const PLUNE_TOOLS = [
   define({
@@ -161,6 +163,28 @@ export const PLUNE_TOOLS = [
     write: true,
     visibility: 'core',
     endpoints: ['POST /v1/ingest/cairn'],
+  }),
+  define({
+    name: 'plune_cases_generate',
+    title: 'Generate cases from pasted text',
+    description:
+      "Generate test case proposals from pasted text — a requirement, a user story, the text of a ticket — with the project's AI. It spends the project's AI budget. The proposals land in the review queue and nothing becomes a case until a person approves it. The run is queued: keep its id and poll it with plune_cases_generation_get until it is done. A Jira ticket by its key is not taken here: paste its text.",
+    input: z.strictObject({ projectId, ...caseGenerationBody, dry_run: dryRun }),
+    output: writeOutput,
+    write: true,
+    visibility: 'core',
+    endpoints: ['POST /v1/projects/:id/case-generations'],
+  }),
+  define({
+    name: 'plune_cases_generation_get',
+    title: 'Read a case generation',
+    description:
+      'Check where a run of cases from pasted text stands — queued, running, done, failed or cancelled — with how many proposals it made, how many it skipped, and what it cost.',
+    input: z.strictObject({ projectId, generationId: id('The id the start answered with') }),
+    output: z.object({ generation: entity }),
+    write: false,
+    visibility: 'core',
+    endpoints: ['GET /v1/projects/:id/case-generations/:generationId'],
   }),
   define({
     name: 'plune_mission_create',
