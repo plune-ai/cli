@@ -11,7 +11,7 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
-## [0.35.0] - 2026-11-09
+## [0.34.1] - 2026-11-09
 
 ### Changed
 
