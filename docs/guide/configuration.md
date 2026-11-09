@@ -35,7 +35,7 @@ evals:                           # required — one or more evals
       You are a friendly FAQ bot.
       Question: {{question}}
     dataset: ./data/faq.jsonl    # a JSONL path — OR inline examples (see below)
-    assertions:                  # required — at least one
+    assertions:                  # required — `[]` when defaults.assertions cover it
       - type: faithfulness
         context: "{{context}}"
         threshold: 0.7
@@ -78,7 +78,7 @@ fields fall back to the top-level provider).
 | `prompt` | yes\* | The prompt template. `{{var}}` is replaced from each dataset row's `vars`. |
 | `prompt_file` | yes\* | Path to a file holding the prompt (alternative to `prompt`). |
 | `dataset` | yes | Where the rows come from — a JSONL path or inline `examples`. |
-| `assertions` | yes | The checks to run on each row's output (≥ 1). |
+| `assertions` | yes | The checks to run on each row's output, after `defaults.assertions`. `[]` is allowed when the shared checks cover the eval. |
 
 \* Provide **either** `prompt` **or** `prompt_file`.
 
