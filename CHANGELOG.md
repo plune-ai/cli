@@ -11,6 +11,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.34.3] - 2026-11-09
+
 ### Changed
 
 - **`plune_review_decide` names `policy_refused` (plune-ai/plune#2499).** The tool's description now tells the agent that an entry the platform skips as `policy_refused` was refused by the project's review policy: it is not retried, it needs another reviewer, and its `detail` says why.
