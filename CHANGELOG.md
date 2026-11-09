@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Changed
+
+- **`plune diff --fail-on-regression` exits `3` when an eval was not measured (plune-ai/plune#2414).** An eval that errored in the current run, or errored in the baseline and fails now, has no verdict. Before, such a run exited `0` under a «✅ No regressions» headline, so a gate passed when the model never answered. The summary gains `unmeasured`; the headline reads «⚠️ N eval(s) not measured»; a regression still exits `1` first. An eval that errored in the baseline and fails now gets the new status `unmeasured` instead of `pre-existing-fail`. The `errored` status and every other field are unchanged, and without the flag the exit stays `0`. A CI script that runs `plune diff --fail-on-regression` now fails when the provider was down during the current run.
+
 ### Fixed
 
 - **`defaults.assertions` in `plune.yaml` now run on every eval (plune-ai/plune#2415).** The schema accepted them and the guide promised them, but no eval ran them, so a run stayed green with a shared check that could never pass. They run ahead of each eval's own assertions; a check listed in both places runs twice. An eval still needs its own `assertions` key (`[]` when the shared checks are enough). A suite that relied on them being ignored can now go red.

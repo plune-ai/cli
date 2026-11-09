@@ -80,6 +80,24 @@ describe('diffRuns', () => {
     expect(d.summary.hasRegression).toBe(false);
   });
 
+  // plune#2414 — an eval with no verdict is counted, so a gate can refuse to call it green.
+  it('counts as unmeasured a current errored eval and a baseline errored one that fails now', () => {
+    const d = diffRuns(
+      run([ev('a', 'passed'), ev('b', 'errored'), ev('c', 'errored'), ev('d', 'errored'), ev('e', 'passed')]),
+      run([ev('a', 'errored'), ev('b', 'errored'), ev('c', 'failed'), ev('d', 'passed'), ev('e', 'passed')]),
+    );
+    expect(d.summary.unmeasured).toBe(3); // a, b, c
+    expect(d.evals.find((e) => e.id === 'c')!.status).toBe('unmeasured'); // not an old failure
+    expect(d.summary.preExistingFails).toBe(0);
+    expect(d.evals.find((e) => e.id === 'd')!.status).toBe('improvement'); // measured now and green
+    expect(d.summary.hasRegression).toBe(false);
+  });
+
+  it('a new eval that errors is unmeasured; every eval measured gives 0', () => {
+    expect(diffRuns(run([]), run([ev('a', 'errored')])).summary.unmeasured).toBe(1);
+    expect(diffRuns(run([ev('a', 'failed')]), run([ev('a', 'failed')])).summary.unmeasured).toBe(0);
+  });
+
   it('an eval removed in current is "removed"', () => {
     const d = diffRuns(run([ev('a', 'passed')]), run([]));
     expect(d.evals[0]!.status).toBe('removed');
