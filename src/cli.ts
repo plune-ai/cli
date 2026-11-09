@@ -590,8 +590,8 @@ export function createProgram(): Command {
           writeReport(renderDiff(diff, toFormat(options.format)), options.output);
           // Regression gating is opt-in (AC-4): the diff is always reported; only
           // --fail-on-regression turns a pass→fail regression into a non-zero exit (→ 1, like a
-          // failed run). With no regression, an eval that was never measured (errored) gives 3:
-          // the gate has no verdict, so it is not green either (plune#2414). Input errors take the
+          // failed run). With no regression, an eval that was never measured (errored, or no row judged) gives 3:
+          // the gate has no verdict, so it is not green either (plune#2414, plune#2497). Input errors take the
           // exit-2 path below.
           process.exitCode = 0;
           if (options.failOnRegression && diff.summary.hasRegression) process.exitCode = 1;
