@@ -116,6 +116,7 @@ An eval new in the current run that fails is reported (`new-fail`) and does not 
 errored in the baseline and fails now is reported as `unmeasured`, not as a pre-existing fail. The
 summary's `unmeasured` field holds the count, and the report's headline names it instead of «No
 regressions». An eval with at least one failed row counts as failed even if other rows errored.
+An eval in which no row was judged — every row blocked or skipped, or an empty dataset — counts as not measured too (exit `3`), never as a pass.
 
 ---
 

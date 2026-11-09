@@ -134,3 +134,42 @@ describe('diffRuns', () => {
     expect(d.summary.hasRegression).toBe(false);
   });
 });
+
+// plune#2497: an eval with no judged row (every row blocked or skipped, or no rows) has no verdict.
+describe('diffRuns — an eval with no judged row', () => {
+  const unjudged = (id: string, rows: RowResult[]): EvalResult => ({ id, tags: [], rows, passed: true });
+  const skippedRow = (kind: 'blocked' | 'skipped'): RowResult => ({ ...row(), inconclusive: kind });
+
+  it('counts an eval whose rows are all blocked as unmeasured, not a stable pass', () => {
+    const d = diffRuns(run([ev('a', 'passed')]), run([unjudged('a', [skippedRow('blocked'), skippedRow('skipped')])]));
+    expect(d.evals[0]).toEqual({ id: 'a', status: 'unmeasured', baseline: 'passed', current: 'unjudged' });
+    expect(d.summary.unmeasured).toBe(1);
+    expect(d.summary.stablePasses).toBe(0);
+    expect(d.summary.hasRegression).toBe(false);
+  });
+
+  it('counts an eval with an empty dataset as unmeasured', () => {
+    const d = diffRuns(run([ev('a', 'passed')]), run([unjudged('a', [])]));
+    expect(d.evals[0]!.status).toBe('unmeasured');
+    expect(d.summary.unmeasured).toBe(1);
+  });
+
+  it('counts a new eval with no judged row as unmeasured, not a new pass', () => {
+    const d = diffRuns(run([]), run([unjudged('a', [])]));
+    expect(d.evals[0]!.status).toBe('unmeasured');
+    expect(d.summary.newPasses).toBe(0);
+  });
+
+  it('keeps an eval with one passed row and the rest skipped as passed (plune#1245)', () => {
+    const d = diffRuns(run([ev('a', 'passed')]), run([unjudged('a', [row(), skippedRow('skipped')])]));
+    expect(d.evals[0]!.status).toBe('stable-pass');
+    expect(d.summary.unmeasured).toBe(0);
+  });
+
+  it('treats an unjudged baseline like an errored one: a pass now is an improvement, a fail is unmeasured', () => {
+    const base = run([unjudged('a', []), unjudged('b', [skippedRow('blocked')])]);
+    const d = diffRuns(base, run([ev('a', 'passed'), ev('b', 'failed')]));
+    expect(d.evals.map((e) => e.status)).toEqual(['improvement', 'unmeasured']);
+    expect(d.summary.hasRegression).toBe(false);
+  });
+});
