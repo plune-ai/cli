@@ -15,7 +15,12 @@ export function loadDataset(ref: DatasetRef, baseDir: string): DatasetRow[] {
   const rows: DatasetRow[] = [];
   content.split(/\r?\n/).forEach((line, i) => {
     if (line.trim().length === 0) return;
-    const row: unknown = JSON.parse(line);
+    let row: unknown;
+    try {
+      row = JSON.parse(line);
+    } catch (err) {
+      throw new RunConfigError(`${ref}:${i + 1}: not valid JSON (${(err as Error).message})`);
+    }
     // Each file row is held to the shape inline `examples:` rows are. The row itself is returned,
     // not zod's copy, so what a valid file gives the run is unchanged.
     const checked = datasetRowSchema.safeParse(row);

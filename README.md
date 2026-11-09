@@ -70,10 +70,10 @@ evals:
         value: "Paris"
 ```
 
-Datasets are JSONL, one row per line, shaped `{ "vars": { ... }, "expected"?: "..." }`. A row in
-another shape (no `vars`, or `vars` that is not an object) stops the run before any model call with
-`<file>:<line>` and what is wrong, exit code `2`, like any other configuration error. The
-provider API key is read from the environment based on `provider.type`:
+Datasets are JSONL, one row per line, shaped `{ "vars": { ... }, "expected"?: "..." }`. A line that
+is not valid JSON or not a row (no `vars`, or `vars` that is not an object) stops the run before
+any model call with `<file>:<line>` and what is wrong, exit code `2`, like any other configuration
+error. The provider API key is read from the environment based on `provider.type`:
 
 | Provider   | `provider.type` | Environment variable |
 | ---------- | --------------- | -------------------- |

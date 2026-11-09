@@ -50,6 +50,13 @@ describe('loadDataset', () => {
     );
   });
 
+  it('a line that is not valid JSON is a config error naming the file and line', () => {
+    const dir = tmpDir();
+    fs.writeFileSync(path.join(dir, 'd.jsonl'), '{"vars":{}}\n\n{"vars":{"q":"hi"}\n');
+    expect(() => loadDataset('d.jsonl', dir)).toThrow(RunConfigError);
+    expect(() => loadDataset('d.jsonl', dir)).toThrow(/^d\.jsonl:3: not valid JSON \(.+\)$/);
+  });
+
   it('valid rows come back exactly as written, unknown keys included', () => {
     const dir = tmpDir();
     const lines = ['{"vars":{"q":"hi","n":2,"b":true},"expected":"x","id":"r1"}', '{"vars":{}}'];
