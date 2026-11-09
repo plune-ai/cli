@@ -11,9 +11,13 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.34.4] - 2026-11-09
+
 ### Fixed
 
 - **`plune diff` no longer calls an eval passed when none of its rows was judged (plune-ai/plune#2497).** An eval whose rows were all blocked or skipped, or whose dataset was empty, had no verdict but counted as passed, so `--fail-on-regression` exited `0` under «✅ No regressions». Such an eval is now `unmeasured` and the flag exits `3`. An eval with one passed row and the rest skipped still passes. In `--format json`, `evals[].current` and `evals[].baseline` can now hold `unjudged`; an unjudged baseline counts like an errored one. The badge reads «⚠️ not measured» for every unmeasured eval. A CI gate whose evals were all skipped now fails.
+
+The adapter stays 0.7.1: nothing it embeds changed.
 
 ## [0.34.3] - 2026-11-09
 
