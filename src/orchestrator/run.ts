@@ -395,7 +395,8 @@ export async function runOrchestration(
     const rowResults = await mapLimit(rows, limit, (row) =>
       runRow({
         template,
-        assertions: ev.assertions,
+        // `defaults.assertions` apply to every eval, ahead of its own (#2415).
+        assertions: [...(config.defaults?.assertions ?? []), ...ev.assertions],
         row,
         providerConfig,
         provider,

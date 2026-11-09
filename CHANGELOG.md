@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Fixed
+
+- **`defaults.assertions` in `plune.yaml` now run on every eval (plune-ai/plune#2415).** The schema accepted them and the guide promised them, but no eval ran them, so a run stayed green with a shared check that could never pass. They run ahead of each eval's own assertions. A suite that relied on them being ignored can now go red.
+
 ## [0.34.0] - 2026-11-07
 
 ### Added

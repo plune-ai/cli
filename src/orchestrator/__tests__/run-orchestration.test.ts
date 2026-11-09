@@ -53,6 +53,18 @@ describe('runOrchestration', () => {
     expect(r.config_hash).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it('defaults.assertions run on every eval, before its own (#2415)', async () => {
+    const cfg: Config = {
+      ...config([evalPass, { ...evalPass, id: 'e2' }]),
+      defaults: { assertions: [{ type: 'contains', value: 'NEVER-IN-THE-REPLY' }] },
+    };
+    const r = await runOrchestration(cfg, {}, deps());
+    expect(r.summary).toMatchObject({ total: 2, passed: 0, failed: 2 });
+    for (const ev of r.evals) {
+      expect(ev.rows[0]!.assertions.map((a) => a.type)).toEqual(['contains', 'exact-match']);
+    }
+  });
+
   it('--only filters by id and tag; empty selection → no evals (AC-8)', async () => {
     const cfg = config([evalPass, { ...evalPass, id: 'e2', tags: ['rag'] }]);
     expect((await runOrchestration(cfg, { only: ['e2'] }, deps())).evals.map((e) => e.id)).toEqual(['e2']);
