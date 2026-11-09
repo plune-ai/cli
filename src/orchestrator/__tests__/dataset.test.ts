@@ -13,7 +13,10 @@ function tmpDir(): string {
 describe('loadDataset', () => {
   it('reads a JSONL file (relative to baseDir) into rows', () => {
     const dir = tmpDir();
-    fs.writeFileSync(path.join(dir, 'data.jsonl'), '{"vars":{"a":1}}\n{"vars":{"a":2},"expected":"x"}\n');
+    fs.writeFileSync(
+      path.join(dir, 'data.jsonl'),
+      '{"vars":{"a":1}}\n{"vars":{"a":2},"expected":"x"}\n',
+    );
     const rows = loadDataset('data.jsonl', dir);
     expect(rows).toHaveLength(2);
     expect(rows[0]!.vars).toEqual({ a: 1 });
@@ -48,6 +51,31 @@ describe('loadDataset', () => {
     expect(() => loadDataset('d.jsonl', dir)).toThrow(
       /^d\.jsonl:1: a dataset row must be \{ "vars": \{ \.\.\. \} \}; vars: /,
     );
+  });
+
+  it('names what "vars" is when it is null, an array or a scalar', () => {
+    const dir = tmpDir();
+    const cases: [string, string][] = [
+      ['{"vars":null}', 'received null'],
+      ['{"vars":[1,2]}', 'received array'],
+      ['{"vars":7}', 'received number'],
+    ];
+    for (const [line, received] of cases) {
+      fs.writeFileSync(path.join(dir, 'd.jsonl'), `${line}\n`);
+      expect(() => loadDataset('d.jsonl', dir)).toThrow(
+        `d.jsonl:1: a dataset row must be { "vars": { ... } }; vars: Invalid input: expected record, ${received}`,
+      );
+    }
+  });
+
+  it('a line that parses to something other than an object has no "vars"', () => {
+    const dir = tmpDir();
+    for (const line of ['[1,2]', '"text"', '42', 'null']) {
+      fs.writeFileSync(path.join(dir, 'd.jsonl'), `${line}\n`);
+      expect(() => loadDataset('d.jsonl', dir)).toThrow(
+        'd.jsonl:1: a dataset row must be { "vars": { ... } }; this row has no "vars"',
+      );
+    }
   });
 
   it('a line that is not valid JSON is a config error naming the file and line', () => {
