@@ -9,7 +9,8 @@
 import type { RunResult, EvalResult } from '../types/results.js';
 import { rowStatus } from '../types/results.js';
 
-export type EvalStatus = 'passed' | 'failed' | 'errored';
+// 'unjudged': no row got a verdict — every row blocked or skipped, or no rows at all (plune#2497).
+export type EvalStatus = 'passed' | 'failed' | 'errored' | 'unjudged';
 export type EvalPresence = EvalStatus | 'absent';
 
 export type EvalDiffStatus =
@@ -20,7 +21,7 @@ export type EvalDiffStatus =
   | 'new-pass' // absent in baseline → current passed
   | 'stable-pass' // passed on both
   | 'errored' // current errored — execution error, never a regression (AC-2.6)
-  | 'unmeasured' // baseline errored → current failed: nothing to compare against, not an old failure (plune#2414)
+  | 'unmeasured' // current unjudged, or baseline errored/unjudged → current failed: no verdict to compare (plune#2414, plune#2497)
   | 'removed'; // present in baseline, absent in current
 
 export interface EvalDiff {
@@ -40,8 +41,9 @@ export interface RunDiffSummary {
   errored: number;
   removed: number;
   /**
-   * Evals with no verdict (plune#2414): the current run errored on them, or the baseline errored
-   * and the current run fails, so there was nothing to compare against. Not a regression, but a
+   * Evals with no verdict (plune#2414, plune#2497): the current run errored on them or judged none
+   * of their rows, or the baseline errored or judged none and the current run fails, so there was
+   * nothing to compare against. Not a regression, but a
    * gate must not call such a run green.
    */
   unmeasured: number;
@@ -61,18 +63,19 @@ function evalStatus(e: EvalResult): EvalStatus {
   const statuses = e.rows.map(rowStatus);
   if (statuses.includes('failed')) return 'failed';
   if (statuses.includes('errored')) return 'errored';
-  return 'passed';
+  return statuses.includes('passed') ? 'passed' : 'unjudged';
 }
 
 function classify(baseline: EvalPresence, current: EvalPresence): EvalDiffStatus {
   if (current === 'errored') return 'errored'; // AC-2.6 — infra, never a regression
+  if (current === 'unjudged') return 'unmeasured'; // nothing judged — never green (plune#2497)
   if (baseline === 'absent') return current === 'passed' ? 'new-pass' : 'new-fail';
   if (current === 'absent') return 'removed';
-  // baseline ∈ {passed, failed, errored}; current ∈ {passed, failed}
+  // baseline ∈ {passed, failed, errored, unjudged}; current ∈ {passed, failed}
   if (baseline === 'passed') return current === 'passed' ? 'stable-pass' : 'regression';
-  // baseline failed or errored → there was no green baseline to regress from
+  // baseline failed, errored or unjudged → there was no green baseline to regress from
   if (current === 'passed') return 'improvement';
-  return baseline === 'errored' ? 'unmeasured' : 'pre-existing-fail';
+  return baseline === 'failed' ? 'pre-existing-fail' : 'unmeasured';
 }
 
 export function diffRuns(baseline: RunResult, current: RunResult): RunDiff {
