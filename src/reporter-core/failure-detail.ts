@@ -121,7 +121,7 @@ export function filesOf(attempt: FailedAttempt): ResultFile[] {
  * folder as `~` — any home folder when the root is unknown. The headline and the text both go through
  * here, so neither can name a folder the other hides (#790 AC-05).
  */
-function machineless(raw: string, repoRoot: string | undefined, home: string): string {
+export function machineless(raw: string, repoRoot: string | undefined, home: string): string {
   let text = stripVTControlCharacters(raw).replaceAll('\u001b', '');
   const root = repoRoot === undefined ? undefined : pathIn(repoRoot);
   if (root !== undefined) text = text.replace(new RegExp(`${PATH_START}${root.source}[\\\\/]+`, root.flags), '');
