@@ -1,0 +1,158 @@
+{
+  "kind": "mcp-check-report",
+  "schemaVersion": 1,
+  "command": "check",
+  "plune": "9.9.9",
+  "server": {
+    "name": "check-smoke",
+    "version": "2.0.0"
+  },
+  "transport": "stdio",
+  "protocolVersion": "2025-11-25",
+  "checkTimeout": "15s",
+  "checks": [
+    {
+      "id": "start",
+      "state": "passed",
+      "detail": "the server process started"
+    },
+    {
+      "id": "initialize",
+      "state": "passed",
+      "detail": "serverInfo: check-smoke 2.0.0"
+    },
+    {
+      "id": "protocol-version",
+      "state": "passed",
+      "detail": "2025-11-25, the latest this client offered"
+    },
+    {
+      "id": "capabilities",
+      "state": "passed",
+      "detail": "declared: tools"
+    },
+    {
+      "id": "tools-list",
+      "state": "passed",
+      "detail": "8 tools in 1 page",
+      "count": 8
+    },
+    {
+      "id": "resources-list",
+      "state": "not-applicable",
+      "detail": "the server does not declare resources"
+    },
+    {
+      "id": "resource-templates-list",
+      "state": "not-applicable",
+      "detail": "the server does not declare resources"
+    },
+    {
+      "id": "prompts-list",
+      "state": "not-applicable",
+      "detail": "the server does not declare prompts"
+    },
+    {
+      "id": "ping",
+      "state": "passed",
+      "detail": "answered"
+    }
+  ],
+  "smoke": {
+    "limit": 5,
+    "timeout": "15s",
+    "budget": "60s",
+    "calls": [
+      {
+        "tool": "read_ok",
+        "state": "passed",
+        "detail": "answered without isError"
+      },
+      {
+        "tool": "read_error",
+        "state": "failed",
+        "detail": "isError: the cache is cold"
+      },
+      {
+        "tool": "read_rpc_error",
+        "state": "failed",
+        "detail": "a JSON-RPC error: MCP error -32603: internal failure in read_rpc_error"
+      },
+      {
+        "tool": "no_hints",
+        "state": "not-applicable",
+        "detail": "not-read-only"
+      },
+      {
+        "tool": "read_needs_arg",
+        "state": "not-applicable",
+        "detail": "required-arguments"
+      },
+      {
+        "tool": "write_safe",
+        "state": "not-applicable",
+        "detail": "not-read-only"
+      },
+      {
+        "tool": "read_wipe",
+        "state": "not-applicable",
+        "detail": "destructive"
+      },
+      {
+        "tool": "write_wipe",
+        "state": "not-applicable",
+        "detail": "not-read-only"
+      }
+    ]
+  },
+  "writeCallsAllowed": false,
+  "stderrTail": [],
+  "exitCode": 1,
+  "timing": {
+    "totalMs": 0,
+    "checks": [
+      {
+        "id": "protocol-version",
+        "ms": 0
+      },
+      {
+        "id": "capabilities",
+        "ms": 0
+      },
+      {
+        "id": "tools-list",
+        "ms": 0
+      },
+      {
+        "id": "resources-list",
+        "ms": 0
+      },
+      {
+        "id": "resource-templates-list",
+        "ms": 0
+      },
+      {
+        "id": "prompts-list",
+        "ms": 0
+      },
+      {
+        "id": "ping",
+        "ms": 0
+      }
+    ],
+    "calls": [
+      {
+        "tool": "read_ok",
+        "ms": 0
+      },
+      {
+        "tool": "read_error",
+        "ms": 0
+      },
+      {
+        "tool": "read_rpc_error",
+        "ms": 0
+      }
+    ]
+  }
+}

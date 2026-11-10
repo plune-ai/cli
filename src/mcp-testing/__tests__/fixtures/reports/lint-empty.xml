@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="plune mcp lint" tests="1" failures="0" errors="1" skipped="0">
+  <testsuite name="plune mcp lint" tests="1" failures="0" errors="1" skipped="0">
+    <testcase classname="mcp.lint" name="run">
+      <error type="could-not-run" message="could-not-run: nothing was measured: the server lists no tools">nothing was measured: the server lists no tools
+expected: at least one check that ran
+actual: the server lists no tools
+fix: Point the command at a server that lists what it checks.</error>
+    </testcase>
+  </testsuite>
+</testsuites>

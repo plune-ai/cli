@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="plune mcp check" tests="10" failures="1" errors="0" skipped="3">
+  <testsuite name="plune mcp check" tests="10" failures="1" errors="0" skipped="3">
+    <testcase classname="mcp.check" name="start"/>
+    <testcase classname="mcp.check" name="initialize"/>
+    <testcase classname="mcp.check" name="protocol-version"/>
+    <testcase classname="mcp.check" name="capabilities"/>
+    <testcase classname="mcp.check" name="tools-list"/>
+    <testcase classname="mcp.check" name="resources-list">
+      <skipped type="not-applicable" message="not-applicable: the server does not declare resources">the server does not declare resources
+expected: every page of resources/list within --check-timeout
+actual: the server does not declare resources
+fix: Answer resources/list with a resources array, or do not declare resources.</skipped>
+    </testcase>
+    <testcase classname="mcp.check" name="resource-templates-list">
+      <skipped type="not-applicable" message="not-applicable: the server does not declare resources">the server does not declare resources
+expected: every page of resources/templates/list within --check-timeout
+actual: the server does not declare resources
+fix: Answer resources/templates/list with a resourceTemplates array.</skipped>
+    </testcase>
+    <testcase classname="mcp.check" name="prompts-list">
+      <skipped type="not-applicable" message="not-applicable: the server does not declare prompts">the server does not declare prompts
+expected: every page of prompts/list within --check-timeout
+actual: the server does not declare prompts
+fix: Answer prompts/list with a prompts array, or do not declare prompts.</skipped>
+    </testcase>
+    <testcase classname="mcp.check" name="ping"/>
+    <testcase classname="mcp.check" name="smoke">
+      <failure type="deterministic" message="read_error: isError: the cache is cold (and 1 more)">read_error: isError: the cache is cold
+expected: an answer without isError within --smoke-timeout
+actual: isError: the cache is cold
+fix: Make the tool answer {} without an error, or require its arguments in inputSchema.
+
+read_rpc_error: a JSON-RPC error: MCP error -32603: internal failure in read_rpc_error
+expected: an answer without isError within --smoke-timeout
+actual: a JSON-RPC error: MCP error -32603: internal failure in read_rpc_error
+fix: Make the tool answer {} without an error, or require its arguments in inputSchema.</failure>
+    </testcase>
+  </testsuite>
+</testsuites>

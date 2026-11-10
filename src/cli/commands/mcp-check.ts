@@ -4,8 +4,6 @@
 // measured (3). Exit 2: nothing about the server's health was proven, and the user can fix why. The checks live in
 // src/mcp-testing/check/; nothing here judges an answer.
 
-import { writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { runChecks, realClock, type Clock, type Ran } from '../../mcp-testing/check/run.js';
 import { healthSteps, smokeSteps, type CheckResult } from '../../mcp-testing/check/steps.js';
@@ -17,7 +15,13 @@ import {
 } from '../../mcp-testing/connect/options.js';
 import { ConnectError, openSession, type Session } from '../../mcp-testing/connect/session.js';
 import { MCP_EXIT } from '../../mcp-testing/exit-codes.js';
-import { CHECK_RENDERERS, noCommands } from '../../mcp-testing/render.js';
+import { noCommands } from '../../mcp-testing/report/human.js';
+import {
+  checkRun,
+  reportOutputs,
+  writeReport,
+  type ReportFlags,
+} from '../../mcp-testing/report/index.js';
 import type {
   HealthCheck,
   HealthCheckId,
@@ -28,7 +32,7 @@ import { printable } from '../../reporter-core/failure-detail.js';
 import { parseTimerDuration } from '../../util/duration.js';
 
 /** What commander hands the action: the connection flags and the check's own. */
-export interface McpCheckFlags extends ConnectionFlags {
+export interface McpCheckFlags extends ConnectionFlags, ReportFlags {
   checkTimeout?: string;
   wait?: string;
   smoke?: boolean;
@@ -36,8 +40,6 @@ export interface McpCheckFlags extends ConnectionFlags {
   smokeTimeout?: string;
   budget?: string;
   allowWriteCalls?: boolean;
-  out?: string;
-  format?: string;
 }
 
 export interface CheckIo {
@@ -49,8 +51,6 @@ export interface CheckIo {
   clock?: Clock;
 }
 
-const FORMATS = ['human', 'json'] as const;
-type Format = (typeof FORMATS)[number];
 /** How often --wait tries again. */
 const RETRY_MS = 250;
 /** Server text in a report is cut here: one error message can be megabytes, and the report is meant to be attached. */
@@ -76,7 +76,7 @@ export async function handleMcpCheck(
     err: (text) => raw.err(noCommands(text)),
   };
   try {
-    return await check(flags, server, io);
+    return await check(flags, server, io, raw.out);
   } catch (err) {
     if (err instanceof UsageError) {
       io.err(`plune mcp check: ${err.message}\n`);
@@ -104,9 +104,7 @@ function duration(flag: string, value: string): number {
 }
 
 function parseFlags(flags: McpCheckFlags) {
-  const format = flags.format ?? 'human';
-  if (!(FORMATS as readonly string[]).includes(format))
-    throw new UsageError(`--format must be one of ${FORMATS.join(', ')} (got "${format}").`);
+  const outputs = reportOutputs(flags);
   const smokeLimit = flags.smokeLimit ?? '5';
   if (!/^\d+$/.test(smokeLimit) || Number(smokeLimit) < 1)
     throw new UsageError(
@@ -127,7 +125,7 @@ function parseFlags(flags: McpCheckFlags) {
     wait,
   };
   return {
-    format: format as Format,
+    outputs,
     text,
     checkTimeoutMs: duration('--check-timeout', text.checkTimeout),
     smokeTimeoutMs: duration('--smoke-timeout', text.smokeTimeout),
@@ -171,7 +169,12 @@ const AFTER_HANDSHAKE: HealthCheckId[] = [
   'ping',
 ];
 
-async function check(flags: McpCheckFlags, server: string[], io: CheckIo): Promise<number> {
+async function check(
+  flags: McpCheckFlags,
+  server: string[],
+  io: CheckIo,
+  rawOut: (text: string) => void,
+): Promise<number> {
   const opts = parseFlags(flags);
   const config = connectionConfig(flags, server, io.env);
   if (io.clientVersion !== undefined) config.clientVersion = io.clientVersion;
@@ -285,6 +288,7 @@ async function check(flags: McpCheckFlags, server: string[], io: CheckIo): Promi
   timing.totalMs = Math.max(1, Math.round(performance.now() - began));
 
   const report: McpCheckReport = {
+    kind: 'mcp-check-report',
     schemaVersion: 1,
     command: 'check',
     plune: io.clientVersion ?? '0.0.0',
@@ -307,13 +311,7 @@ async function check(flags: McpCheckFlags, server: string[], io: CheckIo): Promi
     exitCode: exitCode(checks, calls),
     timing,
   };
-  // The file first, and the exit code is the one it records, whatever happens to the printing after it.
-  if (flags.out !== undefined) writeOut(flags.out, CHECK_RENDERERS.json(report));
-  try {
-    io.out(CHECK_RENDERERS[opts.format](report));
-  } catch (err) {
-    io.err(`plune mcp check: could not print the report (${(err as Error).message}).\n`);
-  }
+  writeReport(checkRun(report), opts.outputs, { out: rawOut, err: io.err });
   return report.exitCode;
 }
 
@@ -344,14 +342,4 @@ function exitCode(checks: HealthCheck[], calls: SmokeCall[] | null): 0 | 1 | 3 {
   )
     return MCP_EXIT.unmeasured;
   return MCP_EXIT.ok;
-}
-
-function writeOut(path: string, text: string): void {
-  try {
-    writeFileSync(resolve(path), text);
-  } catch (err) {
-    throw new UsageError(
-      `--out: could not write the report (${(err as NodeJS.ErrnoException).code ?? 'error'}).`,
-    );
-  }
 }

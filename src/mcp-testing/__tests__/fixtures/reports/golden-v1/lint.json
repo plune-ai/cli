@@ -1,0 +1,74 @@
+{
+  "kind": "mcp-lint-report",
+  "schemaVersion": 1,
+  "command": "lint",
+  "server": {
+    "name": "lint-mixed",
+    "version": "1.2.3"
+  },
+  "transport": "stdio",
+  "toolCount": 3,
+  "listing": {
+    "state": "passed",
+    "pages": 1
+  },
+  "failOn": "error",
+  "counts": {
+    "error": 1,
+    "warn": 1,
+    "info": 1,
+    "suppressed": 0
+  },
+  "findings": [
+    {
+      "rule": "input-schema-not-object",
+      "class": "deterministic",
+      "level": "error",
+      "state": "failed",
+      "target": {
+        "tool": "broken"
+      },
+      "message": "The input schema is not a JSON Schema object of type \"object\".",
+      "expected": "inputSchema.type = \"object\"",
+      "actual": "inputSchema.type = undefined",
+      "fix": "Give the tool an inputSchema whose root has \"type\": \"object\" (a tool without parameters: {\"type\": \"object\", \"additionalProperties\": false}).",
+      "specRef": "https://modelcontextprotocol.io/specification/2025-11-25/schema#tool-inputschema"
+    },
+    {
+      "rule": "desc-missing",
+      "class": "deterministic",
+      "level": "warn",
+      "state": "failed",
+      "target": {
+        "tool": "broken"
+      },
+      "message": "The tool has no description.",
+      "expected": "a description",
+      "actual": "none",
+      "fix": "Describe what the tool does, when to use it and when not to: the model chooses tools by name and description alone. The specification does not require a description; this is advice on quality.",
+      "specRef": "https://modelcontextprotocol.io/specification/2025-11-25/schema#tool-description"
+    },
+    {
+      "rule": "annotations-missing",
+      "class": "deterministic",
+      "level": "info",
+      "state": "failed",
+      "target": {
+        "tool": "broken"
+      },
+      "message": "The tool has no annotations.",
+      "expected": "annotations",
+      "actual": "none",
+      "fix": "Add annotations: readOnlyHint, destructiveHint, idempotentHint and openWorldHint tell a client what the tool may do.",
+      "specRef": "https://modelcontextprotocol.io/specification/2025-11-25/schema#tool-annotations"
+    }
+  ],
+  "suppressed": [],
+  "exceptions": {
+    "file": null,
+    "expired": [],
+    "stale": []
+  },
+  "calls": null,
+  "exitCode": 1
+}

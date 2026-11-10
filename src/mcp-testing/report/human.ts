@@ -1,12 +1,20 @@
-import type { CheckClass, CheckLevel, McpReport } from './result.js';
-import type { McpCheckReport } from './result.js';
+import { printable } from '../../reporter-core/failure-detail.js';
+import { MCP_EXIT } from '../exit-codes.js';
+import type {
+  CheckClass,
+  CheckLevel,
+  McpCheckReport,
+  McpDiffReport,
+  McpReport,
+} from '../result.js';
+import { renderDiffMarkdown, renderDiffText } from '../snapshot/index.js';
 
 /**
- * A renderer turns one report into the text a command prints. Every format is one; a new format adds an entry to
- * `RENDERERS` and leaves the report as it is. Text from the server reaches a report already printable (no control
- * character), so a renderer adds none and needs no escaping of its own beyond its format.
+ * The text each command prints of its own report: `human` for every command, and the `markdown` of `diff`, which
+ * came before the shared renderers (./index.ts) and keeps its own table. Text from the server reaches a report
+ * already printable (no control character), so a renderer adds none and needs no escaping of its own beyond its
+ * format.
  */
-export type Renderer = (report: McpReport, opts: { showInfo: boolean }) => string;
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 const target = (t: { tool: string; param?: string }) =>
@@ -23,7 +31,7 @@ const pad = (rows: string[][]) => {
   );
 };
 
-function human(report: McpReport, { showInfo }: { showInfo: boolean }): string {
+export function lintHuman(report: McpReport, { showInfo }: { showInfo: boolean }): string {
   const lines: string[] = [];
   const server =
     report.server === null ? 'unnamed server' : `${report.server.name} ${report.server.version}`;
@@ -96,15 +104,23 @@ function human(report: McpReport, { showInfo }: { showInfo: boolean }): string {
 }
 
 /**
- * No line of our output may read as a CI workflow command: a line that starts with `::` once its leading spaces are
- * gone gets a `?` before the `::`. Every text a command prints goes through here last, whatever produced it.
+ * No line of our output may read as a CI workflow command. The Actions runner reads two forms (actions/runner,
+ * src/Runner.Common/ActionCommand.cs):
+ * - `::name …::data` at the start of a line once its leading white space is trimmed (`TryParseV2`, line 35; .NET
+ *   trims NEL, U+0085, which `\s` does not match): such a line gets a `?` before the `::`;
+ * - the older `##[name …]data` anywhere in the line (`TryParse`, line 132: `IndexOf`, not a prefix), which
+ *   includes `##[set-output …]` and `##[stop-commands]`: every `##[` becomes `##?[`.
+ * Every text a command prints, to stdout or stderr, goes through here last, whatever produced it; a JSON document
+ * goes through `noCommandsJson` instead, the GitHub annotations through their own escaping.
  */
-export const noCommands = (text: string): string => text.replace(/^(\s*)::/gm, '$1?::');
+export const noCommands = (text: string): string =>
+  text.replace(/^([\s\u0085]*)::/gm, '$1?::').replaceAll('##[', '##?[');
 
-export const RENDERERS: Record<'human' | 'json', Renderer> = {
-  human,
-  json: (report) => JSON.stringify(report, null, 2) + '\n',
-};
+/**
+ * `noCommands` for a JSON document: `##[` written as `##\u005b`, which `JSON.parse` reads back as the same text. A
+ * line of JSON never starts with `::` (a string's line breaks are escaped), so that is all it needs.
+ */
+export const noCommandsJson = (json: string): string => json.replaceAll('##[', '##\\u005b');
 
 /** One entry of the rule catalog (`--list-rules`). */
 export interface RuleEntry {
@@ -133,6 +149,7 @@ export const CATALOG_RENDERERS: Record<'human' | 'json', (rules: readonly RuleEn
     json: (rules) =>
       JSON.stringify(
         {
+          kind: 'mcp-lint-rules',
           schemaVersion: 1,
           rules: rules.map(({ id, class: cls, level, description, fix, specRef }) => ({
             id,
@@ -149,7 +166,7 @@ export const CATALOG_RENDERERS: Record<'human' | 'json', (rules: readonly RuleEn
   };
 
 /** `plune mcp check`: one row per check, the smoke calls, and a last line on what the exit code means. */
-function checkHuman(report: McpCheckReport): string {
+export function checkHuman(report: McpCheckReport): string {
   const server =
     report.server === null ? 'unnamed server' : `${report.server.name} ${report.server.version}`;
   const lines = [
@@ -208,7 +225,28 @@ function checkHuman(report: McpCheckReport): string {
   return lines.join('\n') + '\n';
 }
 
-export const CHECK_RENDERERS: Record<'human' | 'json', (report: McpCheckReport) => string> = {
-  human: checkHuman,
-  json: (report) => JSON.stringify(report, null, 2) + '\n',
-};
+/**
+ * Opens a pull request comment of `--format markdown`, so a workflow finds and updates its own comment. Not the eval
+ * diff's marker (`plune diff`): the two comments live side by side in one pull request.
+ */
+export const MCP_DIFF_MARKER = '<!-- plune-mcp-diff -->';
+
+/** Server text reaches the terminal and the comment without a control character, line by line. */
+const flat = (text: string) => text.split('\n').map(printable).join('\n');
+
+const nothingToCompare = (report: McpDiffReport) =>
+  report.exitCode === MCP_EXIT.unmeasured
+    ? 'Nothing to compare: neither snapshot holds a tool, resource, resource template or prompt.'
+    : '';
+
+export function diffHuman(report: McpDiffReport): string {
+  const nothing = nothingToCompare(report);
+  const diff = { changes: report.changes, summary: report.summary };
+  return `${[flat(renderDiffText(diff)), '', ...(nothing === '' ? [] : [nothing]), `failing on: ${report.failOn}`].join('\n')}\n`;
+}
+
+export function diffMarkdown(report: McpDiffReport): string {
+  const nothing = nothingToCompare(report);
+  const diff = { changes: report.changes, summary: report.summary };
+  return `${[MCP_DIFF_MARKER, '### MCP contract', '', flat(renderDiffMarkdown(diff)).trimEnd(), ...(nothing === '' ? [] : ['', nothing])].join('\n')}\n`;
+}

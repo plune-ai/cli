@@ -13,6 +13,7 @@ import type { McpSnapshotFlags } from './cli/commands/mcp-snapshot.js';
 import type { McpDiffFlags } from './cli/commands/mcp-diff.js';
 // The connection flags of `plune mcp` commands: commander and a duration parser, no MCP client (that loads in the action).
 import { addConnectionOptions } from './mcp-testing/connect/options.js';
+import { addReportOptions } from './mcp-testing/report/options.js';
 
 // COLD-START (NFR-1, <300ms): keep this module's top-level imports tiny — commander + node
 // builtins only. The command handlers transitively load heavy deps (@huggingface/transformers,
@@ -717,7 +718,7 @@ export function createProgram(): Command {
       }
     });
 
-  addConnectionOptions(
+  const checkCommand = addConnectionOptions(
     mcp
       .command('check')
       .description(
@@ -730,10 +731,8 @@ export function createProgram(): Command {
     .option('--smoke-limit <n>', 'Call at most this many tools', '5')
     .option('--smoke-timeout <duration>', 'How long to wait for one call (e.g. 15s)', '15s')
     .option('--budget <duration>', 'How long --smoke may take in all (e.g. 60s)', '60s')
-    .option('--allow-write-calls', 'With --smoke, also call tools that are not read-only but say destructiveHint: false; never any other', false)
-    .option('--out <path>', 'Also write the report as JSON to this file: no URL, command, environment or header in it, secrets masked')
-    .option('--format <format>', 'human or json', 'human')
-    .action(
+    .option('--allow-write-calls', 'With --smoke, also call tools that are not read-only but say destructiveHint: false; never any other', false);
+  addReportOptions(checkCommand).action(
       async (server: string[], options: import('./cli/commands/mcp-check.js').McpCheckFlags, command: Command) => {
         const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
         const { handleMcpCheck } = await import('./cli/commands/mcp-check.js');
@@ -750,7 +749,7 @@ export function createProgram(): Command {
       },
     );
 
-  addConnectionOptions(
+  const lintCommand = addConnectionOptions(
     mcp
       .command('lint')
       .description(
@@ -759,13 +758,12 @@ export function createProgram(): Command {
   )
     .option('--fail-on <level>', 'Exit 1 on a finding of this level or above: error, warn, info or never', 'error')
     .option('--show-info', 'Show info findings too (without it they are only counted)', false)
-    .option('--format <format>', 'human or json', 'human')
     .option('--ignore-file <path>', 'Exceptions file (default: plune-mcp-ignore.yaml in this folder, if there is one)')
     .option('--list-rules', 'Print the rule catalog and exit, without connecting to a server', false)
     .option('--call', 'Also call each read-only, non-destructive tool that needs no argument, with {}, and check its answer', false)
     .option('--call-limit <n>', 'Call at most this many tools', '10')
-    .option('--call-timeout <duration>', 'How long to wait for one call (e.g. 15s)', '15s')
-    .action(async (server: string[], options: McpLintFlags, command: Command) => {
+    .option('--call-timeout <duration>', 'How long to wait for one call (e.g. 15s)', '15s');
+  addReportOptions(lintCommand).action(async (server: string[], options: McpLintFlags, command: Command) => {
       const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
       const { handleMcpLint } = await import('./cli/commands/mcp-lint.js');
       try {
@@ -805,7 +803,7 @@ export function createProgram(): Command {
       }
     });
 
-  addConnectionOptions(
+  const diffCommand = addConnectionOptions(
     mcp
       .command('diff')
       .description(
@@ -813,9 +811,8 @@ export function createProgram(): Command {
       )
       .argument('<baseline>', 'The snapshot file to compare with'),
   )
-    .option('--fail-on <level>', 'Exit 1 on a change of this class: breaking, any (not classified too) or none', 'breaking')
-    .option('--format <format>', 'human, json or markdown (a pull request comment)', 'human')
-    .action(async (baseline: string, rest: string[], options: McpDiffFlags, command: Command) => {
+    .option('--fail-on <level>', 'Exit 1 on a change of this class: breaking, any (not classified too) or none', 'breaking');
+  addReportOptions(diffCommand).action(async (baseline: string, rest: string[], options: McpDiffFlags, command: Command) => {
       const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
       const { handleMcpDiff, diffOperands } = await import('./cli/commands/mcp-diff.js');
       const { reportFailure } = await import('./cli/commands/mcp-snapshot.js');

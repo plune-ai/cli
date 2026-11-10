@@ -74,8 +74,18 @@ describe('CLI · mcp connect · cold start', () => {
       .split('\n')
       .filter((l) => l.startsWith('import ') && !l.startsWith('import type '));
     expect(top.join('\n')).not.toMatch(
-      /mcp-testing\/(?!connect\/options\.js')|@modelcontextprotocol|mcp-lint|mcp-check|mcp-snapshot|mcp-diff/,
+      /mcp-testing\/(?!(connect|report)\/options\.js')|@modelcontextprotocol|mcp-lint|mcp-check|mcp-snapshot|mcp-diff/,
     );
+    // The report flags are as light as the connection flags: node, commander's types and connect/options.ts.
+    const report = readFileSync(new URL('../report/options.ts', import.meta.url), 'utf8')
+      .split('\n')
+      .filter((l) => l.startsWith('import '));
+    expect(report).toEqual([
+      "import { statSync } from 'node:fs';",
+      "import { dirname, resolve } from 'node:path';",
+      "import type { Command } from 'commander';",
+      "import { UsageError } from '../connect/options.js';",
+    ]);
   });
 
   it('CLI · mcp connect · mcp is a group: serve and lint under it', () => {

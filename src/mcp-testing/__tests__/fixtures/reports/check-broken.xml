@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="plune mcp check" tests="10" failures="1" errors="0" skipped="1">
+  <testsuite name="plune mcp check" tests="10" failures="1" errors="0" skipped="1">
+    <testcase classname="mcp.check" name="start"/>
+    <testcase classname="mcp.check" name="initialize"/>
+    <testcase classname="mcp.check" name="protocol-version"/>
+    <testcase classname="mcp.check" name="capabilities"/>
+    <testcase classname="mcp.check" name="tools-list"/>
+    <testcase classname="mcp.check" name="resources-list">
+      <failure type="deterministic" message="resources/list answered with a JSON-RPC error: MCP error -32603: the list is broken">resources/list answered with a JSON-RPC error: MCP error -32603: the list is broken
+expected: every page of resources/list within --check-timeout
+actual: resources/list answered with a JSON-RPC error: MCP error -32603: the list is broken
+fix: Answer resources/list with a resources array, or do not declare resources.</failure>
+    </testcase>
+    <testcase classname="mcp.check" name="resource-templates-list"/>
+    <testcase classname="mcp.check" name="prompts-list"/>
+    <testcase classname="mcp.check" name="ping"/>
+    <testcase classname="mcp.check" name="smoke">
+      <skipped type="not-applicable" message="not-applicable: --smoke was not given">--smoke was not given
+expected: an answer without isError within --smoke-timeout
+actual: --smoke was not given
+fix: Make the tool answer {} without an error, or require its arguments in inputSchema.</skipped>
+    </testcase>
+  </testsuite>
+</testsuites>

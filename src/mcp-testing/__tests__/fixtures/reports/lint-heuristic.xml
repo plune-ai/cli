@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="plune mcp lint" tests="28" failures="0" errors="0" skipped="5">
+  <testsuite name="plune mcp lint" tests="28" failures="0" errors="0" skipped="5">
+    <testcase classname="mcp.lint" name="tools-list"/>
+    <testcase classname="mcp.lint" name="input-schema-not-object"/>
+    <testcase classname="mcp.lint" name="output-schema-not-object"/>
+    <testcase classname="mcp.lint" name="required-unknown-property"/>
+    <testcase classname="mcp.lint" name="name-duplicate"/>
+    <testcase classname="mcp.lint" name="name-invalid"/>
+    <testcase classname="mcp.lint" name="desc-missing"/>
+    <testcase classname="mcp.lint" name="desc-short"/>
+    <testcase classname="mcp.lint" name="desc-long"/>
+    <testcase classname="mcp.lint" name="desc-no-when-not"/>
+    <testcase classname="mcp.lint" name="tools-similar"/>
+    <testcase classname="mcp.lint" name="param-enum-in-text"/>
+    <testcase classname="mcp.lint" name="param-type-by-name">
+      <skipped type="advisory" message="advisory: notes_get.count: The name &quot;count&quot; suggests a number, but the parameter is a free string.">notes_get.count: The name "count" suggests a number, but the parameter is a free string.
+expected: a number type or format
+actual: type string, no format
+fix: Give the parameter the type its name promises (number, boolean), or a "format" (date-time, uri).</skipped>
+    </testcase>
+    <testcase classname="mcp.lint" name="param-desc-missing"/>
+    <testcase classname="mcp.lint" name="param-example-missing"/>
+    <testcase classname="mcp.lint" name="required-missing"/>
+    <testcase classname="mcp.lint" name="name-style-mismatch"/>
+    <testcase classname="mcp.lint" name="name-not-snake"/>
+    <testcase classname="mcp.lint" name="annotations-missing"/>
+    <testcase classname="mcp.lint" name="hint-readonly-writes"/>
+    <testcase classname="mcp.lint" name="hint-destructive-understated"/>
+    <testcase classname="mcp.lint" name="hint-idempotent-missing"/>
+    <testcase classname="mcp.lint" name="list-no-paging"/>
+    <testcase classname="mcp.lint" name="list-size"/>
+    <testcase classname="mcp.lint" name="call-result-large">
+      <skipped type="not-applicable" message="not-applicable: --call was not given: no tool was called">--call was not given: no tool was called
+expected: an answer of the tool to judge
+actual: --call was not given: no tool was called
+fix: Return less by default: a page with a cursor, a summary with the details behind another call, or fewer fields.</skipped>
+    </testcase>
+    <testcase classname="mcp.lint" name="call-error-no-text">
+      <skipped type="not-applicable" message="not-applicable: --call was not given: no tool was called">--call was not given: no tool was called
+expected: an answer of the tool to judge
+actual: --call was not given: no tool was called
+fix: Put what went wrong and what to do about it in a text block of the error result: the model reads it to try again.
+spec: https://modelcontextprotocol.io/specification/2025-11-25/server/tools</skipped>
+    </testcase>
+    <testcase classname="mcp.lint" name="call-structured-duplicates-text">
+      <skipped type="not-applicable" message="not-applicable: --call was not given: no tool was called">--call was not given: no tool was called
+expected: an answer of the tool to judge
+actual: --call was not given: no tool was called
+fix: Clients that read structuredContent get the data twice. Keep the JSON text only for clients that need it, or make the text a short summary of the result.</skipped>
+    </testcase>
+    <testcase classname="mcp.lint" name="call-output-schema-mismatch">
+      <skipped type="not-applicable" message="not-applicable: --call was not given: no tool was called">--call was not given: no tool was called
+expected: an answer of the tool to judge
+actual: --call was not given: no tool was called
+fix: Return structuredContent that matches the outputSchema the tool lists, or change the schema to what the tool returns.
+spec: https://modelcontextprotocol.io/specification/2025-11-25/schema#tool-outputschema</skipped>
+    </testcase>
+  </testsuite>
+</testsuites>

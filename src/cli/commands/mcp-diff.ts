@@ -10,29 +10,27 @@ import {
   type ConnectionFlags,
 } from '../../mcp-testing/connect/options.js';
 import { MCP_EXIT } from '../../mcp-testing/exit-codes.js';
-import { noCommands } from '../../mcp-testing/render.js';
+import { noCommands } from '../../mcp-testing/report/human.js';
+import {
+  diffRun,
+  reportOutputs,
+  writeReport,
+  type ReportFlags,
+} from '../../mcp-testing/report/index.js';
 import type { McpDiffReport } from '../../mcp-testing/result.js';
 import {
   diffSnapshots,
   entityCount,
   parseSnapshot,
-  renderDiffMarkdown,
-  renderDiffText,
   SnapshotFormatError,
   type McpSnapshot,
 } from '../../mcp-testing/snapshot/index.js';
-import { printable } from '../../reporter-core/failure-detail.js';
 import { reportFailure, takeSnapshot, type SnapshotIo } from './mcp-snapshot.js';
 
-/**
- * Opens a pull request comment of `--format markdown`, so a workflow finds and updates its own comment. Not the eval
- * diff's marker (`plune diff`): the two comments live side by side in one pull request.
- */
-export const MCP_DIFF_MARKER = '<!-- plune-mcp-diff -->';
+export { MCP_DIFF_MARKER } from '../../mcp-testing/report/human.js';
 
-export interface McpDiffFlags extends ConnectionFlags {
+export interface McpDiffFlags extends ConnectionFlags, ReportFlags {
   failOn?: string;
-  format?: string;
 }
 
 export interface DiffOperands {
@@ -44,7 +42,6 @@ export interface DiffOperands {
 }
 
 const FAIL_ON = ['breaking', 'any', 'none'] as const;
-const FORMATS = ['human', 'json', 'markdown'] as const;
 
 function oneOf<T extends string>(flag: string, value: string, allowed: readonly T[]): T {
   if (!(allowed as readonly string[]).includes(value))
@@ -104,15 +101,20 @@ export async function handleMcpDiff(
     err: (text) => raw.err(noCommands(text)),
   };
   try {
-    return await diff(flags, operands, io);
+    return await diff(flags, operands, io, raw.out);
   } catch (err) {
     return reportFailure('diff', err, io);
   }
 }
 
-async function diff(flags: McpDiffFlags, operands: DiffOperands, io: SnapshotIo): Promise<number> {
+async function diff(
+  flags: McpDiffFlags,
+  operands: DiffOperands,
+  io: SnapshotIo,
+  rawOut: (text: string) => void,
+): Promise<number> {
   const failOn = oneOf('--fail-on', flags.failOn ?? 'breaking', FAIL_ON);
-  const format = oneOf('--format', flags.format ?? 'human', FORMATS);
+  const outputs = reportOutputs(flags, io.cwd);
   const live = operands.server.length > 0 || flags.url !== undefined;
   if (operands.current !== undefined && live)
     throw new UsageError(
@@ -136,6 +138,7 @@ async function diff(flags: McpDiffFlags, operands: DiffOperands, io: SnapshotIo)
     failOn === 'breaking' ? summary.breaking > 0 : failOn === 'any' ? changes.length > 0 : false;
   const nothing = entityCount(before) === 0 && entityCount(after) === 0;
   const report: McpDiffReport = {
+    kind: 'mcp-diff-report',
     schemaVersion: 1,
     command: 'diff',
     failOn,
@@ -143,22 +146,6 @@ async function diff(flags: McpDiffFlags, operands: DiffOperands, io: SnapshotIo)
     changes,
     exitCode: violations ? MCP_EXIT.violations : nothing ? MCP_EXIT.unmeasured : MCP_EXIT.ok,
   };
-  io.out(render(report, format));
+  writeReport(diffRun(report), outputs, { out: rawOut, err: io.err, cwd: io.cwd });
   return report.exitCode;
-}
-
-/** Server text reaches the terminal and the comment without a control character, line by line. */
-const flat = (text: string) => text.split('\n').map(printable).join('\n');
-
-function render(report: McpDiffReport, format: (typeof FORMATS)[number]): string {
-  if (format === 'json') return `${JSON.stringify(report, null, 2)}\n`;
-  const diff = { changes: report.changes, summary: report.summary };
-  const nothing =
-    report.exitCode === MCP_EXIT.unmeasured
-      ? 'Nothing to compare: neither snapshot holds a tool, resource, resource template or prompt.'
-      : '';
-  if (format === 'markdown') {
-    return `${[MCP_DIFF_MARKER, '### MCP contract', '', flat(renderDiffMarkdown(diff)).trimEnd(), ...(nothing === '' ? [] : ['', nothing])].join('\n')}\n`;
-  }
-  return `${[flat(renderDiffText(diff)), '', ...(nothing === '' ? [] : [nothing]), `failing on: ${report.failOn}`].join('\n')}\n`;
 }
