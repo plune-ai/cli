@@ -11,6 +11,14 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Fixed
+
+- **`--fail-on-failures` no longer passes a run that no result reached (plune-ai/plune#2575).** `plune run import` of a report
+  whose cases the project does not have yet sends nothing to the run (`0 accepted · 28 with no matching test case`), and the gate
+  then read `gate passed — 0 failed` and exited `0`, even when the report held failures. Without a runner of its own
+  (`run import`, `run finish`, `sync`), such a run now exits `1`: `gate failed — no result reached the run, so there is nothing
+  to pass.` `run exec` keeps the command's own code, as before.
+
 ## [0.34.5] - 2026-11-10
 
 ### Added

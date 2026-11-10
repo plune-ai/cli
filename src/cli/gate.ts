@@ -18,7 +18,9 @@ export interface Verdict {
  * - 1 on `failed + broken > 0`, and on `notRun > 0`: a dead shard is not green;
  * - `blocked` and `skipped` do not fail it;
  * - 1 with no verdict — the platform did not answer with one, or the run was terminated;
- * - `runnerCode` (`run exec`) is kept when no result reached the run and nothing was expected of it.
+ * - `runnerCode` (`run exec`) is kept when no result reached the run and nothing was expected of it;
+ * - without a runner (`run import`, `run finish`, `sync`), a run no result reached is 1: an import whose cases the project
+ *   does not have yet sends nothing, and a report full of failures must not read as a pass.
  */
 export function gateExit(verdict: Verdict | undefined, runnerCode?: number): { code: number; line: string } {
   if (verdict?.statusEvent === 'terminated') {
@@ -29,8 +31,10 @@ export function gateExit(verdict: Verdict | undefined, runnerCode?: number): { c
 
   const n = (status: string): number => counts[status] ?? 0;
   const notRun = verdict?.notRun?.length ?? 0;
-  if (runnerCode !== undefined && notRun === 0 && Object.values(counts).every((k) => !k)) {
-    return { code: runnerCode, line: `plune: gate — no result reached the run, so the exit code is the command's own (${runnerCode}).` };
+  if (notRun === 0 && Object.values(counts).every((k) => !k)) {
+    return runnerCode !== undefined
+      ? { code: runnerCode, line: `plune: gate — no result reached the run, so the exit code is the command's own (${runnerCode}).` }
+      : { code: 1, line: 'plune: gate failed — no result reached the run, so there is nothing to pass.' };
   }
   const said = `${n('failed')} failed · ${n('broken')} broken · ${notRun} not run · ${n('muted')} muted`;
   return n('failed') + n('broken') > 0 || notRun > 0

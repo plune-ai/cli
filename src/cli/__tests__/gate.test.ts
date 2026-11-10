@@ -54,6 +54,17 @@ describe('gateExit', () => {
     expect(out.line).toMatch(/terminated/);
   });
 
+  // `plune run import` of a report none of whose cases the project has: 28 results read, 0 in the run, and the
+  // report held failures. Nothing reached the run, so there is nothing to pass.
+  it.each([
+    ['no counts at all', {}],
+    ['every count zero', { passed: 0, failed: 0, broken: 0 }],
+  ])('fails a run no result reached, without a runner of its own: %s', (_name, counts) => {
+    const out = gateExit(finished(counts));
+    expect(out.code).toBe(1);
+    expect(out.line).toMatch(/gate failed — no result reached the run/);
+  });
+
   it('reads an absent notRun as nothing expected — a run with no lifecycle answers without it', () => {
     expect(gateExit({ counts: { passed: 1 } }).code).toBe(0);
   });
