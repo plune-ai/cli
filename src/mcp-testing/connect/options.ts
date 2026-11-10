@@ -161,6 +161,13 @@ export function connectionConfig(
     }
     if (url.protocol !== 'http:' && url.protocol !== 'https:')
       throw new UsageError('--url must start with http:// or https://.');
+    // A password in the URL sits on the command line, in shell history and in every echo of the URL; Node's fetch
+    // refuses such a URL anyway. The header route keeps it out of all three.
+    if (url.username !== '' || url.password !== '') {
+      throw new UsageError(
+        '--url must not carry user:password@; put the credentials in a variable and pass --header-env Authorization=VAR.',
+      );
+    }
     return {
       target: {
         kind: flags.sse === true ? 'sse' : 'http',

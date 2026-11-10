@@ -111,6 +111,11 @@ describe('CLI · mcp connect · flags', () => {
     ['--header with a stdio server', ['--header', 'A: b', '--', 'node', 's.js'], /--url/],
     ['--env with --url', ['--url', 'http://127.0.0.1:9/mcp', '--env', 'A=1'], /after --/],
     ['a bad --timeout', ['--timeout', 'soon', '--', 'node', 's.js'], /--timeout/],
+    [
+      '--url with user:password@',
+      ['--url', 'http://alice:pw@127.0.0.1:9/mcp'],
+      /--header-env Authorization=/,
+    ],
   ])('CLI · mcp connect · %s is a usage error: exit 2, one sentence', (_name, argv, text) => {
     const err = usageError(argv, { EMPTY: '' });
     expect(err.exitCode).toBe(MCP_EXIT.usage);
@@ -129,6 +134,8 @@ describe('CLI · mcp connect · flags', () => {
     ]);
     expect(err.message).toContain('MISSING_VAR');
     expect(err.message).not.toContain('s3cret-value');
+    const userinfo = usageError(['--url', 'http://alice:hunter2-pass@127.0.0.1:9/mcp']);
+    expect(userinfo.message).not.toMatch(/alice|hunter2-pass/);
   });
 });
 

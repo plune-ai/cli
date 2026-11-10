@@ -8,7 +8,10 @@ import type { ConnectTarget } from './options.js';
 // - by name: a header or variable whose name says it is a credential is shown as ***, whatever its length;
 // - by value: every value given for the connection (headers, --env, secrets in the URL) is replaced wherever it
 //   appears, because a server may repeat a token in its own error. A value under 8 characters is not searched for
-//   (--env DEBUG=1 must not turn every 1 into ***); only its name can hide it.
+//   (--env DEBUG=1 must not turn every 1 into ***); only its name can hide it. The exception is a value whose name
+//   already says it is a credential and that has no name in a text to hide behind: the URL password, a secret query
+//   value, the password of Basic credentials. Those are searched for whatever their length, and the URL itself is
+//   written in its masked form wherever it appears.
 
 export const MASK = '***';
 const MIN_SECRET_LENGTH = 8;
@@ -47,42 +50,99 @@ export function maskUrl(raw: string): string {
   return url.href.replaceAll('%2A%2A%2A', MASK);
 }
 
-/** Every value of the connection a server could repeat back. */
-function secretsOf(target: ConnectTarget): string[] {
-  const values: string[] = [];
-  if (target.kind === 'stdio') {
-    values.push(...Object.values(target.env));
-  } else {
-    for (const value of Object.values(target.headers)) {
-      values.push(value);
-      // `Bearer <token>`: the token alone is what an error message repeats.
-      const credentials = /^\S+\s+(\S+)$/.exec(value)?.[1];
-      if (credentials !== undefined) values.push(credentials);
-    }
-    try {
-      const url = new URL(target.url);
-      values.push(decodeURIComponent(url.username), decodeURIComponent(url.password));
-      for (const [name, value] of url.searchParams)
-        if (SECRET_QUERY.has(name.toLowerCase())) values.push(value);
-    } catch {
-      // not a URL: options.ts refuses those before a target exists
-    }
+const decoded = (text: string): string => {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return text; // a malformed escape: the raw form is still a secret, and the rest still gets read
   }
-  return values;
+};
+
+/** The query as written, not as URLSearchParams decodes it: a server may echo either form. */
+const rawQuery = (search: string): [string, string][] =>
+  search
+    .slice(1)
+    .split('&')
+    .filter((pair) => pair !== '')
+    .map((pair) => {
+      const eq = pair.indexOf('=');
+      return eq < 0 ? [pair, ''] : [pair.slice(0, eq), pair.slice(eq + 1)];
+    });
+
+interface Secrets {
+  /** Searched for when at least 8 characters long. */
+  values: string[];
+  /** Searched for whatever their length: their name already says they are credentials. */
+  named: string[];
+  /** The forms of the URL to write as `maskUrl` gives it. */
+  urls: string[];
 }
 
-export function createRedactor(secrets: Iterable<string>): Redactor {
+/** Every value of the connection a server could repeat back. */
+function secretsOf(target: ConnectTarget): Secrets {
+  const secrets: Secrets = { values: [], named: [], urls: [] };
+  if (target.kind === 'stdio') {
+    secrets.values.push(...Object.values(target.env));
+    return secrets;
+  }
+  for (const value of Object.values(target.headers)) {
+    secrets.values.push(value);
+    // `Bearer <token>`: the token alone is what an error message repeats. A value of three parts or more
+    // (`Token token="…"`, `Digest …`) is masked whole only; its pieces are not looked for.
+    const [scheme, credentials, ...rest] = value.trim().split(/\s+/);
+    if (credentials === undefined || rest.length > 0) continue;
+    secrets.values.push(credentials);
+    if (scheme?.toLowerCase() !== 'basic') continue;
+    const pair = Buffer.from(credentials, 'base64').toString('utf8');
+    const colon = pair.indexOf(':');
+    if (colon < 0) continue;
+    secrets.values.push(pair, pair.slice(0, colon));
+    secrets.named.push(pair.slice(colon + 1));
+  }
+  let url: URL;
+  try {
+    url = new URL(target.url);
+  } catch {
+    return secrets; // not a URL: options.ts refuses those before a target exists
+  }
+  secrets.values.push(url.username, decoded(url.username));
+  secrets.named.push(url.password, decoded(url.password));
+  for (const [name, value] of rawQuery(url.search)) {
+    if (SECRET_QUERY.has(decoded(name).toLowerCase()))
+      secrets.named.push(value, decoded(value.replaceAll('+', ' ')));
+  }
+  for (const [name, value] of url.searchParams)
+    if (SECRET_QUERY.has(name.toLowerCase())) secrets.named.push(value);
+  secrets.urls.push(target.url, url.href, url.href.replace(/\/$/, ''));
+  return secrets;
+}
+
+/**
+ * `secrets` are searched for from 8 characters on, `named` whatever their length. `url`: every form in `raw` is
+ * written as `masked`, before any value is replaced.
+ */
+export function createRedactor(
+  secrets: Iterable<string>,
+  opts: { named?: Iterable<string>; url?: { raw: Iterable<string>; masked: string } } = {},
+): Redactor {
   const forms = new Set<string>();
-  for (const secret of secrets) {
-    if (secret.length < MIN_SECRET_LENGTH) continue;
+  const add = (secret: string) => {
     forms.add(secret);
     forms.add(encodeURIComponent(secret));
     forms.add(JSON.stringify(secret).slice(1, -1));
-  }
+  };
+  for (const secret of secrets) if (secret.length >= MIN_SECRET_LENGTH) add(secret);
+  for (const secret of opts.named ?? []) if (secret !== '') add(secret);
   // Longest first, so a secret that contains another is replaced whole.
-  const ordered = [...forms].sort((a, b) => b.length - a.length);
+  const longestFirst = (items: Iterable<string>) =>
+    [...new Set(items)].sort((a, b) => b.length - a.length);
+  const ordered = longestFirst(forms);
+  const urls = longestFirst(opts.url?.raw ?? []).filter((raw) => raw !== '');
   const text = (input: string): string =>
-    ordered.reduce((out, secret) => out.replaceAll(secret, MASK), input);
+    ordered.reduce(
+      (out, secret) => out.replaceAll(secret, MASK),
+      urls.reduce((out, raw) => out.replaceAll(raw, opts.url!.masked), input),
+    );
   const value = (input: unknown, depth = 0): unknown => {
     if (typeof input === 'string') return text(input);
     if (input === null || typeof input !== 'object') return input;
@@ -95,7 +155,13 @@ export function createRedactor(secrets: Iterable<string>): Redactor {
   return { text, value: (input) => value(input) };
 }
 
-export const redactorFor = (target: ConnectTarget): Redactor => createRedactor(secretsOf(target));
+export function redactorFor(target: ConnectTarget): Redactor {
+  const { values, named, urls } = secretsOf(target);
+  return createRedactor(values, {
+    named,
+    ...(target.kind === 'stdio' ? {} : { url: { raw: urls, masked: maskUrl(target.url) } }),
+  });
+}
 
 /** The connection as it may be written down: credential names masked, every other value through the redactor. */
 export function describeTarget(target: ConnectTarget, redact: Redactor): Record<string, unknown> {

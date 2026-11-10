@@ -114,4 +114,50 @@ describe('CLI · mcp connect · redact', () => {
     });
     expect(red.text('step 1 of 1')).toBe('step 1 of 1');
   });
+
+  it('CLI · mcp connect · a secret query value or URL password is masked by value whatever its length', () => {
+    const r = redactorFor({
+      kind: 'http',
+      url: 'http://alice:pw@127.0.0.1:9/mcp?token=q7z&page=2',
+      headers: {},
+    });
+    expect(r.text('token q7z refused, pw wrong')).toBe('token *** refused, *** wrong');
+    expect(r.text('page 2 of 2')).toBe('page 2 of 2');
+  });
+
+  it('CLI · mcp connect · the URL as given is replaced by its masked form, as written and as parsed', () => {
+    const r = redactorFor({ kind: 'http', url: 'HTTP://127.0.0.1:9/mcp?token=q7z', headers: {} });
+    expect(r.text('GET HTTP://127.0.0.1:9/mcp?token=q7z or http://127.0.0.1:9/mcp?token=q7z')).toBe(
+      'GET http://127.0.0.1:9/mcp?token=*** or http://127.0.0.1:9/mcp?token=***',
+    );
+  });
+
+  it('CLI · mcp connect · a URL without a path is replaced with and without its trailing slash', () => {
+    const r = redactorFor({ kind: 'http', url: 'http://alice:pw-long-1@127.0.0.1:9', headers: {} });
+    expect(
+      r.text('to http://alice:pw-long-1@127.0.0.1:9/ and http://alice:pw-long-1@127.0.0.1:9.'),
+    ).toBe('to http://***:***@127.0.0.1:9/ and http://***:***@127.0.0.1:9/.');
+  });
+
+  it('CLI · mcp connect · a malformed escape in the URL does not drop the other secrets', () => {
+    const r = redactorFor({
+      kind: 'http',
+      url: 'http://user:pa%E0%A4ss-long@h/mcp?token=query-token-9',
+      headers: {},
+    });
+    expect(r.text('q query-token-9')).toBe('q ***');
+    expect(r.text('p pa%E0%A4ss-long')).toBe('p ***');
+  });
+
+  it('CLI · mcp connect · Basic credentials are masked decoded too, user and password apart', () => {
+    const basic = Buffer.from('alice-user:pw').toString('base64');
+    const r = redactorFor({
+      kind: 'http',
+      url: 'http://h/mcp',
+      headers: { Authorization: `Basic ${basic}` },
+    });
+    expect(r.text(`got ${basic}, alice-user:pw, alice-user and pw`)).toBe(
+      'got ***, ***, *** and ***',
+    );
+  });
 });
