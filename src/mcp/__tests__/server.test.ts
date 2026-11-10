@@ -6,7 +6,7 @@
 import { InMemoryTransport } from '@modelcontextprotocol/server';
 import { serveStdio, type StdioServerHandle } from '@modelcontextprotocol/server/stdio';
 import { afterEach, describe, expect, it } from 'vitest';
-import { MAX_VISIBLE_TOOLS } from '../../mcp-tools/index.js';
+import { MAX_VISIBLE_TOOLS, PLUNE_TOOLS, defaultVisibleTools } from '../../mcp-tools/index.js';
 import { createPluneMcpServer } from '../server.js';
 
 type Answer = { status: number; body?: unknown };
@@ -40,14 +40,17 @@ async function connect(era: Era, opts: { scope?: 'read' | 'write'; answer?: Para
   const [client, serverSide] = InMemoryTransport.createLinkedPair();
   open.push(
     serveStdio(
-      () =>
-        createPluneMcpServer({
-          token: 'plt_test',
-          apiUrl: 'https://api.test',
-          fetchImpl: platform.fetchImpl,
-          version: '0.0.0-test',
-          ...(opts.scope === undefined ? {} : { scope: opts.scope }),
-        }),
+      (ctx) =>
+        createPluneMcpServer(
+          {
+            token: 'plt_test',
+            apiUrl: 'https://api.test',
+            fetchImpl: platform.fetchImpl,
+            version: '0.0.0-test',
+            ...(opts.scope === undefined ? {} : { scope: opts.scope }),
+          },
+          ctx.era,
+        ),
       { transport: serverSide },
     ),
   );
@@ -96,6 +99,7 @@ async function connect(era: Era, opts: { scope?: 'read' | 'write'; answer?: Para
   return {
     platform,
     listTools: async () => (await request('tools/list'))['tools'] as { name: string; description?: string; inputSchema: { type?: string }; outputSchema?: { type?: string } }[],
+    listResult: () => request('tools/list'),
     callTool: async (name: string, args: Record<string, unknown>) => (await request('tools/call', { name, arguments: args })) as ToolResult,
     listChanged: () => got.filter((g) => g.method === 'notifications/tools/list_changed').length,
   };
@@ -119,7 +123,8 @@ describe.each(['legacy', 'modern'] as const)('plune mcp serve, %s era', (era) =>
     }
   });
 
-  it('AC-02: discover_tools reveals a hidden tool for the rest of the session and says the list changed', async () => {
+  // The 2026-07-28 era keeps the list fixed instead: see the modern-era block below.
+  it.runIf(era === 'legacy')('AC-02: discover_tools reveals a hidden tool for the rest of the session and says the list changed', async () => {
     const c = await connect(era);
     expect(await names(c)).not.toContain('plune_results_write');
     const r = await c.callTool('plune_discover_tools', { names: ['plune_results_write'] });
@@ -129,7 +134,7 @@ describe.each(['legacy', 'modern'] as const)('plune mcp serve, %s era', (era) =>
     expect(c.listChanged()).toBeGreaterThan(0);
   });
 
-  it('a hidden tool called before discover_tools is a -32602 protocol error, and nothing reaches the platform', async () => {
+  it.runIf(era === 'legacy')('a hidden tool called before discover_tools is a -32602 protocol error, and nothing reaches the platform', async () => {
     // The usual way to meet this answer: the model calls a tool it read about before switching it on. A client only MAY
     // pass a protocol error to the model, so the hint to call discover_tools can be lost (the SDK 1.x server gave isError).
     const c = await connect(era);
@@ -186,5 +191,69 @@ describe.each(['legacy', 'modern'] as const)('plune mcp serve, %s era', (era) =>
     const r = await c.callTool('plune_mission_create', { name: 'Checkout', dry_run: true });
     expect(r.isError).toBeFalsy();
     expect(r.structuredContent).toMatchObject({ dryRun: true, request: { method: 'POST', path: '/v1/missions' } });
+  });
+});
+
+// 2026-07-28: «the set of tools returned by tools/list MUST NOT vary per-connection or as a side effect of other requests on
+// the connection» (https://modelcontextprotocol.io/specification/2026-07-28/server/tools). The core tools are listed for
+// the whole connection; a hidden tool is called by its name, and discover_tools only describes it.
+describe('plune mcp serve, modern era: a fixed tool list', () => {
+  const hidden = PLUNE_TOOLS.filter((t) => t.visibility === 'discoverable').map((t) => t.name);
+  type Discovered = { revealed: string[]; available: { name: string; inputSchema?: { type?: string; properties?: Record<string, unknown> } }[] };
+
+  it('CLI · mcp serve · 2026-07-28 · tools/list is the same before and after discover_tools, and no list_changed comes', async () => {
+    const c = await connect('modern');
+    const before = await c.listResult();
+    expect((before['tools'] as { name: string }[]).map((t) => t.name)).toEqual(defaultVisibleTools('write'));
+    const r = await c.callTool('plune_discover_tools', { names: hidden });
+    expect(r.isError).toBeFalsy();
+    expect(await c.listResult()).toEqual(before);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(c.listChanged()).toBe(0);
+  });
+
+  it('CLI · mcp serve · 2026-07-28 · discover_tools describes the hidden tools with their input schemas and switches nothing on', async () => {
+    const c = await connect('modern');
+    const r = await c.callTool('plune_discover_tools', { names: ['plune_run_create'] });
+    expect(r.isError).toBeFalsy();
+    const data = r.structuredContent as Discovered;
+    expect(data.revealed).toEqual([]);
+    expect(data.available.map((t) => t.name)).toEqual(hidden);
+    for (const t of data.available) expect(t.inputSchema?.type, t.name).toBe('object');
+    expect(Object.keys(data.available.find((t) => t.name === 'plune_run_create')?.inputSchema?.properties ?? {})).toEqual(['run', 'dry_run']);
+  });
+
+  it('CLI · mcp serve · 2026-07-28 · a hidden tool is called by its name, without discover_tools, and does its work', async () => {
+    const c = await connect('modern', { answer: (m, url) => (m === 'POST' && url.pathname === '/v1/runs' ? { status: 201, body: { id: 'r1' } } : undefined) });
+    const r = await c.callTool('plune_run_create', { run: { name: 'Checkout' } });
+    expect(r.isError).toBeFalsy();
+    expect(r.structuredContent).toMatchObject({ dryRun: false, result: { id: 'r1' } });
+    expect(c.platform.calls.map((call) => `${call.method} ${call.url.pathname}`)).toEqual(['POST /v1/runs']);
+  });
+
+  it('CLI · mcp serve · 2026-07-28 · a read token: a hidden writer called by name is refused as a listed one is, nothing reaches the platform', async () => {
+    const c = await connect('modern', { scope: 'read' });
+    await expect(c.callTool('plune_run_create', { run: { name: 'x' } })).rejects.toThrow(/-32602 .*plune_run_create/);
+    await expect(c.callTool('plune_mission_create', { name: 'x' })).rejects.toThrow(/-32602 .*plune_mission_create/);
+    expect(c.platform.calls).toHaveLength(0);
+  });
+
+  it('CLI · mcp serve · 2026-07-28 · a token the platform refuses as read-only: a hidden writer is then refused before a request, the list stays', async () => {
+    const c = await connect('modern', { answer: (m) => (m === 'POST' ? { status: 403, body: { error: 'read-only token' } } : undefined) });
+    const before = await c.listResult();
+    const first = await c.callTool('plune_mission_create', { name: 'Checkout' });
+    expect(first.structuredContent).toMatchObject({ error: { status: 403, code: 'read_only_token' } });
+    const r = await c.callTool('plune_run_create', { run: { name: 'Checkout' } });
+    expect(r.isError).toBe(true);
+    expect(r.structuredContent).toMatchObject({ error: { code: 'read_only_token' } });
+    expect(c.platform.calls).toHaveLength(1);
+    expect(await c.listResult()).toEqual(before);
+  });
+
+  it('CLI · mcp serve · 2026-07-28 · each listed tool is what the 2025 era lists for it', async () => {
+    // The 2026-07-28 list is answered by our own handler; this holds it to what the SDK builds from the same definitions.
+    const modern = (await (await connect('modern')).listResult())['tools'];
+    const legacy = (await (await connect('legacy')).listResult())['tools'];
+    expect(modern).toEqual(legacy);
   });
 });

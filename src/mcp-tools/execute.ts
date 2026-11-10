@@ -32,6 +32,11 @@ export interface PluneToolExecutorOptions {
   fetchImpl?: typeof fetch | undefined;
   userAgent?: string | undefined;
   now?: (() => number) | undefined;
+  /**
+   * The client's tool list never changes: discover_tools switches nothing on and describes the hidden tools with their
+   * input schemas, and a hidden tool is called by its name. MCP 2026-07-28 asks this of tools/list.
+   */
+  fixedToolList?: boolean | undefined;
 }
 
 export interface PluneToolExecutor {
@@ -323,13 +328,20 @@ export function createPluneToolExecutor(opts: PluneToolExecutorOptions): PluneTo
       if (unknown.length > 0) return fail('invalid_input', `No such tool: ${unknown.join(', ')}. Call this tool without names to see what there is.`);
       const refused = names.filter((n) => scope === 'read' && pluneTool(n).write);
       if (refused.length > 0) return fail('read_only_token', readScopeMessage(`${refused.join(', ')} cannot be switched on`));
-      for (const n of names as PluneToolName[]) revealed.add(n);
+      const fixed = opts.fixedToolList === true;
+      if (!fixed) for (const n of names as PluneToolName[]) revealed.add(n);
       const words = ((i['query'] as string | undefined) ?? '').toLowerCase().split(/\s+/).filter(Boolean);
       const visible = visibleTools();
       const available = PLUNE_TOOLS.filter((t) => !visible.includes(t.name) && !(scope === 'read' && t.write))
         .filter((t) => words.every((w) => `${t.name} ${t.title} ${t.description}`.toLowerCase().includes(w)))
-        .map((t) => ({ name: t.name, title: t.title, description: t.description, write: t.write }));
-      return { revealed: names, available, visible };
+        .map((t) => ({
+          name: t.name,
+          title: t.title,
+          description: t.description,
+          write: t.write,
+          ...(fixed ? { inputSchema: z.toJSONSchema(t.input, { target: 'draft-2020-12', io: 'input' }) } : {}),
+        }));
+      return { revealed: fixed ? [] : names, available, visible };
     },
 
     async plune_cases_update(i) {

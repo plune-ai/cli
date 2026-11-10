@@ -1,4 +1,5 @@
-import { McpServer, type CallToolResult, type RegisteredTool } from '@modelcontextprotocol/server';
+import { McpServer, type CallToolResult, type ProtocolEra, type RegisteredTool, type Tool } from '@modelcontextprotocol/server';
+import { z } from 'zod';
 // A static import on purpose: the CLI bundle is CommonJS, where a dynamic import() of the package loads its ESM build, and
 // an McpServer from one build cannot be served by serveStdio from the other (the discover handler fails with -32603).
 // This module is itself loaded lazily, only by `plune mcp serve`.
@@ -6,24 +7,51 @@ import { serveStdio, StdioServerTransport } from '@modelcontextprotocol/server/s
 import {
   PLUNE_TOOLS,
   createPluneToolExecutor,
+  defaultVisibleTools,
+  type PluneToolDefinition,
   type PluneToolExecutorOptions,
   type ToolOutcome,
 } from '../mcp-tools/index.js';
 
 /**
  * `plune mcp serve` (plune-ai/plune#1284): the tool contract of `src/mcp-tools` as an MCP server. The tools, their
- * schemas and their behaviour live there; this file only maps an executor outcome onto MCP results and keeps the
- * client's tool list in step with what the executor says is visible (discover_tools, a token learned to be `read`).
+ * schemas and their behaviour live there; this file only maps an executor outcome onto MCP results and decides what
+ * the client's tool list holds.
  *
- * Both protocol eras are served: a client that opens with `initialize` gets the 2025 revisions, one
- * that sends per-request `_meta` gets 2026-07-28. The transport picks the era from the first message; this file does not
- * branch on it. In the 2026-07-28 era a list change reaches only a client that opened `subscriptions/listen`, and
- * `tools/list` carries `ttlMs: 0`, so a client that does not listen re-reads the list after discover_tools.
+ * Both protocol eras are served: a client that opens with `initialize` gets the 2025 revisions, one that sends
+ * per-request `_meta` gets 2026-07-28. The transport picks the era from the first message and hands it to the factory;
+ * `createPluneMcpServer` is the one place that branches on it:
+ * - 2025 era: the list follows what the executor says is visible (discover_tools, a token learned to be `read`), and
+ *   each change is announced with `notifications/tools/list_changed`.
+ * - 2026-07-28: the set in `tools/list` «MUST NOT vary per-connection or as a side effect of other requests on the
+ *   connection» (https://modelcontextprotocol.io/specification/2026-07-28/server/tools). The core tools are listed for
+ *   the whole connection, every tool the token may use is callable by its name, and discover_tools only describes the
+ *   hidden ones.
  */
 
 export interface PluneMcpServerOptions extends PluneToolExecutorOptions {
   version: string;
 }
+
+const annotationsOf = (tool: PluneToolDefinition) => ({
+  title: tool.title,
+  readOnlyHint: !tool.write,
+  destructiveHint: tool.name === 'plune_api_request',
+  openWorldHint: false,
+});
+
+/**
+ * A `tools/list` entry as McpServer builds it from the same registration. McpServer lists every enabled tool, and a
+ * disabled one cannot be called, so the fixed list of the 2026-07-28 era is answered here instead.
+ */
+const listed = (tool: PluneToolDefinition): Tool => ({
+  name: tool.name,
+  title: tool.title,
+  description: tool.description,
+  inputSchema: z.toJSONSchema(tool.input, { target: 'draft-2020-12', io: 'input' }) as Tool['inputSchema'],
+  outputSchema: z.toJSONSchema(tool.output, { target: 'draft-2020-12', io: 'output' }) as Tool['outputSchema'],
+  annotations: annotationsOf(tool),
+});
 
 function toResult(outcome: ToolOutcome): CallToolResult {
   if (outcome.ok) {
@@ -36,9 +64,14 @@ function toResult(outcome: ToolOutcome): CallToolResult {
   };
 }
 
-export function createPluneMcpServer(opts: PluneMcpServerOptions): McpServer {
+export function createPluneMcpServer(opts: PluneMcpServerOptions, era: ProtocolEra): McpServer {
   const { version, ...executorOptions } = opts;
-  const executor = createPluneToolExecutor({ ...executorOptions, userAgent: executorOptions.userAgent ?? `plune-cli/${version} mcp` });
+  const fixed = era === 'modern';
+  const executor = createPluneToolExecutor({
+    ...executorOptions,
+    userAgent: executorOptions.userAgent ?? `plune-cli/${version} mcp`,
+    fixedToolList: fixed,
+  });
   const server = new McpServer({ name: 'plune', version }, { capabilities: { tools: { listChanged: true } } });
   const registered = new Map<string, RegisteredTool>();
 
@@ -60,22 +93,21 @@ export function createPluneMcpServer(opts: PluneMcpServerOptions): McpServer {
         description: tool.description,
         inputSchema: tool.input,
         outputSchema: tool.output,
-        annotations: {
-          title: tool.title,
-          readOnlyHint: !tool.write,
-          destructiveHint: tool.name === 'plune_api_request',
-          openWorldHint: false,
-        },
+        annotations: annotationsOf(tool),
       },
       async (args: unknown) => {
         const outcome = await executor.execute(tool.name, args);
-        sync();
+        if (!fixed) sync();
         return toResult(outcome);
       },
     );
     registered.set(tool.name, handle);
   }
-  sync();
+  if (fixed) {
+    // Every registered tool stays enabled, so tools/call reaches it with the SDK's own checks; only the list is ours.
+    const tools = PLUNE_TOOLS.filter((t) => defaultVisibleTools(opts.scope).includes(t.name)).map(listed);
+    server.server.setRequestHandler('tools/list', () => ({ tools }));
+  } else sync();
   return server;
 }
 
@@ -89,7 +121,7 @@ export async function serveMcpStdio(opts: PluneMcpServerOptions): Promise<void> 
     // Out-of-band errors (a line that is not JSON-RPC, a failed write) have no request to answer, so stderr is the only
     // place to say so. One short line from the message only, never the payload: it may carry tool arguments. A schema
     // failure's message is a long dump of the offending message's shape, so it gets a fixed sentence instead.
-    serveStdio(() => createPluneMcpServer(opts), {
+    serveStdio((ctx) => createPluneMcpServer(opts, ctx.era), {
       transport,
       onerror: (error) => {
         const said = error.name === 'ZodError' ? 'ignored a line that is not a JSON-RPC message' : error.message.replace(/\s+/g, ' ').slice(0, 200);

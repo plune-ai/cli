@@ -18,7 +18,8 @@
 // | `server/discover` with modern `_meta`, first message  | DiscoverResult: supportedVersions ["2026-07-28"], ttlMs 0      |
 // | `tools/list` with modern `_meta`                      | resultType "complete", ttlMs 0, cacheScope "private"           |
 // | modern request naming version 1900-01-01              | -32022, data.supported / data.requested                        |
-// | `subscriptions/listen` {toolsListChanged}             | acknowledged; list_changed only on it, stamped subscriptionId  |
+// | `subscriptions/listen` {toolsListChanged}             | acknowledged, stamped subscriptionId                           |
+// | `tools/call` plune_discover_tools, then `tools/list`  | the same list; no list_changed; a hidden tool runs by its name |
 // | `initialize` with protocolVersion 2025-11-25          | result, protocolVersion 2025-11-25                             |
 // | `initialize` with protocolVersion 1900-01-01          | result, protocolVersion 2025-11-25 (the server's latest)       |
 // | stdin closed                                          | process exits with code 0 well under a second                  |
@@ -106,8 +107,8 @@ interface RawServe {
   messages(): Message[];
 }
 
-function spawnServe(env = serveEnv()): RawServe {
-  const child: ChildProcessWithoutNullStreams = spawn(process.execPath, [cli, 'mcp', 'serve'], { env });
+function spawnServe(env = serveEnv(), args: string[] = []): RawServe {
+  const child: ChildProcessWithoutNullStreams = spawn(process.execPath, [cli, 'mcp', 'serve', ...args], { env });
   let out = '';
   let err = '';
   let buffered = '';
@@ -302,7 +303,10 @@ describe('CLI · mcp serve · modern client (2026-07-28, JSON lines)', () => {
     expect((a.error as { data?: { supported?: string[]; requested?: string } }).data).toMatchObject({ requested: '1900-01-01', supported: expect.arrayContaining([MODERN]) });
   });
 
-  it('CLI · mcp serve · list, a platform call and discover_tools; the change comes on the subscription only', async () => {
+  // 2026-07-28: the set in tools/list «MUST NOT vary per-connection or as a side effect of other requests on the connection»
+  // (https://modelcontextprotocol.io/specification/2026-07-28/server/tools). discover_tools describes, a hidden tool is
+  // called by its name, and the list stays what it was — so no list_changed, even to a client that listens.
+  it('CLI · mcp serve · list, a platform call, discover_tools and a hidden tool by name; the list stays, no list_changed', async () => {
     const s = spawnServe();
     s.send({ id: 1, method: 'server/discover', params: { _meta: modernMeta() } });
     await s.answer(1);
@@ -315,26 +319,30 @@ describe('CLI · mcp serve · modern client (2026-07-28, JSON lines)', () => {
     const reveal = await s.answer(5);
     s.send({ id: 6, method: 'tools/list', params: { _meta: modernMeta() } });
     const again = await s.answer(6);
+    s.send({ id: 7, method: 'tools/call', params: { name: 'plune_run_create', arguments: { run: { name: 'Checkout' } }, _meta: modernMeta() } });
+    const run = await s.answer(7);
     await new Promise((resolve) => setTimeout(resolve, 100));
     await s.end();
 
-    if (list === 'timeout' || ctx === 'timeout' || reveal === 'timeout' || again === 'timeout') throw new Error('the server stayed silent');
-    // A 2026-07-28 list: resultType, and ttlMs 0 so a client that does not listen still re-reads after discover_tools.
+    if (list === 'timeout' || ctx === 'timeout' || reveal === 'timeout' || again === 'timeout' || run === 'timeout') throw new Error('the server stayed silent');
     expect(list.result).toMatchObject({ resultType: 'complete', ttlMs: 0 });
     expect(names(list)).toEqual(defaultVisibleTools('write'));
     expect(ctx.result).toMatchObject({ resultType: 'complete', structuredContent: { projectId: 'p1', cases: { total: 3 } } });
     expect(ctx.result?.['isError']).toBeFalsy();
     expect(reveal.result?.['isError']).toBeFalsy();
-    expect(names(again)).toEqual([...defaultVisibleTools('write'), 'plune_run_create']);
+    const described = (reveal.result?.['structuredContent'] as { available: { name: string; inputSchema?: { type?: string } }[] }).available;
+    expect(described.find((t) => t.name === 'plune_run_create')?.inputSchema?.type).toBe('object');
+    expect(again.result?.['tools']).toEqual(list.result?.['tools']);
+    expect(run.error).toBeUndefined();
+    expect(run.result).toMatchObject({ resultType: 'complete', structuredContent: { dryRun: false } });
+    expect(run.result?.['isError']).toBeFalsy();
 
     const ack = s.messages().find((m) => m.method === 'notifications/subscriptions/acknowledged');
     expect(ack && subscriptionOf(ack)).toBe(2);
-    const changed = s.messages().filter((m) => m.method === 'notifications/tools/list_changed');
-    expect(changed.length).toBeGreaterThan(0);
-    for (const m of changed) expect(subscriptionOf(m), 'list_changed outside the subscription').toBe(2);
+    expect(s.messages().filter((m) => m.method === 'notifications/tools/list_changed')).toEqual([]);
   });
 
-  it('CLI · mcp serve · without a subscription discover_tools sends no list_changed (the client did not ask)', async () => {
+  it('CLI · mcp serve · without a subscription discover_tools sends nothing and the list stays', async () => {
     const s = spawnServe();
     s.send({ id: 1, method: 'tools/call', params: { name: 'plune_discover_tools', arguments: { names: ['plune_run_create'] }, _meta: modernMeta() } });
     const reveal = await s.answer(1);
@@ -343,8 +351,23 @@ describe('CLI · mcp serve · modern client (2026-07-28, JSON lines)', () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     await s.end();
     if (reveal === 'timeout' || again === 'timeout') throw new Error('the server stayed silent');
-    expect(names(again)).toContain('plune_run_create');
+    expect(names(again)).toEqual(defaultVisibleTools('write'));
     expect(s.messages().filter((m) => m.method !== undefined)).toEqual([]);
+  });
+
+  it('CLI · mcp serve · --read-only: a hidden writer called by its name is refused, and the platform is not asked', async () => {
+    const s = spawnServe(serveEnv(), ['--read-only']);
+    const asked = seenAuth.length;
+    s.send({ id: 1, method: 'tools/list', params: { _meta: modernMeta() } });
+    const list = await s.answer(1);
+    s.send({ id: 2, method: 'tools/call', params: { name: 'plune_run_create', arguments: { run: { name: 'Checkout' } }, _meta: modernMeta() } });
+    const run = await s.answer(2);
+    await s.end();
+    if (list === 'timeout' || run === 'timeout') throw new Error('the server stayed silent');
+    expect(names(list)).toEqual(defaultVisibleTools('read'));
+    expect(run.error?.code).toBe(-32602);
+    expect(run.error?.message).toContain('plune_run_create');
+    expect(seenAuth.length).toBe(asked);
   });
 
   it('CLI · mcp serve · initialize with an unknown version is answered with the server\'s own latest legacy revision', async () => {
