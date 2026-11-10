@@ -21,7 +21,7 @@ import { machineless, printable } from '../../reporter-core/failure-detail.js';
 import { MCP_EXIT } from '../exit-codes.js';
 import { openJournal, type Journal } from './journal.js';
 import type { ConnectConfig, ConnectTarget } from './options.js';
-import { descendantsOf, killAll, track } from './processes.js';
+import { descendantsOf, killAll, killSurvivors, track, type Proc } from './processes.js';
 import { describeTarget, redactorFor, type Redactor } from './redact.js';
 
 export { closeAllSessions } from './processes.js';
@@ -143,6 +143,33 @@ function intercept(
   });
 }
 
+/**
+ * Journals the lines on a stdio server's stdout that are not JSON-RPC messages. The SDK drops such a line with a
+ * parse error that does not carry it, so the stream is read here as well, beside the SDK's own reader. The transport
+ * keeps the process to itself; it is reached after start, before any output can have arrived.
+ */
+function watchStdout(transport: StdioClientTransport, journal: Journal): void {
+  const start = transport.start.bind(transport);
+  transport.start = async () => {
+    await start();
+    const stdout = (transport as unknown as { _process?: { stdout?: Readable | null } })._process
+      ?.stdout;
+    if (stdout === null || stdout === undefined) return;
+    createInterface({ input: stdout, crlfDelay: Infinity }).on('line', (line) => {
+      if (!isJsonRpc(line)) journal.write('noise', { line });
+    });
+  };
+}
+
+function isJsonRpc(line: string): boolean {
+  try {
+    const parsed = JSON.parse(line) as { jsonrpc?: unknown } | null;
+    return parsed !== null && typeof parsed === 'object' && parsed.jsonrpc === '2.0';
+  } catch {
+    return false;
+  }
+}
+
 const firstLine = (text: string) => text.split(/\r?\n/)[0] ?? '';
 
 function kindOf(err: unknown, stdio: boolean, transportClosed: boolean): ConnectErrorKind {
@@ -214,6 +241,7 @@ export async function openSession(config: ConnectConfig): Promise<Session> {
       if (tail.length > TAIL_LINES) tail.shift();
     });
     stderrDone = new Promise((resolve) => lines.once('close', resolve));
+    watchStdout(transport, journal);
   }
 
   const toConnectError = async (err: unknown): Promise<ConnectError> => {
@@ -234,20 +262,24 @@ export async function openSession(config: ConnectConfig): Promise<Session> {
 
   const serverPid = () => (transport instanceof StdioClientTransport ? transport.pid : null);
   let closing: Promise<void> | undefined;
+  // What a close noted: the SDK forgets the process as soon as its close begins, and killNow may still need it.
+  let noted: { pid: number; tree: Proc[] } | undefined;
   const shutdown = async () => {
     // Note the descendants while the server is alive to name them: once it is gone, nothing points at them.
     const pid = serverPid();
-    const tree = pid === null ? [] : descendantsOf(pid);
+    if (pid !== null) noted = { pid, tree: descendantsOf(pid) };
     await transport.close().catch(() => {});
-    killAll(tree);
+    killSurvivors(noted?.tree ?? []);
     untrack();
     journal.close();
   };
   const closable = {
     close: () => (closing ??= shutdown()),
     killNow: () => {
-      const pid = serverPid();
-      if (pid !== null) killAll([...descendantsOf(pid), pid]);
+      const pid = serverPid() ?? noted?.pid;
+      if (pid === undefined || pid === null) return;
+      const tree = [...descendantsOf(pid), ...(noted?.tree ?? [])].map((p) => p.pid);
+      killAll([...new Set([...tree, pid])]);
     },
   };
   const untrack = track(closable);

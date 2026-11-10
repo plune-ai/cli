@@ -109,6 +109,14 @@ export function redirectServer(target: string): Promise<Fixture> {
   });
 }
 
+/** Answers 400 with the full URL it was asked, query included, as a careless server would. */
+export function badRequestServer(): Promise<Fixture> {
+  return listen((req, res) => {
+    res.writeHead(400, { 'content-type': 'text/plain' });
+    res.end(`cannot serve http://${String(req.headers.host)}${req.url ?? ''}`);
+  });
+}
+
 /** Records and answers 200 `{}`: the foreign origin a credential must never reach. */
 export function recorder(): Promise<Fixture> {
   return listen((_req, res) => {

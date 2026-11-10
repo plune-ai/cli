@@ -18,6 +18,7 @@ import {
 } from '../connect/options.js';
 import { MCP_EXIT } from '../exit-codes.js';
 import {
+  badRequestServer,
   recorder,
   redirectServer,
   sseServer,
@@ -342,19 +343,50 @@ describe('CLI · mcp connect · HTTP', () => {
   });
 });
 
-describe('CLI · mcp connect · secrets do not reach any output (AC-3)', () => {
-  const SECRETS = ['bearer-token-value-1', 'header-env-value-2', 'api-token-value-3'] as const;
-
-  function capture() {
-    const written: string[] = [];
-    for (const stream of [process.stdout, process.stderr]) {
-      vi.spyOn(stream, 'write').mockImplementation((chunk: string | Uint8Array) => {
-        written.push(String(chunk));
-        return true;
-      });
-    }
-    return written;
+/** What this process writes to stdout and stderr from here on, instead of writing it. */
+function capture(): string[] {
+  const written: string[] = [];
+  for (const stream of [process.stdout, process.stderr]) {
+    vi.spyOn(stream, 'write').mockImplementation((chunk: string | Uint8Array) => {
+      written.push(String(chunk));
+      return true;
+    });
   }
+  return written;
+}
+
+describe('CLI · mcp connect · secrets do not reach any output (AC-3)', () => {
+  it('CLI · mcp connect · a short secret query value of --url reaches neither the error, the journal nor stderr', async () => {
+    const f = await serve(badRequestServer());
+    const out = join(tmp(), 'frames.jsonl');
+    const written = capture();
+    const err = await connectError(
+      fromFlags(['--url', `${f.origin}/mcp?token=q7z&page=2`, '--debug-out', out], {}),
+    );
+    // The server did repeat the whole URL: the message carries it, masked.
+    expect(err.message).toContain(`${f.origin}/mcp?token=***&page=2`);
+    const bytes = [err.message, ...err.stderrTail, readFileSync(out, 'utf8'), ...written].join(
+      '\n',
+    );
+    expect(bytes).not.toContain('q7z');
+  });
+
+  it('CLI · mcp connect · a line on stdout that is not JSON-RPC lands in the journal as noise, masked', async () => {
+    const out = join(tmp(), 'frames.jsonl');
+    const s = await open(
+      stdio('raw-stdio.mjs', ['noisy'], { API_TOKEN: 'noise-token-123' }, { debugOut: out }),
+    );
+    await s.request('tools/list');
+    await s.close();
+    const lines = journal(out);
+    expect(lines.filter((l) => l.dir === 'noise').map((l) => l.line)).toEqual([
+      'booting with API_TOKEN=***',
+    ]);
+    expect(lines.some((l) => l.dir === 'in')).toBe(true);
+    expect(readFileSync(out, 'utf8')).not.toContain('noise-token-123');
+  });
+
+  const SECRETS = ['bearer-token-value-1', 'header-env-value-2', 'api-token-value-3'] as const;
 
   function expectNoSecret(bytes: string) {
     for (const secret of SECRETS) expect(bytes).not.toContain(secret);

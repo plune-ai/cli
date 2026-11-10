@@ -2,7 +2,8 @@
 // - `crash`: 25 lines of stderr naming a home folder, then exit 3 before reading anything;
 // - `silent`: reads stdin and never answers (starts a grandchild when asked, see child-helpers.mjs);
 // - `loose-schema`: answers `initialize`, then a `tools/list` whose inputSchema has no `type` and carries a field
-//   no schema knows.
+//   no schema knows;
+// - `noisy`: `loose-schema` that first logs a plain line, API_TOKEN in it, on stdout.
 
 import { createInterface } from 'node:readline';
 import { homedir } from 'node:os';
@@ -22,7 +23,11 @@ if (mode === 'silent') {
   process.stdin.resume();
 }
 
-if (mode === 'loose-schema') {
+if (mode === 'noisy') {
+  process.stdout.write(`booting with API_TOKEN=${process.env.API_TOKEN}\n`);
+}
+
+if (mode === 'loose-schema' || mode === 'noisy') {
   const send = (msg) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...msg }) + '\n');
   createInterface({ input: process.stdin }).on('line', (line) => {
     const msg = JSON.parse(line);

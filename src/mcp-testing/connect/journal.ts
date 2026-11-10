@@ -7,11 +7,12 @@ import type { Redactor } from './redact.js';
 // - `meta`: the connection, credentials masked (first line);
 // - `out` / `in`: a JSON-RPC frame to / from the server, as `frame`;
 // - `stderr`: a line the server process wrote, as `line`;
+// - `noise`: a line a stdio server wrote on stdout that is not a JSON-RPC message (a log line), as `line`;
 // - `error`: why the connection failed, as `kind` and `message`.
 // Every line goes through the redactor. The file is opened before the connection is tried, so it is there when the
 // connection fails, and created 0600: it holds what the server said.
 
-export type JournalDir = 'meta' | 'out' | 'in' | 'stderr' | 'error';
+export type JournalDir = 'meta' | 'out' | 'in' | 'stderr' | 'noise' | 'error';
 
 export interface Journal {
   write(dir: JournalDir, fields: Record<string, unknown>): void;

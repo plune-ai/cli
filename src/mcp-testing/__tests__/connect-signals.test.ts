@@ -30,32 +30,58 @@ async function waitFor<T>(read: () => T | undefined, ms: number): Promise<T> {
   }
 }
 
+/** Starts the runner and waits until its server and the grandchild are up. */
+async function startRunner(mode?: 'stuck') {
+  const pidFile = join(mkdtempSync(join(tmpdir(), 'plune-sigint-')), 'pids.json');
+  const runner = spawn(
+    process.execPath,
+    ['--import', 'tsx', RUNNER, pidFile, ...(mode === undefined ? [] : [mode])],
+    { cwd: ROOT, stdio: ['pipe', 'ignore', 'pipe'], windowsHide: true },
+  );
+  let stderr = '';
+  runner.stderr.on('data', (d: Buffer) => (stderr += d.toString()));
+  const exited = new Promise<number | null>((resolve) =>
+    runner.on('exit', (code) => resolve(code)),
+  );
+  const pids = await waitFor(
+    () =>
+      existsSync(pidFile)
+        ? (JSON.parse(readFileSync(pidFile, 'utf8')) as { pid: number; grandchild: number })
+        : undefined,
+    15_000,
+  );
+  return {
+    ...pids,
+    exited,
+    stderr: () => stderr,
+    interrupt: () =>
+      process.platform === 'win32' ? runner.stdin.write('SIGINT\n') : runner.kill('SIGINT'),
+    /** The exit code, or 'still running' after `ms`. */
+    exitWithin: (ms: number) =>
+      Promise.race([
+        exited,
+        new Promise<'still running'>((r) => setTimeout(() => r('still running'), ms)),
+      ]),
+  };
+}
+
 describe('CLI · mcp connect · signals', () => {
   it('CLI · mcp connect · SIGINT while waiting for the server ends the server, its grandchild and plune (AC-8)', async () => {
-    const pidFile = join(mkdtempSync(join(tmpdir(), 'plune-sigint-')), 'pids.json');
-    const runner = spawn(process.execPath, ['--import', 'tsx', RUNNER, pidFile], {
-      cwd: ROOT,
-      stdio: ['pipe', 'ignore', 'pipe'],
-      windowsHide: true,
-    });
-    let stderr = '';
-    runner.stderr.on('data', (d: Buffer) => (stderr += d.toString()));
-    const exited = new Promise<number | null>((resolve) =>
-      runner.on('exit', (code) => resolve(code)),
-    );
-
-    const { pid, grandchild } = await waitFor(
-      () =>
-        existsSync(pidFile)
-          ? (JSON.parse(readFileSync(pidFile, 'utf8')) as { pid: number; grandchild: number })
-          : undefined,
-      15_000,
-    );
-    if (process.platform === 'win32') runner.stdin.write('SIGINT\n');
-    else runner.kill('SIGINT');
-
-    expect(await exited, stderr).toBe(130);
-    expect(alive(pid)).toBe(false);
-    await waitFor(() => (alive(grandchild) ? undefined : true), 3_000);
+    const run = await startRunner();
+    run.interrupt();
+    expect(await run.exited, run.stderr()).toBe(130);
+    expect(alive(run.pid)).toBe(false);
+    await waitFor(() => (alive(run.grandchild) ? undefined : true), 3_000);
   }, 30_000);
+
+  it('CLI · mcp connect · a second SIGINT while a close hangs ends every server at once and exits', async () => {
+    const run = await startRunner('stuck');
+    run.interrupt();
+    // The first one closes what it can and waits on the session that never lets go.
+    expect(await run.exitWithin(1_500)).toBe('still running');
+    run.interrupt();
+    expect(await run.exitWithin(15_000), run.stderr()).toBe(130);
+    expect(alive(run.pid)).toBe(false);
+    await waitFor(() => (alive(run.grandchild) ? undefined : true), 3_000);
+  }, 40_000);
 });

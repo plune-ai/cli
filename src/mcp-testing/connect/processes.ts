@@ -1,93 +1,113 @@
-import { execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 
 // Everything about ending server processes lives here, so the way it is done can be replaced in one file.
 //
 // The SDK's stdio transport ends only the process it started. A server started as `npx …` or `cmd /c …` is that
 // process's child, and survives it; so does a server's own helper. So before a session lets the SDK close, it notes
-// every descendant of the server, and kills the ones still there afterwards. Plus: SIGINT and SIGTERM to `plune`
-// close every open session before exiting, and `process.on('exit')` kills whatever is left.
+// every descendant of the server with its start time, and afterwards kills the ones still there with that same start
+// time. Plus: SIGINT and SIGTERM to `plune` close every open session before exiting (a second one stops waiting and
+// kills at once), and `process.on('exit')` kills whatever is left.
 
-/** A parent-child pair; `started` orders them where a parent pid can be stale (Windows does not reparent). */
-interface Proc {
+/**
+ * A process as the table shows it. `started` is its start time as the system writes it (Windows: CreationDate as a
+ * file time; Linux: `starttime`, field 22 of /proc/<pid>/stat; elsewhere: `ps -o lstart`). A pid alone can be given
+ * to another process once the first is gone; a pid with its start time cannot.
+ */
+export interface Proc {
   pid: number;
   ppid: number;
-  started: number;
+  started: string;
 }
+
+/** Lines of "pid ppid started…"; a line that does not read as one is skipped, never the whole table. */
+export function parseProcessTable(text: string): Proc[] {
+  return text.split(/\r?\n/).flatMap((line) => {
+    const [pid, ppid, ...started] = line.trim().split(/\s+/);
+    const proc = { pid: Number(pid), ppid: Number(ppid), started: started.join(' ') };
+    return Number.isInteger(proc.pid) && Number.isInteger(proc.ppid) && proc.started !== ''
+      ? [proc]
+      : [];
+  });
+}
+
+// One process whose fields cannot be read (CreationDate is empty for some system processes) is skipped inside the
+// script; the output is read whatever the exit code, so a failure on one line costs that line only.
+const WINDOWS_TABLE =
+  'Get-CimInstance Win32_Process | ForEach-Object { try { "{0} {1} {2}" -f $_.ProcessId, $_.ParentProcessId, $_.CreationDate.ToFileTimeUtc() } catch {} }';
 
 function processTable(): Proc[] {
   if (process.platform === 'win32') {
-    const out = execFileSync(
+    const out = spawnSync(
       'powershell.exe',
-      [
-        '-NoProfile',
-        '-NonInteractive',
-        '-Command',
-        'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $($_.CreationDate.ToFileTimeUtc())" }',
-      ],
-      { encoding: 'utf8', windowsHide: true, timeout: 15_000, stdio: ['ignore', 'pipe', 'ignore'] },
+      ['-NoProfile', '-NonInteractive', '-Command', WINDOWS_TABLE],
+      {
+        encoding: 'utf8',
+        windowsHide: true,
+        timeout: 15_000,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      },
     );
-    return out.split(/\r?\n/).flatMap((line) => {
-      const [pid, ppid, started] = line.trim().split(' ').map(Number);
-      return pid !== undefined &&
-        ppid !== undefined &&
-        started !== undefined &&
-        !Number.isNaN(started)
-        ? [{ pid, ppid, started }]
-        : [];
-    });
+    return parseProcessTable(out.stdout ?? '');
   }
   if (process.platform === 'linux') {
-    // /proc/<pid>/stat: "pid (comm) state ppid ..."; comm may hold spaces and parentheses, so read after the last ")".
+    // /proc/<pid>/stat: "pid (comm) state ppid …"; comm may hold spaces and parentheses, so read after the last ")".
+    // From there the fields are numbered from 3 (state): ppid is field 4, starttime field 22.
     return readdirSync('/proc').flatMap((name) => {
       if (!/^\d+$/.test(name)) return [];
       try {
         const stat = readFileSync(`/proc/${name}/stat`, 'utf8');
-        const ppid = Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[1]);
-        return [{ pid: Number(name), ppid, started: 0 }];
+        const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+        return parseProcessTable(`${name} ${fields[1]} ${fields[19]}`);
       } catch {
         return [];
       }
     });
   }
-  const out = execFileSync('ps', ['-A', '-o', 'pid=,ppid='], { encoding: 'utf8', timeout: 15_000 });
-  return out.split('\n').flatMap((line) => {
-    const [pid, ppid] = line.trim().split(/\s+/).map(Number);
-    return pid !== undefined && ppid !== undefined && !Number.isNaN(ppid)
-      ? [{ pid, ppid, started: 0 }]
-      : [];
+  const out = spawnSync('ps', ['-A', '-o', 'pid=,ppid=,lstart='], {
+    encoding: 'utf8',
+    timeout: 15_000,
   });
+  return parseProcessTable(out.stdout ?? '');
 }
 
-/**
- * Every process below `root`, children before grandchildren. On Windows a child counts only if it started after
- * its parent: a pid there can name a parent long gone, and the server may have been given that pid since.
- */
-export function descendantsOf(root: number): number[] {
-  let table: Proc[];
+function readTable(): Proc[] {
   try {
-    table = processTable();
+    return processTable();
   } catch {
     return [];
   }
-  const started = new Map(table.map((p) => [p.pid, p.started]));
-  const found: number[] = [];
+}
+
+/**
+ * Every process below `root`, children before grandchildren. A child counts only if it did not start before its
+ * parent: on Windows a pid can name a parent long gone, and the server may have been given that pid since.
+ */
+export function descendantsOf(root: number): Proc[] {
+  const table = readTable();
+  const startOf = new Map(table.map((p) => [p.pid, Number(p.started)]));
+  const found: Proc[] = [];
   const queue = [root];
   while (queue.length > 0) {
     const parent = queue.shift()!;
     for (const p of table) {
-      if (p.ppid !== parent || p.pid === parent || found.includes(p.pid)) continue;
-      if (p.started < (started.get(parent) ?? 0)) continue;
-      found.push(p.pid);
+      if (p.ppid !== parent || p.pid === parent || found.some((f) => f.pid === p.pid)) continue;
+      // NaN (a start time that is not a number, as ps writes it) compares false: kept.
+      if (Number(p.started) < (startOf.get(parent) ?? 0)) continue;
+      found.push(p);
       queue.push(p.pid);
     }
   }
   return found;
 }
 
+/** The pids of `noted` that are still the same processes in `now`: same pid, same start time. */
+export function survivors(noted: readonly Proc[], now: readonly Proc[]): number[] {
+  const current = new Set(now.map((p) => `${p.pid} ${p.started}`));
+  return noted.filter((p) => current.has(`${p.pid} ${p.started}`)).map((p) => p.pid);
+}
+
 /** Kills each pid that is still there; one already gone is not an error. */
-// Known limit: the pids were noted at most a few seconds earlier; a pid reused by the system in between would be killed
-// too. Comparing start times before the kill closes that if it ever matters.
 export function killAll(pids: readonly number[]): void {
   for (const pid of pids) {
     try {
@@ -98,6 +118,14 @@ export function killAll(pids: readonly number[]): void {
   }
 }
 
+/**
+ * Kills what is left of processes noted earlier. The table is read again, and only a pid that still has the start
+ * time it was noted with is killed: one the system has given to another process in between is left alone.
+ */
+export function killSurvivors(noted: readonly Proc[]): void {
+  if (noted.length > 0) killAll(survivors(noted, readTable()));
+}
+
 /** What the registry needs of a session: an orderly close, and a last resort that cannot wait. */
 export interface Closable {
   close(): Promise<void>;
@@ -106,8 +134,16 @@ export interface Closable {
 
 const open = new Set<Closable>();
 
+let interrupted = false;
+/** The first signal closes every session in order; a second one, while that waits, kills at once and exits. */
 const onSignal = (signal: NodeJS.Signals) => {
-  void closeAllSessions().finally(() => process.exit(signal === 'SIGINT' ? 130 : 143));
+  const code = signal === 'SIGINT' ? 130 : 143;
+  if (interrupted) {
+    for (const session of open) session.killNow();
+    process.exit(code);
+  }
+  interrupted = true;
+  void closeAllSessions().finally(() => process.exit(code));
 };
 const onExit = () => {
   for (const session of open) session.killNow();
