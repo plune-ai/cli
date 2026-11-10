@@ -30,7 +30,7 @@ import {
   type ListedTool,
   type LintFinding,
 } from '../../mcp-testing/lint/index.js';
-import { CATALOG_RENDERERS, RENDERERS } from '../../mcp-testing/render.js';
+import { CATALOG_RENDERERS, noCommands, RENDERERS } from '../../mcp-testing/render.js';
 import type {
   CallOutcome,
   ExceptionNote,
@@ -79,8 +79,14 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 export async function handleMcpLint(
   flags: McpLintFlags,
   server: string[],
-  io: LintIo,
+  raw: LintIo,
 ): Promise<number> {
+  // The one way out: report, errors and the server's stderr tail all pass noCommands.
+  const io: LintIo = {
+    ...raw,
+    out: (text) => raw.out(noCommands(text)),
+    err: (text) => raw.err(noCommands(text)),
+  };
   try {
     return await lint(flags, server, io);
   } catch (err) {
@@ -139,11 +145,18 @@ async function lint(flags: McpLintFlags, server: string[], io: LintIo): Promise<
 
   const session = await openSession(config);
   try {
-    const { tools, pages, complete } = await listTools(session);
+    const { tools, unnamed, pages, complete } = await listTools(session);
     const findings = lintTools(tools);
     const calls =
       flags.call === true
-        ? await callSafeTools(session, tools, Number(callLimit), callTimeoutMs, callTimeout)
+        ? await callSafeTools(
+            session,
+            tools,
+            unnamed,
+            Number(callLimit),
+            callTimeoutMs,
+            callTimeout,
+          )
         : null;
     if (calls !== null) findings.push(...calls.findings);
     const applied = applyExceptions(findings, exceptions?.active ?? []);
@@ -217,11 +230,19 @@ function readExceptions(flag: string | undefined, io: LintIo) {
   return { name, ...parseExceptionsFile(readFileSync(path, 'utf8'), name, today) };
 }
 
-/** tools/list to its last page, at most MAX_PAGES. An entry that is not an object, or has no string name, keeps its place under an empty name, which the name rules report. */
-async function listTools(
-  session: Session,
-): Promise<{ tools: ListedTool[]; pages: number; complete: boolean }> {
+/**
+ * tools/list to its last page, at most MAX_PAGES. An entry that is not an object, or has no string name, keeps its
+ * place under an empty name, which the name rules report; `unnamed` holds those entries with what they had for a name,
+ * so --call never sends one.
+ */
+async function listTools(session: Session): Promise<{
+  tools: ListedTool[];
+  unnamed: Map<ListedTool, string>;
+  pages: number;
+  complete: boolean;
+}> {
   const tools: ListedTool[] = [];
+  const unnamed = new Map<ListedTool, string>();
   let cursor: string | undefined;
   for (let pages = 1; pages <= MAX_PAGES; pages++) {
     let page: unknown;
@@ -236,48 +257,147 @@ async function listTools(
       );
     }
     const listed: unknown[] = isRecord(page) && Array.isArray(page.tools) ? page.tools : [];
-    for (const t of listed)
-      tools.push(
-        isRecord(t) && typeof t.name === 'string'
-          ? (t as unknown as ListedTool)
-          : { ...(isRecord(t) ? t : {}), name: '' },
-      );
+    for (const t of listed) {
+      const name = isRecord(t) ? t.name : undefined;
+      if (typeof name === 'string' && name !== '') {
+        tools.push(t as unknown as ListedTool);
+        continue;
+      }
+      const tool: ListedTool = { ...(isRecord(t) ? t : {}), name: '' };
+      unnamed.set(tool, name === undefined ? '(no name)' : String(JSON.stringify(name)));
+      tools.push(tool);
+    }
     cursor =
       isRecord(page) && typeof page.nextCursor === 'string' && page.nextCursor !== ''
         ? page.nextCursor
         : undefined;
-    if (cursor === undefined) return { tools, pages, complete: true };
+    if (cursor === undefined) return { tools, unnamed, pages, complete: true };
   }
-  return { tools, pages: MAX_PAGES, complete: false };
+  return { tools, unnamed, pages: MAX_PAGES, complete: false };
+}
+
+/** Keywords whose value maps names to schemas: the names are not keywords. */
+const NAMED_SCHEMAS = new Set(['properties', '$defs', 'definitions', 'dependentSchemas']);
+/** Keywords whose value is data, not a schema. */
+const DATA = new Set(['const', 'enum', 'default', 'examples']);
+/** A server's schema bigger than this is not checked: its size alone would cost more than the call. */
+const MAX_SCHEMA_NODES = 10_000;
+const MAX_SCHEMA_DEPTH = 64;
+
+class SchemaTooBig extends Error {}
+
+/**
+ * A copy of a server's schema without `pattern` and `patternProperties`: a regular expression from the server, run on
+ * a value from the server, can backtrack for minutes (`^(a+)+$`), and a call timeout cannot stop a synchronous match.
+ * Without its `patternProperties` a node allows any other property too, so its `additionalProperties` goes with them.
+ * The original is not touched.
+ */
+function withoutPatterns(schema: unknown): {
+  schema: unknown;
+  stripped: boolean;
+  formats: boolean;
+} {
+  let nodes = 0;
+  let stripped = false;
+  let formats = false;
+  const copy = (v: unknown, depth: number): unknown => {
+    if (++nodes > MAX_SCHEMA_NODES || depth > MAX_SCHEMA_DEPTH) throw new SchemaTooBig();
+    if (Array.isArray(v)) return v.map((x) => copy(x, depth + 1));
+    if (!isRecord(v)) return v;
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(v)) {
+      if (key === 'pattern' || key === 'patternProperties') {
+        stripped = true;
+        continue;
+      }
+      if (key === 'format') formats = true;
+      if (DATA.has(key)) out[key] = value;
+      else if (NAMED_SCHEMAS.has(key) && isRecord(value))
+        out[key] = Object.fromEntries(
+          Object.entries(value).map(([n, s]) => [n, copy(s, depth + 1)]),
+        );
+      else out[key] = copy(value, depth + 1);
+    }
+    if ('patternProperties' in v) delete out.additionalProperties;
+    return out;
+  };
+  return { schema: copy(schema, 0), stripped, formats };
 }
 
 /**
  * JSON Schema 2020-12, the dialect MCP schemas are written in. Not strict (a server's schema may carry keywords of its
- * own), and a fresh instance per schema: one instance refuses a second schema with the same `$id`.
+ * own), no formats (a format name is server text, and ajv would log an unknown one), no logger: ajv writes nothing.
+ * A fresh instance per schema (one instance refuses a second schema with the same `$id`), compiled once per schema.
  */
-const SCHEMAS: CallContext = {
-  validate(schema, value) {
+function schemaValidator(): CallContext {
+  const compiled = new WeakMap<object, (value: unknown) => string | undefined>();
+  const compile = (schema: Record<string, unknown>): ((value: unknown) => string | undefined) => {
+    let safe: ReturnType<typeof withoutPatterns>;
     try {
-      const check = new Ajv2020({ strict: false, validateSchema: false }).compile(schema);
-      if (check(value)) return undefined;
-      return (check.errors ?? [])
-        .map((e) => `${e.instancePath || '/'} ${e.message ?? 'is invalid'}`)
-        .join('; ');
+      safe = withoutPatterns(schema);
     } catch (err) {
-      return `the output schema does not compile: ${(err as Error).message.split('\n')[0] ?? ''}`;
+      if (!(err instanceof SchemaTooBig)) throw err;
+      return () =>
+        `the output schema is too large to check (over ${MAX_SCHEMA_NODES} nodes or ${MAX_SCHEMA_DEPTH} levels)`;
     }
-  },
-};
+    const notChecked = [
+      ...(safe.stripped ? ['pattern and patternProperties were not checked'] : []),
+      ...(safe.formats ? ['formats were not checked'] : []),
+    ].join('; ');
+    try {
+      const check = new Ajv2020({
+        strict: false,
+        validateSchema: false,
+        validateFormats: false,
+        logger: false,
+      }).compile(safe.schema as Record<string, unknown>);
+      return (value) => {
+        if (check(value)) return undefined;
+        const errors = (check.errors ?? [])
+          .map((e) => `${e.instancePath || '/'} ${e.message ?? 'is invalid'}`)
+          .join('; ');
+        return notChecked === '' ? errors : `${errors} (${notChecked})`;
+      };
+    } catch (err) {
+      const message = `the output schema does not compile: ${(err as Error).message.split('\n')[0] ?? ''}`;
+      return () => message;
+    }
+  };
+  return {
+    validate(schema, value) {
+      let check = compiled.get(schema);
+      if (check === undefined) compiled.set(schema, (check = compile(schema)));
+      return check(value);
+    },
+  };
+}
 
-/** Calls each tool `selectSafeTools` allows, one after another, with `{}`; a call with no answer is could-not-run. */
+/**
+ * Calls each tool `selectSafeTools` allows, one after another, with `{}`; a call with no answer is could-not-run.
+ * A name the whole list holds twice is never called (tools/call picks by name, so a read-only entry could run the
+ * destructive one), nor an entry without a name.
+ */
 async function callSafeTools(
   session: Session,
   tools: readonly ListedTool[],
+  unnamed: ReadonlyMap<ListedTool, string>,
   limit: number,
   timeoutMs: number,
   timeoutText: string,
 ) {
-  const { safe, skipped } = selectSafeTools(tools);
+  const counts = new Map<string, number>();
+  for (const t of tools) if (!unnamed.has(t)) counts.set(t.name, (counts.get(t.name) ?? 0) + 1);
+  const refused: { tool: string; reason: string }[] = [];
+  const candidates: ListedTool[] = [];
+  for (const t of tools) {
+    const label = unnamed.get(t);
+    if (label !== undefined) refused.push({ tool: label, reason: 'invalid-name' });
+    else if ((counts.get(t.name) ?? 0) > 1)
+      refused.push({ tool: t.name, reason: 'duplicate-name' });
+    else candidates.push(t);
+  }
+  const { safe, skipped } = selectSafeTools(candidates);
+  const schemas = schemaValidator();
   const findings: LintFinding[] = [];
   const called: CallOutcome[] = [];
   for (const tool of safe.slice(0, limit)) {
@@ -287,7 +407,7 @@ async function callSafeTools(
         { name: tool.name, arguments: {} },
         { timeoutMs },
       );
-      const found = lintCall(tool, result, SCHEMAS);
+      const found = lintCall(tool, result, schemas);
       findings.push(...found);
       called.push({ tool: tool.name, state: found.length > 0 ? 'failed' : 'passed' });
     } catch (err) {
@@ -302,6 +422,7 @@ async function callSafeTools(
     findings,
     called,
     skipped: [
+      ...refused,
       ...skipped.map((s) => ({ tool: s.tool.name, reason: s.reason as string })),
       ...safe.slice(limit).map((t) => ({ tool: t.name, reason: 'call-limit' })),
     ],
@@ -329,6 +450,7 @@ function reported(f: LintFinding, clean: (s: string) => string): ReportFinding {
 const note = (e: FileException, clean: (s: string) => string): ExceptionNote => ({
   rule: clean(e.id),
   ...(e.target.tool === undefined ? {} : { tool: clean(e.target.tool) }),
+  ...(e.target.param === undefined ? {} : { param: clean(e.target.param) }),
   line: e.line,
   ...(e.expires === undefined ? {} : { expires: e.expires }),
 });

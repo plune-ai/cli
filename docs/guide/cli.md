@@ -257,7 +257,7 @@ The connection flags (`--url`, `--sse`, `--header`, `--header-env`, `--env`, `--
 | `--format <fmt>` | `human` (default) or `json`: one JSON document on stdout and nothing else, with `schemaVersion`. It has no time field, so two runs against the same server give the same bytes. |
 | `--ignore-file <path>` | The exceptions file; by default `plune-mcp-ignore.yaml` in the current folder, if there is one. |
 | `--list-rules` | Print every rule (id, class, level, description, fix, specification link) and exit `0` without connecting. |
-| `--call` | Also call each tool that says it is read-only, does not say it is destructive and needs no argument, with `{}`, and check the answer (rules starting with `call-`). Off by default. |
+| `--call` | Also call each tool that says it is read-only, does not say it is destructive and needs no argument, with `{}`, and check the answer (rules starting with `call-`). A name the list holds twice, or an entry without a name, is never called. An answer is checked against the tool's `outputSchema` without its `pattern`, `patternProperties` and `format` keywords: a server's regular expression is not run. Off by default. |
 | `--call-limit <n>` | Call at most this many tools (default `10`). |
 | `--call-timeout <duration>` | How long to wait for one call (default `15s`). A call with no answer is `could-not-run`, never a pass. |
 
@@ -267,6 +267,7 @@ The connection flags (`--url`, `--sse`, `--header`, `--header-env`, `--env`, `--
 ignore:
   - rule: desc-no-when-not
     tool: some_tool           # without tool: the rule on every tool
+    param: query              # optional: one parameter of the tool
     reason: "Why this is fine here."   # required
     expires: 2026-12-31       # optional: the last day it applies
 ```

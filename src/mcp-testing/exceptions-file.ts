@@ -1,4 +1,5 @@
-import { LineCounter, isMap, isSeq, parseDocument, type Node } from 'yaml';
+import { LineCounter, isMap, isScalar, isSeq, parseDocument, type Node } from 'yaml';
+import { printable } from '../reporter-core/failure-detail.js';
 import { MCP_EXIT } from './exit-codes.js';
 import type { LintException } from './lint/index.js';
 
@@ -67,15 +68,33 @@ export function parseExceptionsFile(
           continue;
         }
         const field = (key: string) => {
-          const value = item.get(key, true) as Node | undefined;
-          const plain = (value as { value?: unknown } | undefined)?.value;
-          if (value !== undefined && plain !== null && typeof plain !== 'string')
-            fail(value, `${key} must be text.`);
+          const pair = item.items.find((p) => isScalar(p.key) && p.key.value === key);
+          if (pair === undefined) return undefined;
+          const plain = isScalar(pair.value) ? pair.value.value : pair.value;
+          if (plain !== null && plain !== undefined && typeof plain !== 'string')
+            fail(
+              pair.key as Node,
+              key === 'expires'
+                ? 'expires must be text: write the date in quotes ("2026-12-31").'
+                : `${key} must be text.`,
+            );
+          // An empty tool or param would quietly widen the entry to every tool or parameter.
+          if (
+            (key === 'tool' || key === 'param') &&
+            (plain === null ||
+              plain === undefined ||
+              (typeof plain === 'string' && plain.trim() === ''))
+          )
+            fail(
+              pair.key as Node,
+              `${key} is empty: name one, or leave the key out to cover every ${key === 'tool' ? 'tool' : 'parameter'}.`,
+            );
           return typeof plain === 'string' ? plain : undefined;
         };
-        const [rule, tool, reason, expires] = [
+        const [rule, tool, param, reason, expires] = [
           field('rule'),
           field('tool'),
+          field('param'),
           field('reason'),
           field('expires'),
         ];
@@ -83,11 +102,12 @@ export function parseExceptionsFile(
         if (reason === undefined || reason.trim() === '')
           fail(
             item,
-            `the exception for ${rule ?? 'a rule'} needs a reason: an exception nobody can read back is a silenced check.`,
+            `the exception for ${printable(rule ?? 'a rule')} needs a reason: an exception nobody can read back is a silenced check.`,
           );
         if (expires !== undefined && !isDate(expires))
-          fail(item, `expires must be a date, YYYY-MM-DD (got "${expires}").`);
+          fail(item, `expires must be a date, YYYY-MM-DD (got "${printable(expires)}").`);
         if (
+          problems.length > 0 ||
           rule === undefined ||
           reason === undefined ||
           reason.trim() === '' ||
@@ -96,7 +116,10 @@ export function parseExceptionsFile(
           continue;
         const entry: FileException = {
           id: rule,
-          target: tool === undefined ? {} : { tool },
+          target: {
+            ...(tool === undefined ? {} : { tool }),
+            ...(param === undefined ? {} : { param }),
+          },
           reason,
           line: lineOf(item),
           ...(expires === undefined ? {} : { expires }),

@@ -39,6 +39,8 @@ export interface ExceptionNote {
   rule: string;
   /** Absent: the entry covers the rule on every tool. */
   tool?: string;
+  /** Absent: every parameter of the tool, and the tool itself. */
+  param?: string;
   line: number;
   expires?: string;
 }

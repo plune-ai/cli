@@ -103,7 +103,7 @@ describe('CLI · mcp lint · findings and exit codes', () => {
   it('CLI · mcp lint · a stdio server with a finding on each level fails at the default --fail-on error (AC-1, AC-3)', async () => {
     const run = await lint({ mode: 'mixed' });
     expect(run.code).toBe(1);
-    expect(run.out).toContain('lint-mixed 1.2.3 · stdio · 3 tools');
+    expect(run.out.startsWith('Server: lint-mixed 1.2.3 · stdio · 3 tools\n')).toBe(true);
     expect(run.out).toMatch(/^error +broken +input-schema-not-object$/m);
     expect(run.out).toMatch(/^warn +broken +desc-missing$/m);
     expect(run.out).toContain('fix: Give the tool an inputSchema');
@@ -434,8 +434,10 @@ describe('CLI · mcp lint · output', () => {
       const run = await lint({ mode: 'control', flags: { format, showInfo: true } });
       expect(run.out).toContain('x?::error::boom');
       for (const line of run.out.split('\n')) {
-        expect(line.startsWith('::')).toBe(false);
-        expect(line).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/);
+        expect(line.trimStart().startsWith('::')).toBe(false);
+        expect(line).not.toMatch(
+          /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/,
+        );
       }
     }
   });
@@ -510,5 +512,130 @@ describe('CLI · mcp lint · output', () => {
     };
     expect(pkg.files).toContain('THIRD_PARTY_NOTICES');
     expect(existsSync(new URL('THIRD_PARTY_NOTICES', root))).toBe(true);
+  });
+});
+
+describe('CLI · mcp lint · hostile servers', () => {
+  const startsWithCommand = (text: string) =>
+    text.split(/\r?\n/).filter((line) => line.trimStart().startsWith('::'));
+
+  it('CLI · mcp lint · --call: an output schema pattern that backtracks is not run, and the run ends quickly', async () => {
+    const started = Date.now();
+    const { code, report } = await json({ mode: 'redos', flags: { call: true } });
+    expect(Date.now() - started).toBeLessThan(5_000);
+    const mismatch = report.findings.find((f) => f.rule === 'call-output-schema-mismatch');
+    expect(mismatch?.actual).toContain('/n must be number');
+    expect(mismatch?.actual).toContain('pattern and patternProperties were not checked');
+    expect(code).toBe(1);
+  });
+
+  it('CLI · mcp lint · --call never calls a name the list holds twice', async () => {
+    const log = join(tmp(), 'calls.log');
+    const { code, report } = await json({
+      mode: 'dupe',
+      flags: { call: true, env: [`FIXTURE_CALL_LOG=${log}`] },
+    });
+    expect(existsSync(log)).toBe(false);
+    expect(report.calls?.skipped).toEqual([
+      { tool: 'sync', reason: 'duplicate-name' },
+      { tool: 'sync', reason: 'duplicate-name' },
+    ]);
+    expect(code).toBe(1);
+  });
+
+  it('CLI · mcp lint · --call never calls an entry without a string name', async () => {
+    const log = join(tmp(), 'calls.log');
+    const { report } = await json({
+      mode: 'numname',
+      flags: { call: true, env: [`FIXTURE_CALL_LOG=${log}`] },
+    });
+    expect(readFileSync(log, 'utf8').split('\n')).toEqual(['read_ok', '']);
+    expect(report.calls?.skipped).toEqual([{ tool: '7', reason: 'invalid-name' }]);
+  });
+
+  it('CLI · mcp lint · no line of stdout or stderr starts with :: — server name, schema format, stderr tail (AC-11)', async () => {
+    const written: string[] = [];
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      written.push(String(chunk));
+      return true;
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation((...args) => {
+      written.push(args.join(' '));
+    });
+    try {
+      const human = await lint({ mode: 'hostile', flags: { call: true, showInfo: true } });
+      expect(human.out.startsWith('Server: ::error::x 1.2.3 · stdio · 1 tool\n')).toBe(true);
+      expect(startsWithCommand(human.out)).toEqual([]);
+      expect(startsWithCommand(human.err)).toEqual([]);
+      const { report } = await json({ mode: 'hostile', flags: { call: true } });
+      const mismatch = report.findings.find((f) => f.rule === 'call-output-schema-mismatch');
+      expect(mismatch?.actual).toContain('formats were not checked');
+      const crash = await lint({ mode: 'crash' });
+      expect(crash.code).toBe(2);
+      expect(crash.err).toContain('?::error::z');
+      expect(startsWithCommand(crash.err)).toEqual([]);
+    } finally {
+      stderr.mockRestore();
+      warn.mockRestore();
+    }
+    expect(written.flatMap(startsWithCommand)).toEqual([]);
+    expect(written.join('')).not.toContain('::error::y');
+  });
+});
+
+describe('CLI · mcp lint · the exceptions file, strictly', () => {
+  const write = (body: string) => {
+    const dir = tmp();
+    writeFileSync(join(dir, 'plune-mcp-ignore.yaml'), body);
+    return dir;
+  };
+
+  it.each(['tool', 'param'])(
+    'CLI · mcp lint · an empty %s: is an error with its line, exit 2',
+    async (key) => {
+      const cwd = write(`ignore:\n  - rule: desc-missing\n    reason: "x"\n    ${key}:\n`);
+      const run = await lint({ mode: 'clean', cwd });
+      expect(run.code).toBe(2);
+      expect(run.err).toContain(`plune-mcp-ignore.yaml:4: ${key} is empty`);
+    },
+  );
+
+  it('CLI · mcp lint · param: narrows an entry to one parameter', async () => {
+    const cwd = write(
+      'ignore:\n  - rule: param-type-by-name\n    tool: notes_get\n    param: count\n    reason: "A count of words, not a number."\n',
+    );
+    const { code, report } = await json({ mode: 'heuristic', cwd, flags: { failOn: 'warn' } });
+    expect(report.suppressed.map((s) => `${s.target.tool}.${s.target.param}`)).toEqual([
+      'notes_get.count',
+    ]);
+    expect(code).toBe(0);
+    const other = write(
+      'ignore:\n  - rule: param-type-by-name\n    tool: notes_get\n    param: project\n    reason: "Another parameter."\n',
+    );
+    const narrowed = await json({ mode: 'heuristic', cwd: other, flags: { failOn: 'warn' } });
+    expect(narrowed.report.suppressed).toEqual([]);
+    expect(narrowed.report.exceptions.stale).toEqual([
+      { rule: 'param-type-by-name', tool: 'notes_get', param: 'project', line: 2 },
+    ]);
+    expect(narrowed.code).toBe(1);
+  });
+
+  it('CLI · mcp lint · a wrong expires is printed without its control characters', async () => {
+    const cwd = write(
+      'ignore:\n  - rule: desc-short\n    reason: "x"\n    expires: "2026\\u001b[31m"\n',
+    );
+    const run = await lint({ mode: 'clean', cwd });
+    expect(run.code).toBe(2);
+    expect(run.err).toContain('expires must be a date');
+    expect(run.err).not.toMatch(/\u001b/);
+  });
+
+  it('CLI · mcp lint · a YAML 1.1 date without quotes says to quote it', async () => {
+    const cwd = write(
+      '%YAML 1.1\n---\nignore:\n  - rule: desc-short\n    reason: "x"\n    expires: 2026-12-31\n',
+    );
+    const run = await lint({ mode: 'clean', cwd });
+    expect(run.code).toBe(2);
+    expect(run.err).toContain('write the date in quotes');
   });
 });

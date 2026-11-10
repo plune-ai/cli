@@ -24,7 +24,10 @@ function human(report: McpReport, { showInfo }: { showInfo: boolean }): string {
   const lines: string[] = [];
   const server =
     report.server === null ? 'unnamed server' : `${report.server.name} ${report.server.version}`;
-  lines.push(`${server} · ${report.transport} · ${plural(report.toolCount, 'tool', 'tools')}`, '');
+  lines.push(
+    `Server: ${server} · ${report.transport} · ${plural(report.toolCount, 'tool', 'tools')}`,
+    '',
+  );
 
   const shown = report.findings.filter((f) => f.level !== 'info' || showInfo);
   const heads = pad(shown.map((f) => [f.level, target(f.target), f.rule]));
@@ -46,7 +49,8 @@ function human(report: McpReport, { showInfo }: { showInfo: boolean }): string {
     lines.push(`suppressed: ${s.level} ${target(s.target)} ${s.rule}: ${s.reason}`);
 
   const file = report.exceptions.file ?? '';
-  const on = (e: { rule: string; tool?: string }) => `${e.rule} on ${e.tool ?? 'every tool'}`;
+  const on = (e: { rule: string; tool?: string; param?: string }) =>
+    `${e.rule} on ${e.tool ?? 'every tool'}${e.param === undefined ? '' : `.${e.param}`}`;
   for (const e of report.exceptions.expired)
     lines.push(
       `warning: ${file}:${e.line}: the exception for ${on(e)} expired on ${e.expires ?? ''} and no longer applies.`,
@@ -87,6 +91,12 @@ function human(report: McpReport, { showInfo }: { showInfo: boolean }): string {
   );
   return lines.join('\n') + '\n';
 }
+
+/**
+ * No line of our output may read as a CI workflow command: a line that starts with `::` once its leading spaces are
+ * gone gets a `?` before the `::`. Every text a command prints goes through here last, whatever produced it.
+ */
+export const noCommands = (text: string): string => text.replace(/^(\s*)::/gm, '$1?::');
 
 export const RENDERERS: Record<'human' | 'json', Renderer> = {
   human,
