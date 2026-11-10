@@ -9,7 +9,8 @@ import type { CheckState } from '../result.js';
 // - a step that read only what the connection already held (`offline`) proves nothing about the server answering, so
 //   it does not end a run of timeouts;
 // - with a budget, all steps together stay within it: a step gets what is left of it, and past it the rest is
-//   `could-not-run`.
+//   `could-not-run`. A step the budget cut short ends the budget, whatever a coarse clock says is left, and does not
+//   count as a timeout of the server; nor is a step started on less than MIN_SLICE_MS of budget.
 
 export interface Clock {
   /** Milliseconds, from any fixed point. */
@@ -58,6 +59,8 @@ export interface Ran<R extends StepResult = StepResult> {
 }
 
 const SKIPPED = 'skipped after two timeouts in a row';
+/** Less budget than this left is none: no call can be started and answered in it. */
+export const MIN_SLICE_MS = 50;
 const TIMED_OUT: unique symbol = Symbol('timed out');
 
 export async function runChecks<R extends StepResult>(
@@ -68,9 +71,11 @@ export async function runChecks<R extends StepResult>(
   const ran: Ran<R>[] = [];
   const start = clock.now();
   let timeouts = 0;
+  let budgetSpent = false;
   for (const step of steps) {
     const left = opts.budgetMs === undefined ? Infinity : opts.budgetMs - (clock.now() - start);
-    if (timeouts >= 2 || left <= 0) {
+    if (left < MIN_SLICE_MS) budgetSpent = true;
+    if (timeouts >= 2 || budgetSpent) {
       const detail = timeouts >= 2 ? SKIPPED : (opts.budgetDetail ?? SKIPPED);
       ran.push({ id: step.id, result: { state: 'could-not-run', detail }, ms: 0 });
       continue;
@@ -100,7 +105,9 @@ export async function runChecks<R extends StepResult>(
       timer.cancel();
     }
     if (result.timedOut === true) abort.abort();
-    if (result.timedOut === true) timeouts++;
+    // Cut by the budget, not by a slow server: the budget is over, and the run of timeouts is not longer for it.
+    if (result.timedOut === true && byBudget) budgetSpent = true;
+    else if (result.timedOut === true) timeouts++;
     else if (result.offline !== true) timeouts = 0;
     ran.push({ id: step.id, result, ms: clock.now() - began });
   }

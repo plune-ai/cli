@@ -8,7 +8,7 @@ import { runChecks, type Clock, type Step, type StepResult } from '../run.js';
  * A virtual clock: time jumps to the next timer only once nothing else is left to run (setImmediate comes after every
  * pending promise), so a step that answers always beats its timeout, and timers fire in the order they are due.
  */
-function fakeClock(): Clock & { elapsed: () => number } {
+function fakeClock(early = 0): Clock & { elapsed: () => number } {
   let now = 0;
   let timers: { at: number; fire: () => void; cancelled: boolean }[] = [];
   let scheduled = false;
@@ -31,7 +31,8 @@ function fakeClock(): Clock & { elapsed: () => number } {
     after(ms) {
       let fire = () => {};
       const done = new Promise<void>((resolve) => (fire = resolve));
-      const timer = { at: now + ms, fire, cancelled: false };
+      // `early`: a coarse timer that fires a few milliseconds before the clock says it is due.
+      const timer = { at: Math.max(now, now + ms - early), fire, cancelled: false };
       timers.push(timer);
       schedule();
       return { done, cancel: () => (timer.cancelled = true) };
@@ -162,6 +163,50 @@ describe('CLI · mcp check · the check loop', () => {
       detail: 'the --budget (10s) was spent',
     });
     expect(clock.elapsed()).toBe(10_000);
+  });
+
+  it('CLI · mcp check · a step the budget cut ends the budget: the rest is "budget spent", not "two timeouts", though 3 ms seem left', async () => {
+    const clock = fakeClock(3);
+    let started = 0;
+    const counted = (id: string): Step => ({
+      id,
+      run: () => {
+        started++;
+        return new Promise<never>(() => {});
+      },
+    });
+    const ran = await runChecks([counted('a'), counted('b'), counted('c')], clock, {
+      ...OPTS,
+      budgetMs: 1_000,
+      budgetDetail: 'the --budget (1s) was spent',
+    });
+    expect(states(ran)).toEqual(['a could-not-run timedOut', 'b could-not-run', 'c could-not-run']);
+    expect(ran.map((r) => r.result.detail)).toEqual([
+      'the --budget (1s) was spent',
+      'the --budget (1s) was spent',
+      'the --budget (1s) was spent',
+    ]);
+    expect(started).toBe(1);
+  });
+
+  it('CLI · mcp check · a step is not started on a crumb of budget: under 50 ms left is "budget spent"', async () => {
+    const clock = fakeClock();
+    const slow: Step = {
+      id: 'a',
+      run: async () => {
+        await clock.after(970).done;
+        return { state: 'passed', detail: 'ok' };
+      },
+    };
+    let reached = false;
+    const ran = await runChecks(
+      [slow, { id: 'b', run: async () => ((reached = true), { state: 'passed', detail: 'ok' }) }],
+      clock,
+      { ...OPTS, budgetMs: 1_000, budgetDetail: 'the --budget (1s) was spent' },
+    );
+    expect(states(ran)).toEqual(['a passed', 'b could-not-run']);
+    expect(ran[1]!.result.detail).toBe('the --budget (1s) was spent');
+    expect(reached).toBe(false);
   });
 
   it('CLI · mcp check · no steps, no results', async () => {
