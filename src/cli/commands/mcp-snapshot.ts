@@ -16,7 +16,7 @@ import { isSecretEnv, isSecretHeader, maskUrl } from '../../mcp-testing/connect/
 import { ConnectError, openSession, type Session } from '../../mcp-testing/connect/session.js';
 import { listAll as listToEnd, MAX_PAGES } from '../../mcp-testing/connect/tools.js';
 import { MCP_EXIT } from '../../mcp-testing/exit-codes.js';
-import { noCommands } from '../../mcp-testing/render.js';
+import { noCommands } from '../../mcp-testing/report/human.js';
 import {
   buildSnapshot,
   entityCount,

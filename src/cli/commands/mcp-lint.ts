@@ -31,7 +31,7 @@ import {
   type ListedTool,
   type LintFinding,
 } from '../../mcp-testing/lint/index.js';
-import { CATALOG_RENDERERS, noCommands, RENDERERS } from '../../mcp-testing/render.js';
+import { CATALOG_RENDERERS, lintHuman, noCommands } from '../../mcp-testing/report/human.js';
 import type {
   CallOutcome,
   ExceptionNote,
@@ -212,7 +212,12 @@ async function lint(flags: McpLintFlags, server: string[], io: LintIo): Promise<
             },
       exitCode: violations ? MCP_EXIT.violations : unmeasured ? MCP_EXIT.unmeasured : MCP_EXIT.ok,
     };
-    io.out(RENDERERS[format](report, { showInfo: flags.showInfo === true }));
+    io.out(
+      format === 'json'
+        ? `${JSON.stringify(report, null, 2)}
+`
+        : lintHuman(report, { showInfo: flags.showInfo === true }),
+    );
     return report.exitCode;
   } finally {
     await session.close();

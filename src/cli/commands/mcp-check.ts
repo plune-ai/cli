@@ -17,7 +17,7 @@ import {
 } from '../../mcp-testing/connect/options.js';
 import { ConnectError, openSession, type Session } from '../../mcp-testing/connect/session.js';
 import { MCP_EXIT } from '../../mcp-testing/exit-codes.js';
-import { CHECK_RENDERERS, noCommands } from '../../mcp-testing/render.js';
+import { checkHuman, noCommands } from '../../mcp-testing/report/human.js';
 import type {
   HealthCheck,
   HealthCheckId,
@@ -308,9 +308,11 @@ async function check(flags: McpCheckFlags, server: string[], io: CheckIo): Promi
     timing,
   };
   // The file first, and the exit code is the one it records, whatever happens to the printing after it.
-  if (flags.out !== undefined) writeOut(flags.out, CHECK_RENDERERS.json(report));
+  const json = `${JSON.stringify(report, null, 2)}
+`;
+  if (flags.out !== undefined) writeOut(flags.out, json);
   try {
-    io.out(CHECK_RENDERERS[opts.format](report));
+    io.out(opts.format === 'json' ? json : checkHuman(report));
   } catch (err) {
     io.err(`plune mcp check: could not print the report (${(err as Error).message}).\n`);
   }
