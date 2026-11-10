@@ -73,3 +73,51 @@
 ## Міграція
 
 Окремий крок: `serveStdio` з `@modelcontextprotocol/server` 2.x. Після нього модерний рядок матриці стає «works», а висновок доповнюється виміром після міграції.
+
+## Після міграції (2026-11-10, `@modelcontextprotocol/server` 2.4.0)
+
+Сервер тепер запускається через `serveStdio`, і транспорт обирає еру за першим повідомленням. `@modelcontextprotocol/sdk` 1.32.2 лишився лише залежністю для розробки: на ньому написано тестовий легасі-клієнт. Бандл `dist/cli.cjs` його не підтягує.
+
+| Клієнт | Надіслав | Відповідь | Підсумок |
+|---|---|---|---|
+| Легасі, SDK 1.x `Client` | `initialize` 2025-11-25 | `protocolVersion: "2025-11-25"`, `tools.listChanged: true` | працює; тест AC-1 зелений без змін |
+| Модерний, рядки JSON | перший `server/discover` | `DiscoverResult`: `supportedVersions: ["2026-07-28"]`, `capabilities.tools.listChanged: true`, `resultType: "complete"`, `ttlMs: 0`, `cacheScope: "private"`, у `_meta` — `serverInfo` | **працює** |
+| Модерний | `tools/list` | 17 інструментів, `resultType: "complete"`, `ttlMs: 0`, `cacheScope: "private"` | працює |
+| Модерний | `tools/list` з версією `1900-01-01` | `-32022`, `data.requested: "1900-01-01"`, `data.supported` з `2026-07-28` | за специфікацією |
+| Модерний | `subscriptions/listen` `{toolsListChanged: true}`, потім `plune_discover_tools` | `notifications/subscriptions/acknowledged`, потім `notifications/tools/list_changed`, обидва з `_meta.io.modelcontextprotocol/subscriptionId` = id запиту listen; наступний `tools/list` дає 18 | працює |
+| Модерний без підписки | `plune_discover_tools` | жодного сповіщення в stdout; наступний `tools/list` уже з новим інструментом | за специфікацією |
+| Легасі, невідома версія | `initialize` 1900-01-01 | `protocolVersion: "2025-11-25"` | як і раніше |
+
+```text
+> {"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}
+< {"result":{"supportedVersions":["2026-07-28"],"capabilities":{"tools":{"listChanged":true}},"resultType":"complete","ttlMs":0,"cacheScope":"private","_meta":{"io.modelcontextprotocol/serverInfo":{"name":"plune","version":"0.34.4"}}},"jsonrpc":"2.0","id":1}
+> {"jsonrpc":"2.0","id":2,"method":"subscriptions/listen","params":{"_meta":{…},"notifications":{"toolsListChanged":true}}}
+< {"jsonrpc":"2.0","method":"notifications/subscriptions/acknowledged","params":{"notifications":{"toolsListChanged":true},"_meta":{"io.modelcontextprotocol/subscriptionId":2}}}
+> {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"plune_discover_tools","arguments":{"names":["plune_run_create"]},"_meta":{…}}}
+< {"jsonrpc":"2.0","method":"notifications/tools/list_changed","params":{"_meta":{"io.modelcontextprotocol/subscriptionId":2}}}
+< {"result":{"content":[…],"structuredContent":{…},"resultType":"complete","_meta":{"io.modelcontextprotocol/serverInfo":{"name":"plune","version":"0.34.4"}}},"jsonrpc":"2.0","id":3}
+```
+
+### Що змінилось для клієнтів старої ери
+
+Порівняння `tools/list` до і після міграції, 17 інструментів, по полях:
+
+- `inputSchema.$schema` і `outputSchema.$schema`: `http://json-schema.org/draft-07/schema#` → `https://json-schema.org/draft/2020-12/schema` (у всіх 17 інструментів). Інший конвертер zod → JSON Schema. Решта схем не змінилась.
+- Зникло поле `execution.taskSupport: "forbidden"`. Це значення за замовчуванням ревізії `2025-11-25`, тож зміст не змінився.
+- Виклик інструмента, якого немає в списку (наприклад, інструмента запису для токена `read`), тепер дає протокольну помилку `-32602`, а не результат з `isError: true`. Так вимагають сторінки tools обох ревізій: «Unknown tools» — це протокольна помилка.
+  https://modelcontextprotocol.io/specification/2025-11-25/server/tools
+  https://modelcontextprotocol.io/specification/2026-07-28/server/tools
+
+### Відкрите питання: `plune_discover_tools` і вимога до `tools/list`
+
+Сторінка tools ревізії `2026-07-28` каже, що набір у `tools/list` «MUST NOT vary per-connection or as a side effect of other requests on the connection». Набір МОЖЕ залежати від авторизації. Наша механіка «відкрити інструмент до кінця сесії» змінює список саме як побічний ефект виклику `plune_discover_tools`. Технічно вона працює в обох ерах (сповіщення йде через підписку, `ttlMs: 0`), але для модерної ери суперечить цьому MUST.
+
+Варіанти, які потребують продуктового рішення:
+
+- **(А)** Лишити як є і задокументувати відхилення. Найменше змін.
+- **(Б)** У модерній ері віддавати в `tools/list` усі інструменти, які дозволяє токен (зараз 22). Але обмеження «не більше 20 видимих» тоді порушується.
+- **(В)** У модерній ері список сталий (основні інструменти), а приховані можна викликати за назвою. `plune_discover_tools` лише повертає їхні описи й схеми. Це потребує власної обробки `tools/list` замість стандартної.
+
+Для легасі-ери в усіх варіантах поведінка лишається як раніше.
+
+https://modelcontextprotocol.io/specification/2026-07-28/server/tools
