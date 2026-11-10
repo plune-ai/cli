@@ -685,7 +685,7 @@ plune mcp check --smoke --out check.json -- node dist/server.js
 ```
 
 `--smoke` also calls the tools that say they are read-only, do not say they are destructive and need
-no argument, with `{}`. It exits `0` when everything that applies passed, `1` on a failure, `2` when
+no argument, with `{}`; `--allow-write-calls` adds only tools that say `destructiveHint: false`. It exits `0` when everything that applies passed, `1` on a failure, `2` when
 the server did not start, could not be reached or wants credentials, and `3` when something could not
 be measured. `--out` writes a report you can attach to a ticket: no URL, command, environment or
 header in it, the server's stderr masked. The states, the options and the exit codes are in

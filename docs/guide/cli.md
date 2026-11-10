@@ -254,7 +254,7 @@ In this order, each with a stable id, a state and one sentence on what it saw:
 | `initialize` | The handshake finished; `serverInfo` (name, version) is recorded. |
 | `protocol-version` | The protocol version the server chose. One older than the latest this client offers is shown as information, not a failure. |
 | `capabilities` | What the server declares. |
-| `tools-list`, `resources-list`, `resource-templates-list`, `prompts-list` | The list, read to its last page (at most 100), and how many entries it has. A list whose capability the server did not declare is `not-applicable`. |
+| `tools-list`, `resources-list`, `resource-templates-list`, `prompts-list` | The list, read to its last page (at most 100), and how many entries it has. A list whose capability the server did not declare is `not-applicable`; so is `resource-templates-list` when a server that declares `resources` answers it with Method not found (any other error is `failed`). After a list times out, no further page is asked for. |
 | `ping` | The server answers `ping`. |
 
 ### States
@@ -277,13 +277,15 @@ connection and the handshake. The check's own:
 |--------|---------|
 | `--check-timeout <duration>` | How long one check may wait for an answer (default `15s`). |
 | `--wait <duration>` | Keep trying to reach the server at `--url` for this long (default `0`): for a server that CI starts beside this step. Only for `--url`. |
-| `--smoke` | After the checks, call each tool that says `readOnlyHint: true`, does not say `destructiveHint: true` and has no required parameter, always with `{}`. A call is `passed` when it answers without `isError`, `failed` on a JSON-RPC error or `isError: true` (with its text), `could-not-run` with no answer. A tool not called is listed as `not-applicable` with the reason (`not-read-only`, `destructive`, `required-arguments`, `smoke-limit`, `duplicate-name`, `invalid-name`). Two timeouts in a row end the mode. |
+| `--smoke` | After the checks, call each tool that says `readOnlyHint: true` (the boolean), does not say `destructiveHint: true` (a `destructiveHint` that is not a boolean counts as destructive) and has no required parameter, always with `{}`. A schema that could require something without a top-level `required` (`allOf`, `anyOf`, `oneOf`, `$ref`, `dependentRequired`, `minProperties` above 0) counts as `required-arguments`. A call is `passed` when it answers without `isError`, `failed` on a JSON-RPC error or `isError: true` (with its text), `could-not-run` with no answer. A tool not called is listed as `not-applicable` with the reason (`not-read-only`, `destructive`, `no-destructive-hint`, `required-arguments`, `smoke-limit`, `duplicate-name`, `invalid-name`); the human report gives one line per reason, the JSON every tool. Two timeouts in a row end the mode. |
 | `--smoke-limit <n>` | Call at most this many tools (default `5`). |
 | `--smoke-timeout <duration>` | How long to wait for one call (default `15s`). |
 | `--budget <duration>` | How long `--smoke` may take in all (default `60s`); the calls it leaves no time for are `could-not-run`. |
-| `--allow-write-calls` | With `--smoke`, also call tools that do not say they are read-only, still only those without required parameters. A warning goes to stderr before the first call, and the report says `writeCallsAllowed: true`. `readOnlyHint` is what the server says of itself, not a guarantee. A tool that says `destructiveHint: true` is never called; there is no flag for that. |
-| `--out <path>` | Also write the report as JSON to this file: the `plune` version, the format version, the server's name and version, the transport (never the URL, the command, its environment or the headers), the protocol version, every check with its state and detail, the durations, the last lines of the server's stderr (masked), the `--smoke` limits and calls, and `writeCallsAllowed`. It can be attached to a ticket as it is. |
-| `--format <fmt>` | `human` (default) or `json` on stdout. Durations are only in the `timing` field, so two runs on the same server give the same JSON but for it. |
+| `--allow-write-calls` | With `--smoke`, also call tools that are not read-only but say `destructiveHint: false` explicitly, still only those without required parameters. A tool without that hint is not called (`no-destructive-hint`): the protocol's default for the hint is destructive. A warning goes to stderr before the first call, and the report says `writeCallsAllowed: true`. The hints are what the server says of itself, not a guarantee. A tool that says `destructiveHint: true` is never called; there is no flag for that. |
+| `--out <path>` | Also write the report as JSON to this file: the `plune` version, the format version, the server's name and version, the transport (never the URL, the command, its environment or the headers), the protocol version, every check with its state and detail, the durations, the last lines of the server's stderr, the `--smoke` limits and calls, and `writeCallsAllowed`. Every value given for the connection is masked wherever the server repeats it: `--env` and header values, secrets in the URL, and each argument of the command after `--` of 8 characters or more. Masking matches a value as written; a server that prints a secret encoded (base64) or in pieces gets it past the mask. Text from the server is cut at 500 characters. The exit code is the `exitCode` the file records. |
+| `--format <fmt>` | `human` (default) or `json` on stdout. Durations are only in the `timing` field, so two runs on the same server give the same JSON but for it. The human report ends with a line of check counts, with `--smoke` a line of call counts, and the verdict. |
+
+Every duration flag (`--timeout`, `--check-timeout`, `--wait`, `--smoke-timeout`, `--budget`) takes at most 2147483647 ms (about 24.8 days), the longest a timer can wait; a longer value is a flag error, exit `2`.
 
 ### Exit codes
 
@@ -291,7 +293,7 @@ connection and the handshake. The check's own:
 |------|---------|
 | `0` | Every check that applies passed (`not-applicable` does not count against it). |
 | `1` | At least one check or smoke call `failed`. |
-| `2` | Nothing about the server's health is proven, and you can fix why: the command was not found or did not start, the server could not be reached (after `--wait`), it answered `401` or `403` (pass the credentials with `--header-env`; `check` does not discover or run OAuth), or a flag is wrong. |
+| `2` | Nothing about the server's health is proven, and you can fix why: the command was not found or did not start, the server could not be reached (after `--wait`), it answered `401` or `403`, to the handshake or to any request after it (pass the credentials with `--header-env`; `check` does not discover or run OAuth), or a flag is wrong. |
 | `3` | Nothing failed, but something could not be measured: a check `could-not-run`, no check passed, or `--smoke` found no tool to call. Not measured is not healthy. |
 
 ## `plune mcp lint`
@@ -319,9 +321,9 @@ The connection flags (`--url`, `--sse`, `--header`, `--header-env`, `--env`, `--
 | `--format <fmt>` | `human` (default) or `json`: one JSON document on stdout and nothing else, with `schemaVersion`. It has no time field, so two runs against the same server give the same bytes. |
 | `--ignore-file <path>` | The exceptions file; by default `plune-mcp-ignore.yaml` in the current folder, if there is one. |
 | `--list-rules` | Print every rule (id, class, level, description, fix, specification link) and exit `0` without connecting. |
-| `--call` | Also call each tool that says it is read-only, does not say it is destructive and needs no argument, with `{}`, and check the answer (rules starting with `call-`). A name the list holds twice, or an entry without a name, is never called. An answer is checked against the tool's `outputSchema` without its `pattern`, `patternProperties` and `format` keywords: a server's regular expression is not run. Off by default. |
+| `--call` | Also call each tool that says it is read-only, does not say it is destructive and needs no argument, with `{}`, and check the answer (rules starting with `call-`). A name the list holds twice, or an entry without a name, is never called. Nor is a tool whose schema could require something without a top-level `required` (`allOf`, `anyOf`, `oneOf`, `$ref`, `dependentRequired`, `minProperties` above 0), or whose `destructiveHint` is not a boolean. An answer is checked against the tool's `outputSchema` without its `pattern`, `patternProperties` and `format` keywords: a server's regular expression is not run. Off by default. |
 | `--call-limit <n>` | Call at most this many tools (default `10`). |
-| `--call-timeout <duration>` | How long to wait for one call (default `15s`). A call with no answer is `could-not-run`, never a pass. |
+| `--call-timeout <duration>` | How long to wait for one call (default `15s`, at most 2147483647 ms). A call with no answer is `could-not-run`, never a pass. |
 
 ### The exceptions file
 
