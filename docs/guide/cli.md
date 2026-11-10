@@ -342,6 +342,15 @@ reports one finding with state `could-not-run` for the tool, its own level and t
 is checked as usual. `required-unknown-property` is an error, so at the default `--fail-on error`
 such a run exits `1`; with `--fail-on never` it exits `3`. Real schemas nest to 10-20 levels.
 
+Over stdio, one message from the server holds at most 10 MB (10 485 760 bytes), in every `plune mcp`
+command: about 68 000 small tools (a name, an empty object schema, two annotations). Reading a larger one
+costs time that grows with the square of its size (about 2 s at 38 MB, 29 s at 150 MB), so `plune`
+stops there, ends the server process and says `The server sent a message larger than 10 MB, the
+most plune reads in one stdio message; a long list belongs in pages (nextCursor).` `lint` then exits
+`2`; in `check` the list that was asked for is `failed` with that text, as is every later request. A
+server that returns its list in pages (`nextCursor`) is read to its last page, up to 100 pages.
+Over `--url` there is no such limit.
+
 ### The exceptions file
 
 ```yaml
@@ -366,7 +375,7 @@ level), and an entry left with nothing to cover is stale.
 |------|---------|
 | `0` | No finding at the `--fail-on` level, and everything was measured. |
 | `1` | At least one finding that failed at the `--fail-on` level or above. A rule that could not run is exit `3`, at any level. |
-| `2` | The server did not start or did not answer (the last lines of its stderr are printed, secrets masked), or a flag or the exceptions file is wrong. |
+| `2` | The server did not start or did not answer (the last lines of its stderr are printed, secrets masked), sent a stdio message over 10 MB (see [Large tool lists](#large-tool-lists)), or a flag or the exceptions file is wrong. |
 | `3` | Nothing measured: the server lists no tools, `tools/list` did not end within 100 pages, a rule could not run (over 1000 tools, or an input schema nested deeper than 64 levels, see above), or with `--call` a call could not run or no tool was safe to call. Not measured is not clean. |
 
 ## `plune mcp snapshot`

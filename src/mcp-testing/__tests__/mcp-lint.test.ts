@@ -11,12 +11,14 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createProgram } from '../../cli.js';
 import { handleMcpLint, type McpLintFlags } from '../../cli/commands/mcp-lint.js';
+import { STDIO_MESSAGE_LIMIT } from '../connect/session.js';
 import { CALL_RULES, LINT_RULES, LINT_THRESHOLDS } from '../lint/index.js';
 import type { McpReport } from '../result.js';
 import { DEEP_LEVELS, lintServer, MANY_TOOLS } from './fixtures/lint-server.mjs';
 import { recorder, type Fixture } from './fixtures/http-servers.js';
 
 const FIXTURE = fileURLToPath(new URL('./fixtures/lint-server.mjs', import.meta.url));
+const RAW = fileURLToPath(new URL('./fixtures/raw-stdio.mjs', import.meta.url));
 const TODAY = '2026-11-10';
 
 const servers: { close(): Promise<void> }[] = [];
@@ -265,6 +267,17 @@ describe('CLI · mcp lint · a server that does not start', () => {
     expect(run.err).toContain('fatal: cannot open the database');
     expect(run.err).toContain('API_TOKEN=***');
     expect(run.err).not.toContain('lint-secret-token-1234');
+  });
+
+  it('CLI · mcp lint · a tools/list over the stdio message limit: exit 2 naming the limit, not "exited"', async () => {
+    const run = await lint({
+      server: [process.execPath, RAW, 'oversize', String(STDIO_MESSAGE_LIMIT + 1)],
+    });
+    expect(run.code).toBe(2);
+    expect(run.err).toContain('larger than 10 MB');
+    expect(run.err).toContain('pages');
+    expect(run.err).not.toContain('exited before it answered');
+    expect(run.out).toBe('');
   });
 });
 

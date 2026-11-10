@@ -6,6 +6,9 @@
 // - `noisy`: `loose-schema` that first logs a plain line, API_TOKEN in it, on stdout.
 // - `bare`: answers `initialize`, then one `tools/list` page of BARE_TOOLS tools without a description or
 //   annotations.
+// - `oversize`: answers `initialize`, then a `tools/list` of one tool whose description holds argv[3] bytes, and
+//   stays alive (starts a grandchild when asked, see child-helpers.mjs);
+// - `exit-on-list`: answers `initialize`, then exits 4 when asked for `tools/list`.
 
 import { createInterface } from 'node:readline';
 import { homedir } from 'node:os';
@@ -31,7 +34,12 @@ if (mode === 'noisy') {
   process.stdout.write(`booting with API_TOKEN=${process.env.API_TOKEN}\n`);
 }
 
-if (mode === 'loose-schema' || mode === 'noisy' || mode === 'bare') {
+if (mode === 'oversize') {
+  writePids(startGrandchild());
+}
+
+const answering = ['loose-schema', 'noisy', 'bare', 'oversize', 'exit-on-list'];
+if (answering.includes(mode)) {
   const send = (msg) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...msg }) + '\n');
   createInterface({ input: process.stdin }).on('line', (line) => {
     const msg = JSON.parse(line);
@@ -44,6 +52,14 @@ if (mode === 'loose-schema' || mode === 'noisy' || mode === 'bare') {
           capabilities: { tools: {} },
           serverInfo: { name: 'loose', version: '0.0.1' },
         },
+      });
+    } else if (msg.method === 'tools/list' && mode === 'exit-on-list') {
+      process.exit(4);
+    } else if (msg.method === 'tools/list' && mode === 'oversize') {
+      const description = 'x'.repeat(Number(process.argv[3]));
+      send({
+        id: msg.id,
+        result: { tools: [{ name: 'big', description, inputSchema: { type: 'object' } }] },
       });
     } else if (msg.method === 'tools/list') {
       send({
