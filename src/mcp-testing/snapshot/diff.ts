@@ -308,7 +308,7 @@ export function diffSnapshots(before: ToolSnapshot, after: ToolSnapshot): Contra
     if (was === undefined) c.add('tool', 'non-breaking', 'A new tool.', undefined, is);
     else if (is === undefined) c.add('tool', 'breaking', 'The tool was removed: a client that calls it now fails.', was, undefined);
     else compareTool(c, was, is);
-    changes.push(...c.changes);
+    for (const change of c.changes) changes.push(change);
   }
   return { changes, summary: summarize(changes) };
 }

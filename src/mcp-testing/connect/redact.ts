@@ -6,12 +6,18 @@ import type { ConnectTarget } from './options.js';
 //
 // Two rules:
 // - by name: a header or variable whose name says it is a credential is shown as ***, whatever its length;
-// - by value: every value given for the connection (headers, --env, secrets in the URL) is replaced wherever it
-//   appears, because a server may repeat a token in its own error. A value under 8 characters is not searched for
-//   (--env DEBUG=1 must not turn every 1 into ***); only its name can hide it. The exception is a value whose name
+// - by value: every value given for the connection (headers, --env, the arguments of a command after --, secrets in
+//   the URL) is replaced wherever it appears, because a server may repeat a token in its own error (an argument of 8
+//   characters or more is masked even when it is only a path or a flag name). A value under 8 characters is not
+//   searched for (--env DEBUG=1 must not turn every 1 into ***); only its name can hide it. The exception is a value whose name
 //   already says it is a credential and that has no name in a text to hide behind: the URL password, a secret query
 //   value, the password of Basic credentials. Those are searched for whatever their length, and the URL itself is
 //   written in its masked form wherever it appears.
+//
+// Known limit: masking is by the exact text of a value (and its URL- and JSON-escaped forms). A server that prints a
+// secret in another encoding (base64, hex) or cut into pieces gets it past the redactor. Closing that needs the
+// encoded forms of each value added to the search, and a rule for pieces; until then, a report is safe to share only
+// as far as the server prints its secrets whole.
 
 export const MASK = '***';
 const MIN_SECRET_LENGTH = 8;
@@ -82,7 +88,9 @@ interface Secrets {
 function secretsOf(target: ConnectTarget): Secrets {
   const secrets: Secrets = { values: [], named: [], urls: [] };
   if (target.kind === 'stdio') {
-    secrets.values.push(...Object.values(target.env));
+    for (const value of Object.values(target.env)) secrets.values.push(value);
+    // The arguments too: `--api-key sk-live-…` after -- is a value given for the connection like any other.
+    for (const arg of target.args) secrets.values.push(arg);
     return secrets;
   }
   for (const value of Object.values(target.headers)) {

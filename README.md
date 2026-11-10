@@ -124,6 +124,7 @@ the last resort, used only when `PLUNE_TOKEN` is set nowhere else. Nothing write
 | `plune login` | Save a [Plune platform](https://plune.ai/platform) API token so `sync` and `ingest` can reach it. The token is **checked against the API before it is saved**, so a wrong one fails here rather than two commands later. Get one at `https://beta.plune.ai` → Account → API tokens. Flags: `--token <token>` (omit to paste it or pipe it via stdin), `--skip-verify` (save without checking, for offline setup). In CI, skip this step: every platform command reads `PLUNE_TOKEN` from the environment first, and the saved login only when it is not set. |
 | `plune logout` | Remove the saved token. |
 | `plune mcp serve` | Serve the Plune tools to an AI agent (Claude Code, Codex, any MCP client) over **MCP stdio**. See [Plune tools for AI agents](#plune-tools-for-ai-agents-plune-mcp). Flags: `--project <id>` (default `PLUNE_PROJECT`), `--read-only` (offer only the read tools). |
+| `plune mcp check` | Check that **any** MCP server starts and answers: handshake, protocol version, capabilities, the lists, `ping`. See [Is the server alive](#is-the-server-alive-plune-mcp-check). Flags: `--check-timeout <duration>`, `--wait <duration>`, `--smoke` (with `--smoke-limit`, `--smoke-timeout`, `--budget`, `--allow-write-calls`), `--out <path>`, `--format human\|json`, and the connection flags. Exit `0` healthy, `1` a check failed, `2` the server did not start, could not be reached or wants credentials, or a flag is wrong, `3` something could not be measured. |
 | `plune mcp lint` | Check the tool list of **any** MCP server for what confuses a model — no account, no model. See [Checking any MCP server](#checking-any-mcp-server-plune-mcp-lint). Flags: `--fail-on error\|warn\|info\|never`, `--show-info`, `--format human\|json`, `--ignore-file <path>`, `--list-rules`, `--call`, `--call-limit <n>`, `--call-timeout <duration>`, and the connection flags (`--url`, `--header-env`, `--env`, …). Exit `0` clean, `1` findings, `2` the server did not start or a flag is wrong, `3` nothing measured. |
 | `plune sync` | Upload the latest local run to the platform. Flags: `--file <path>` to send a specific run JSON, `--fail-on-failures` to read the run's summary back once after the upload and exit with [the gate](#a-release-gate---fail-on-failures)'s code. Each upload carries an `Idempotency-Key` (SHA-256 of the body), so sending the same run again returns the same run rather than creating a second one. Against a platform with `POST /v1/jobs` the upload is also reported as a job (kind `sync`, counting the run's rows) that ends completed, or failed with the error text if the sync fails; an older platform without the route is not told, and a job report never fails the sync: when the sync goes through, one the platform did not take is said in one line on stderr. |
 | `plune run import <file \| folder>` | Turn a **JUnit XML** or **Playwright JSON** report, a **k6 summary** or **Lighthouse JSON** report, a **folder of JUnit XML files** (Maven Surefire's `target/surefire-reports`, Gradle's `build/test-results/test`), or an **Allure `allure-results` folder**, into a run in Plune. Needs no provider key — nothing is generated. Flags: `--format junit\|playwright-json\|allure\|k6\|lighthouse` (detected when omitted: a folder with a `*-result.json` is Allure, any other folder is read as the JUnit `*.xml` files in it), `--name <text>` to call the run something other than the [folder-based default](#what-the-run-is-called), `--min-score <category>=<0-100>` (repeatable) for the score a [Lighthouse](#a-k6-summary-or-a-lighthouse-report) category needs to pass, `--key <externalKey>` to land several reports in one run (with `PLUNE_SHARED_RUN=1` — see below), `--create` to offer unmatched tests to the review queue, `--fail-on-missing-attachments` to exit 1 when a file a JUnit report names with `[[ATTACHMENT\|path]]`, or an Allure result names as a `source`, is not there (the results are sent either way), `--upload-concurrency <n>` for files uploaded at once ([1 to 32, default 16](#many-screenshots-upload-concurrency-and-retries)), `--fail-on-failures` to exit with [the gate](#a-release-gate---fail-on-failures)'s code on the summary the platform froze when this import finished the run. |
@@ -667,6 +668,28 @@ The server speaks both MCP protocol eras: a client that opens with `initialize` 
 per-request `_meta`. In the newer revision a client learns that `plune_discover_tools` changed the
 list through `subscriptions/listen`; `tools/list` is sent with `ttlMs: 0`, so a client that does not
 listen reads the current list every time.
+
+#### Is the server alive: `plune mcp check`
+
+`plune mcp check` answers the question before any other: does the server start, finish the
+handshake and answer the basic requests? It runs the checks in order (`start`, `initialize`,
+`protocol-version`, `capabilities`, `tools-list`, `resources-list`, `resource-templates-list`,
+`prompts-list`, `ping`), each with a state and one sentence on what it saw. A list the server did not
+declare is `not-applicable`; a check with no answer within `--check-timeout` is `could-not-run`,
+never a pass.
+
+```bash
+plune mcp check -- node dist/server.js
+plune mcp check --url http://127.0.0.1:3000/mcp --wait 20s
+plune mcp check --smoke --out check.json -- node dist/server.js
+```
+
+`--smoke` also calls the tools that say they are read-only, do not say they are destructive and need
+no argument, with `{}`; `--allow-write-calls` adds only tools that say `destructiveHint: false`. It exits `0` when everything that applies passed, `1` on a failure, `2` when
+the server did not start, could not be reached or wants credentials, and `3` when something could not
+be measured. `--out` writes a report you can attach to a ticket: no URL, command, environment or
+header in it, the server's stderr masked. The states, the options and the exit codes are in
+[the CLI reference](docs/guide/cli.md#plune-mcp-check).
 
 #### Checking any MCP server: `plune mcp lint`
 

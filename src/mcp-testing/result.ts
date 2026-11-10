@@ -75,3 +75,63 @@ export interface McpReport {
   } | null;
   exitCode: 0 | 1 | 3;
 }
+
+// `plune mcp check`: whether a server is alive and answers the basic requests, check by check.
+
+/** The checks, in the order they run. */
+export type HealthCheckId =
+  | 'start'
+  | 'initialize'
+  | 'protocol-version'
+  | 'capabilities'
+  | 'tools-list'
+  | 'resources-list'
+  | 'resource-templates-list'
+  | 'prompts-list'
+  | 'ping';
+
+export interface HealthCheck {
+  id: HealthCheckId;
+  state: CheckState;
+  /** One sentence: what was seen. */
+  detail: string;
+  /** Present when no answer came within --check-timeout (or --timeout, for initialize). */
+  timedOut?: true;
+  /** The entries a list check read to its last page. */
+  count?: number;
+}
+
+/** One tool of `--smoke`: called (`passed`, `failed`, `could-not-run`) or not, and why (`not-applicable`). */
+export interface SmokeCall {
+  tool: string;
+  state: Exclude<CheckState, 'pending'>;
+  detail: string;
+  timedOut?: true;
+}
+
+export interface McpCheckReport {
+  schemaVersion: 1;
+  command: 'check';
+  /** The version of `plune` that ran the checks. */
+  plune: string;
+  /** `serverInfo` from the handshake; null when there was none. */
+  server: { name: string; version: string } | null;
+  /** The transport only: never the URL, the command, its environment or the headers. */
+  transport: 'stdio' | 'http' | 'sse';
+  /** The protocol version the server answered with; null without a handshake. */
+  protocolVersion: string | null;
+  checkTimeout: string;
+  checks: HealthCheck[];
+  /** Null without `--smoke`. */
+  smoke: { limit: number; timeout: string; budget: string; calls: SmokeCall[] } | null;
+  writeCallsAllowed: boolean;
+  /** The last lines the server process wrote to stderr, masked (stdio only). */
+  stderrTail: string[];
+  exitCode: 0 | 1 | 3;
+  /** How long each part took, apart from the states: the one field two runs on the same server differ in. */
+  timing: {
+    totalMs: number;
+    checks: { id: HealthCheckId; ms: number }[];
+    calls: { tool: string; ms: number }[];
+  };
+}

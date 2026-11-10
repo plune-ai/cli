@@ -1,4 +1,5 @@
 import type { CheckClass, CheckLevel, McpReport } from './result.js';
+import type { McpCheckReport } from './result.js';
 
 /**
  * A renderer turns one report into the text a command prints. Every format is one; a new format adds an entry to
@@ -10,8 +11,10 @@ export type Renderer = (report: McpReport, opts: { showInfo: boolean }) => strin
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 const target = (t: { tool: string; param?: string }) =>
   t.param === undefined ? t.tool : `${t.tool}.${t.param}`;
+/** Columns padded to their widest cell. A width by reduce, not Math.max(...): a server's list can hold any number of rows. */
 const pad = (rows: string[][]) => {
-  const widths = rows[0]?.map((_, i) => Math.max(...rows.map((r) => r[i]?.length ?? 0))) ?? [];
+  const widths =
+    rows[0]?.map((_, i) => rows.reduce((w, r) => Math.max(w, r[i]?.length ?? 0), 0)) ?? [];
   return rows.map((r) =>
     r
       .map((cell, i) => (i === r.length - 1 ? cell : cell.padEnd(widths[i] ?? 0)))
@@ -68,7 +71,7 @@ function human(report: McpReport, { showInfo }: { showInfo: boolean }): string {
       ]),
       ...report.calls.skipped.map((s) => ['  skipped', s.tool, s.reason]),
     ];
-    if (rows.length > 0) lines.push(...pad(rows));
+    for (const line of pad(rows)) lines.push(line);
   }
 
   lines.push('');
@@ -144,3 +147,68 @@ export const CATALOG_RENDERERS: Record<'human' | 'json', (rules: readonly RuleEn
         2,
       ) + '\n',
   };
+
+/** `plune mcp check`: one row per check, the smoke calls, and a last line on what the exit code means. */
+function checkHuman(report: McpCheckReport): string {
+  const server =
+    report.server === null ? 'unnamed server' : `${report.server.name} ${report.server.version}`;
+  const lines = [
+    `Server: ${server} · ${report.transport} · protocol ${report.protocolVersion ?? 'unknown'}`,
+    '',
+  ];
+  const timed = (c: { detail: string; timedOut?: true }) =>
+    c.timedOut === true ? `${c.detail} (timed out)` : c.detail;
+  for (const line of pad(report.checks.map((c) => [c.state, c.id, timed(c)]))) lines.push(line);
+  const calls = report.smoke?.calls ?? [];
+  const called = calls.filter((c) => c.state !== 'not-applicable');
+  if (report.smoke !== null) {
+    lines.push(
+      '',
+      `Smoke (--smoke, at most ${report.smoke.limit} tools, arguments {}${report.writeCallsAllowed ? ', --allow-write-calls' : ''}):`,
+    );
+    if (calls.length === 0) lines.push('  no tool listed');
+    for (const line of pad(called.map((c) => [`  ${c.state}`, c.tool, timed(c)]))) lines.push(line);
+    // The tools not called, one line per reason: a list of 200 000 tools is not 200 000 lines (the JSON has each one).
+    const notCalled = new Map<string, string[]>();
+    for (const c of calls)
+      if (c.state === 'not-applicable') {
+        const tools = notCalled.get(c.detail) ?? [];
+        tools.push(c.tool);
+        notCalled.set(c.detail, tools);
+      }
+    for (const [reason, tools] of notCalled)
+      lines.push(
+        `  ${plural(tools.length, 'tool', 'tools')} not called: ${reason}${tools.length <= 5 ? ` (${tools.join(', ')})` : ''}`,
+      );
+  }
+  const initialize = report.checks.find((c) => c.id === 'initialize');
+  if (initialize?.state === 'failed' && report.stderrTail.length > 0)
+    lines.push(
+      '',
+      'The last lines the server wrote to stderr:',
+      ...report.stderrTail.map((l) => `  ${l}`),
+    );
+  const count = (state: string) => report.checks.filter((c) => c.state === state).length;
+  const smokeCount = (state: string) => calls.filter((c) => c.state === state).length;
+  lines.push(
+    '',
+    `${count('passed')} passed, ${count('failed')} failed, ${count('could-not-run')} could not run, ${count('not-applicable')} not applicable`,
+  );
+  if (report.smoke !== null)
+    lines.push(
+      `Smoke: ${smokeCount('passed')} passed, ${smokeCount('failed')} failed, ${smokeCount('could-not-run')} could not run, ${smokeCount('not-applicable')} not called`,
+    );
+  lines.push(
+    report.exitCode === 0
+      ? 'Healthy: every check that applies passed.'
+      : report.exitCode === 1
+        ? 'Failed: at least one check or smoke call failed.'
+        : 'Not measured: nothing failed, but something could not run, and could-not-run is not a pass.',
+  );
+  return lines.join('\n') + '\n';
+}
+
+export const CHECK_RENDERERS: Record<'human' | 'json', (report: McpCheckReport) => string> = {
+  human: checkHuman,
+  json: (report) => JSON.stringify(report, null, 2) + '\n',
+};
