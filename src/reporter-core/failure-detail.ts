@@ -83,8 +83,13 @@ function cutErrorContext(attempt: FailedAttempt, home: string): { text: string; 
   return cut(machineless(text, attempt.repoRoot, home));
 }
 
-/** Text from a report that is safe on a line of our output: no control character (C0 or C1), so no new line and no escape code. */
-export const printable = (text: string): string => text.replace(/[\u0000-\u001f\u007f-\u009f]/g, '?');
+/**
+ * Text from a report that is safe on a line of our output: no control character (C0 or C1), so no new line and no
+ * escape code; no line or paragraph separator (U+2028, U+2029: a new line to some readers); no bidirectional
+ * override or isolate (U+202A–U+202E, U+2066–U+2069), which reorder what a terminal shows.
+ */
+export const printable = (text: string): string =>
+  text.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, '?');
 
 /**
  * The media type an attachment names, without its parameters and in lower case — `Text/Plain; charset=UTF-8`
