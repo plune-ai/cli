@@ -9,7 +9,9 @@ export interface AppliedExceptions<E extends LintException = LintException> {
   unused: E[];
 }
 
+// An exception accepts what a rule found; a rule that could not run found nothing, so no exception covers it.
 const covers = (e: LintException, f: LintFinding) =>
+  f.state !== 'could-not-run' &&
   f.id === e.id &&
   (e.target.tool === undefined || f.target.tool === e.target.tool) &&
   (e.target.param === undefined || f.target.param === e.target.param);

@@ -323,6 +323,24 @@ describe('CLI · mcp lint · the exceptions file', () => {
     expect(report.suppressed).toEqual([]);
   });
 
+  it('CLI · mcp lint · an exception never hides a rule that could not run: 150 000 tools with an ignore entry for tools-similar still exit 3', async () => {
+    // Both pairwise rules excepted, so nothing else could keep the run unmeasured.
+    const cwd = write(
+      'ignore:\n  - rule: tools-similar\n    reason: "Known look-alikes."\n  - rule: desc-no-when-not\n    reason: "Known."\n',
+    );
+    const { code, report } = await json({ mode: 'many', cwd });
+    expect(report.findings.filter((f) => f.state === 'could-not-run').map((f) => f.rule)).toEqual([
+      'tools-similar',
+      'desc-no-when-not',
+    ]);
+    expect(report.suppressed).toEqual([]);
+    expect(report.exceptions.stale).toEqual([
+      { rule: 'tools-similar', line: 2 },
+      { rule: 'desc-no-when-not', line: 4 },
+    ]);
+    expect(code).toBe(3);
+  }, 60_000);
+
   it('CLI · mcp lint · an entry that matched nothing is named stale (AC-6)', async () => {
     const cwd = write('ignore:\n  - rule: desc-short\n    tool: gone_tool\n    reason: "Old."\n');
     const run = await lint({ mode: 'clean', cwd });

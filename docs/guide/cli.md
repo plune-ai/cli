@@ -348,7 +348,9 @@ ignore:
 An entry without a `reason` stops the run with exit `2` and its line number. An entry past its
 `expires` no longer applies and is printed as a warning; an entry that matched no finding is printed
 as stale. A suppressed finding is counted in the summary and listed, with its reason, under
-`suppressed` in the JSON.
+`suppressed` in the JSON. An entry never hides a rule that could not run (`could-not-run`): that
+finding stays in the report and the run is still not measured (exit `3`, or `1` at the `--fail-on`
+level), and an entry left with nothing to cover is stale.
 
 ### Exit codes
 
