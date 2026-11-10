@@ -74,6 +74,38 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # Our own MCP server, checked by our own commands: `plune mcp lint` and `plune mcp check` (static, no tool is
+      # called) against the built `plune mcp serve` as a real process. The token is made up and the platform address
+      # leads nowhere: listing the tools needs neither, so this needs no secret and no network. Both commands run even
+      # when the first is red, so both reports are written; the step fails when either exits non-zero (1 a finding,
+      # 2 the server did not start, 3 nothing measured, such as an empty tool list). A protocol conformance command
+      # joins this step when the CLI has one. No model is called: the step refuses to run with a provider key set.
+      - name: MCP — self-checks against the built server
+        env:
+          PLUNE_TOKEN: ci-placeholder-not-a-token
+          PLUNE_API_URL: http://127.0.0.1:9
+        run: |
+          if env | grep -qE '^[A-Z0-9_]*_API_KEY='; then
+            echo "A model provider key is set in this step: these checks must not reach a model." >&2
+            env | grep -oE '^[A-Z0-9_]*_API_KEY' >&2
+            exit 1
+          fi
+          out="$RUNNER_TEMP/mcp-reports"
+          mkdir -p "$out"
+          server=(--env PLUNE_TOKEN --env PLUNE_API_URL -- node dist/cli.cjs mcp serve)
+          status=0
+          node dist/cli.cjs mcp lint --reporter junit-xml --out "$out/lint.xml" "${server[@]}" || status=1
+          node dist/cli.cjs mcp check --reporter junit-xml --out "$out/check.xml" "${server[@]}" || status=1
+          exit $status
+
+      - name: MCP — self-check reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: mcp-self-check-junit
+          path: ${{ runner.temp }}/mcp-reports/
+          if-no-files-found: warn
+
       # Drives the built binary (dist/cli.cjs) against stub servers on localhost; needs no secrets or network.
       - name: End-to-end — built binary
         # Not `pnpm test:e2e`: that runs tsup again, right after Build.
