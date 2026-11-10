@@ -232,6 +232,60 @@ plune report --format json -o run.json
 | `0` | Rendered the saved run. |
 | `2` | No saved run yet (run `plune run` first), or the saved file is unreadable/malformed. |
 
+## `plune mcp lint`
+
+Checks the tool list of any MCP server for what makes a model choose wrong: missing or vague
+descriptions, look-alike tools, free strings where an `enum` belongs, a list that costs too much
+context. It needs no Plune account and no model, and never calls the platform.
+
+```bash
+plune mcp lint -- node dist/server.js                       # a stdio server
+plune mcp lint --url https://example.com/mcp --header-env "Authorization=MCP_AUTH"
+plune mcp lint --format json -- node dist/server.js > lint.json
+plune mcp lint --list-rules                                 # the rule catalog, no server
+```
+
+### Options
+
+The connection flags (`--url`, `--sse`, `--header`, `--header-env`, `--env`, `--cwd`, `--timeout`,
+`--debug-out`) are those of every `plune mcp` command that tests a server. The lint's own:
+
+| Option | Meaning |
+|--------|---------|
+| `--fail-on <level>` | `error` (default), `warn`, `info` or `never`: exit `1` on a finding of this level or above. Heuristic rules report `warn` at most, so the default does not fail on advice. |
+| `--show-info` | Print `info` findings too; without it they are only counted. |
+| `--format <fmt>` | `human` (default) or `json`: one JSON document on stdout and nothing else, with `schemaVersion`. It has no time field, so two runs against the same server give the same bytes. |
+| `--ignore-file <path>` | The exceptions file; by default `plune-mcp-ignore.yaml` in the current folder, if there is one. |
+| `--list-rules` | Print every rule (id, class, level, description, fix, specification link) and exit `0` without connecting. |
+| `--call` | Also call each tool that says it is read-only, does not say it is destructive and needs no argument, with `{}`, and check the answer (rules starting with `call-`). A name the list holds twice, or an entry without a name, is never called. An answer is checked against the tool's `outputSchema` without its `pattern`, `patternProperties` and `format` keywords: a server's regular expression is not run. Off by default. |
+| `--call-limit <n>` | Call at most this many tools (default `10`). |
+| `--call-timeout <duration>` | How long to wait for one call (default `15s`). A call with no answer is `could-not-run`, never a pass. |
+
+### The exceptions file
+
+```yaml
+ignore:
+  - rule: desc-no-when-not
+    tool: some_tool           # without tool: the rule on every tool
+    param: query              # optional: one parameter of the tool
+    reason: "Why this is fine here."   # required
+    expires: 2026-12-31       # optional: the last day it applies
+```
+
+An entry without a `reason` stops the run with exit `2` and its line number. An entry past its
+`expires` no longer applies and is printed as a warning; an entry that matched no finding is printed
+as stale. A suppressed finding is counted in the summary and listed, with its reason, under
+`suppressed` in the JSON.
+
+### Exit codes
+
+| Exit | Meaning |
+|------|---------|
+| `0` | No finding at the `--fail-on` level, and everything was measured. |
+| `1` | At least one finding at the `--fail-on` level or above. |
+| `2` | The server did not start or did not answer (the last lines of its stderr are printed, secrets masked), or a flag or the exceptions file is wrong. |
+| `3` | Nothing measured: the server lists no tools, `tools/list` did not end within 100 pages, or with `--call` a call could not run or no tool was safe to call. Not measured is not clean. |
+
 ## Next
 
 - **[How it works](./concepts.md)** — caching, cost, errors, providers, and the run pipeline.
