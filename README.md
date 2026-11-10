@@ -661,6 +661,21 @@ The server reads the token the way every platform command does: `PLUNE_TOKEN` fr
 (set it in the client's `env` block), else the login `plune login` saved. A read token, or
 `--read-only`, offers only the read tools.
 
+The server speaks both MCP protocol eras: a client that opens with `initialize` (revision
+`2025-11-25` and earlier) and a client on revision `2026-07-28` that sends `server/discover` and
+per-request `_meta`. In the newer revision a client learns that `plune_discover_tools` changed the
+list through `subscriptions/listen`; `tools/list` is sent with `ttlMs: 0`, so a client that does not
+listen reads the current list every time.
+
+#### Dependencies
+
+| Package | Version | License | Why |
+|---|---|---|---|
+| `@modelcontextprotocol/server` | 2.4.0 | Apache-2.0 | The MCP server and its stdio transport for `plune mcp serve`; it serves revision `2026-07-28` and the `initialize`-based revisions from one process. |
+
+The version is pinned exactly, not with a range, on purpose: the 2.x line moves fast, and each update is taken
+deliberately with the protocol tests run against it.
+
 ## Programmatic API
 
 The same engine that powers `plune run` is exported for use from your own code. Unlike the
