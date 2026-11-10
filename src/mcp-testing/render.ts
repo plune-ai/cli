@@ -1,4 +1,5 @@
 import type { CheckClass, CheckLevel, McpReport } from './result.js';
+import type { McpCheckReport } from './result.js';
 
 /**
  * A renderer turns one report into the text a command prints. Every format is one; a new format adds an entry to
@@ -144,3 +145,47 @@ export const CATALOG_RENDERERS: Record<'human' | 'json', (rules: readonly RuleEn
         2,
       ) + '\n',
   };
+
+/** `plune mcp check`: one row per check, the smoke calls, and a last line on what the exit code means. */
+function checkHuman(report: McpCheckReport): string {
+  const server =
+    report.server === null ? 'unnamed server' : `${report.server.name} ${report.server.version}`;
+  const lines = [
+    `Server: ${server} · ${report.transport} · protocol ${report.protocolVersion ?? 'unknown'}`,
+    '',
+  ];
+  const timed = (c: { detail: string; timedOut?: true }) =>
+    c.timedOut === true ? `${c.detail} (timed out)` : c.detail;
+  lines.push(...pad(report.checks.map((c) => [c.state, c.id, timed(c)])));
+  if (report.smoke !== null) {
+    lines.push(
+      '',
+      `Smoke (--smoke, at most ${report.smoke.limit} tools, arguments {}${report.writeCallsAllowed ? ', --allow-write-calls' : ''}):`,
+    );
+    if (report.smoke.calls.length === 0) lines.push('  no tool listed');
+    lines.push(...pad(report.smoke.calls.map((c) => [`  ${c.state}`, c.tool, timed(c)])));
+  }
+  const initialize = report.checks.find((c) => c.id === 'initialize');
+  if (initialize?.state === 'failed' && report.stderrTail.length > 0)
+    lines.push(
+      '',
+      'The last lines the server wrote to stderr:',
+      ...report.stderrTail.map((l) => `  ${l}`),
+    );
+  const count = (state: string) => report.checks.filter((c) => c.state === state).length;
+  lines.push(
+    '',
+    `${count('passed')} passed, ${count('failed')} failed, ${count('could-not-run')} could not run, ${count('not-applicable')} not applicable`,
+    report.exitCode === 0
+      ? 'Healthy: every check that applies passed.'
+      : report.exitCode === 1
+        ? 'Failed: at least one check failed.'
+        : 'Not measured: nothing failed, but something could not run, and could-not-run is not a pass.',
+  );
+  return lines.join('\n') + '\n';
+}
+
+export const CHECK_RENDERERS: Record<'human' | 'json', (report: McpCheckReport) => string> = {
+  human: checkHuman,
+  json: (report) => JSON.stringify(report, null, 2) + '\n',
+};

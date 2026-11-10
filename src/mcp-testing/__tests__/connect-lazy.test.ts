@@ -5,13 +5,17 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 
-const loaded = vi.hoisted(() => ({ session: false, lint: false }));
+const loaded = vi.hoisted(() => ({ session: false, lint: false, check: false }));
 vi.mock('../connect/session.js', () => {
   loaded.session = true;
   return {};
 });
 vi.mock('../../cli/commands/mcp-lint.js', () => {
   loaded.lint = true;
+  return {};
+});
+vi.mock('../../cli/commands/mcp-check.js', () => {
+  loaded.check = true;
   return {};
 });
 
@@ -40,7 +44,8 @@ describe('CLI · mcp connect · cold start', () => {
     run(['--help']);
     run(['mcp', '--help']);
     run(['mcp', 'lint', '--help']);
-    expect(loaded).toEqual({ session: false, lint: false });
+    run(['mcp', 'check', '--help']);
+    expect(loaded).toEqual({ session: false, lint: false, check: false });
   });
 
   it('CLI · mcp connect · src/cli.ts imports neither the core, the lint command nor the MCP client at the top', () => {
@@ -48,12 +53,12 @@ describe('CLI · mcp connect · cold start', () => {
       .split('\n')
       .filter((l) => l.startsWith('import ') && !l.startsWith('import type '));
     expect(top.join('\n')).not.toMatch(
-      /mcp-testing\/(?!connect\/options\.js')|@modelcontextprotocol|mcp-lint/,
+      /mcp-testing\/(?!connect\/options\.js')|@modelcontextprotocol|mcp-lint|mcp-check/,
     );
   });
 
   it('CLI · mcp connect · mcp is a group: serve and lint under it', () => {
     const mcp = createProgram().commands.find((c) => c.name() === 'mcp');
-    expect(mcp?.commands.map((c) => c.name())).toEqual(['serve', 'lint']);
+    expect(mcp?.commands.map((c) => c.name())).toEqual(['serve', 'check', 'lint']);
   });
 });

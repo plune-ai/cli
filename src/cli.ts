@@ -717,6 +717,39 @@ export function createProgram(): Command {
 
   addConnectionOptions(
     mcp
+      .command('check')
+      .description(
+        'Check that any MCP server starts and answers: handshake, capabilities, lists, ping; exit 1 on a failure, 3 when something could not be measured',
+      ),
+  )
+    .option('--check-timeout <duration>', 'How long one check may wait for an answer (e.g. 15s)', '15s')
+    .option('--wait <duration>', 'Keep trying to reach --url for this long, for a server still starting (e.g. 20s)', '0')
+    .option('--smoke', 'After the checks, call each read-only, non-destructive tool that needs no argument, with {}', false)
+    .option('--smoke-limit <n>', 'Call at most this many tools', '5')
+    .option('--smoke-timeout <duration>', 'How long to wait for one call (e.g. 15s)', '15s')
+    .option('--budget <duration>', 'How long --smoke may take in all (e.g. 60s)', '60s')
+    .option('--allow-write-calls', 'With --smoke, also call tools that do not say they are read-only; never one that says it is destructive', false)
+    .option('--out <path>', 'Also write the report as JSON to this file: no URL, command, environment or header in it, secrets masked')
+    .option('--format <format>', 'human or json', 'human')
+    .action(
+      async (server: string[], options: import('./cli/commands/mcp-check.js').McpCheckFlags, command: Command) => {
+        const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
+        const { handleMcpCheck } = await import('./cli/commands/mcp-check.js');
+        try {
+          process.exitCode = await handleMcpCheck(options, server, {
+            out: (s) => process.stdout.write(s),
+            err: (s) => process.stderr.write(s),
+            env: process.env,
+            clientVersion: pkg.version,
+          });
+        } catch (err) {
+          failUnexpected(err, verbose);
+        }
+      },
+    );
+
+  addConnectionOptions(
+    mcp
       .command('lint')
       .description(
         'Check the tool list of any MCP server for what confuses a model: no account, no model, exit 1 on findings at --fail-on',
