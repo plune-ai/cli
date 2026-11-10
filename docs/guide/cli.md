@@ -292,7 +292,7 @@ Every duration flag (`--timeout`, `--check-timeout`, `--wait`, `--smoke-timeout`
 | Exit | Meaning |
 |------|---------|
 | `0` | Every check that applies passed (`not-applicable` does not count against it). |
-| `1` | At least one check or smoke call `failed`. |
+| `1` | At least one check or smoke call `failed`. A server process that started and exited before it answered `initialize` is a failed `initialize`, not exit `2`: the last lines of its stderr, secrets masked, are in the report (`stderrTail`) and the human output. |
 | `2` | Nothing about the server's health is proven, and you can fix why: the command was not found or did not start, the server could not be reached (after `--wait`), it answered `401` or `403`, to the handshake or to any request after it (pass the credentials with `--header-env`; `check` does not discover or run OAuth), or a flag is wrong. |
 | `3` | Nothing failed, but something could not be measured: a check `could-not-run`, no check passed, or `--smoke` found no tool to call. Not measured is not healthy. |
 
