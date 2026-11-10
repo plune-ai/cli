@@ -673,6 +673,9 @@ listen reads the current list every time.
 |---|---|---|---|
 | `@modelcontextprotocol/server` | 2.4.0 | Apache-2.0 | The MCP server and its stdio transport for `plune mcp serve`; it serves revision `2026-07-28` and the `initialize`-based revisions from one process. |
 
+The version is pinned exactly, not with a range, on purpose: the 2.x line moves fast, and each update is taken
+deliberately with the protocol tests run against it.
+
 ## Programmatic API
 
 The same engine that powers `plune run` is exported for use from your own code. Unlike the
