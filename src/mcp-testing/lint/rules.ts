@@ -1,6 +1,6 @@
 import { LINT_THRESHOLDS, type LanguageCode } from './thresholds.js';
 import { toolListSize } from './size.js';
-import type { CheckClass, CheckLevel, ListedTool, LintTarget } from './types.js';
+import type { CheckClass, CheckLevel, CheckState, ListedTool, LintTarget } from './types.js';
 
 /**
  * The lint rules over a `tools/list` answer. One registry entry per rule id: its class, level, fix and the place in
@@ -15,6 +15,8 @@ export interface RuleHit {
   actual: string;
   /** Only when this hit is more serious than the rule's usual level. */
   level?: CheckLevel;
+  /** Only when the rule could not judge the list at all; a hit is `failed` otherwise. */
+  state?: Extract<CheckState, 'could-not-run'>;
 }
 
 export interface LintRule {
@@ -202,13 +204,32 @@ const pairs = <X>(xs: readonly X[]): [X, X][] => xs.flatMap((a, i) => xs.slice(i
 /** Tools similar enough to `tool` that a model may pick the wrong one. */
 function similarTools(tools: readonly ListedTool[], nameThreshold: number, descThreshold: number) {
   const names = distinctiveNameWords(tools);
+  // Each description split once, not once per pair: the split costs more than the comparison.
+  const descriptions = new Map(tools.map((t) => [t, descriptionWords(text(t.description) ?? '')]));
   return (a: ListedTool, b: ListedTool) => {
     const byName = overlap(names.get(a) ?? new Set(), names.get(b) ?? new Set());
-    const da = text(a.description);
-    const db = text(b.description);
-    const byDescription = da !== undefined && db !== undefined ? overlap(descriptionWords(da), descriptionWords(db)) : 0;
+    // A tool without a description has no words, so its overlap is 0, as it was when the pair was skipped.
+    const byDescription = overlap(descriptions.get(a) ?? new Set(), descriptions.get(b) ?? new Set());
     return { byName, byDescription, similar: byName >= nameThreshold || byDescription >= descThreshold };
   };
+}
+
+/**
+ * A rule that compares every pair of tools, over a list longer than `similarity.maxTools`: one `could-not-run` hit
+ * instead of a run that would not end. The target names no tool, since the rule judged none.
+ */
+function tooManyToPair(tools: readonly ListedTool[]): RuleHit[] | undefined {
+  const limit = T.similarity.maxTools;
+  if (tools.length <= limit) return undefined;
+  return [
+    {
+      target: { tool: '' },
+      message: `too many tools to compare pairwise (${tools.length}, limit ${limit})`,
+      expected: `at most ${limit} tools`,
+      actual: `${tools.length} tools`,
+      state: 'could-not-run',
+    },
+  ];
 }
 
 const tool = (t: ListedTool, param?: string): LintTarget => (param === undefined ? { tool: t.name } : { tool: t.name, param });
@@ -376,6 +397,8 @@ export const LINT_RULES: readonly LintRule[] = [
     fix: 'Add when not to use the tool and what to use instead ("Do not use for …; use … instead").',
     specRef: '',
     check: (tools) => {
+      const tooMany = tooManyToPair(tools);
+      if (tooMany !== undefined) return tooMany;
       const similar = similarTools(tools, T.similarity.names, T.similarity.related);
       return tools.flatMap((t) => {
         const d = text(t.description);
@@ -404,6 +427,8 @@ export const LINT_RULES: readonly LintRule[] = [
     fix: 'Make the names and descriptions of the two tools say how they differ, or merge them.',
     specRef: '',
     check: (tools) => {
+      const tooMany = tooManyToPair(tools);
+      if (tooMany !== undefined) return tooMany;
       const similar = similarTools(tools, T.similarity.names, T.similarity.descriptions);
       return pairs(tools).flatMap(([a, b]) => {
         const s = similar(a, b);

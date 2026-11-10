@@ -11,9 +11,9 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createProgram } from '../../cli.js';
 import { handleMcpLint, type McpLintFlags } from '../../cli/commands/mcp-lint.js';
-import { CALL_RULES, LINT_RULES } from '../lint/index.js';
+import { CALL_RULES, LINT_RULES, LINT_THRESHOLDS } from '../lint/index.js';
 import type { McpReport } from '../result.js';
-import { lintServer } from './fixtures/lint-server.mjs';
+import { lintServer, MANY_TOOLS } from './fixtures/lint-server.mjs';
 import { recorder, type Fixture } from './fixtures/http-servers.js';
 
 const FIXTURE = fileURLToPath(new URL('./fixtures/lint-server.mjs', import.meta.url));
@@ -184,6 +184,34 @@ describe('CLI · mcp lint · findings and exit codes', () => {
     expect(report.listing.pages).toBe(100);
   });
 
+  it('CLI · mcp lint · 150 000 tools end within seconds: the pairwise rules could-not-run, the rest run, exit 3', async () => {
+    const started = performance.now();
+    const { code, report } = await json({ mode: 'many' });
+    // The listing and the linear rules take about two seconds here; the pairwise rules alone would take days.
+    expect((performance.now() - started) / 1000).toBeLessThan(20);
+    expect(report.toolCount).toBe(MANY_TOOLS);
+    const limit = LINT_THRESHOLDS.similarity.maxTools;
+    const why = `too many tools to compare pairwise (${MANY_TOOLS}, limit ${limit})`;
+    expect(report.findings.map((f) => `${f.level} ${f.rule} ${f.state} ${f.target.tool}`)).toEqual([
+      'warn tools-similar could-not-run ',
+      'warn list-size failed tool_100000',
+      'info desc-no-when-not could-not-run ',
+    ]);
+    expect(
+      report.findings.filter((f) => f.state === 'could-not-run').map((f) => f.message),
+    ).toEqual([why, why]);
+    expect(code).toBe(3);
+  }, 60_000);
+
+  it('CLI · mcp lint · 150 000 tools with findings at the --fail-on level exit 1, and the report says which rule did not run', async () => {
+    const run = await lint({ mode: 'many', flags: { failOn: 'warn' } });
+    expect(run.code).toBe(1);
+    expect(run.out).toMatch(/^warn +tools-similar$/m);
+    expect(run.out).toContain(
+      `  too many tools to compare pairwise (${MANY_TOOLS}, limit ${LINT_THRESHOLDS.similarity.maxTools})\n`,
+    );
+  }, 60_000);
+
   it('CLI · mcp lint · Ukrainian descriptions written well give no findings (AC-10)', async () => {
     const { code, report } = await json({ mode: 'ukrainian' });
     expect(report.toolCount).toBe(5);
@@ -294,6 +322,24 @@ describe('CLI · mcp lint · the exceptions file', () => {
     ]);
     expect(report.suppressed).toEqual([]);
   });
+
+  it('CLI · mcp lint · an exception never hides a rule that could not run: 150 000 tools with an ignore entry for tools-similar still exit 3', async () => {
+    // Both pairwise rules excepted, so nothing else could keep the run unmeasured.
+    const cwd = write(
+      'ignore:\n  - rule: tools-similar\n    reason: "Known look-alikes."\n  - rule: desc-no-when-not\n    reason: "Known."\n',
+    );
+    const { code, report } = await json({ mode: 'many', cwd });
+    expect(report.findings.filter((f) => f.state === 'could-not-run').map((f) => f.rule)).toEqual([
+      'tools-similar',
+      'desc-no-when-not',
+    ]);
+    expect(report.suppressed).toEqual([]);
+    expect(report.exceptions.stale).toEqual([
+      { rule: 'tools-similar', line: 2 },
+      { rule: 'desc-no-when-not', line: 4 },
+    ]);
+    expect(code).toBe(3);
+  }, 60_000);
 
   it('CLI · mcp lint · an entry that matched nothing is named stale (AC-6)', async () => {
     const cwd = write('ignore:\n  - rule: desc-short\n    tool: gone_tool\n    reason: "Old."\n');
