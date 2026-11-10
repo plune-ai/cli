@@ -10,12 +10,14 @@ import {
   applyExceptions,
   detectLanguage,
   gates,
+  lintCall,
   lintTools,
   toolListSize,
   type LintException,
   type LintFinding,
   type ListedTool,
 } from '../index.js';
+import { jsonText } from '../size.js';
 
 /** A tool no rule has anything to say about; each case changes one thing. */
 const clean = (name = 'weather_get', extra: Partial<ListedTool> = {}): ListedTool => ({
@@ -390,6 +392,76 @@ describe('mcp lint · size', () => {
     ]);
     expect(size.totalTokens).toBe(23);
     expect(size.largest).toEqual({ name: 'ab', tokens: 12 });
+  });
+});
+
+describe('mcp lint · deep schemas', () => {
+  const limit = LINT_THRESHOLDS.schema.maxDepth;
+  /** `levels` nested params `a.a…a`; the deepest requires a property it does not define. */
+  const nested = (levels: number): Record<string, unknown> => {
+    let s: Record<string, unknown> = { type: 'object', properties: {}, required: ['ghost'], additionalProperties: false };
+    for (let i = 1; i < levels; i++) s = { type: 'object', properties: { a: s } };
+    return { type: 'object', properties: { a: s } };
+  };
+  /** The same chain as text, parsed: JSON.parse takes any depth, JSON.stringify does not. */
+  const rawDeep = (levels: number) =>
+    `${'{"type":"object","properties":{"a":'.repeat(levels)}{"type":"object","properties":{}}${'}}'.repeat(levels)}`;
+  const deep = (inputSchema: unknown) => clean('deep_get', { inputSchema });
+  const schemaRules = ['required-unknown-property', 'param-example-missing'];
+  const row = (f: LintFinding) => `${f.id} ${f.level} ${f.state} ${f.target.tool} ${f.target.param ?? ''} ${f.message}`;
+
+  it('CLI · mcp lint · an input schema exactly maxDepth levels deep is checked to its deepest node', () => {
+    expect(limit).toBeGreaterThan(1);
+    const found = lintTools([deep(nested(limit))]).filter((f) => schemaRules.includes(f.id));
+    expect(found.map((f) => `${f.id} ${f.state} ${f.target.param}`)).toEqual([
+      `required-unknown-property failed ${'a.'.repeat(limit)}ghost`,
+    ]);
+  });
+
+  it('CLI · mcp lint · one level past maxDepth: each schema rule could-not-run once for that tool, the other tools still checked', () => {
+    const found = lintTools([deep(nested(limit + 1)), clean('stock_get', { description: undefined })]);
+    const why = `inputSchema nested deeper than ${limit} levels`;
+    expect(found.filter((f) => f.target.tool === 'deep_get' && schemaRules.includes(f.id)).map(row)).toEqual([
+      `required-unknown-property error could-not-run deep_get  ${why}`,
+      `param-example-missing info could-not-run deep_get  ${why}`,
+    ]);
+    expect(found.filter((f) => f.target.tool === 'stock_get').map((f) => `${f.id} ${f.state}`)).toEqual(['desc-missing failed']);
+  });
+
+  it('CLI · mcp lint · 10 000 and 100 000 levels end fast with could-not-run, and the list size is still measured', () => {
+    for (const levels of [10_000, 100_000]) {
+      const text = rawDeep(levels);
+      const tool = deep(JSON.parse(text) as unknown);
+      const started = performance.now();
+      const found = lintTools([tool]);
+      expect(performance.now() - started).toBeLessThan(2_000);
+      expect(found.filter((f) => f.state === 'could-not-run').map((f) => f.id)).toEqual(schemaRules);
+      const written = JSON.stringify({ ...tool, inputSchema: 0 }).replace('"inputSchema":0', `"inputSchema":${text}`);
+      expect(toolListSize([tool]).totalTokens).toBe(Math.ceil(written.length / LINT_THRESHOLDS.size.charsPerToken));
+    }
+  });
+
+  it('jsonText writes what JSON.stringify writes, at any depth', () => {
+    const values: unknown[] = [
+      clean(),
+      { a: undefined, b: [undefined, 1, 'x', null, true, { c: [] }], d: {}, 'e"f': 'ї\n\u0001', n: -0.5e-7 },
+      [],
+      'text',
+      7,
+      null,
+    ];
+    for (const v of values) expect(jsonText(v)).toBe(JSON.stringify(v));
+    expect(jsonText(undefined)).toBeUndefined();
+    expect(jsonText(JSON.parse(rawDeep(100_000)))).toBe(rawDeep(100_000));
+  });
+
+  it('CLI · mcp lint --call · a result nested 100 000 levels is measured and compared without a stack overflow', () => {
+    const text = rawDeep(100_000);
+    const result = { content: [{ type: 'text', text }], structuredContent: JSON.parse(text) as unknown };
+    const found = lintCall(clean(), result, { validate: () => undefined });
+    expect(found.map((f) => `${f.id} ${f.state}`)).toEqual(['call-result-large failed', 'call-structured-duplicates-text failed']);
+    const differs = { ...result, structuredContent: JSON.parse(rawDeep(99_999)) as unknown };
+    expect(lintCall(clean(), differs, { validate: () => undefined }).map((f) => f.id)).toEqual(['call-result-large']);
   });
 });
 

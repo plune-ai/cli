@@ -334,6 +334,14 @@ not run: each reports one finding with state `could-not-run`, its own level and 
 this one included, is at the `--fail-on` level). Every other rule runs on the whole list. At 1000 tools the
 two rules take a few seconds at most, even with every description at the 1000-character mark.
 
+Two rules read every node of an input schema, however deep: `required-unknown-property` and
+`param-example-missing`. A property, or an array's items, is one level below the node it is in.
+On a tool whose input schema nests deeper than 64 levels they do not run for that tool: each
+reports one finding with state `could-not-run` for the tool, its own level and the message
+`inputSchema nested deeper than 64 levels`. Every other tool, and every other rule on this one,
+is checked as usual. `required-unknown-property` is an error, so at the default `--fail-on error`
+such a run exits `1`; with `--fail-on never` it exits `3`. Real schemas nest to 10-20 levels.
+
 ### The exceptions file
 
 ```yaml
@@ -359,7 +367,7 @@ level), and an entry left with nothing to cover is stale.
 | `0` | No finding at the `--fail-on` level, and everything was measured. |
 | `1` | At least one finding at the `--fail-on` level or above. |
 | `2` | The server did not start or did not answer (the last lines of its stderr are printed, secrets masked), or a flag or the exceptions file is wrong. |
-| `3` | Nothing measured: the server lists no tools, `tools/list` did not end within 100 pages, a rule could not run (over 1000 tools, see below), or with `--call` a call could not run or no tool was safe to call. Not measured is not clean. |
+| `3` | Nothing measured: the server lists no tools, `tools/list` did not end within 100 pages, a rule could not run (over 1000 tools, or an input schema nested deeper than 64 levels, see above), or with `--call` a call could not run or no tool was safe to call. Not measured is not clean. |
 
 ## `plune mcp snapshot`
 

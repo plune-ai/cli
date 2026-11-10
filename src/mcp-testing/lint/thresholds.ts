@@ -70,6 +70,19 @@ export const LINT_THRESHOLDS = {
      */
     maxTools: 1000,
   },
+  schema: {
+    /**
+     * Levels an input schema may nest (a named property, or an array's items, is one level below the node it is in)
+     * for the rules that read every node of it (`required-unknown-property`, `param-example-missing`); deeper, they
+     * say `could-not-run` for the tool. The server chooses the depth, and a node's path is as long as its depth.
+     * Hand-written and generated schemas nest to about 10-20 levels; 64 leaves three times that, and is the number
+     * the `--call` path stops copying an output schema at (counted there in JSON levels, two to a property).
+     * Measured 2026-11-10 on one desktop core: the two rules take 0.03 ms on a chain exactly 64 levels deep (0.09 ms
+     * with two siblings and an array at every level), and stop within 0.2 ms on a chain of 100 000 levels. The
+     * recursive walk this replaced overflowed the call stack at 10 000 levels.
+     */
+    maxDepth: 64,
+  },
   size: {
     /**
      * Estimated tokens of the whole visible tool list above which the list is reported: the limit of our own biggest

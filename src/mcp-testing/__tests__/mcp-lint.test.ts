@@ -13,7 +13,7 @@ import { createProgram } from '../../cli.js';
 import { handleMcpLint, type McpLintFlags } from '../../cli/commands/mcp-lint.js';
 import { CALL_RULES, LINT_RULES, LINT_THRESHOLDS } from '../lint/index.js';
 import type { McpReport } from '../result.js';
-import { lintServer, MANY_TOOLS } from './fixtures/lint-server.mjs';
+import { DEEP_LEVELS, lintServer, MANY_TOOLS } from './fixtures/lint-server.mjs';
 import { recorder, type Fixture } from './fixtures/http-servers.js';
 
 const FIXTURE = fileURLToPath(new URL('./fixtures/lint-server.mjs', import.meta.url));
@@ -210,6 +210,36 @@ describe('CLI · mcp lint · findings and exit codes', () => {
     expect(run.out).toContain(
       `  too many tools to compare pairwise (${MANY_TOOLS}, limit ${LINT_THRESHOLDS.similarity.maxTools})\n`,
     );
+  }, 60_000);
+
+  it('CLI · mcp lint · a tool whose input schema nests 10 000 levels: could-not-run for it, the other tool still checked, exit 3', async () => {
+    const started = performance.now();
+    const { code, report } = await json({ mode: 'deep', flags: { failOn: 'never' } });
+    expect((performance.now() - started) / 1000).toBeLessThan(10);
+    expect(DEEP_LEVELS).toBeGreaterThan(LINT_THRESHOLDS.schema.maxDepth);
+    const why = `inputSchema nested deeper than ${LINT_THRESHOLDS.schema.maxDepth} levels`;
+    expect(report.findings.map((f) => `${f.level} ${f.rule} ${f.state} ${f.target.tool}`)).toEqual([
+      'error required-unknown-property could-not-run deep_get',
+      'warn list-size failed deep_get',
+      'warn param-type-by-name failed notes_get',
+      'info param-desc-missing failed deep_get',
+      'info param-example-missing could-not-run deep_get',
+      'info required-missing failed deep_get',
+    ]);
+    expect(
+      report.findings.filter((f) => f.state === 'could-not-run').map((f) => f.message),
+    ).toEqual([why, why]);
+    expect(code).toBe(3);
+  }, 60_000);
+
+  it('CLI · mcp lint · a 10 000-level input schema at the default --fail-on: exit 1 with the report, not a crash', async () => {
+    const run = await lint({ mode: 'deep' });
+    expect(run.err).not.toContain('This one is on us');
+    expect(run.out).toMatch(/^error +deep_get +required-unknown-property$/m);
+    expect(run.out).toContain(
+      `  inputSchema nested deeper than ${LINT_THRESHOLDS.schema.maxDepth} levels\n`,
+    );
+    expect(run.code).toBe(1);
   }, 60_000);
 
   it('CLI · mcp lint · Ukrainian descriptions written well give no findings (AC-10)', async () => {

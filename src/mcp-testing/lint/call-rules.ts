@@ -1,5 +1,5 @@
 import { isRecord, SCHEMA, TOOLS_PAGE, type RuleHit } from './rules.js';
-import { estimateTokens } from './size.js';
+import { estimateTokens, jsonText } from './size.js';
 import { LINT_THRESHOLDS } from './thresholds.js';
 import type { CheckClass, CheckLevel, ListedTool } from './types.js';
 
@@ -45,22 +45,24 @@ function parsed(text: string): unknown {
   }
 }
 
-/** Equal as JSON values: the same keys and values, in any key order. */
+/**
+ * Equal as JSON values: the same keys and values, in any key order. Pairs still to compare wait on a stack of their
+ * own, not the call stack: the server chooses how deep a result nests.
+ */
 function sameJson(a: unknown, b: unknown): boolean {
-  if (Array.isArray(a) || Array.isArray(b))
-    return (
-      Array.isArray(a) &&
-      Array.isArray(b) &&
-      a.length === b.length &&
-      a.every((x, i) => sameJson(x, b[i]))
-    );
-  if (isRecord(a) && isRecord(b)) {
-    const keys = Object.keys(a);
-    return (
-      keys.length === Object.keys(b).length && keys.every((k) => k in b && sameJson(a[k], b[k]))
-    );
+  const todo: [unknown, unknown][] = [[a, b]];
+  for (let pair = todo.pop(); pair !== undefined; pair = todo.pop()) {
+    const [x, y] = pair;
+    if (Array.isArray(x) || Array.isArray(y)) {
+      if (!Array.isArray(x) || !Array.isArray(y) || x.length !== y.length) return false;
+      x.forEach((v, i) => todo.push([v, y[i]]));
+    } else if (isRecord(x) && isRecord(y)) {
+      const keys = Object.keys(x);
+      if (keys.length !== Object.keys(y).length || !keys.every((k) => k in y)) return false;
+      for (const k of keys) todo.push([x[k], y[k]]);
+    } else if (x !== y) return false;
   }
-  return a === b;
+  return true;
 }
 
 const at = (tool: ListedTool) => ({ tool: tool.name });
@@ -75,7 +77,7 @@ export const CALL_RULES: readonly CallRule[] = [
     fix: 'Return less by default: a page with a cursor, a summary with the details behind another call, or fewer fields.',
     specRef: '',
     check: (tool, result) => {
-      const tokens = estimateTokens(JSON.stringify(result) ?? '');
+      const tokens = estimateTokens(jsonText(result) ?? '');
       if (tokens <= T.call.maxResultTokens) return [];
       return [
         {
