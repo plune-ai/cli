@@ -1,0 +1,219 @@
+{
+  "kind": "mcp-diff-report",
+  "schemaVersion": 1,
+  "command": "diff",
+  "failOn": "breaking",
+  "summary": {
+    "breaking": 11,
+    "non-breaking": 0,
+    "informational": 1,
+    "unclassified": 0,
+    "security": 0,
+    "overall": "breaking"
+  },
+  "changes": [
+    {
+      "entity": "server",
+      "name": "",
+      "field": "name",
+      "kind": "modified",
+      "classification": "informational",
+      "reason": "The server calls itself by another name: a client that keys its settings by the name may take it for another server.",
+      "before": "notes-full",
+      "after": "notes-empty",
+      "signal": "identity"
+    },
+    {
+      "entity": "capability",
+      "name": "prompts",
+      "field": "capability",
+      "kind": "removed",
+      "classification": "breaking",
+      "reason": "The server no longer declares prompts: a client that uses it now fails.",
+      "before": {}
+    },
+    {
+      "entity": "capability",
+      "name": "resources",
+      "field": "capability",
+      "kind": "removed",
+      "classification": "breaking",
+      "reason": "The server no longer declares resources: a client that uses it now fails.",
+      "before": {
+        "subscribe": true
+      }
+    },
+    {
+      "entity": "capability",
+      "name": "tools",
+      "field": "listChanged",
+      "kind": "removed",
+      "classification": "breaking",
+      "reason": "The server no longer notifies when its tools list changes: a client that relies on it misses changes.",
+      "before": true
+    },
+    {
+      "entity": "tool",
+      "name": "Zeta",
+      "field": "tool",
+      "kind": "removed",
+      "classification": "breaking",
+      "reason": "The tool was removed: a client that calls it now fails.",
+      "before": {
+        "annotations": {
+          "readOnlyHint": true
+        },
+        "description": "Upper case first.",
+        "inputSchema": {
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "name": "Zeta"
+      }
+    },
+    {
+      "entity": "tool",
+      "name": "alpha",
+      "field": "tool",
+      "kind": "removed",
+      "classification": "breaking",
+      "reason": "The tool was removed: a client that calls it now fails.",
+      "before": {
+        "annotations": {
+          "readOnlyHint": true
+        },
+        "description": "Lower case.",
+        "inputSchema": {
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "name": "alpha"
+      }
+    },
+    {
+      "entity": "tool",
+      "name": "note_delete",
+      "field": "tool",
+      "kind": "removed",
+      "classification": "breaking",
+      "reason": "The tool was removed: a client that calls it now fails.",
+      "before": {
+        "annotations": {
+          "destructiveHint": true,
+          "readOnlyHint": false
+        },
+        "description": "Deletes one note.",
+        "inputSchema": {
+          "properties": {
+            "confirm": {
+              "type": "boolean"
+            },
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": ["confirm", "id"],
+          "type": "object"
+        },
+        "name": "note_delete"
+      }
+    },
+    {
+      "entity": "tool",
+      "name": "weather_get",
+      "field": "tool",
+      "kind": "removed",
+      "classification": "breaking",
+      "reason": "The tool was removed: a client that calls it now fails.",
+      "before": {
+        "annotations": {
+          "destructiveHint": false,
+          "readOnlyHint": true
+        },
+        "description": "Returns the current weather for one city.",
+        "inputSchema": {
+          "properties": {
+            "city": {
+              "description": "City name",
+              "type": "string"
+            },
+            "units": {
+              "enum": ["metric", "imperial"],
+              "type": "string"
+            }
+          },
+          "required": ["city", "units"],
+          "type": "object"
+        },
+        "name": "weather_get"
+      }
+    },
+    {
+      "entity": "resource",
+      "name": "file:///notes/index.json",
+      "field": "resource",
+      "kind": "removed",
+      "classification": "breaking",
+      "reason": "The resource was removed: a client that reads it now fails.",
+      "before": {
+        "mimeType": "application/json",
+        "name": "index",
+        "uri": "file:///notes/index.json"
+      }
+    },
+    {
+      "entity": "resource",
+      "name": "file:///notes/readme.md",
+      "field": "resource",
+      "kind": "removed",
+      "classification": "breaking",
+      "reason": "The resource was removed: a client that reads it now fails.",
+      "before": {
+        "description": "How the notes are kept.",
+        "mimeType": "text/markdown",
+        "name": "readme",
+        "uri": "file:///notes/readme.md"
+      }
+    },
+    {
+      "entity": "resourceTemplate",
+      "name": "file:///notes/{id}",
+      "field": "resourceTemplate",
+      "kind": "removed",
+      "classification": "breaking",
+      "reason": "The resource template was removed: a client that reads through it now fails.",
+      "before": {
+        "description": "One note by id.",
+        "mimeType": "text/plain",
+        "name": "note",
+        "uriTemplate": "file:///notes/{id}"
+      }
+    },
+    {
+      "entity": "prompt",
+      "name": "звіт",
+      "field": "prompt",
+      "kind": "removed",
+      "classification": "breaking",
+      "reason": "The prompt was removed: a client that requests it now fails.",
+      "before": {
+        "arguments": [
+          {
+            "description": "Which days",
+            "name": "period",
+            "required": true
+          },
+          {
+            "description": "House style",
+            "name": "style"
+          }
+        ],
+        "description": "Summarise the notes.",
+        "name": "звіт"
+      }
+    }
+  ],
+  "exitCode": 1
+}

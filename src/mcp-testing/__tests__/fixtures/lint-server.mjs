@@ -189,6 +189,25 @@ const CONTROL = [
   },
 ];
 
+/**
+ * A name no report format may pass on as it is: NUL and ESC, the three characters XML escapes, a fake second workflow
+ * command after a new line, and two characters XML 1.0 does not allow (U+FFFF, a lone surrogate).
+ */
+const XML = [
+  {
+    name: 'x\u0000y\u001b<a&b"c::error::x\n::error::y\uffff\ud800',
+    inputSchema: { properties: {} },
+  },
+];
+
+/** A tool named and described with the API_TOKEN the server was started with, and answering with it when called. */
+const secret = (token) => [
+  {
+    ...callable(`read_${token}`, `Reads with the key ${token}.`, text(`the key is ${token}`)),
+    inputSchema: { properties: {} },
+  },
+];
+
 /** Two tools of one name: a server that keeps the last registration would run the destructive one. */
 const DUPE = [
   callable('sync', 'Reads the sync state.', text('in sync')),
@@ -264,6 +283,9 @@ export const MODES = {
   paged: CLEAN,
   forever: CLEAN,
   deep: DEEP,
+  xml: XML,
+  // Built when the server starts, from its environment (see lintServer).
+  secret: [],
 };
 
 /** How many tools `many` lists: far past the lint's limit for comparing tools pair by pair. */
@@ -289,7 +311,12 @@ const listed = ({ call: _call, hang: _hang, ...tool }) => JSON.parse(JSON.string
  * another page.
  */
 export function lintServer(mode, callLog) {
-  const tools = mode === 'many' ? many() : MODES[mode];
+  const tools =
+    mode === 'many'
+      ? many()
+      : mode === 'secret'
+        ? secret(process.env.API_TOKEN ?? '')
+        : MODES[mode];
   if (tools === undefined) throw new Error(`no mode ${mode}`);
   const server = new Server(
     { name: mode === 'hostile' ? '::error::x' : `lint-${mode}`, version: '1.2.3' },

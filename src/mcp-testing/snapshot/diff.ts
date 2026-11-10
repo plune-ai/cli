@@ -592,7 +592,7 @@ export function renderDiffText(diff: ContractDiff): string {
  * Server text as one Markdown table cell that renders as text: no HTML (a comment would hide the rest of the comment,
  * or fake another tool's marker), no code span to break out of, no new row.
  */
-const cell = (s: string) =>
+export const markdownCell = (s: string): string =>
   s
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -600,6 +600,7 @@ const cell = (s: string) =>
     .replace(/`/g, '&#96;')
     .replace(/\r?\n/g, ' ')
     .replace(/\|/g, '\\|');
+const cell = markdownCell;
 
 /** The diff as Markdown, for a pull request's run summary or comment. */
 export function renderDiffMarkdown(diff: ContractDiff): string {

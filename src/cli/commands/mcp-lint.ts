@@ -31,7 +31,13 @@ import {
   type ListedTool,
   type LintFinding,
 } from '../../mcp-testing/lint/index.js';
-import { CATALOG_RENDERERS, lintHuman, noCommands } from '../../mcp-testing/report/human.js';
+import { CATALOG_RENDERERS, noCommands } from '../../mcp-testing/report/human.js';
+import {
+  lintRun,
+  reportOutputs,
+  writeReport,
+  type ReportFlags,
+} from '../../mcp-testing/report/index.js';
 import type {
   CallOutcome,
   ExceptionNote,
@@ -43,10 +49,9 @@ import { printable } from '../../reporter-core/failure-detail.js';
 import { parseTimerDuration } from '../../util/duration.js';
 
 /** What commander hands the action: the connection flags and the lint's own. */
-export interface McpLintFlags extends ConnectionFlags {
+export interface McpLintFlags extends ConnectionFlags, ReportFlags {
   failOn?: string;
   showInfo?: boolean;
-  format?: string;
   ignoreFile?: string;
   listRules?: boolean;
   call?: boolean;
@@ -68,8 +73,6 @@ export interface LintIo {
 
 export const DEFAULT_IGNORE_FILE = 'plune-mcp-ignore.yaml';
 const FAIL_ON: readonly FailOn[] = ['error', 'warn', 'info', 'never'];
-const FORMATS = ['human', 'json'] as const;
-type Format = (typeof FORMATS)[number];
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -87,7 +90,7 @@ export async function handleMcpLint(
     err: (text) => raw.err(noCommands(text)),
   };
   try {
-    return await lint(flags, server, io);
+    return await lint(flags, server, io, raw.out);
   } catch (err) {
     if (err instanceof UsageError || err instanceof ExceptionsFileError) {
       io.err(`plune mcp lint: ${err.message}\n`);
@@ -111,9 +114,19 @@ function oneOf<T extends string>(flag: string, value: string, allowed: readonly 
   return value as T;
 }
 
-async function lint(flags: McpLintFlags, server: string[], io: LintIo): Promise<number> {
-  const format = oneOf<Format>('--format', flags.format ?? 'human', FORMATS);
+async function lint(
+  flags: McpLintFlags,
+  server: string[],
+  io: LintIo,
+  rawOut: (text: string) => void,
+): Promise<number> {
+  const outputs = reportOutputs(flags);
   if (flags.listRules === true) {
+    const format = outputs.format;
+    if (format !== 'human' && format !== 'json')
+      throw new UsageError(`--list-rules prints human or json (got --format ${format}).`);
+    if (outputs.files.length > 0)
+      throw new UsageError('--list-rules prints the catalog: --out and --reporter are for a run.');
     const rules = [...LINT_RULES, ...CALL_RULES].map(
       ({ id, class: cls, level, description, fix, specRef }) => ({
         id,
@@ -169,6 +182,7 @@ async function lint(flags: McpLintFlags, server: string[], io: LintIo): Promise<
       (calls !== null &&
         (calls.called.length === 0 || calls.called.some((c) => c.state === 'could-not-run')));
     const report: McpReport = {
+      kind: 'mcp-lint-report',
       schemaVersion: 1,
       command: 'lint',
       server:
@@ -212,12 +226,11 @@ async function lint(flags: McpLintFlags, server: string[], io: LintIo): Promise<
             },
       exitCode: violations ? MCP_EXIT.violations : unmeasured ? MCP_EXIT.unmeasured : MCP_EXIT.ok,
     };
-    io.out(
-      format === 'json'
-        ? `${JSON.stringify(report, null, 2)}
-`
-        : lintHuman(report, { showInfo: flags.showInfo === true }),
-    );
+    writeReport(lintRun(report, flags.showInfo === true), outputs, {
+      out: rawOut,
+      err: io.err,
+      cwd: io.cwd,
+    });
     return report.exitCode;
   } finally {
     await session.close();

@@ -10,7 +10,13 @@ import {
   type ConnectionFlags,
 } from '../../mcp-testing/connect/options.js';
 import { MCP_EXIT } from '../../mcp-testing/exit-codes.js';
-import { diffHuman, diffMarkdown, noCommands } from '../../mcp-testing/report/human.js';
+import { noCommands } from '../../mcp-testing/report/human.js';
+import {
+  diffRun,
+  reportOutputs,
+  writeReport,
+  type ReportFlags,
+} from '../../mcp-testing/report/index.js';
 import type { McpDiffReport } from '../../mcp-testing/result.js';
 import {
   diffSnapshots,
@@ -23,9 +29,8 @@ import { reportFailure, takeSnapshot, type SnapshotIo } from './mcp-snapshot.js'
 
 export { MCP_DIFF_MARKER } from '../../mcp-testing/report/human.js';
 
-export interface McpDiffFlags extends ConnectionFlags {
+export interface McpDiffFlags extends ConnectionFlags, ReportFlags {
   failOn?: string;
-  format?: string;
 }
 
 export interface DiffOperands {
@@ -37,7 +42,6 @@ export interface DiffOperands {
 }
 
 const FAIL_ON = ['breaking', 'any', 'none'] as const;
-const FORMATS = ['human', 'json', 'markdown'] as const;
 
 function oneOf<T extends string>(flag: string, value: string, allowed: readonly T[]): T {
   if (!(allowed as readonly string[]).includes(value))
@@ -97,15 +101,20 @@ export async function handleMcpDiff(
     err: (text) => raw.err(noCommands(text)),
   };
   try {
-    return await diff(flags, operands, io);
+    return await diff(flags, operands, io, raw.out);
   } catch (err) {
     return reportFailure('diff', err, io);
   }
 }
 
-async function diff(flags: McpDiffFlags, operands: DiffOperands, io: SnapshotIo): Promise<number> {
+async function diff(
+  flags: McpDiffFlags,
+  operands: DiffOperands,
+  io: SnapshotIo,
+  rawOut: (text: string) => void,
+): Promise<number> {
   const failOn = oneOf('--fail-on', flags.failOn ?? 'breaking', FAIL_ON);
-  const format = oneOf('--format', flags.format ?? 'human', FORMATS);
+  const outputs = reportOutputs(flags);
   const live = operands.server.length > 0 || flags.url !== undefined;
   if (operands.current !== undefined && live)
     throw new UsageError(
@@ -129,6 +138,7 @@ async function diff(flags: McpDiffFlags, operands: DiffOperands, io: SnapshotIo)
     failOn === 'breaking' ? summary.breaking > 0 : failOn === 'any' ? changes.length > 0 : false;
   const nothing = entityCount(before) === 0 && entityCount(after) === 0;
   const report: McpDiffReport = {
+    kind: 'mcp-diff-report',
     schemaVersion: 1,
     command: 'diff',
     failOn,
@@ -136,13 +146,6 @@ async function diff(flags: McpDiffFlags, operands: DiffOperands, io: SnapshotIo)
     changes,
     exitCode: violations ? MCP_EXIT.violations : nothing ? MCP_EXIT.unmeasured : MCP_EXIT.ok,
   };
-  io.out(render(report, format));
+  writeReport(diffRun(report), outputs, { out: rawOut, err: io.err, cwd: io.cwd });
   return report.exitCode;
-}
-
-function render(report: McpDiffReport, format: (typeof FORMATS)[number]): string {
-  if (format === 'json')
-    return `${JSON.stringify(report, null, 2)}
-`;
-  return format === 'markdown' ? diffMarkdown(report) : diffHuman(report);
 }

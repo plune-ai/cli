@@ -282,8 +282,8 @@ connection and the handshake. The check's own:
 | `--smoke-timeout <duration>` | How long to wait for one call (default `15s`). |
 | `--budget <duration>` | How long `--smoke` may take in all (default `60s`); the calls it leaves no time for are `could-not-run`. |
 | `--allow-write-calls` | With `--smoke`, also call tools that are not read-only but say `destructiveHint: false` explicitly, still only those without required parameters. A tool without that hint is not called (`no-destructive-hint`): the protocol's default for the hint is destructive. A warning goes to stderr before the first call, and the report says `writeCallsAllowed: true`. The hints are what the server says of itself, not a guarantee. A tool that says `destructiveHint: true` is never called; there is no flag for that. |
-| `--out <path>` | Also write the report as JSON to this file: the `plune` version, the format version, the server's name and version, the transport (never the URL, the command, its environment or the headers), the protocol version, every check with its state and detail, the durations, the last lines of the server's stderr, the `--smoke` limits and calls, and `writeCallsAllowed`. Every value given for the connection is masked wherever the server repeats it: `--env` and header values, secrets in the URL, and each argument of the command after `--` of 8 characters or more. Masking matches a value as written; a server that prints a secret encoded (base64) or in pieces gets it past the mask. Text from the server is cut at 500 characters. The exit code is the `exitCode` the file records. |
-| `--format <fmt>` | `human` (default) or `json` on stdout. Durations are only in the `timing` field, so two runs on the same server give the same JSON but for it. The human report ends with a line of check counts, with `--smoke` a line of call counts, and the verdict. |
+| `--out [<format>=]<path>` | Also write the report to this file, JSON unless a format is named (see [Report formats](#report-formats-of-plune-mcp-lint-check-and-diff)); repeatable. The JSON holds the `plune` version, the format version, the server's name and version, the transport (never the URL, the command, its environment or the headers), the protocol version, every check with its state and detail, the durations, the last lines of the server's stderr, the `--smoke` limits and calls, and `writeCallsAllowed`. Every value given for the connection is masked wherever the server repeats it: `--env` and header values, secrets in the URL, and each argument of the command after `--` of 8 characters or more. Masking matches a value as written; a server that prints a secret encoded (base64) or in pieces gets it past the mask. Text from the server is cut at 500 characters. The exit code is the `exitCode` the file records. |
+| `--format <fmt>`, `--reporter junit-xml` | `human` (default), `json`, `github` or `markdown` on stdout; see [Report formats](#report-formats-of-plune-mcp-lint-check-and-diff). Durations are only in the `timing` field, so two runs on the same server give the same JSON but for it. The human report ends with a line of check counts, with `--smoke` a line of call counts, and the verdict. |
 
 Every duration flag (`--timeout`, `--check-timeout`, `--wait`, `--smoke-timeout`, `--budget`) takes at most 2147483647 ms (about 24.8 days), the longest a timer can wait; a longer value is a flag error, exit `2`.
 
@@ -318,7 +318,7 @@ The connection flags (`--url`, `--sse`, `--header`, `--header-env`, `--env`, `--
 |--------|---------|
 | `--fail-on <level>` | `error` (default), `warn`, `info` or `never`: exit `1` on a finding of this level or above. Heuristic rules report `warn` at most, so the default does not fail on advice. |
 | `--show-info` | Print `info` findings too; without it they are only counted. |
-| `--format <fmt>` | `human` (default) or `json`: one JSON document on stdout and nothing else, with `schemaVersion`. It has no time field, so two runs against the same server give the same bytes. |
+| `--format <fmt>`, `--reporter junit-xml`, `--out [<format>=]<path>` | `human` (default), `json`, `github` or `markdown` on stdout, and files; see [Report formats](#report-formats-of-plune-mcp-lint-check-and-diff). `json` is one document on stdout and nothing else, with `kind` and `schemaVersion`. It has no time field, so two runs against the same server give the same bytes. |
 | `--ignore-file <path>` | The exceptions file; by default `plune-mcp-ignore.yaml` in the current folder, if there is one. |
 | `--list-rules` | Print every rule (id, class, level, description, fix, specification link) and exit `0` without connecting. |
 | `--call` | Also call each tool that says it is read-only, does not say it is destructive and needs no argument, with `{}`, and check the answer (rules starting with `call-`). A name the list holds twice, or an entry without a name, is never called. Nor is a tool whose schema could require something without a top-level `required` (`allOf`, `anyOf`, `oneOf`, `$ref`, `dependentRequired`, `minProperties` above 0), or whose `destructiveHint` is not a boolean. An answer is checked against the tool's `outputSchema` without its `pattern`, `patternProperties` and `format` keywords: a server's regular expression is not run. Off by default. |
@@ -430,7 +430,7 @@ plune mcp diff mcp-snapshot.json --format markdown -- node dist/server.js > comm
 | Option | Meaning |
 |--------|---------|
 | `--fail-on <class>` | `breaking` (default): exit `1` on a breaking change. `any`: on any change, a change that could not be classified included. `none`: never. |
-| `--format <fmt>` | `human` (default), `json` (one document with `schemaVersion`, the summary and every change; no time, so the same two snapshots give the same bytes) or `markdown`: a pull request comment that starts with the hidden marker `<!-- plune-mcp-diff -->`, apart from the `plune diff` comment. |
+| `--format <fmt>`, `--reporter junit-xml`, `--out [<format>=]<path>` | See [Report formats](#report-formats-of-plune-mcp-lint-check-and-diff): `human` (default), `github`, `json` (one document with `kind`, `schemaVersion`, the summary and every change; no time, so the same two snapshots give the same bytes) or `markdown`: a pull request comment that starts with the hidden marker `<!-- plune-mcp-diff -->`, apart from the `plune diff` comment. |
 
 Every change has a class and a reason of one sentence:
 
@@ -470,6 +470,81 @@ does not change the class or the exit code.
 | `1` | At least one change at the `--fail-on` level. |
 | `2` | A snapshot file cannot be read, is not JSON, is nested deeper than 256 levels, or has a `schemaVersion` this version does not read (the message names both); the server did not start or a declared list could not be read; or a flag is wrong. |
 | `3` | Nothing to compare: neither snapshot holds a tool, resource, resource template or prompt. |
+
+## Report formats of `plune mcp lint`, `check` and `diff`
+
+The three commands that test a server share one set of report flags and five formats, built from one
+result of the run: what is printed and every file written come from the same connection to the
+server, so a CI step gets JSON, JUnit and a pull request comment without starting the server or
+calling its tools twice.
+
+```bash
+plune mcp lint --reporter junit-xml --out lint.xml -- node dist/server.js
+plune mcp check --format github --smoke -- node dist/server.js
+plune mcp diff mcp-snapshot.json --out json=diff.json --out junit-xml=diff.xml --out markdown=diff.md -- node dist/server.js
+```
+
+| Option | Meaning |
+|--------|---------|
+| `--format <fmt>` | What goes to stdout: `human` (default), `json`, `github` or `markdown`. |
+| `--reporter junit-xml` | A bare `--out <path>` is written as JUnit XML instead of JSON. It needs an `--out`. |
+| `--out [<format>=]<path>` | Also write the report to a file; repeatable. Without a format the file is JSON (JUnit with `--reporter junit-xml`); with one, `json`, `junit-xml` or `markdown`. The files are written before anything is printed, and the exit code is the one they record. |
+
+A value that is not in the list (`--format xml`, `--reporter xunit`, `--out html=r.html`, a word
+before `=` that is not a format) is exit `2` with the values allowed, in the same words on every
+command. The `--out` of `check` before these flags (one file, JSON) works as it did.
+
+Every format gets the report after secrets are masked (see `--out` of `plune mcp check`) and with
+every text from the server made printable: no control character, no new line of its own. No line of
+stdout starts with `::` (the start of a GitHub Actions workflow command) unless the `github` format
+wrote it.
+
+| Format | What it is |
+|--------|------------|
+| `human` | The report for a person, as each command describes it above. |
+| `json` | One document of the command, named by `kind` (`mcp-lint-report`, `mcp-check-report`, `mcp-diff-report`; the rule catalog is `mcp-lint-rules`) and an integer `schemaVersion`. |
+| `github` | Annotations for a GitHub Actions step, one line each: `::error`, `::warning` or `::notice` by the finding's level (a check that could not run is a warning), `title=` the check id and its target, the message, then `expected`, `actual`, `fix`. No `file=`: the finding is about the server, so GitHub shows it on the run's page. Escaped as the Actions runner reads them: `%`, `\r` and `\n` in the message, `:` and `,` as well in the title. GitHub keeps 10 error and 10 warning annotations per step; past that the first ones are printed and one line counts the rest. A last line gives the counts and the exit code. |
+| `markdown` | A pull request comment that starts with the command's hidden marker (`<!-- plune-mcp-lint -->`, `<!-- plune-mcp-check -->`, `<!-- plune-mcp-diff -->`): the counts and a table of what did not pass. `diff` keeps its own table of changes. |
+| `junit-xml` | One test suite of fixed cases, for `plune run import` and any CI that reads JUnit. |
+
+### JSON versions
+
+`schemaVersion` changes only when a field is renamed or removed, or its meaning changes; adding a
+field keeps it. A reader that knows version 1 can read any later document of version 1 and ignore
+the fields it does not know. The documents of version 1 are kept as reference files in the tests.
+
+### JUnit cases and states
+
+`classname` is `mcp.<command>` (`mcp.lint`, `mcp.check`, `mcp.diff`) and `name` the id of the check,
+so `classname#name`, the key `plune run import` matches a case by, is the same on every run:
+
+- `lint`: `tools-list` and one case per rule of `--list-rules`, not one per rule and tool: the tools
+  a rule found are listed in the case's text;
+- `check`: one case per check, and `smoke` (`not-applicable` without `--smoke`), with each call in
+  its text;
+- `diff`: `breaking-changes`, `unclassified-changes` and `security-signals`.
+
+No count, server name, version or time is in `name`, and the suite has no `timestamp`; `time` is set
+on the cases of `check`, which times its checks. A case takes the worst state of its findings:
+
+| State | In JUnit | What `plune run import` reads | What Plune shows with the default status map |
+|-------|----------|-------------------------------|---------------------------------------------|
+| `passed` | `<testcase>` with nothing inside | `pass` | `passed` |
+| `failed` | `<failure message type>` | `failure` | `failed` |
+| `could-not-run` | `<error type="could-not-run" message>` | `error` | `broken` |
+| `not-applicable` | `<skipped type="not-applicable" message="not-applicable: …">` | `skipped` | `skipped` |
+| `pending` | `<skipped type="pending" message="pending: …">` | `skipped` | `skipped` |
+| a heuristic finding, or a finding below `--fail-on` | `<skipped type="advisory" message>` | `skipped` | `skipped` |
+
+`could-not-run` is never a pass and never skipped: `plune run import --fail-on-failures` counts
+`failed` and `broken` as a failure, so a server that could not be measured does not pass the gate.
+A run that measured nothing (exit `3`: no tool listed, nothing to compare) is not an empty file: it
+holds one case `run` that could not run. The status words are mapped to Plune statuses by the
+project's status map for the `junit` source; a project that changed that map reads these files by its
+own map, and `could-not-run` may then not be `broken`.
+
+Characters XML 1.0 does not allow (control characters but tab and line breaks, `U+FFFE`, `U+FFFF`,
+a surrogate without its pair) are removed from the file; `&`, `<`, `>` and `"` are escaped.
 
 ## Next
 

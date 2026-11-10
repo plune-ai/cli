@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="plune mcp diff" tests="3" failures="1" errors="0" skipped="0">
+  <testsuite name="plune mcp diff" tests="3" failures="1" errors="0" skipped="0">
+    <testcase classname="mcp.diff" name="breaking-changes">
+      <failure type="deterministic" message="capability prompts: The server no longer declares prompts: a client that uses it now fails. (and 10 more)">capability prompts: The server no longer declares prompts: a client that uses it now fails.
+expected: no breaking change since the baseline snapshot
+actual: capability removed (breaking)
+fix: Undo the change, or release it as breaking and commit a new baseline snapshot.
+
+capability resources: The server no longer declares resources: a client that uses it now fails.
+expected: no breaking change since the baseline snapshot
+actual: capability removed (breaking)
+fix: Undo the change, or release it as breaking and commit a new baseline snapshot.
+
+capability tools: The server no longer notifies when its tools list changes: a client that relies on it misses changes.
+expected: no breaking change since the baseline snapshot
+actual: listChanged removed (breaking)
+fix: Undo the change, or release it as breaking and commit a new baseline snapshot.
+
+tool Zeta: The tool was removed: a client that calls it now fails.
+expected: no breaking change since the baseline snapshot
+actual: tool removed (breaking)
+fix: Undo the change, or release it as breaking and commit a new baseline snapshot.
+
+tool alpha: The tool was removed: a client that calls it now fails.
+expected: no breaking change since the baseline snapshot
+actual: tool removed (breaking)
+fix: Undo the change, or release it as breaking and commit a new baseline snapshot.
+
+tool note_delete: The tool was removed: a client that calls it now fails.
+expected: no breaking change since the baseline snapshot
+actual: tool removed (breaking)
+fix: Undo the change, or release it as breaking and commit a new baseline snapshot.
+
+tool weather_get: The tool was removed: a client that calls it now fails.
+expected: no breaking change since the baseline snapshot
+actual: tool removed (breaking)
+fix: Undo the change, or release it as breaking and commit a new baseline snapshot.
+
+resource file:///notes/index.json: The resource was removed: a client that reads it now fails.
+expected: no breaking change since the baseline snapshot
+actual: resource removed (breaking)
+fix: Undo the change, or release it as breaking and commit a new baseline snapshot.
+
+resource file:///notes/readme.md: The resource was removed: a client that reads it now fails.
+expected: no breaking change since the baseline snapshot
+actual: resource removed (breaking)
+fix: Undo the change, or release it as breaking and commit a new baseline snapshot.
+
+resourceTemplate file:///notes/{id}: The resource template was removed: a client that reads through it now fails.
+expected: no breaking change since the baseline snapshot
+actual: resourceTemplate removed (breaking)
+fix: Undo the change, or release it as breaking and commit a new baseline snapshot.
+
+prompt звіт: The prompt was removed: a client that requests it now fails.
+expected: no breaking change since the baseline snapshot
+actual: prompt removed (breaking)
+fix: Undo the change, or release it as breaking and commit a new baseline snapshot.</failure>
+    </testcase>
+    <testcase classname="mcp.diff" name="unclassified-changes"/>
+    <testcase classname="mcp.diff" name="security-signals"/>
+  </testsuite>
+</testsuites>

@@ -136,6 +136,7 @@ export const CATALOG_RENDERERS: Record<'human' | 'json', (rules: readonly RuleEn
     json: (rules) =>
       JSON.stringify(
         {
+          kind: 'mcp-lint-rules',
           schemaVersion: 1,
           rules: rules.map(({ id, class: cls, level, description, fix, specRef }) => ({
             id,

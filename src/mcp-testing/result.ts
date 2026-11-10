@@ -2,7 +2,8 @@
  * The result every `plune mcp` command that tests a server reports: the check states, and the report one run makes.
  * Renderers (src/mcp-testing/render.ts) turn a report into text; a new output format is a new renderer, never a new
  * shape. Field and state names are final; a later version may add fields but never change what these mean, and says
- * so by raising `schemaVersion`.
+ * so by raising `schemaVersion`. Every document names itself by `kind` and `schemaVersion`: adding a field keeps the
+ * version, renaming or removing one raises it.
  */
 
 import type { CheckClass, CheckLevel, CheckState } from './lint/types.js';
@@ -53,6 +54,8 @@ export interface CallOutcome {
 }
 
 export interface McpReport {
+  /** What the document is; with `schemaVersion`, how to read it. */
+  kind: 'mcp-lint-report';
   schemaVersion: 1;
   command: 'lint';
   /** `serverInfo` from the handshake; null when the server gave none. */
@@ -110,6 +113,7 @@ export interface SmokeCall {
 }
 
 export interface McpCheckReport {
+  kind: 'mcp-check-report';
   schemaVersion: 1;
   command: 'check';
   /** The version of `plune` that ran the checks. */
@@ -142,6 +146,7 @@ export interface McpCheckReport {
  * current snapshot came from: a live server and its snapshot file give the same bytes.
  */
 export interface McpDiffReport {
+  kind: 'mcp-diff-report';
   schemaVersion: 1;
   command: 'diff';
   failOn: 'breaking' | 'any' | 'none';
