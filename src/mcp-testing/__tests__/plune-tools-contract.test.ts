@@ -102,19 +102,14 @@ const VIEWS = (['legacy', 'modern'] as const).flatMap((era) => [
 ]);
 
 describe('CLI · mcp lint · Plune tools contract', () => {
-  const seenHeuristics: LintFinding[] = [];
-  const usedExceptions = new Set<object>();
-
   it.each(VIEWS)('$name: no deterministic finding outside the exceptions; heuristics printed', async (view) => {
     const tools = await listTools(view.era, view.scope, view.revealHidden);
     // Nothing listed is nothing checked, which is not a pass.
     expect(tools.length).toBe(view.count);
 
     const applied = applyExceptions(lintTools(tools), PLUNE_LINT_EXCEPTIONS);
-    for (const e of applied.excepted) usedExceptions.add(e.exception);
     const failing = applied.findings.filter(failsOurContract);
     const advice = applied.findings.filter((f) => !failsOurContract(f));
-    seenHeuristics.push(...advice.filter((f) => f.class === 'heuristic'));
 
     const size = toolListSize(tools);
     console.info(
@@ -128,8 +123,18 @@ describe('CLI · mcp lint · Plune tools contract', () => {
     expect(failing.map((f) => `${f.id} on ${where(f)}: ${f.message} Fix: ${f.fix}`)).toEqual([]);
   });
 
-  it('the run was not empty: the heuristics had something to say, and every exception is still needed', () => {
-    expect(seenHeuristics.length).toBeGreaterThan(0);
-    expect(PLUNE_LINT_EXCEPTIONS.filter((e) => !usedExceptions.has(e))).toEqual([]);
+  // Lists and lints every view itself, so it holds when run alone (-t) as well as after the views above.
+  it('the run was not empty: the heuristics had something to say, and every exception is still needed', async () => {
+    let heuristics = 0;
+    const used = new Set<object>();
+    for (const view of VIEWS) {
+      const tools = await listTools(view.era, view.scope, view.revealHidden);
+      expect(tools.length, view.name).toBe(view.count);
+      const applied = applyExceptions(lintTools(tools), PLUNE_LINT_EXCEPTIONS);
+      for (const e of applied.excepted) used.add(e.exception);
+      heuristics += applied.findings.filter((f) => f.class === 'heuristic').length;
+    }
+    expect(heuristics).toBeGreaterThan(0);
+    expect(PLUNE_LINT_EXCEPTIONS.filter((e) => !used.has(e))).toEqual([]);
   });
 });

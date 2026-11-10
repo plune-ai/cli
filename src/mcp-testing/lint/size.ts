@@ -12,8 +12,8 @@ export interface ToolListSize {
 
 /**
  * How much a `tools/list` answer costs a model on every request, estimated without a tokenizer.
- * ponytail: an estimate (characters / charsPerToken); the token-budget work (tracker #2419) calibrates it against a
- * real tokenizer and replaces this function, and the lint keeps calling whatever it exports.
+ * An estimate (characters / charsPerToken); it will be replaced by an exact token count, and the lint keeps calling
+ * whatever this module exports.
  */
 export function toolListSize(tools: readonly ListedTool[]): ToolListSize {
   const { charsPerToken } = LINT_THRESHOLDS.size;

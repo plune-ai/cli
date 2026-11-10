@@ -367,10 +367,19 @@ describe('mcp lint · the module stands alone', () => {
     expect(sources.map((s) => s.file)).toEqual(expect.arrayContaining(['index.ts', 'rules.ts', 'thresholds.ts', 'types.ts']));
   });
 
+  const specifiers = (text: string) =>
+    [...text.matchAll(/^(?:import|export)\b[^;]*?\bfrom\s+'([^']+)'|^import\s+'([^']+)'|\b(?:import|require)\(\s*'([^']+)'/gm)].map(
+      (m) => m[1] ?? m[2] ?? m[3] ?? '',
+    );
+
+  it('the import check sees every way to load a module', () => {
+    const forms = ["import x from 'a';", "export * from 'b';", "import 'c';", "const d = await import('d');", "const e = require('e');"];
+    expect(forms.flatMap(specifiers)).toEqual(['a', 'b', 'c', 'd', 'e']);
+  });
+
   it('imports nothing but its own files', () => {
     for (const { file, text } of sources) {
-      const specifiers = [...text.matchAll(/^(?:import|export)\b[^;]*?\bfrom\s+'([^']+)'|\bimport\(\s*'([^']+)'/gm)].map((m) => m[1] ?? m[2] ?? '');
-      for (const s of specifiers) expect(s.startsWith('./'), `${file} imports ${s}`).toBe(true);
+      for (const s of specifiers(text)) expect(s.startsWith('./'), `${file} imports ${s}`).toBe(true);
     }
   });
 

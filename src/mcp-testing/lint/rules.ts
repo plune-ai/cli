@@ -270,11 +270,12 @@ export const LINT_RULES: readonly LintRule[] = [
       ),
   },
   {
+    // An error although the specification says SHOULD: tools/call finds a tool by name alone, so a duplicate is unreachable.
     id: 'name-duplicate',
     class: 'deterministic',
     level: 'error',
     fix: 'Give each tool its own name; tools/call picks a tool by name alone, so a second tool of the same name cannot be called.',
-    specRef: `${TOOLS_PAGE}#calling-tools`,
+    specRef: `${TOOLS_PAGE}#tool-names`,
     check: (tools) => {
       const seen = new Set<string>();
       const hits: RuleHit[] = [];
@@ -305,11 +306,12 @@ export const LINT_RULES: readonly LintRule[] = [
         })),
   },
   {
-    // Absence is a fact, not a guess: deterministic. A warning, because the specification makes it optional.
+    // Absence is a fact, not a guess: deterministic. The specification makes a description optional, so this is quality
+    // advice at warning level, not a violation of the specification; specRef points at the optional field itself.
     id: 'desc-missing',
     class: 'deterministic',
     level: 'warn',
-    fix: 'Describe what the tool does, when to use it and when not to: the model chooses tools by name and description alone.',
+    fix: 'Describe what the tool does, when to use it and when not to: the model chooses tools by name and description alone. The specification does not require a description; this is advice on quality.',
     specRef: `${SCHEMA}#tool-description`,
     check: (tools) =>
       tools

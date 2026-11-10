@@ -30,8 +30,8 @@ export const LINT_THRESHOLDS = {
   },
   size: {
     /**
-     * Estimated tokens of the whole visible tool list above which the list is reported. ponytail: a flat line until
-     * the token-budget work (tracker #2419) measures the real budget per scope and owns the counting.
+     * Estimated tokens of the whole visible tool list above which the list is reported. An estimate; it will be
+     * replaced by an exact token count.
      */
     maxListTokens: 12_000,
     /** The estimate: characters of a tool's JSON divided by this, rounded up, summed over the tools. */

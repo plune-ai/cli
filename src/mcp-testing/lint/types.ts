@@ -1,5 +1,5 @@
 /**
- * The result format every MCP check shares (lint, protocol conformance, agent checks, the security scan): one shape,
+ * The result format every MCP check shares (lint, agent checks, the security scan): one shape,
  * so a report, a JUnit file or the platform reads them the same way. Field and state names are final; a report may
  * add fields but never change what these mean.
  */

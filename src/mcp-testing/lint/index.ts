@@ -32,6 +32,9 @@ const RANK: Record<CheckLevel, number> = { info: 0, warn: 1, error: 2 };
 /**
  * Whether a finding fails a gate. A heuristic never does; a measure or a deterministic check does at `minLevel`
  * (`error` by default) or above, when it failed or could not run — `could-not-run` is never a pass.
+ * No gating finding is not green on its own: a list of zero tools yields no findings at all, so the caller must check
+ * that tools were checked (as the contract test does). The `list-size` measure is a warning, so it does not gate at
+ * the default level; its threshold is provisional.
  */
 export function gates(finding: LintFinding, minLevel: CheckLevel = 'error'): boolean {
   if (finding.class === 'heuristic') return false;
