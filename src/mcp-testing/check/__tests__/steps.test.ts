@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { realClock, runChecks } from '../run.js';
 import { healthSteps } from '../steps.js';
+import { listAll } from '../../connect/tools.js';
 
 const OPTS = { timeoutMs: 1_000, timedOutDetail: 'no answer within --check-timeout (1s)' };
 
@@ -50,5 +51,38 @@ describe('CLI · mcp check · the checks after the handshake', () => {
       lines.slice(2, 6).every((l) => l.includes(' not-applicable: the server does not declare ')),
     ).toBe(true);
     expect(requests).toEqual(['ping']);
+  });
+});
+
+describe('CLI · mcp check · reading lists', () => {
+  it('CLI · mcp check · a page of millions of entries is read whole (the reader lint --call uses too)', async () => {
+    // 150 000 already overflow a plain node process; the test runner's threads have a deeper stack, hence more here.
+    const page = { tools: Array.from({ length: 2_000_000 }, (_, i) => i) };
+    const listing = await listAll({ request: async () => page }, 'tools/list', 'tools');
+    expect(listing.items).toHaveLength(2_000_000);
+    expect(listing.complete).toBe(true);
+  });
+
+  it('CLI · mcp check · a list that answers after its timeout asks for no further page and is not kept for --smoke', async () => {
+    const requests: string[] = [];
+    const late = {
+      handshake: {
+        offered: '2025-11-25',
+        result: { protocolVersion: '2025-11-25', capabilities: { tools: {} } },
+      },
+      request: async (method: string, params?: Record<string, unknown>) => {
+        requests.push(`${method} ${String(params?.cursor ?? '')}`);
+        if (method === 'ping') return {};
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        return { tools: [{ name: 'late' }], ...(params === undefined ? { nextCursor: '1' } : {}) };
+      },
+    };
+    const found: { tools?: unknown[] } = {};
+    const opts = { timeoutMs: 50, timedOutDetail: 'no answer within --check-timeout (50ms)' };
+    const ran = await runChecks(healthSteps(late, opts, found), realClock, opts);
+    expect(ran.find((r) => r.id === 'tools-list')?.result.timedOut).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(requests.filter((r) => r.startsWith('tools/list'))).toEqual(['tools/list ']);
+    expect(found.tools).toBeUndefined();
   });
 });

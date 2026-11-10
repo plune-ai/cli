@@ -38,7 +38,8 @@ export interface StepResult {
 
 export interface Step<R extends StepResult = StepResult> {
   id: string;
-  run(): Promise<R | StepResult>;
+  /** `signal` aborts when the step's time is up: a step left behind stops asking and keeps nothing it learns later. */
+  run(signal: AbortSignal): Promise<R | StepResult>;
 }
 
 export interface RunOptions {
@@ -77,7 +78,8 @@ export async function runChecks<R extends StepResult>(
     const byBudget = left < opts.timeoutMs;
     const began = clock.now();
     const timer = clock.after(Math.min(opts.timeoutMs, left));
-    const running = step.run();
+    const abort = new AbortController();
+    const running = step.run(abort.signal);
     // A step left behind may still settle later; what it says then is no longer heard.
     running.catch(() => {});
     let result: R | StepResult;
@@ -97,6 +99,7 @@ export async function runChecks<R extends StepResult>(
     } finally {
       timer.cancel();
     }
+    if (result.timedOut === true) abort.abort();
     if (result.timedOut === true) timeouts++;
     else if (result.offline !== true) timeouts = 0;
     ran.push({ id: step.id, result, ms: clock.now() - began });

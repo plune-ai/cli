@@ -22,20 +22,30 @@ export interface Listing {
   malformed: boolean;
 }
 
-/** `method` to its last page. A JSON-RPC error or a lost server rejects, as `Session.request` does. */
+/**
+ * `method` to its last page. A JSON-RPC error or a lost server rejects, as `Session.request` does. Once `signal`
+ * aborts, no further page is asked for: the listing ends incomplete.
+ */
 export async function listAll(
   session: Pick<Session, 'request'>,
   method: string,
   key: string,
-  opts: { timeoutMs?: number } = {},
+  opts: { timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<Listing> {
   const items: unknown[] = [];
   let malformed = false;
   let cursor: string | undefined;
   for (let pages = 1; pages <= MAX_PAGES; pages++) {
-    const page = await session.request(method, cursor === undefined ? undefined : { cursor }, opts);
+    if (opts.signal?.aborted === true)
+      return { items, pages: pages - 1, complete: false, malformed };
+    const page = await session.request(
+      method,
+      cursor === undefined ? undefined : { cursor },
+      opts.timeoutMs === undefined ? {} : { timeoutMs: opts.timeoutMs },
+    );
     const listed = isRecord(page) ? page[key] : undefined;
-    if (Array.isArray(listed)) items.push(...(listed as unknown[]));
+    // One by one: spreading a server's page into push() overflows the stack from about 130 000 entries.
+    if (Array.isArray(listed)) for (const item of listed as unknown[]) items.push(item);
     else malformed = true;
     cursor =
       isRecord(page) && typeof page.nextCursor === 'string' && page.nextCursor !== ''
@@ -114,8 +124,11 @@ export async function callTool(
     const result = await session.request('tools/call', { name, arguments: {} }, { timeoutMs });
     return { kind: 'result', result };
   } catch (err) {
-    if (err instanceof ConnectError)
+    if (err instanceof ConnectError) {
+      // Credentials refused: not this call's answer but the whole connection's, so the command decides.
+      if (err.kind === 'auth') throw err;
       return err.kind === 'timeout' ? { kind: 'timeout' } : { kind: 'lost', message: err.message };
+    }
     if (err instanceof ProtocolError) return { kind: 'error', message: err.message };
     throw err;
   }

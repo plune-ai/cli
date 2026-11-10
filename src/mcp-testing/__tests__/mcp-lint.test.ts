@@ -639,3 +639,32 @@ describe('CLI · mcp lint · the exceptions file, strictly', () => {
     expect(run.err).toContain('write the date in quotes');
   });
 });
+
+describe('CLI · mcp lint · hostile servers, beside check', () => {
+  const HOSTILE = fileURLToPath(new URL('./fixtures/check-hostile.mjs', import.meta.url));
+
+  it('CLI · mcp lint · arguments of the server command are masked in the stderr tail', async () => {
+    const run = await lint({
+      server: [process.execPath, HOSTILE, 'argv', '--api-key', 'sk-live-abcdef123456'],
+    });
+    expect(run.code).toBe(2);
+    expect(run.err).toContain('args: argv *** ***');
+    expect(run.err).not.toContain('sk-live-abcdef123456');
+  });
+
+  it('CLI · mcp lint · --call calls no tool whose schema or hints make a call unsafe', async () => {
+    const log = join(tmp(), 'calls.log');
+    const { report } = await json({
+      server: [process.execPath, HOSTILE, 'trick'],
+      flags: { call: true, failOn: 'never', env: [`FIXTURE_CALL_LOG=${log}`] },
+    });
+    expect(existsSync(log)).toBe(false);
+    expect(report.calls?.called).toEqual([]);
+  });
+
+  it('CLI · mcp lint · a --call-timeout past what a timer can hold is a usage error, exit 2', async () => {
+    const run = await lint({ mode: 'clean', flags: { call: true, callTimeout: '30d' } });
+    expect(run.code).toBe(2);
+    expect(run.err).toContain('2147483647 ms');
+  });
+});

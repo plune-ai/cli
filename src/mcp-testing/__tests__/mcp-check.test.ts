@@ -1,7 +1,7 @@
 // `plune mcp check` end to end against real servers: the stdio fixture (./fixtures/check-server.mjs) as a process, and
 // the same server over Streamable HTTP on 127.0.0.1. Nothing here reaches past this machine.
 
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
 import { createServer, type Server as HttpServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -16,6 +16,7 @@ import { checkServer } from './fixtures/check-server.mjs';
 import { streamableServer } from './fixtures/http-servers.js';
 
 const FIXTURE = fileURLToPath(new URL('./fixtures/check-server.mjs', import.meta.url));
+const HOSTILE = fileURLToPath(new URL('./fixtures/check-hostile.mjs', import.meta.url));
 
 const servers: { close(): Promise<void> }[] = [];
 afterEach(async () => {
@@ -397,7 +398,7 @@ describe('CLI · mcp check · --smoke', () => {
     expect(callLog(log)).toEqual(['read_error', 'read_ok', 'read_rpc_error', 'write_safe']);
     expect(report.writeCallsAllowed).toBe(true);
     expect(report.smoke?.calls.filter((c) => c.state === 'not-applicable')).toEqual([
-      { tool: 'no_hints', state: 'not-applicable', detail: 'destructive' },
+      { tool: 'no_hints', state: 'not-applicable', detail: 'no-destructive-hint' },
       { tool: 'read_needs_arg', state: 'not-applicable', detail: 'required-arguments' },
       { tool: 'read_wipe', state: 'not-applicable', detail: 'destructive' },
       { tool: 'write_wipe', state: 'not-applicable', detail: 'destructive' },
@@ -465,8 +466,11 @@ describe('CLI · mcp check · the artifact', () => {
     expect(run.out).toMatch(/^passed +tools-list +8 tools in 1 page$/m);
     expect(run.out).toMatch(/^not-applicable +prompts-list +the server does not declare prompts$/m);
     expect(run.out).toMatch(/^ {2}failed +read_error +isError: the cache is cold$/m);
-    expect(run.out).toMatch(/^ {2}not-applicable +read_wipe +destructive$/m);
-    expect(run.out).toContain('Failed: at least one check failed.');
+    expect(run.out).toContain('  1 tool not called: destructive (read_wipe)');
+    expect(run.out).toContain(
+      '  3 tools not called: not-read-only (no_hints, write_safe, write_wipe)',
+    );
+    expect(run.out).toContain('Failed: at least one check or smoke call failed.');
   });
 });
 
@@ -533,5 +537,165 @@ describe('CLI · mcp check · flags', () => {
       ),
     ).toEqual([]);
     expect(readFileSync(new URL('README.md', root), 'utf8')).toContain('plune mcp check');
+  });
+});
+
+describe('CLI · mcp check · hostile servers', () => {
+  const hostile = (mode: string) => [process.execPath, HOSTILE, mode];
+
+  it('CLI · mcp check · one tools/list page of 150 000 entries is read whole, exit 0', async () => {
+    const { code, report } = await json({ server: hostile('biglist') });
+    expect(report.checks.find((c) => c.id === 'tools-list')).toMatchObject({
+      state: 'passed',
+      count: 150_000,
+    });
+    expect(code).toBe(0);
+  }, 30_000);
+
+  it('CLI · mcp check · 200 000 tools under --smoke: the human report prints, its exit code is the one --out records', async () => {
+    const out = join(tmp(), 'big.json');
+    const run = await check({ server: hostile('bigpaged'), flags: { smoke: true, out } });
+    const report = JSON.parse(readFileSync(out, 'utf8')) as McpCheckReport;
+    expect(run.code).toBe(report.exitCode);
+    expect(report.smoke?.calls).toHaveLength(200_000);
+    expect(run.out).toContain('  199995 tools not called: smoke-limit');
+    expect(run.out).toContain('Smoke: 5 passed, 0 failed, 0 could not run, 199995 not called');
+    expect(run.out.split('\n').length).toBeLessThan(100);
+  }, 60_000);
+
+  it('CLI · mcp check · arguments of the server command are masked in the stderr tail and in --out', async () => {
+    const out = join(tmp(), 'argv.json');
+    const run = await check({
+      server: [...hostile('argv'), '--api-key', 'sk-live-abcdef123456'],
+      flags: { out },
+    });
+    expect(run.code).toBe(1);
+    const bytes = readFileSync(out, 'utf8');
+    expect(bytes).toContain('args: argv *** ***');
+    expect(bytes).not.toContain('sk-live-abcdef123456');
+    expect(run.out).not.toContain('sk-live-abcdef123456');
+  });
+
+  it('CLI · mcp check · megabytes of error text from the server are cut: --out stays under 50 KB', async () => {
+    const out = join(tmp(), 'bigerror.json');
+    const { report } = await json({ server: hostile('bigerror'), flags: { smoke: true, out } });
+    expect(statSync(out).size).toBeLessThan(50_000);
+    const ping = report.checks.find((c) => c.id === 'ping');
+    expect(ping?.state).toBe('failed');
+    expect(ping?.detail).toMatch(/… \(cut: \d+ characters\)$/);
+    expect(report.smoke?.calls[0]?.state).toBe('failed');
+  }, 30_000);
+
+  it('CLI · mcp check · a duration past what a timer can hold is a usage error, exit 2', async () => {
+    for (const flags of [
+      { checkTimeout: '30d' },
+      { smoke: true, smokeTimeout: '25d' },
+      { smoke: true, budget: '30d' },
+      { timeout: '30d' },
+    ] as McpCheckFlags[]) {
+      const run = await check({ mode: 'healthy', flags });
+      expect(run.code).toBe(2);
+      expect(run.err).toContain('2147483647 ms');
+    }
+  });
+
+  it('CLI · mcp check · the human report counts the smoke calls beside the checks', async () => {
+    const run = await check({ mode: 'smoke-slow', flags: { smoke: true, budget: '1s' } });
+    expect(run.code).toBe(3);
+    expect(run.out).toContain('Smoke: 1 passed, 0 failed, 3 could not run, 0 not called');
+  });
+
+  it('CLI · mcp check · after a list times out no further page is asked for', async () => {
+    const debugOut = join(tmp(), 'journal.jsonl');
+    const { code, report } = await json({
+      server: hostile('slowpages'),
+      flags: { checkTimeout: '2s', debugOut },
+    });
+    expect(report.checks.find((c) => c.id === 'tools-list')?.timedOut).toBe(true);
+    expect(code).toBe(3);
+    const pages = readFileSync(debugOut, 'utf8')
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as { dir: string; dtMs: number; frame?: { method?: string } })
+      .filter((l) => l.dir === 'out' && l.frame?.method === 'tools/list')
+      .map((l) => l.dtMs);
+    expect(pages.length).toBeGreaterThan(0);
+    expect(pages.at(-1)! - pages[0]!).toBeLessThan(2_000);
+  }, 15_000);
+
+  it('CLI · mcp check · --smoke calls no tool whose schema or hints make a call unsafe', async () => {
+    const log = join(tmp(), 'calls.log');
+    const { code, report } = await json({
+      server: hostile('trick'),
+      flags: { smoke: true, allowWriteCalls: true, env: [`FIXTURE_CALL_LOG=${log}`] },
+    });
+    expect(existsSync(log)).toBe(false);
+    expect(report.smoke?.calls.map((c) => `${c.tool} ${c.detail}`)).toEqual([
+      'allof_required required-arguments',
+      'anyof_required required-arguments',
+      'oneof_required required-arguments',
+      'ref_required required-arguments',
+      'dependent_required required-arguments',
+      'min_properties required-arguments',
+      'read_only_string no-destructive-hint',
+      'destructive_string destructive',
+      'destructive_number destructive',
+    ]);
+    expect(code).toBe(3);
+  });
+
+  it('CLI · mcp check · a 401 after the handshake exits 2 with the --header-env hint, not as a lost connection', async () => {
+    const server = createServer((req, res) => {
+      let body = '';
+      req.on('data', (c: Buffer) => (body += String(c)));
+      req.on('end', () => {
+        const msg = (body === '' ? {} : JSON.parse(body)) as {
+          id?: number;
+          method?: string;
+          params?: { protocolVersion?: string };
+        };
+        if (msg.id === undefined) return void res.writeHead(202).end();
+        if (msg.method !== 'initialize')
+          return void res.writeHead(401, { 'www-authenticate': 'Bearer' }).end('need auth');
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: msg.id,
+            result: {
+              protocolVersion: msg.params?.protocolVersion,
+              capabilities: { tools: {} },
+              serverInfo: { name: 'auth-later', version: '1' },
+            },
+          }),
+        );
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    servers.push({
+      close: () =>
+        new Promise<void>((resolve) => {
+          server.closeAllConnections();
+          server.close(() => resolve());
+        }),
+    });
+    const port = (server.address() as AddressInfo).port;
+    const run = await check({ flags: { url: `http://127.0.0.1:${port}/mcp` } });
+    expect(run.code).toBe(2);
+    expect(run.err).toContain('--header-env');
+    expect(run.err).not.toContain('connection was lost');
+    expect(run.out).toBe('');
+  });
+
+  it('CLI · mcp check · resources without resource templates (Method not found) is not-applicable, exit 0', async () => {
+    const { code, report } = await json({ server: hostile('no-templates') });
+    expect(report.checks.find((c) => c.id === 'resource-templates-list')).toEqual({
+      id: 'resource-templates-list',
+      state: 'not-applicable',
+      detail:
+        'the server declares resources but does not offer resource templates (Method not found)',
+    });
+    expect(report.checks.find((c) => c.id === 'resources-list')?.state).toBe('passed');
+    expect(code).toBe(0);
   });
 });

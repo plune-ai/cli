@@ -25,7 +25,7 @@ import type {
   SmokeCall,
 } from '../../mcp-testing/result.js';
 import { printable } from '../../reporter-core/failure-detail.js';
-import { parseDuration } from '../../util/duration.js';
+import { parseTimerDuration } from '../../util/duration.js';
 
 /** What commander hands the action: the connection flags and the check's own. */
 export interface McpCheckFlags extends ConnectionFlags {
@@ -53,6 +53,10 @@ const FORMATS = ['human', 'json'] as const;
 type Format = (typeof FORMATS)[number];
 /** How often --wait tries again. */
 const RETRY_MS = 250;
+/** Server text in a report is cut here: one error message can be megabytes, and the report is meant to be attached. */
+const MAX_TEXT = 500;
+const cut = (text: string) =>
+  text.length <= MAX_TEXT ? text : `${text.slice(0, MAX_TEXT)}… (cut: ${text.length} characters)`;
 
 const WRITE_WARNING =
   'warning: --allow-write-calls: tools that may change data will be called. readOnlyHint is what the server says of itself, not a guarantee.\n';
@@ -93,7 +97,7 @@ export async function handleMcpCheck(
 
 function duration(flag: string, value: string): number {
   try {
-    return parseDuration(value);
+    return parseTimerDuration(value);
   } catch (err) {
     throw new UsageError(`${flag}: ${(err as Error).message}.`);
   }
@@ -202,7 +206,7 @@ async function check(flags: McpCheckFlags, server: string[], io: CheckIo): Promi
               detail: `no answer to initialize within --timeout (${flags.timeout ?? '30s'})`,
               timedOut: true,
             }
-          : { id: 'initialize', state: 'failed', detail: err.message },
+          : { id: 'initialize', state: 'failed', detail: cut(err.message) },
         ...AFTER_HANDSHAKE.map(
           (id): HealthCheck => ({
             id,
@@ -211,12 +215,12 @@ async function check(flags: McpCheckFlags, server: string[], io: CheckIo): Promi
           }),
         ),
       );
-      stderrTail = err.stderrTail;
+      stderrTail = err.stderrTail.map(cut);
     }
 
     if (session !== undefined) {
       const live = session;
-      const clean = (text: string) => printable(live.redact.text(text));
+      const clean = (text: string) => cut(printable(live.redact.text(text)));
       const name = live.server;
       checks.push(
         { id: 'start', state: 'passed', detail: startDetail },
@@ -269,7 +273,7 @@ async function check(flags: McpCheckFlags, server: string[], io: CheckIo): Promi
           ),
         ];
       }
-      stderrTail = live.stderrTail();
+      stderrTail = live.stderrTail().map(cut);
       if (name !== undefined) serverInfo = { name: clean(name.name), version: clean(name.version) };
       const version = (live.handshake.result as { protocolVersion?: unknown } | undefined)
         ?.protocolVersion;
@@ -303,8 +307,13 @@ async function check(flags: McpCheckFlags, server: string[], io: CheckIo): Promi
     exitCode: exitCode(checks, calls),
     timing,
   };
+  // The file first, and the exit code is the one it records, whatever happens to the printing after it.
   if (flags.out !== undefined) writeOut(flags.out, CHECK_RENDERERS.json(report));
-  io.out(CHECK_RENDERERS[opts.format](report));
+  try {
+    io.out(CHECK_RENDERERS[opts.format](report));
+  } catch (err) {
+    io.err(`plune mcp check: could not print the report (${(err as Error).message}).\n`);
+  }
   return report.exitCode;
 }
 

@@ -728,7 +728,7 @@ export function createProgram(): Command {
     .option('--smoke-limit <n>', 'Call at most this many tools', '5')
     .option('--smoke-timeout <duration>', 'How long to wait for one call (e.g. 15s)', '15s')
     .option('--budget <duration>', 'How long --smoke may take in all (e.g. 60s)', '60s')
-    .option('--allow-write-calls', 'With --smoke, also call tools that do not say they are read-only; never one that says it is destructive', false)
+    .option('--allow-write-calls', 'With --smoke, also call tools that are not read-only but say destructiveHint: false; never any other', false)
     .option('--out <path>', 'Also write the report as JSON to this file: no URL, command, environment or header in it, secrets masked')
     .option('--format <format>', 'human or json', 'human')
     .action(

@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
 import type { Command } from 'commander';
-import { parseDuration } from '../../util/duration.js';
+import { parseTimerDuration } from '../../util/duration.js';
 import { MCP_EXIT } from '../exit-codes.js';
 
 // The connection flags every `plune mcp` command shares. This module stays light (no MCP client): src/cli.ts may
@@ -141,7 +141,7 @@ export function connectionConfig(
 
   let timeoutMs: number;
   try {
-    timeoutMs = parseDuration(flags.timeout ?? '30s');
+    timeoutMs = parseTimerDuration(flags.timeout ?? '30s');
   } catch (err) {
     throw new UsageError(`--timeout: ${(err as Error).message}.`);
   }

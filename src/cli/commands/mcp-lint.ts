@@ -4,6 +4,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { ProtocolError } from '@modelcontextprotocol/client';
 import {
   connectionConfig,
   UsageError,
@@ -39,7 +40,7 @@ import type {
   ReportFinding,
 } from '../../mcp-testing/result.js';
 import { printable } from '../../reporter-core/failure-detail.js';
-import { parseDuration } from '../../util/duration.js';
+import { parseTimerDuration } from '../../util/duration.js';
 
 /** What commander hands the action: the connection flags and the lint's own. */
 export interface McpLintFlags extends ConnectionFlags {
@@ -133,7 +134,7 @@ async function lint(flags: McpLintFlags, server: string[], io: LintIo): Promise<
   const callTimeout = flags.callTimeout ?? '15s';
   let callTimeoutMs: number;
   try {
-    callTimeoutMs = parseDuration(callTimeout);
+    callTimeoutMs = parseTimerDuration(callTimeout);
   } catch (err) {
     throw new UsageError(`--call-timeout: ${(err as Error).message}.`);
   }
@@ -156,7 +157,7 @@ async function lint(flags: McpLintFlags, server: string[], io: LintIo): Promise<
             callTimeout,
           )
         : null;
-    if (calls !== null) findings.push(...calls.findings);
+    if (calls !== null) for (const f of calls.findings) findings.push(f);
     const applied = applyExceptions(findings, exceptions?.active ?? []);
 
     const clean = (text: string) => printable(session.redact.text(text));
@@ -239,7 +240,8 @@ async function listTools(session: Session): Promise<{
     const listing = await listAll(session, 'tools/list', 'tools');
     return { ...asTools(listing.items), pages: listing.pages, complete: listing.complete };
   } catch (err) {
-    if (err instanceof ConnectError) throw err;
+    // Only a JSON-RPC error is the server's answer; anything else is ours and is not blamed on the server.
+    if (!(err instanceof ProtocolError)) throw err;
     throw new ConnectError(
       'protocol',
       `The server answered tools/list with an error: ${(err as Error).message}`,
@@ -364,7 +366,7 @@ async function callSafeTools(
     const answer = await callTool(session, tool.name, timeoutMs);
     if (answer.kind === 'result') {
       const found = lintCall(tool, answer.result, schemas);
-      findings.push(...found);
+      for (const f of found) findings.push(f);
       called.push({ tool: tool.name, state: found.length > 0 ? 'failed' : 'passed' });
     } else {
       const reason =

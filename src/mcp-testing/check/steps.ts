@@ -16,9 +16,12 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const METHOD_NOT_FOUND = -32601;
 
 /** A request that did not end in an answer: no answer in time, a server that is gone, or a JSON-RPC error. */
 function unanswered(err: unknown, method: string, timedOutDetail: string): CheckResult {
+  // Credentials refused after the handshake: the same as before it, the command stops and says to pass them.
+  if (err instanceof ConnectError && err.kind === 'auth') throw err;
   if (err instanceof ConnectError) {
     return err.kind === 'timeout'
       ? { state: 'could-not-run', detail: timedOutDetail, timedOut: true }
@@ -116,7 +119,7 @@ export function healthSteps(
   const lists = LISTS.map(
     (list): Step<CheckResult> => ({
       id: list.id,
-      run: async () => {
+      run: async (signal) => {
         if (declared === undefined)
           return {
             state: 'could-not-run',
@@ -132,7 +135,10 @@ export function healthSteps(
         try {
           const listing = await listAll(session, list.method, list.key, {
             timeoutMs: opts.timeoutMs,
+            signal,
           });
+          // Its time is up and its result goes nowhere; above all not into --smoke.
+          if (signal.aborted) return { state: 'could-not-run', detail: opts.timedOutDetail };
           if (!listing.complete)
             return {
               state: 'could-not-run',
@@ -150,6 +156,17 @@ export function healthSteps(
             count: listing.items.length,
           };
         } catch (err) {
+          // Declaring resources does not oblige a server to offer templates of them.
+          if (
+            list.id === 'resource-templates-list' &&
+            err instanceof ProtocolError &&
+            err.code === METHOD_NOT_FOUND
+          )
+            return {
+              state: 'not-applicable',
+              detail:
+                'the server declares resources but does not offer resource templates (Method not found)',
+            };
           return unanswered(err, list.method, opts.timedOutDetail);
         }
       },
