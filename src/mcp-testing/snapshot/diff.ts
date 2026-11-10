@@ -416,7 +416,7 @@ function compareCapabilities(out: ContractChange[], before: Rec | null, after: R
         else c.add(f, 'informational', `${f} changed from ${show(bc[f])} to ${show(ac[f])}, which means the same.`, bc[f], ac[f]);
       }
     }
-    out.push(...c.changes);
+    for (const change of c.changes) out.push(change);
   }
 }
 
@@ -475,7 +475,7 @@ function duplicates(c: Collector, section: SectionName, key: string, before: Rec
       })
       .reduce((w, changes) => (severity(changes) > severity(w) ? changes : w));
     c.add('duplicate', 'informational', `The ${noun} was listed ${before.length} times and is listed once now: it is compared with each former entry, and the worst comparison is shown.`, was, after[0]);
-    c.changes.push(...worst);
+    for (const change of worst) c.changes.push(change);
   }
 }
 
@@ -508,7 +508,7 @@ function compareSection(out: ContractChange[], section: SectionName, before: rea
     else if (was[0] === undefined) added(c, section, is[0]!);
     else if (is[0] === undefined) c.add(entity, 'breaking', removed, was[0], undefined);
     else compareEntity(c, section, was[0], is[0]);
-    out.push(...c.changes);
+    for (const change of c.changes) out.push(change);
   }
 }
 
@@ -559,7 +559,7 @@ export function diffSnapshots(beforeAsRead: McpSnapshot, afterAsRead: McpSnapsho
       signal: 'security',
     });
   }
-  changes.push(...server.changes, ...whole.changes, ...instructions.changes);
+  for (const change of [server.changes, whole.changes, instructions.changes].flat()) changes.push(change);
   compareCapabilities(changes, before.capabilities, after.capabilities);
   for (const { section } of SECTIONS) {
     const list = (s: McpSnapshot) => (s[section] ?? []) as unknown as readonly Rec[];

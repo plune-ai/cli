@@ -14,6 +14,7 @@ import {
 } from '../../mcp-testing/connect/options.js';
 import { isSecretEnv, isSecretHeader, maskUrl } from '../../mcp-testing/connect/redact.js';
 import { ConnectError, openSession, type Session } from '../../mcp-testing/connect/session.js';
+import { listAll as listToEnd, MAX_PAGES } from '../../mcp-testing/connect/tools.js';
 import { MCP_EXIT } from '../../mcp-testing/exit-codes.js';
 import { noCommands } from '../../mcp-testing/render.js';
 import {
@@ -40,9 +41,6 @@ export interface SnapshotIo {
   cwd: string;
   clientVersion?: string;
 }
-
-/** Pages of one list read at most: a server that always answers with a cursor would otherwise be read forever. */
-const MAX_PAGES = 100;
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -115,7 +113,7 @@ const counts = (s: McpSnapshot) =>
 export async function takeSnapshot(config: ConnectConfig): Promise<McpSnapshot> {
   const session = await openSession(config);
   try {
-    const { serverInfo, capabilities, instructions } = session.handshake;
+    const { serverInfo, capabilities, instructions } = initializeResult(session);
     const declared = isRecord(capabilities) ? capabilities : {};
     const masked = (value: unknown, what: string) => {
       // The connection's masking reads MASK_DEPTH levels and cuts the rest to one marker; a cut schema would compare
@@ -194,49 +192,61 @@ function addressOf(config: ConnectConfig): string[] {
 const METHOD_NOT_FOUND = -32601;
 
 /**
- * One list to its last page, at most MAX_PAGES. `null`: the server has no `resources/templates/list` (Method not found
- * on the first page) although it declares resources; a server with resources and no templates is common, and its
- * templates section is then `null`. Any other list that is missing fails.
+ * `serverInfo`, `capabilities` and `instructions` of the `initialize` result as the server sent it (the session keeps
+ * the raw frame); each undefined when the result is not an object or lacks it.
+ */
+function initializeResult(session: Session): {
+  serverInfo: unknown;
+  capabilities: unknown;
+  instructions: unknown;
+} {
+  const result = session.handshake.result;
+  if (!isRecord(result))
+    return { serverInfo: undefined, capabilities: undefined, instructions: undefined };
+  return {
+    serverInfo: result.serverInfo,
+    capabilities: result.capabilities,
+    instructions: result.instructions,
+  };
+}
+
+/**
+ * One list to its last page, at most MAX_PAGES (the shared reader of connect/tools.ts). `null`: the server has no
+ * `resources/templates/list` (Method not found) although it declares resources; a server with resources and no
+ * templates is common, and its templates section is then `null`. Any other list that is missing, malformed or endless
+ * fails the snapshot.
  */
 async function listAll(session: Session, method: string, key: string): Promise<unknown[] | null> {
-  const items: unknown[] = [];
-  let cursor: string | undefined;
-  for (let page = 1; page <= MAX_PAGES; page++) {
-    let answer: unknown;
-    try {
-      answer = await session.request(method, cursor === undefined ? undefined : { cursor });
-    } catch (err) {
-      if (err instanceof ConnectError) throw err;
-      if (
-        method === 'resources/templates/list' &&
-        page === 1 &&
-        (err as { code?: unknown }).code === METHOD_NOT_FOUND
-      )
-        return null;
-      throw new ConnectError(
-        'protocol',
-        `The server declares ${method.split('/')[0]}, but ${method} failed: ${(err as Error).message}. No snapshot written.`,
-        [],
-      );
-    }
-    if (!isRecord(answer) || !Array.isArray(answer[key]))
-      throw new ConnectError(
-        'protocol',
-        `${method} answered without a ${key} list. No snapshot written.`,
-        [],
-      );
-    items.push(...(answer[key] as unknown[]));
-    cursor =
-      typeof answer.nextCursor === 'string' && answer.nextCursor !== ''
-        ? answer.nextCursor
-        : undefined;
-    if (cursor === undefined) return items;
+  let listing: Awaited<ReturnType<typeof listToEnd>>;
+  try {
+    listing = await listToEnd(session, method, key);
+  } catch (err) {
+    if (err instanceof ConnectError) throw err;
+    if (
+      method === 'resources/templates/list' &&
+      (err as { code?: unknown }).code === METHOD_NOT_FOUND
+    )
+      return null;
+    throw new ConnectError(
+      'protocol',
+      `The server declares ${method.split('/')[0]}, but ${method} failed: ${(err as Error).message}. No snapshot written.`,
+      [],
+    );
   }
-  throw new ConnectError(
-    'protocol',
-    `${method} did not end within ${MAX_PAGES} pages, so the list is incomplete. No snapshot written.`,
-    [],
-  );
+  if (listing.malformed)
+    throw new ConnectError(
+      'protocol',
+      `${method} answered without a ${key} list. No snapshot written.`,
+      [],
+    );
+  if (!listing.complete) {
+    throw new ConnectError(
+      'protocol',
+      `${method} did not end within ${MAX_PAGES} pages, so the list is incomplete. No snapshot written.`,
+      [],
+    );
+  }
+  return listing.items;
 }
 
 /**

@@ -521,7 +521,10 @@ describe('CLI · mcp snapshot · review round', () => {
       expect(bytes.includes(Buffer.from(leaked)), `holds ${leaked}`).toBe(false);
       expect(bytes.toString('utf8').toLowerCase()).not.toContain(leaked.toLowerCase());
     }
-    expect(bytes.toString('utf8')).toContain('key=[redacted] argv=[redacted] [redacted] argv');
+    // The short key is masked by the snapshot; the command line by the connection (***) or the snapshot ([redacted]).
+    expect(bytes.toString('utf8')).toMatch(
+      /key=\[redacted\] argv=(\*\*\*|\[redacted\]) (\*\*\*|\[redacted\]) argv"/,
+    );
   });
 
   it('CLI · mcp snapshot · resources declared and no resources/templates/list (Method not found): templates null, exit 0', async () => {
