@@ -9,7 +9,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   diffOperands,
   handleMcpDiff,
@@ -18,6 +18,7 @@ import {
 } from '../../cli/commands/mcp-diff.js';
 import { handleMcpSnapshot, type McpSnapshotFlags } from '../../cli/commands/mcp-snapshot.js';
 import type { McpDiffReport } from '../result.js';
+import { recorder } from './fixtures/http-servers.js';
 import { snapshotServer } from './fixtures/snapshot-server.mjs';
 
 const FIXTURE = fileURLToPath(new URL('./fixtures/snapshot-server.mjs', import.meta.url));
@@ -25,6 +26,7 @@ const FIXTURE = fileURLToPath(new URL('./fixtures/snapshot-server.mjs', import.m
 const servers: { close(): Promise<void> }[] = [];
 afterEach(async () => {
   for (const s of servers.splice(0)) await s.close();
+  vi.unstubAllEnvs();
 });
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'plune-snapshot-'));
@@ -98,6 +100,23 @@ async function httpServer(mode: string): Promise<string> {
       }),
   });
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}/mcp`;
+}
+
+/**
+ * A machine logged in to Plune whose platform records every request: a token in the environment, `PLUNE_API_URL` at
+ * the recorder, a fresh HOME. Both are in `process.env` and in the env the command is given.
+ */
+async function loggedIn(): Promise<{ env: NodeJS.ProcessEnv; requests: unknown[] }> {
+  const home = tmp();
+  vi.stubEnv('HOME', home);
+  vi.stubEnv('USERPROFILE', home);
+  // The stored login is read from XDG_CONFIG_HOME first; in a test worker os.homedir() keeps the real home.
+  vi.stubEnv('XDG_CONFIG_HOME', home);
+  const platform = await recorder();
+  servers.push(platform);
+  const env = { PLUNE_TOKEN: 'plune-test-token', PLUNE_API_URL: platform.origin };
+  for (const [name, value] of Object.entries(env)) vi.stubEnv(name, value);
+  return { env, requests: platform.requests };
 }
 
 /** A snapshot of the fixture written to `<dir>/<name>`; its text. */
@@ -551,5 +570,42 @@ describe('CLI · mcp snapshot · review round', () => {
     expect(run.code).toBe(2);
     expect(run.err).toMatch(/^plune mcp diff: deep\.json: .*nested deeper than/);
     expect(run.err).not.toMatch(/\n\s+at /);
+  });
+});
+
+describe('CLI · mcp snapshot, mcp diff · the platform', () => {
+  it('CLI · mcp snapshot · logged in to Plune, it still never calls the platform: stdio and HTTP', async () => {
+    const platform = await loggedIn();
+    const dir = tmp();
+    const stdio = await snapshot({
+      mode: 'full',
+      cwd: dir,
+      flags: { out: 'a.json' },
+      env: platform.env,
+    });
+    const http = await snapshot({
+      cwd: dir,
+      flags: { url: await httpServer('full') },
+      env: platform.env,
+    });
+    expect([stdio.code, http.code]).toEqual([0, 0]);
+    expect(platform.requests).toEqual([]);
+  });
+
+  it('CLI · mcp diff · logged in to Plune, it still never calls the platform: file against file and against a live server', async () => {
+    const dir = tmp();
+    await written(dir, 'a.json');
+    edit(dir, 'a.json', 'b.json', (s) => (s['tools'] = tools(s).slice(1)));
+    const platform = await loggedIn();
+    const files = await diff(
+      { baseline: 'a.json', current: 'b.json' },
+      { cwd: dir, env: platform.env },
+    );
+    const live = await diff(
+      { baseline: 'a.json', server: [process.execPath, FIXTURE, 'full'] },
+      { cwd: dir, env: platform.env },
+    );
+    expect([files.code, live.code]).toEqual([1, 0]);
+    expect(platform.requests).toEqual([]);
   });
 });

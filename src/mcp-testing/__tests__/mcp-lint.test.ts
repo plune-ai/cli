@@ -556,6 +556,8 @@ describe('CLI · mcp lint · output', () => {
     const home = tmp();
     vi.stubEnv('HOME', home);
     vi.stubEnv('USERPROFILE', home);
+    // The stored login is read from XDG_CONFIG_HOME first; in a test worker os.homedir() keeps the real home.
+    vi.stubEnv('XDG_CONFIG_HOME', home);
     const platform = await serve(recorder());
     vi.stubEnv('PLUNE_API_URL', platform.origin);
     const open = await lint({ mode: 'mixed', flags: { format: 'json' } });
@@ -563,6 +565,21 @@ describe('CLI · mcp lint · output', () => {
     const closed = await lint({ mode: 'mixed', flags: { format: 'json' } });
     expect(closed).toEqual(open);
     expect(open.code).toBe(1);
+    expect(platform.requests).toEqual([]);
+  });
+
+  it('CLI · mcp lint · logged in to Plune, it still never calls the platform: stdio and HTTP (AC-16)', async () => {
+    const home = tmp();
+    vi.stubEnv('HOME', home);
+    vi.stubEnv('USERPROFILE', home);
+    // The stored login is read from XDG_CONFIG_HOME first; in a test worker os.homedir() keeps the real home.
+    vi.stubEnv('XDG_CONFIG_HOME', home);
+    const platform = await serve(recorder());
+    const env = { PLUNE_TOKEN: 'plune-test-token', PLUNE_API_URL: platform.origin };
+    for (const [name, value] of Object.entries(env)) vi.stubEnv(name, value);
+    const stdio = await lint({ mode: 'mixed', flags: { format: 'json' }, env });
+    const http = await lint({ flags: { url: await httpServer('mixed') }, env });
+    expect([stdio.code, http.code]).toEqual([1, 1]);
     expect(platform.requests).toEqual([]);
   });
 
