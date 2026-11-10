@@ -372,11 +372,16 @@ The same server gives the same file byte for byte, on any OS:
 - no time, no command, no environment value, no URL, no header: of the connection only the
   transport (`stdio`, `http` or `sse`) is written;
 - every value given for the connection (`--env`, `--header`, `--header-env`) of 8 characters or
-  more, and the server's address, is masked wherever the server repeats it; a home directory at the
-  start of a path becomes `~`.
+  more, a value of any length whose name says it is a credential (`API_KEY`, `Authorization`, …),
+  each part of the server command of 8 characters or more, and the server's address are masked
+  wherever the server repeats them; your own home directory at the start of a path becomes `~`
+  (another user's `/home/<name>` is left as the server wrote it).
 
 A section of a capability the server did not declare is `null`, a declared one with nothing in it is
-`[]`: not declared and empty are different facts. A name a list holds twice keeps both entries.
+`[]`: not declared and empty are different facts. A server that declares resources and answers
+`resources/templates/list` with Method not found gets `resourceTemplates: null`. A name a list holds
+twice keeps both entries. An entity nested deeper than 64 levels is refused (exit `2`): the masking of
+secrets reads no deeper, and a cut schema could not be compared.
 
 | Option | Meaning |
 |--------|---------|
@@ -389,7 +394,7 @@ The connection flags are those of `plune mcp lint`.
 | Exit | Meaning |
 |------|---------|
 | `0` | The snapshot was written. |
-| `2` | The server did not start or did not answer; a list the server declared failed, answered without its array or did not end within 100 pages (the message names the list); `--out` cannot be written; or a flag is wrong. No file is written. |
+| `2` | The server did not start or did not answer; a list the server declared failed, answered without its array or did not end within 100 pages (the message names the list); an entity is nested deeper than 64 levels (the message names it); `--out` cannot be written; or a flag is wrong. No file is written. |
 | `3` | Nothing measured: the server lists no tool, resource, resource template or prompt. No file is written. |
 
 ## `plune mcp diff`
@@ -420,13 +425,17 @@ Every change has a class and a reason of one sentence:
 | A prompt argument: a new required one, one removed, one that became required | `breaking` |
 | A prompt argument: a new optional one | `non-breaking` |
 | A capability, or its `listChanged` or `subscribe`, removed / added | `breaking` / `non-breaking` |
+| A tool's `execution.taskSupport` became `required` | `breaking` |
 | A `uriTemplate` changed | the old template removed and a new one added |
 | A name, title, description, the instructions, `server.version` | `informational` |
 | `server.name` | `informational`, marked `server identity` |
 
 A change no rule understands (a schema keyword such as `anyOf`, `$ref` or `format`, an unknown
 field) is not called safe: it is listed as `not classified`, counted apart in the summary, and fails
-the run only with `--fail-on any`. A name a list holds twice where it did not before is `breaking`.
+the run only with `--fail-on any`. A name a list holds twice where it did not before is `breaking`;
+a name held several times before and once now is compared with each former entry, and the worst of
+those comparisons is shown. In `--format markdown` every text from the server is escaped (`<`, `>`,
+`&`, backticks), so a server cannot add HTML, a comment or a marker to the pull request comment.
 
 A `security` signal marks what a reviewer should read even when nothing breaks: a changed
 description of a tool, resource, prompt or parameter; changed instructions; `readOnlyHint` that
@@ -440,7 +449,7 @@ does not change the class or the exit code.
 |------|---------|
 | `0` | No change at the `--fail-on` level. |
 | `1` | At least one change at the `--fail-on` level. |
-| `2` | A snapshot file cannot be read, is not JSON, or has a `schemaVersion` this version does not read (the message names both); the server did not start or a declared list could not be read; or a flag is wrong. |
+| `2` | A snapshot file cannot be read, is not JSON, is nested deeper than 256 levels, or has a `schemaVersion` this version does not read (the message names both); the server did not start or a declared list could not be read; or a flag is wrong. |
 | `3` | Nothing to compare: neither snapshot holds a tool, resource, resource template or prompt. |
 
 ## Next
