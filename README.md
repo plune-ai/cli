@@ -675,7 +675,46 @@ per-request `_meta`. In the newer revision a client learns that `plune_discover_
 list through `subscriptions/listen`; `tools/list` is sent with `ttlMs: 0`, so a client that does not
 listen reads the current list every time.
 
-#### Is the server alive: `plune mcp check`
+#### Dependencies
+
+| Package | Version | License | Why |
+|---|---|---|---|
+| `@modelcontextprotocol/server` | 2.4.0 | Apache-2.0 | The MCP server and its stdio transport for `plune mcp serve`; it serves revision `2026-07-28` and the `initialize`-based revisions from one process. |
+
+The version is pinned exactly, not with a range, on purpose: the 2.x line moves fast, and each update is taken
+deliberately with the protocol tests run against it.
+
+## Test an MCP server
+
+Four commands test **any** MCP server, yours or someone else's, started over stdio or reached over
+HTTP. They need no Plune account and no model, and they do not talk to the Plune platform: each one
+starts the server you name after `--`, or connects to the address you give with `--url`, and nothing
+else. Everything after `--` runs as your user, so point them only at a server you would run yourself.
+
+```bash
+npx -y @plune-ai/cli mcp check -- node dist/server.js                            # does it start and answer
+npx -y @plune-ai/cli mcp lint -- node dist/server.js                             # what in its tools confuses a model
+npx -y @plune-ai/cli mcp snapshot --out mcp-snapshot.json -- node dist/server.js # its contract, to commit
+npx -y @plune-ai/cli mcp diff mcp-snapshot.json -- node dist/server.js           # what changed, and what breaks
+```
+
+| Exit | Meaning |
+|------|---------|
+| `0` | Nothing at the `--fail-on` level, and everything was measured. For `snapshot`: the file was written. |
+| `1` | A finding (`lint`), a failed check or smoke call (`check`), or a change (`diff`) at the `--fail-on` level. `snapshot` has no `1`. |
+| `2` | Nothing about the server is proven, and you can fix why: the command was not found or did not start, the server could not be reached or answered `401` or `403`, a file cannot be read, or a flag is wrong. |
+| `3` | Nothing was measured: the server lists no tools, there is nothing to compare, or a check could not run. Not measured is not a pass. |
+
+Each command's own table is in [the CLI reference](docs/guide/cli.md#plune-mcp-check). The guides on
+docs.plune.ai walk through a sample server with three defects, every lint rule with an example, the
+exceptions file, snapshots in a pull request, and the run in Plune through JUnit:
+
+- [Test an MCP server](https://docs.plune.ai/cli/guides/mcp-test-a-server/): the four commands, the exit codes and states, stdio and HTTP, `plune run import`;
+- [Lint an MCP server](https://docs.plune.ai/cli/guides/mcp-lint/): the rules, `--fail-on`, `plune-mcp-ignore.yaml`, `--call`;
+- [Snapshot and diff an MCP server](https://docs.plune.ai/cli/guides/mcp-snapshot-diff/): what a change costs a client, and the security signal;
+- [MCP server checks in CI](https://docs.plune.ai/eval-action/recipes/mcp-in-ci/): `plune-ai/eval-action/mcp@v1` for a stdio or an HTTP server.
+
+### Is the server alive: `plune mcp check`
 
 `plune mcp check` answers the question before any other: does the server start, finish the
 handshake and answer the basic requests? It runs the checks in order (`start`, `initialize`,
@@ -697,7 +736,7 @@ be measured. `--out` writes a report you can attach to a ticket: no URL, command
 header in it, the server's stderr masked. The states, the options and the exit codes are in
 [the CLI reference](docs/guide/cli.md#plune-mcp-check).
 
-#### Checking any MCP server: `plune mcp lint`
+### Checking any MCP server: `plune mcp lint`
 
 `plune mcp lint` reads the whole tool list of a server you name, stdio or HTTP, and reports what
 makes a model choose the wrong tool: missing descriptions, look-alike tools, a string where an `enum`
@@ -715,7 +754,7 @@ It exits `1` on a finding at `--fail-on` (`error` by default; heuristic advice i
 a clean one. Accepted findings go in `plune-mcp-ignore.yaml`, each with a reason. The options, the
 file's format and the exit codes are in [the CLI reference](docs/guide/cli.md#plune-mcp-lint).
 
-#### Contract snapshots: `plune mcp snapshot` and `plune mcp diff`
+### Contract snapshots: `plune mcp snapshot` and `plune mcp diff`
 
 A server's author rarely notices a contract change — a removed tool, a parameter that became
 required, a rewritten description — and clients break later, quietly. `plune mcp snapshot` writes
@@ -733,15 +772,6 @@ A changed description, changed instructions, a tool that stops being read-only o
 destructive, and a new tool that does not say it is read-only carry a `security` signal: a reason
 for a reviewer to look, not a failure by itself. The format, the rules and the exit codes are in
 [the CLI reference](docs/guide/cli.md#plune-mcp-snapshot).
-
-#### Dependencies
-
-| Package | Version | License | Why |
-|---|---|---|---|
-| `@modelcontextprotocol/server` | 2.4.0 | Apache-2.0 | The MCP server and its stdio transport for `plune mcp serve`; it serves revision `2026-07-28` and the `initialize`-based revisions from one process. |
-
-The version is pinned exactly, not with a range, on purpose: the 2.x line moves fast, and each update is taken
-deliberately with the protocol tests run against it.
 
 ## Programmatic API
 
