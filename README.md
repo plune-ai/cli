@@ -126,6 +126,8 @@ the last resort, used only when `PLUNE_TOKEN` is set nowhere else. Nothing write
 | `plune mcp serve` | Serve the Plune tools to an AI agent (Claude Code, Codex, any MCP client) over **MCP stdio**. See [Plune tools for AI agents](#plune-tools-for-ai-agents-plune-mcp). Flags: `--project <id>` (default `PLUNE_PROJECT`), `--read-only` (offer only the read tools). |
 | `plune mcp check` | Check that **any** MCP server starts and answers: handshake, protocol version, capabilities, the lists, `ping`. See [Is the server alive](#is-the-server-alive-plune-mcp-check). Flags: `--check-timeout <duration>`, `--wait <duration>`, `--smoke` (with `--smoke-limit`, `--smoke-timeout`, `--budget`, `--allow-write-calls`), `--out <path>`, `--format human\|json`, and the connection flags. Exit `0` healthy, `1` a check failed, `2` the server did not start, could not be reached or wants credentials, or a flag is wrong, `3` something could not be measured. |
 | `plune mcp lint` | Check the tool list of **any** MCP server for what confuses a model — no account, no model. See [Checking any MCP server](#checking-any-mcp-server-plune-mcp-lint). Flags: `--fail-on error\|warn\|info\|never`, `--show-info`, `--format human\|json`, `--ignore-file <path>`, `--list-rules`, `--call`, `--call-limit <n>`, `--call-timeout <duration>`, and the connection flags (`--url`, `--header-env`, `--env`, …). Exit `0` clean, `1` findings, `2` the server did not start or a flag is wrong, `3` nothing measured. |
+| `plune mcp snapshot` | Write the contract of **any** MCP server — tools, resources, resource templates, prompts, capabilities, instructions — as one stable JSON file to commit. See [Contract snapshots](#contract-snapshots-plune-mcp-snapshot-and-plune-mcp-diff). Flags: `--out <path>` (default stdout) and the connection flags. Exit `0` written, `2` the server did not start or a declared list could not be read (no file is written), `3` the server lists nothing. |
+| `plune mcp diff` | Compare a snapshot with another snapshot file or a live server: every change `breaking`, `non-breaking` or `informational`, with a reason. See [Contract snapshots](#contract-snapshots-plune-mcp-snapshot-and-plune-mcp-diff). Flags: `--fail-on breaking\|any\|none`, `--format human\|json\|markdown`, and the connection flags. Exit `0` nothing at `--fail-on`, `1` a change at it, `2` a file cannot be read or the server did not start, `3` nothing to compare. |
 | `plune sync` | Upload the latest local run to the platform. Flags: `--file <path>` to send a specific run JSON, `--fail-on-failures` to read the run's summary back once after the upload and exit with [the gate](#a-release-gate---fail-on-failures)'s code. Each upload carries an `Idempotency-Key` (SHA-256 of the body), so sending the same run again returns the same run rather than creating a second one. Against a platform with `POST /v1/jobs` the upload is also reported as a job (kind `sync`, counting the run's rows) that ends completed, or failed with the error text if the sync fails; an older platform without the route is not told, and a job report never fails the sync: when the sync goes through, one the platform did not take is said in one line on stderr. |
 | `plune run import <file \| folder>` | Turn a **JUnit XML** or **Playwright JSON** report, a **k6 summary** or **Lighthouse JSON** report, a **folder of JUnit XML files** (Maven Surefire's `target/surefire-reports`, Gradle's `build/test-results/test`), or an **Allure `allure-results` folder**, into a run in Plune. Needs no provider key — nothing is generated. Flags: `--format junit\|playwright-json\|allure\|k6\|lighthouse` (detected when omitted: a folder with a `*-result.json` is Allure, any other folder is read as the JUnit `*.xml` files in it), `--name <text>` to call the run something other than the [folder-based default](#what-the-run-is-called), `--min-score <category>=<0-100>` (repeatable) for the score a [Lighthouse](#a-k6-summary-or-a-lighthouse-report) category needs to pass, `--key <externalKey>` to land several reports in one run (with `PLUNE_SHARED_RUN=1` — see below), `--create` to offer unmatched tests to the review queue, `--fail-on-missing-attachments` to exit 1 when a file a JUnit report names with `[[ATTACHMENT\|path]]`, or an Allure result names as a `source`, is not there (the results are sent either way), `--upload-concurrency <n>` for files uploaded at once ([1 to 32, default 16](#many-screenshots-upload-concurrency-and-retries)), `--fail-on-failures` to exit with [the gate](#a-release-gate---fail-on-failures)'s code on the summary the platform froze when this import finished the run. |
 | `plune run start` | Open a platform run — or join the one already carrying `--key` — and print its id. Flags: `--key <externalKey>` (generated when absent), `--name <text>` to call the run something other than the [default](#what-the-run-is-called), `--json` for one machine-readable line. |
@@ -708,6 +710,25 @@ It exits `1` on a finding at `--fail-on` (`error` by default; heuristic advice i
 `2` when the server does not start, and `3` when nothing was measured — a server with no tools is not
 a clean one. Accepted findings go in `plune-mcp-ignore.yaml`, each with a reason. The options, the
 file's format and the exit codes are in [the CLI reference](docs/guide/cli.md#plune-mcp-lint).
+
+#### Contract snapshots: `plune mcp snapshot` and `plune mcp diff`
+
+A server's author rarely notices a contract change — a removed tool, a parameter that became
+required, a rewritten description — and clients break later, quietly. `plune mcp snapshot` writes
+the contract as JSON that is the same byte for byte for the same server (sorted keys and entities,
+LF line endings, no time, no command, no URL, no header, secrets masked), so it can live in the
+repository; `plune mcp diff` compares it with a pull request's build and classifies every change.
+
+```bash
+plune mcp snapshot --out mcp-snapshot.json -- node dist/server.js
+plune mcp diff mcp-snapshot.json -- node dist/server.js
+plune mcp diff mcp-snapshot.json current.json --format markdown > comment.md
+```
+
+A changed description, changed instructions, a tool that stops being read-only or becomes
+destructive, and a new tool that does not say it is read-only carry a `security` signal: a reason
+for a reviewer to look, not a failure by itself. The format, the rules and the exit codes are in
+[the CLI reference](docs/guide/cli.md#plune-mcp-snapshot).
 
 #### Dependencies
 

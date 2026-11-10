@@ -350,6 +350,99 @@ as stale. A suppressed finding is counted in the summary and listed, with its re
 | `2` | The server did not start or did not answer (the last lines of its stderr are printed, secrets masked), or a flag or the exceptions file is wrong. |
 | `3` | Nothing measured: the server lists no tools, `tools/list` did not end within 100 pages, or with `--call` a call could not run or no tool was safe to call. Not measured is not clean. |
 
+## `plune mcp snapshot`
+
+Writes the contract of any MCP server as one JSON file: what the handshake says (server name,
+version and title, capabilities, instructions) and every list the server declares — `tools/list`,
+`resources/list`, `resources/templates/list`, `prompts/list` — each read to its last page. The file
+is meant to be committed and compared with `plune mcp diff`.
+
+```bash
+plune mcp snapshot --out mcp-snapshot.json -- node dist/server.js
+plune mcp snapshot --url https://example.com/mcp --header-env "Authorization=MCP_AUTH" > mcp-snapshot.json
+```
+
+The same server gives the same file byte for byte, on any OS:
+
+- keys are sorted at every level; tools and prompts by `name`, resources by `uri`, resource
+  templates by `uriTemplate`, in code-unit order (never by the machine's locale);
+- lists that are sets (`required`, a list under `type`, prompt arguments) are sorted; an `enum`
+  keeps the server's order, and `plune mcp diff` compares it as a set;
+- LF line endings, a two-space indent and one LF at the end;
+- no time, no command, no environment value, no URL, no header: of the connection only the
+  transport (`stdio`, `http` or `sse`) is written;
+- every value given for the connection (`--env`, `--header`, `--header-env`) of 8 characters or
+  more, and the server's address, is masked wherever the server repeats it; a home directory at the
+  start of a path becomes `~`.
+
+A section of a capability the server did not declare is `null`, a declared one with nothing in it is
+`[]`: not declared and empty are different facts. A name a list holds twice keeps both entries.
+
+| Option | Meaning |
+|--------|---------|
+| `--out <path>` | Write the snapshot to this file: to a temporary file beside it first, then renamed over it, so the file is whole or not there. Without it the snapshot goes to stdout. |
+
+The connection flags are those of `plune mcp lint`.
+
+### Exit codes
+
+| Exit | Meaning |
+|------|---------|
+| `0` | The snapshot was written. |
+| `2` | The server did not start or did not answer; a list the server declared failed, answered without its array or did not end within 100 pages (the message names the list); `--out` cannot be written; or a flag is wrong. No file is written. |
+| `3` | Nothing measured: the server lists no tool, resource, resource template or prompt. No file is written. |
+
+## `plune mcp diff`
+
+Compares a snapshot with a second snapshot file, or with a live server named by the connection
+flags (a command after `--`, or `--url`), and classifies every change.
+
+```bash
+plune mcp diff mcp-snapshot.json current.json
+plune mcp diff mcp-snapshot.json -- node dist/server.js
+plune mcp diff mcp-snapshot.json --format markdown -- node dist/server.js > comment.md
+```
+
+| Option | Meaning |
+|--------|---------|
+| `--fail-on <class>` | `breaking` (default): exit `1` on a breaking change. `any`: on any change, a change that could not be classified included. `none`: never. |
+| `--format <fmt>` | `human` (default), `json` (one document with `schemaVersion`, the summary and every change; no time, so the same two snapshots give the same bytes) or `markdown`: a pull request comment that starts with the hidden marker `<!-- plune-mcp-diff -->`, apart from the `plune diff` comment. |
+
+Every change has a class and a reason of one sentence:
+
+| What changed | Class |
+|--------------|-------|
+| A tool, resource, resource template or prompt removed | `breaking` |
+| One added | `non-breaking` |
+| Tool input: a new required parameter, a narrowed `enum`, a changed `type`, a removed parameter, a tighter bound | `breaking` |
+| Tool input: a new optional parameter, a widened `enum`, a looser bound | `non-breaking` |
+| A resource's or a template's `mimeType` | `breaking` |
+| A prompt argument: a new required one, one removed, one that became required | `breaking` |
+| A prompt argument: a new optional one | `non-breaking` |
+| A capability, or its `listChanged` or `subscribe`, removed / added | `breaking` / `non-breaking` |
+| A `uriTemplate` changed | the old template removed and a new one added |
+| A name, title, description, the instructions, `server.version` | `informational` |
+| `server.name` | `informational`, marked `server identity` |
+
+A change no rule understands (a schema keyword such as `anyOf`, `$ref` or `format`, an unknown
+field) is not called safe: it is listed as `not classified`, counted apart in the summary, and fails
+the run only with `--fail-on any`. A name a list holds twice where it did not before is `breaking`.
+
+A `security` signal marks what a reviewer should read even when nothing breaks: a changed
+description of a tool, resource, prompt or parameter; changed instructions; `readOnlyHint` that
+stops being `true`; `destructiveHint` that becomes `true`; a new tool that does not say it is
+read-only. It is `"signal": "security"` in the JSON and `[security]` in the human output, and it
+does not change the class or the exit code.
+
+### Exit codes
+
+| Exit | Meaning |
+|------|---------|
+| `0` | No change at the `--fail-on` level. |
+| `1` | At least one change at the `--fail-on` level. |
+| `2` | A snapshot file cannot be read, is not JSON, or has a `schemaVersion` this version does not read (the message names both); the server did not start or a declared list could not be read; or a flag is wrong. |
+| `3` | Nothing to compare: neither snapshot holds a tool, resource, resource template or prompt. |
+
 ## Next
 
 - **[How it works](./concepts.md)** — caching, cost, errors, providers, and the run pipeline.
