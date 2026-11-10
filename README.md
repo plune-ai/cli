@@ -232,6 +232,7 @@ code is then the platform's verdict on the run, not the runner's: the summary th
 | an expected case that never reported (`notRun`): a dead shard is not green | `1` |
 | only `passed`, `blocked`, `skipped` and muted failures | `0` |
 | no verdict: the platform could not be reached, the finish was refused, the run was left open or terminated | `1` |
+| no result reached the run and nothing was expected of it: `run import` of a report whose cases the project does not have yet, `run finish` or `sync` of an empty run | `1` |
 | `run exec` where no result reached the run and nothing was expected of it | the command's own code |
 
 Without the flag every command exits as it always did. `plune run` (local evals) is not affected: it stays the
