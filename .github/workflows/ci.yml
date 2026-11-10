@@ -36,7 +36,8 @@ jobs:
       # share, classified, in the run summary. A breaking change does not fail this step: the snapshot test fails until
       # contracts/plune-mcp-tools.snapshot.json is updated on purpose, and then this summary shows what was changed.
       # Right after install, so the summary is written even when a later step fails. The checkout is shallow, so the
-      # base branch is fetched here; no snapshot there (or no fetch) says so and passes.
+      # base branch is fetched here. A failed fetch, no snapshot on the base, or a comparison that could not run each
+      # says so in the summary, and the step passes.
       - name: Tool contract — changes against the base branch
         if: github.event_name == 'pull_request'
         env:
@@ -44,10 +45,15 @@ jobs:
         run: |
           base_file="$RUNNER_TEMP/base-tools.snapshot.json"
           snapshot=contracts/plune-mcp-tools.snapshot.json
-          if git fetch --no-tags --depth=1 origin "$BASE_REF" && git cat-file -e "FETCH_HEAD:$snapshot"; then
+          if ! git fetch --no-tags --depth=1 origin "$BASE_REF"; then
+            printf '### Tool contract\n\nCould not fetch the base branch; contract changes not compared.\n' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if git cat-file -e "FETCH_HEAD:$snapshot" 2>/dev/null; then
             git show "FETCH_HEAD:$snapshot" > "$base_file"
           fi
-          pnpm exec tsx src/mcp-testing/contract-summary.ts "$base_file" >> "$GITHUB_STEP_SUMMARY"
+          pnpm exec tsx src/mcp-testing/contract-summary.ts "$base_file" >> "$GITHUB_STEP_SUMMARY" \
+            || echo "The tool contract could not be compared: see the step log." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Lint
         run: pnpm lint
