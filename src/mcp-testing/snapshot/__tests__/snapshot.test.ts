@@ -269,6 +269,12 @@ describe('mcp snapshot · nothing is lost (AC-6)', () => {
     expect(c.unclassified).toBeUndefined();
     expect(c.reason).toContain('"imperial"');
   });
+  it('an enum that is not a list cannot be compared: not classified, never narrowed or widened', () => {
+    const after = withInput((s) => (s.properties['units'] = { type: 'string', enum: 'metric' }));
+    const c = only([tool()], [after]);
+    expect(c).toMatchObject({ field: 'inputSchema.units', classification: 'informational', unclassified: true });
+    expect(c.reason).toMatch(/^Could not classify: the enum changed/);
+  });
   it('a composed schema, an unknown annotation and an unknown x-plune field are not dropped', () => {
     const out = withOutput((s) => (s.properties['note'] = { type: 'string', anyOf: [{ minLength: 1 }] }));
     expect(only([tool()], [out])).toMatchObject({ unclassified: true });
