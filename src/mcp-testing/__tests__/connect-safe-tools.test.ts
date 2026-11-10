@@ -41,15 +41,15 @@ describe('CLI · mcp connect · selectSafeTools', () => {
     });
   });
 
-  // A tool that is not read-only is destructive unless it says `destructiveHint: false`: the protocol's own default
-  // (ToolAnnotations.destructiveHint in the protocol schema: «Default: true», meaningful when readOnlyHint is false).
+  // A tool that is not read-only is called only when it says `destructiveHint: false`: the protocol's own default is
+  // destructive (ToolAnnotations.destructiveHint: «Default: true», meaningful when readOnlyHint is false).
   it('CLI · mcp connect · allowWrite lets a writing tool through only when it says it is not destructive', () => {
     const { safe, skipped } = selectSafeTools(tools, { allowWrite: true });
     expect(safe.map((t) => t.name)).toEqual(['read', 'read-optional-arg', 'write']);
     expect(skipped.map((s) => [s.tool.name, s.reason])).toEqual([
-      ['no-annotations', 'destructive'],
-      ['read-hint-false', 'destructive'],
-      ['read-hint-string', 'destructive'],
+      ['no-annotations', 'no-destructive-hint'],
+      ['read-hint-false', 'no-destructive-hint'],
+      ['read-hint-string', 'no-destructive-hint'],
       ['read-but-destructive', 'destructive'],
       ['read-required-arg', 'required-arguments'],
     ]);
