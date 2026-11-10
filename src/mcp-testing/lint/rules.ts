@@ -59,6 +59,10 @@ function hasClosedSet(s: Schema): boolean {
   });
 }
 
+/** No property beyond `properties` can appear: additionalProperties is false and nothing composes or extends the node. */
+const OPEN_KEYWORDS = ['allOf', 'anyOf', 'oneOf', '$ref', 'if', 'dependentSchemas', 'patternProperties'] as const;
+const isClosed = (s: Schema): boolean => s.additionalProperties === false && OPEN_KEYWORDS.every((k) => s[k] === undefined);
+
 interface SchemaNode {
   path: string;
   schema: Schema;
@@ -250,7 +254,9 @@ export const LINT_RULES: readonly LintRule[] = [
       tools.flatMap((t) =>
         schemaNodes(t.inputSchema).flatMap((node) => {
           const required = node.schema.required;
-          if (!Array.isArray(required)) return [];
+          // An open schema can still satisfy "required" through additionalProperties or composition: not judged here,
+          // a candidate for a heuristic rule. Only a closed node makes the name unsatisfiable.
+          if (!Array.isArray(required) || !isClosed(node.schema)) return [];
           const known = props(node.schema);
           return required
             .filter((r): r is string => typeof r === 'string' && !(r in known))

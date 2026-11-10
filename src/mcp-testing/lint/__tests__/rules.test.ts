@@ -45,11 +45,19 @@ const RULE_CASES: Record<string, { fires: ListedTool[][]; quiet: ListedTool[][] 
     quiet: [[clean()], [clean('weather_get', { outputSchema: undefined })]],
   },
   'required-unknown-property': {
+    // Only a closed node (additionalProperties: false, no composition) can make a required name unsatisfiable.
     fires: [
-      [withParams({ city: { type: 'string', description: 'The city' } }, { inputSchema: { type: 'object', properties: { city: { type: 'string', description: 'The city' } }, required: ['town'] } })],
-      [withParams({ days: { type: 'array', description: 'Days', items: { type: 'object', properties: { date: { type: 'string', format: 'date' } }, required: ['day'] } } })],
+      [clean('weather_get', { inputSchema: { type: 'object', properties: { city: { type: 'string', description: 'The city' } }, required: ['town'], additionalProperties: false } })],
+      [withParams({ days: { type: 'array', description: 'Days', items: { type: 'object', properties: { date: { type: 'string', format: 'date' } }, required: ['day'], additionalProperties: false } } })],
     ],
-    quiet: [[clean()]],
+    quiet: [
+      [clean()],
+      [clean('weather_get', { inputSchema: { type: 'object', properties: { city: { type: 'string' } }, required: ['town'] } })],
+      [clean('weather_get', { inputSchema: { type: 'object', properties: { city: { type: 'string' } }, required: ['town'], additionalProperties: { type: 'string' } } })],
+      [clean('weather_get', { inputSchema: { type: 'object', properties: { city: { type: 'string' } }, required: ['town'], additionalProperties: false, allOf: [{ properties: { town: { type: 'string' } } }] } })],
+      [clean('weather_get', { inputSchema: { type: 'object', properties: { city: { type: 'string' } }, required: ['town'], additionalProperties: false, $ref: '#/$defs/town' } })],
+      [clean('weather_get', { inputSchema: { type: 'object', properties: { city: { type: 'string' } }, required: ['town'], additionalProperties: false, patternProperties: { '^t': { type: 'string' } } } })],
+    ],
   },
   'name-duplicate': {
     fires: [[clean(), clean()]],
