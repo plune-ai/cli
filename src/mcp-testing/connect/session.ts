@@ -29,6 +29,7 @@ export { closeAllSessions } from './processes.js';
 export type ConnectErrorKind =
   | 'could-not-start'
   | 'exited-early'
+  | 'too-large'
   | 'timeout'
   | 'protocol'
   | 'auth'
@@ -81,6 +82,13 @@ export interface Session {
 
 const TAIL_LINES = 20;
 
+/**
+ * The most one message on a stdio server's stdout may hold, in bytes: the SDK's default, stated so the error can name
+ * it. The SDK copies its read buffer on every chunk, so the cost of reading a message grows with its square (about
+ * 0.2 s for 9 MB, 2 s for 38 MB, 29 s for 150 MB); a list that large belongs in pages.
+ */
+export const STDIO_MESSAGE_LIMIT = 10 * 1024 * 1024;
+
 /** Accepts any result as it is: `tools/list` reaches the caller as sent, not as the SDK's schema would parse it. */
 const AS_SENT: StandardSchemaV1<unknown> = {
   '~standard': { version: 1, vendor: 'plune', validate: (value) => ({ value }) },
@@ -95,6 +103,7 @@ function createTransport(target: ConnectTarget): Transport {
       args: target.args,
       env: target.env,
       stderr: 'pipe',
+      maxBufferSize: STDIO_MESSAGE_LIMIT,
       ...(target.cwd !== undefined ? { cwd: target.cwd } : {}),
     });
   }
@@ -180,6 +189,26 @@ function watchStdout(transport: StdioClientTransport, journal: Journal): void {
   };
 }
 
+/**
+ * Calls `over` when a message on a stdio server's stdout passes STDIO_MESSAGE_LIMIT, before the SDK acts on it. The SDK
+ * then reports a bare error and closes the process, which would read as a server that exited. Its read buffer is
+ * private, reached as `_process` is above; without it nothing is watched and the old message stays.
+ */
+function watchOverflow(transport: StdioClientTransport, over: () => void): void {
+  const buffer = (transport as unknown as { _readBuffer?: { append?: (chunk: Buffer) => void } })
+    ._readBuffer;
+  const append = buffer?.append?.bind(buffer);
+  if (buffer === undefined || append === undefined) return;
+  buffer.append = (chunk) => {
+    try {
+      append(chunk);
+    } catch (err) {
+      over();
+      throw err;
+    }
+  };
+}
+
 function isJsonRpc(line: string): boolean {
   try {
     const parsed = JSON.parse(line) as { jsonrpc?: unknown } | null;
@@ -221,6 +250,10 @@ function kindOf(err: unknown, stdio: boolean, transportClosed: boolean): Connect
 const LEAD: Record<ConnectErrorKind, [string, boolean]> = {
   'could-not-start': ['Could not start the server command', true],
   'exited-early': ['The server process exited before it answered', false],
+  'too-large': [
+    `The server sent a message larger than ${STDIO_MESSAGE_LIMIT / 1024 / 1024} MB, the most plune reads in one stdio message; a long list belongs in pages (nextCursor)`,
+    false,
+  ],
   timeout: ['The server did not answer within --timeout', false],
   protocol: ['The server did not answer as an MCP server', true],
   auth: ['The server refused the credentials', true],
@@ -265,6 +298,17 @@ export async function openSession(config: ConnectConfig): Promise<Session> {
     },
   });
 
+  // What a close noted: the SDK forgets the process as soon as its close begins, and killNow may still need it.
+  let noted: { pid: number; tree: Proc[] } | undefined;
+  const serverPid = () => (transport instanceof StdioClientTransport ? transport.pid : null);
+  const note = () => {
+    // Note the descendants while the server is alive to name them: once it is gone, nothing points at them.
+    const pid = serverPid();
+    if (pid !== null) noted = { pid, tree: descendantsOf(pid) };
+  };
+  // Set when a message passed the limit: the SDK closes the process itself then, so its tree is noted at that moment.
+  let tooLarge = false;
+
   const tail: string[] = [];
   let stderrDone: Promise<void> = Promise.resolve();
   if (transport instanceof StdioClientTransport && transport.stderr !== null) {
@@ -276,13 +320,18 @@ export async function openSession(config: ConnectConfig): Promise<Session> {
     });
     stderrDone = new Promise((resolve) => lines.once('close', resolve));
     watchStdout(transport, journal);
+    watchOverflow(transport, () => {
+      if (tooLarge) return;
+      tooLarge = true;
+      note();
+    });
   }
 
   const toConnectError = async (err: unknown): Promise<ConnectError> => {
     // The process may have said why it stopped; let the last of its stderr arrive (bounded: a helper can hold it open).
     if (transportClosed) await Promise.race([stderrDone, new Promise((r) => setTimeout(r, 500))]);
     const cause = spawnError ?? err;
-    const kind = kindOf(cause, stdio, transportClosed);
+    const kind = tooLarge ? 'too-large' : kindOf(cause, stdio, transportClosed);
     const [lead, withDetail] = LEAD[kind];
     const detail = withDetail
       ? clean(firstLine(cause instanceof Error ? cause.message : String(cause)))
@@ -294,14 +343,9 @@ export async function openSession(config: ConnectConfig): Promise<Session> {
     return error;
   };
 
-  const serverPid = () => (transport instanceof StdioClientTransport ? transport.pid : null);
   let closing: Promise<void> | undefined;
-  // What a close noted: the SDK forgets the process as soon as its close begins, and killNow may still need it.
-  let noted: { pid: number; tree: Proc[] } | undefined;
   const shutdown = async () => {
-    // Note the descendants while the server is alive to name them: once it is gone, nothing points at them.
-    const pid = serverPid();
-    if (pid !== null) noted = { pid, tree: descendantsOf(pid) };
+    note();
     await transport.close().catch(() => {});
     killSurvivors(noted?.tree ?? []);
     untrack();

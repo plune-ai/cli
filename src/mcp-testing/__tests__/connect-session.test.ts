@@ -9,7 +9,13 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Command } from 'commander';
-import { ConnectError, openSession, closeAllSessions, type Session } from '../connect/session.js';
+import {
+  ConnectError,
+  openSession,
+  closeAllSessions,
+  STDIO_MESSAGE_LIMIT,
+  type Session,
+} from '../connect/session.js';
 import {
   addConnectionOptions,
   connectionConfig,
@@ -200,6 +206,14 @@ describe('CLI · mcp connect · stdio', () => {
     expect(journal(out).filter((l) => l.dir === 'stderr')).toHaveLength(25);
   });
 
+  it('CLI · mcp connect · a server that exits after initialize, before its tools/list answer, is still exited-early', async () => {
+    const s = await open(stdio('raw-stdio.mjs', ['exit-on-list']));
+    const err = await s.request('tools/list').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConnectError);
+    expect((err as ConnectError).kind).toBe('exited-early');
+    expect((err as ConnectError).message).toBe('The server process exited before it answered.');
+  });
+
   it('CLI · mcp connect · a server that never answers is a timeout within --timeout + 5 s (AC-9)', async () => {
     const started = Date.now();
     const err = await connectError(stdio('raw-stdio.mjs', ['silent'], {}, { timeoutMs: 1_000 }));
@@ -259,6 +273,23 @@ describe('CLI · mcp connect · no process outlives the session (AC-7)', () => {
     await Promise.all([s.close(), s.close()]);
     await s.close();
     expect(alive(pid)).toBe(false);
+    await waitFor(() => (alive(grandchild) ? undefined : true), 3_000);
+  }, 20_000);
+
+  it('CLI · mcp connect · a message over the stdio limit is too-large, not exited-early, and close() leaves no process', async () => {
+    const pidFile = join(tmp(), 'pids.json');
+    const s = await open(
+      withGrandchild(pidFile, 'raw-stdio.mjs', ['oversize', String(STDIO_MESSAGE_LIMIT + 1)]),
+    );
+    const { pid, grandchild } = await waitFor(() => pidsIn(pidFile));
+    const err = await s.request('tools/list').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConnectError);
+    expect((err as ConnectError).kind).toBe('too-large');
+    expect((err as ConnectError).exitCode).toBe(MCP_EXIT.usage);
+    expect((err as ConnectError).message).toContain('larger than 10 MB');
+    expect((err as ConnectError).message).not.toContain('exited');
+    await s.close();
+    await waitFor(() => (alive(pid) ? undefined : true), 5_000);
     await waitFor(() => (alive(grandchild) ? undefined : true), 3_000);
   }, 20_000);
 
