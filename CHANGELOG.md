@@ -11,6 +11,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.34.6] - 2026-11-10
+
 ### Fixed
 
 - **`--fail-on-failures` no longer passes a run that no result reached (plune-ai/plune#2575).** `plune run import` of a report
