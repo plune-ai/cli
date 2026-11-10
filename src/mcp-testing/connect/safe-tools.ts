@@ -49,6 +49,8 @@ function skipReason(tool: unknown, allowWrite: boolean): SkipReason | undefined 
     annotations?.destructiveHint === true || (!readOnly && annotations?.destructiveHint !== false);
   if (destructive) return 'destructive';
   const required = inputSchema?.required;
+  // Not a list: what it requires cannot be read, so it is not taken to require nothing.
+  if (required !== undefined && !Array.isArray(required)) return 'malformed';
   if (Array.isArray(required) && required.length > 0) return 'required-arguments';
   return undefined;
 }

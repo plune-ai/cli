@@ -60,4 +60,15 @@ describe('CLI · mcp connect · selectSafeTools', () => {
     expect(safe).toEqual([]);
     expect(skipped.map((s) => s.reason)).toEqual(['malformed', 'malformed', 'malformed']);
   });
+
+  it('CLI · mcp connect · an inputSchema.required that is not an array is malformed, not "no argument"', () => {
+    const odd = (required: unknown) =>
+      tool('odd', {
+        annotations: { readOnlyHint: true },
+        inputSchema: { type: 'object', required },
+      });
+    const { safe, skipped } = selectSafeTools([odd('id'), odd({ 0: 'id' }), odd(null)]);
+    expect(safe).toEqual([]);
+    expect(skipped.map((s) => s.reason)).toEqual(['malformed', 'malformed', 'malformed']);
+  });
 });
