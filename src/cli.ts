@@ -8,6 +8,9 @@ import { parseMinScore } from './importers/min-score.js';
 import type { ReportFormat } from './reporters/index.js';
 import type { ImportFlags } from './cli/commands/requirements-import.js';
 import type { LinksFlags } from './cli/commands/requirements-links.js';
+import type { McpLintFlags } from './cli/commands/mcp-lint.js';
+// The connection flags of `plune mcp` commands: commander and a duration parser, no MCP client (that loads in the action).
+import { addConnectionOptions } from './mcp-testing/connect/options.js';
 
 // COLD-START (NFR-1, <300ms): keep this module's top-level imports tiny — commander + node
 // builtins only. The command handlers transitively load heavy deps (@huggingface/transformers,
@@ -708,6 +711,37 @@ export function createProgram(): Command {
           process.exitCode = 2;
           return;
         }
+        failUnexpected(err, verbose);
+      }
+    });
+
+  addConnectionOptions(
+    mcp
+      .command('lint')
+      .description(
+        'Check the tool list of any MCP server for what confuses a model: no account, no model, exit 1 on findings at --fail-on',
+      ),
+  )
+    .option('--fail-on <level>', 'Exit 1 on a finding of this level or above: error, warn, info or never', 'error')
+    .option('--show-info', 'Show info findings too (without it they are only counted)', false)
+    .option('--format <format>', 'human or json', 'human')
+    .option('--ignore-file <path>', 'Exceptions file (default: plune-mcp-ignore.yaml in this folder, if there is one)')
+    .option('--list-rules', 'Print the rule catalog and exit, without connecting to a server', false)
+    .option('--call', 'Also call each read-only, non-destructive tool that needs no argument, with {}, and check its answer', false)
+    .option('--call-limit <n>', 'Call at most this many tools', '10')
+    .option('--call-timeout <duration>', 'How long to wait for one call (e.g. 15s)', '15s')
+    .action(async (server: string[], options: McpLintFlags, command: Command) => {
+      const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
+      const { handleMcpLint } = await import('./cli/commands/mcp-lint.js');
+      try {
+        process.exitCode = await handleMcpLint(options, server, {
+          out: (s) => process.stdout.write(s),
+          err: (s) => process.stderr.write(s),
+          env: process.env,
+          cwd: process.cwd(),
+          clientVersion: pkg.version,
+        });
+      } catch (err) {
         failUnexpected(err, verbose);
       }
     });

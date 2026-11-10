@@ -124,6 +124,7 @@ the last resort, used only when `PLUNE_TOKEN` is set nowhere else. Nothing write
 | `plune login` | Save a [Plune platform](https://plune.ai/platform) API token so `sync` and `ingest` can reach it. The token is **checked against the API before it is saved**, so a wrong one fails here rather than two commands later. Get one at `https://beta.plune.ai` → Account → API tokens. Flags: `--token <token>` (omit to paste it or pipe it via stdin), `--skip-verify` (save without checking, for offline setup). In CI, skip this step: every platform command reads `PLUNE_TOKEN` from the environment first, and the saved login only when it is not set. |
 | `plune logout` | Remove the saved token. |
 | `plune mcp serve` | Serve the Plune tools to an AI agent (Claude Code, Codex, any MCP client) over **MCP stdio**. See [Plune tools for AI agents](#plune-tools-for-ai-agents-plune-mcp). Flags: `--project <id>` (default `PLUNE_PROJECT`), `--read-only` (offer only the read tools). |
+| `plune mcp lint` | Check the tool list of **any** MCP server for what confuses a model — no account, no model. See [Checking any MCP server](#checking-any-mcp-server-plune-mcp-lint). Flags: `--fail-on error\|warn\|info\|never`, `--show-info`, `--format human\|json`, `--ignore-file <path>`, `--list-rules`, `--call`, `--call-limit <n>`, `--call-timeout <duration>`, and the connection flags (`--url`, `--header-env`, `--env`, …). Exit `0` clean, `1` findings, `2` the server did not start or a flag is wrong, `3` nothing measured. |
 | `plune sync` | Upload the latest local run to the platform. Flags: `--file <path>` to send a specific run JSON, `--fail-on-failures` to read the run's summary back once after the upload and exit with [the gate](#a-release-gate---fail-on-failures)'s code. Each upload carries an `Idempotency-Key` (SHA-256 of the body), so sending the same run again returns the same run rather than creating a second one. Against a platform with `POST /v1/jobs` the upload is also reported as a job (kind `sync`, counting the run's rows) that ends completed, or failed with the error text if the sync fails; an older platform without the route is not told, and a job report never fails the sync: when the sync goes through, one the platform did not take is said in one line on stderr. |
 | `plune run import <file \| folder>` | Turn a **JUnit XML** or **Playwright JSON** report, a **k6 summary** or **Lighthouse JSON** report, a **folder of JUnit XML files** (Maven Surefire's `target/surefire-reports`, Gradle's `build/test-results/test`), or an **Allure `allure-results` folder**, into a run in Plune. Needs no provider key — nothing is generated. Flags: `--format junit\|playwright-json\|allure\|k6\|lighthouse` (detected when omitted: a folder with a `*-result.json` is Allure, any other folder is read as the JUnit `*.xml` files in it), `--name <text>` to call the run something other than the [folder-based default](#what-the-run-is-called), `--min-score <category>=<0-100>` (repeatable) for the score a [Lighthouse](#a-k6-summary-or-a-lighthouse-report) category needs to pass, `--key <externalKey>` to land several reports in one run (with `PLUNE_SHARED_RUN=1` — see below), `--create` to offer unmatched tests to the review queue, `--fail-on-missing-attachments` to exit 1 when a file a JUnit report names with `[[ATTACHMENT\|path]]`, or an Allure result names as a `source`, is not there (the results are sent either way), `--upload-concurrency <n>` for files uploaded at once ([1 to 32, default 16](#many-screenshots-upload-concurrency-and-retries)), `--fail-on-failures` to exit with [the gate](#a-release-gate---fail-on-failures)'s code on the summary the platform froze when this import finished the run. |
 | `plune run start` | Open a platform run — or join the one already carrying `--key` — and print its id. Flags: `--key <externalKey>` (generated when absent), `--name <text>` to call the run something other than the [default](#what-the-run-is-called), `--json` for one machine-readable line. |
@@ -666,6 +667,24 @@ The server speaks both MCP protocol eras: a client that opens with `initialize` 
 per-request `_meta`. In the newer revision a client learns that `plune_discover_tools` changed the
 list through `subscriptions/listen`; `tools/list` is sent with `ttlMs: 0`, so a client that does not
 listen reads the current list every time.
+
+#### Checking any MCP server: `plune mcp lint`
+
+`plune mcp lint` reads the whole tool list of a server you name, stdio or HTTP, and reports what
+makes a model choose the wrong tool: missing descriptions, look-alike tools, a string where an `enum`
+belongs, a list that costs too much context, schemas that break the specification. Every finding
+has a stable rule id, a level and a line on how to fix it; `--list-rules` prints the catalog.
+
+```bash
+plune mcp lint -- node dist/server.js
+plune mcp lint --url https://example.com/mcp --header-env "Authorization=MCP_AUTH"
+plune mcp lint --call --format json -- node dist/server.js > lint.json
+```
+
+It exits `1` on a finding at `--fail-on` (`error` by default; heuristic advice is `warn` at most),
+`2` when the server does not start, and `3` when nothing was measured — a server with no tools is not
+a clean one. Accepted findings go in `plune-mcp-ignore.yaml`, each with a reason. The options, the
+file's format and the exit codes are in [the CLI reference](docs/guide/cli.md#plune-mcp-lint).
 
 #### Dependencies
 

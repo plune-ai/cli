@@ -56,7 +56,13 @@ export interface Session {
    * JSON-RPC error from the server rejects with a `ProtocolError` (its code kept, its text masked); a lost or silent
    * server with a `ConnectError`.
    */
-  request(method: string, params?: Record<string, unknown>): Promise<unknown>;
+  request(
+    method: string,
+    params?: Record<string, unknown>,
+    options?: { timeoutMs?: number },
+  ): Promise<unknown>;
+  /** The `serverInfo` of the handshake, as the server sent it (undefined when it sent none). */
+  readonly server: { name: string; version: string } | undefined;
   /**
    * A fetch for requests the session makes besides MCP (discovery, later OAuth). It refuses a URL outside `origin`,
    * adds the `--header` values only when `origin` is the server's own, and follows no redirect.
@@ -310,14 +316,17 @@ export async function openSession(config: ConnectConfig): Promise<Session> {
     throw new Error('The session was closed while it was connecting.');
   }
 
+  const info = client.getServerVersion();
   return {
     redact,
-    async request(method, params) {
+    server:
+      info === undefined ? undefined : { name: String(info.name), version: String(info.version) },
+    async request(method, params, options) {
       try {
         return await client.request(
           params === undefined ? { method } : { method, params },
           AS_SENT,
-          { timeout: config.timeoutMs },
+          { timeout: options?.timeoutMs ?? config.timeoutMs },
         );
       } catch (err) {
         // The server answered with a JSON-RPC error: an answer, not a lost connection. Its code stays, its text is masked.
