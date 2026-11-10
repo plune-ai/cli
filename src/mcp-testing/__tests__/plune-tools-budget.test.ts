@@ -6,7 +6,16 @@
 import { describe, expect, it } from 'vitest';
 import { connectPluneServer, type PluneConnection, type ProtocolEra } from '../plune-snapshot.js';
 import { estimateTokens, LINT_THRESHOLDS, toolListSize, type ListedTool } from '../lint/index.js';
-import { FIXTURE_CASES, FIXTURE_MISSION_ID, FIXTURE_REVIEW_ITEMS, fixturePlatform } from './plune-budget.fixtures.js';
+import {
+  FIXTURE_CASES,
+  FIXTURE_MISSION_ID,
+  FIXTURE_MISSION_SOURCES,
+  FIXTURE_MISSIONS,
+  FIXTURE_REVIEW_ITEMS,
+  FIXTURE_SUITES,
+  fixturePlatform,
+  LIVE,
+} from './plune-budget.fixtures.js';
 
 const B = LINT_THRESHOLDS.size.budget;
 
@@ -51,10 +60,10 @@ const ANSWERS = [
 
 /** Items each answer must hold, so an empty answer is not measured as a small one. */
 const ANSWER_ITEMS: Record<(typeof ANSWERS)[number]['tool'], number> = {
-  plune_project_context: 3 + 6,
+  plune_project_context: FIXTURE_MISSIONS + FIXTURE_SUITES,
   plune_cases_search: Math.min(100, FIXTURE_CASES),
   plune_review_list: FIXTURE_REVIEW_ITEMS,
-  plune_mission_get: 5,
+  plune_mission_get: FIXTURE_MISSION_SOURCES,
 };
 
 describe('CLI · mcp budget · Plune tools list', () => {
@@ -83,7 +92,7 @@ describe('CLI · mcp budget · Plune tools list', () => {
     expect(overrun(`biggest tool ${largest.name}`, largest.tokens, B.largestTool)).toEqual([]);
   });
 
-  it.each(ANSWERS)('$tool answers within its limit on the synthetic project', async (a) => {
+  it.each(ANSWERS)('$tool answers within its limit on the recorded demo project', async (a) => {
     const result = await withServer('legacy', 'write', (c) => c.request('tools/call', { name: a.tool, arguments: a.args }), fixturePlatform);
     expect(result['isError']).toBeFalsy();
     expect(a.items(result['structuredContent'] as Record<string, unknown>)).toBe(ANSWER_ITEMS[a.tool]);
@@ -93,6 +102,14 @@ describe('CLI · mcp budget · Plune tools list', () => {
     const compact = estimateTokens(JSON.stringify(result['structuredContent']));
     console.info(`mcp budget · ${a.tool} answer: ~${tokens} tokens (limit ${B.answers[a.tool]}), ~${compact} as JSON without indentation`);
     expect(overrun(`${a.tool} answer`, tokens, B.answers[a.tool])).toEqual([]);
+  });
+
+  it('the recorded answers hold no address, token or user id but the sample ones', () => {
+    const text = JSON.stringify(LIVE);
+    expect(text.match(/[\w.%+-]+@[\w.-]+\.[a-z]{2,}/gi) ?? []).toEqual([]);
+    expect(text).not.toMatch(/Bearer|plt_\w|plune_[\w-]{20,}/);
+    const users = new Set([...text.matchAll(/"(?:createdBy|updatedBy|userId|ownerId|authorId)":"([^"]*)"/g)].map((m) => m[1]));
+    expect([...users]).toEqual(['u-john-doe']);
   });
 
   it('the over and too-loose checks fire', () => {

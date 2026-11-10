@@ -23,11 +23,13 @@ const PLUNE_BUDGET = {
   /** The biggest single tool, plune_strategy_propose, measured 2177. */
   largestTool: 2395,
   /**
-   * The text content of an answer, on the synthetic project of plune-budget.fixtures.ts (made up, not captured from a
-   * live project): plune_project_context 1102, plune_cases_search with a page of 100 cases 26865, plune_review_list of 25
-   * entries 5155, plune_mission_get with 5 sources 474.
+   * The text content of an answer, measured 2026-11-10 on live answers of the beta demo project recorded in
+   * plune-budget.fixtures.ts (cases in Ukrainian): plune_project_context with 3 projects, 3 suites, no missions 543;
+   * plune_cases_search 10521 for the whole project of 48 cases (a page of 100 is not reached, ~219 per case);
+   * plune_review_list of 7 pending entries 895. The demo has no missions, so plune_mission_get with 5 sources, 476, is
+   * measured on a synthetic mission.
    */
-  answers: { plune_project_context: 1213, plune_cases_search: 29552, plune_review_list: 5671, plune_mission_get: 522 },
+  answers: { plune_project_context: 598, plune_cases_search: 11574, plune_review_list: 985, plune_mission_get: 524 },
 } as const;
 
 /**
@@ -69,9 +71,11 @@ export const LINT_THRESHOLDS = {
     /**
      * The estimate: characters of a tool's JSON divided by this, rounded up, summed over the tools. No tokenizer, no
      * network, the same number in CI on every run; a limit is a measure plus headroom, never an exact token count.
-     * Not calibrated: the ratio of this estimate to a real tokenizer's count has not been measured yet. Where it may be
-     * off, untested: JSON punctuation and short keys, and text that is not English (Cyrillic above all), may take more
-     * tokens per character than the 4 assumed here, which would make the estimate low.
+     * Calibrated 2026-11-10 against a provider's token-counting endpoint on two current models (both gave the same
+     * counts): the estimate is low. On the same JSON (name, description, input schema: the fields a model API takes) a
+     * tool list costs 1.57-1.72 times the estimate, the tool-use preamble of ~320 tokens left out; the largest live
+     * answer (JSON with Ukrainian text) 1.84 times. The limits stay in estimated tokens; for real tokens multiply by
+     * ~1.7 (English JSON) to ~1.85 (Cyrillic). Table: docs/features/mcp-context-budget/budget.md.
      */
     charsPerToken: 4,
     budget: PLUNE_BUDGET,

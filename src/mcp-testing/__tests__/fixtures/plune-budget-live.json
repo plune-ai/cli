@@ -1,0 +1,1630 @@
+{
+  "measuredAt": "2026-11-10",
+  "source": "beta demo account, project u-john-doe::default, read-only",
+  "answers": {
+    "/v1/review-items?state=pending&limit=100": {
+      "items": [
+        {
+          "schemaVersion": 1,
+          "id": "17b3426d-cec7-41e3-a16a-5e048051cbde",
+          "state": "pending",
+          "createdAt": "2026-09-08T07:44:15.276Z",
+          "updatedAt": "2026-09-08T07:44:15.276Z",
+          "proposedTitle": "[ship-verify 1788853452] прогін без вартості"
+        },
+        {
+          "schemaVersion": 1,
+          "id": "02868b1d-696f-4f2d-a21d-26fa7d803b5f",
+          "state": "pending",
+          "createdAt": "2026-09-08T07:44:15.003Z",
+          "updatedAt": "2026-09-08T07:44:15.003Z",
+          "proposedTitle": "[ship-verify 1788853452] інший прогін",
+          "source": {
+            "kind": "requirement",
+            "value": "REQ-7"
+          }
+        },
+        {
+          "schemaVersion": 1,
+          "id": "18471210-d3ed-4bad-b8ae-84716d762bf2",
+          "state": "pending",
+          "createdAt": "2026-09-08T07:44:14.870Z",
+          "updatedAt": "2026-09-08T07:44:14.870Z",
+          "proposedTitle": "[ship-verify 1788853452] джерело-адреса",
+          "source": {
+            "kind": "url",
+            "value": "https://shop.example/checkout"
+          },
+          "technique": "тттттттттттттттттттттттттттттттт"
+        },
+        {
+          "schemaVersion": 1,
+          "id": "0943c9d6-5864-429f-abba-77593418c92d",
+          "state": "pending",
+          "createdAt": "2026-09-08T07:44:14.870Z",
+          "updatedAt": "2026-09-08T07:44:14.870Z",
+          "proposedTitle": "[ship-verify 1788853452] нічого не названо"
+        },
+        {
+          "schemaVersion": 1,
+          "id": "2563aa0d-eead-4310-a882-aa3e6dfa8d6f",
+          "state": "pending",
+          "createdAt": "2026-09-07T12:06:29.221Z",
+          "updatedAt": "2026-09-07T12:06:29.221Z",
+          "proposedTitle": "Подарункове пакування додається до замовлення",
+          "technique": "Сценарії використання"
+        },
+        {
+          "schemaVersion": 1,
+          "id": "897d8e2b-b1a6-4430-b528-a7c568a78670",
+          "resultId": "e411b8e1-8674-48f4-a522-2138d1501255",
+          "state": "pending",
+          "createdAt": "2026-09-07T12:06:29.148Z",
+          "updatedAt": "2026-09-07T12:06:29.148Z",
+          "previousRun": {
+            "previousResultId": "9294f8d8-2187-4754-8222-06cc7bf4df5f",
+            "previousRunId": "fc0bdb07-4213-4c01-86c3-c4b0d2561c75",
+            "previousRanAt": "2026-09-07T12:06:28.713Z",
+            "previousStatus": "passed",
+            "previousOutcome": "expected",
+            "statusChanged": true,
+            "outcomeChanged": true
+          },
+          "testCaseId": "aea3e946-379b-4122-b4fd-08ad067300c3",
+          "testCaseTitle": "Фільтр за ціною звужує видачу",
+          "runId": "f81d1c3e-0a9c-4cd0-b0ce-693b39ce2e8f",
+          "runAt": "2026-09-07T12:06:28.857Z",
+          "status": "blocked",
+          "outcome": "unexpected",
+          "passed": 0,
+          "failed": 1
+        },
+        {
+          "schemaVersion": 1,
+          "id": "b05a75a9-d234-49fd-b30e-194bb45372f8",
+          "resultId": "2645935a-3dc0-4622-b5af-93adf1aa572b",
+          "state": "pending",
+          "createdAt": "2026-09-07T12:06:29.075Z",
+          "updatedAt": "2026-09-07T12:06:29.075Z",
+          "previousRun": {
+            "previousResultId": "2279c291-1f72-4638-a1d4-e8aeea5f115b",
+            "previousRunId": "fc0bdb07-4213-4c01-86c3-c4b0d2561c75",
+            "previousRanAt": "2026-09-07T12:06:28.713Z",
+            "previousStatus": "passed",
+            "previousOutcome": "expected",
+            "statusChanged": true,
+            "outcomeChanged": true
+          },
+          "testCaseId": "b0f1591e-01bb-4207-820f-8f5330a57bcf",
+          "testCaseTitle": "Оплата карткою Visa проходить",
+          "runId": "f81d1c3e-0a9c-4cd0-b0ce-693b39ce2e8f",
+          "runAt": "2026-09-07T12:06:28.857Z",
+          "status": "failed",
+          "outcome": "unexpected",
+          "passed": 0,
+          "failed": 1
+        }
+      ],
+      "nextCursor": null
+    },
+    "/v1/missions": {
+      "missions": []
+    },
+    "/v1/projects": {
+      "projects": [
+        {
+          "id": "u-john-doe::default",
+          "name": "Demo shop",
+          "role": "owner",
+          "createdAt": "2026-09-07T12:06:24.681Z",
+          "lastRun": {
+            "at": "2026-10-27T13:34:00.000Z",
+            "total": 36,
+            "passed": 32
+          },
+          "company": null
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "name": "Team space",
+          "role": "member",
+          "createdAt": "2026-09-18T14:54:52.834Z",
+          "lastRun": {
+            "at": "2026-11-09T07:00:42.577Z",
+            "total": 0,
+            "passed": 0
+          },
+          "company": {
+            "id": "00000000-0000-4000-8000-000000000002",
+            "name": "Example Corp"
+          }
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000003",
+          "name": "Bugs space",
+          "role": "owner",
+          "createdAt": "2026-10-28T22:00:26.663Z",
+          "lastRun": {
+            "at": "2026-11-09T13:56:56.321Z",
+            "total": 7,
+            "passed": 6
+          },
+          "company": null
+        }
+      ]
+    },
+    "/v1/suites": {
+      "suites": [
+        {
+          "schemaVersion": 1,
+          "id": "e20c594c-6f26-4d93-a37b-ceeda8752cac",
+          "name": "Кошик і оплата",
+          "projectId": "u-john-doe::default",
+          "kind": "suite",
+          "position": 0,
+          "createdAt": "2026-09-07T12:06:26.140Z",
+          "updatedAt": "2026-09-07T12:06:26.140Z",
+          "children": [],
+          "caseCount": 19
+        },
+        {
+          "schemaVersion": 1,
+          "id": "e15e23cc-9e43-4d4e-9dc8-152541b47ce5",
+          "name": "Каталог",
+          "projectId": "u-john-doe::default",
+          "kind": "suite",
+          "position": 1,
+          "createdAt": "2026-09-07T12:06:26.276Z",
+          "updatedAt": "2026-09-07T12:06:26.276Z",
+          "children": [],
+          "caseCount": 14
+        },
+        {
+          "schemaVersion": 1,
+          "id": "3f1f217c-5c31-4aa7-aa51-d65623d478a6",
+          "name": "Обліковий запис",
+          "projectId": "u-john-doe::default",
+          "kind": "suite",
+          "position": 2,
+          "createdAt": "2026-09-07T12:06:26.453Z",
+          "updatedAt": "2026-09-07T12:06:26.453Z",
+          "children": [],
+          "caseCount": 10
+        }
+      ]
+    },
+    "/v1/test-cases?limit=1&stability=0": {
+      "testCases": [
+        {
+          "schemaVersion": 2,
+          "id": "37bdde13-97b9-4b0e-b678-0410b35228c4",
+          "type": "manual",
+          "steps": [
+            {
+              "action": "Відкрити кошик із одним товаром"
+            },
+            {
+              "action": "Ввести промокод NEW10"
+            },
+            {
+              "action": "Натиснути кнопку застосування промокоду"
+            }
+          ],
+          "expected": "У підсумку показано знижку 10% і перераховану суму",
+          "projectId": "u-john-doe::default",
+          "title": "Знижка новому покупцю",
+          "state": "active",
+          "stateChangedAt": "2026-09-07T12:06:26.611Z",
+          "suiteId": "e20c594c-6f26-4d93-a37b-ceeda8752cac",
+          "priority": "normal",
+          "position": 0,
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-09-07T12:06:26.532Z",
+          "updatedAt": "2026-09-07T12:06:26.611Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "checkout.spec.ts > discount for a new buyer"
+            },
+            {
+              "kind": "cairn-stable",
+              "value": "chk-discount-new"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        }
+      ],
+      "stability": {},
+      "defectCounts": {},
+      "total": 48,
+      "matching": 48,
+      "nextCursor": "1"
+    },
+    "/v1/test-cases?limit=100&stability=0": {
+      "testCases": [
+        {
+          "schemaVersion": 2,
+          "id": "37bdde13-97b9-4b0e-b678-0410b35228c4",
+          "type": "manual",
+          "steps": [
+            {
+              "action": "Відкрити кошик із одним товаром"
+            },
+            {
+              "action": "Ввести промокод NEW10"
+            },
+            {
+              "action": "Натиснути кнопку застосування промокоду"
+            }
+          ],
+          "expected": "У підсумку показано знижку 10% і перераховану суму",
+          "projectId": "u-john-doe::default",
+          "title": "Знижка новому покупцю",
+          "state": "active",
+          "stateChangedAt": "2026-09-07T12:06:26.611Z",
+          "suiteId": "e20c594c-6f26-4d93-a37b-ceeda8752cac",
+          "priority": "normal",
+          "position": 0,
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-09-07T12:06:26.532Z",
+          "updatedAt": "2026-09-07T12:06:26.611Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "checkout.spec.ts > discount for a new buyer"
+            },
+            {
+              "kind": "cairn-stable",
+              "value": "chk-discount-new"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "102042a3-de99-4e2d-8af4-4806ed3d3630",
+          "type": "manual",
+          "steps": [
+            {
+              "action": "Відкрити кошик із товаром"
+            },
+            {
+              "action": "Ввести кількість -1 у поле кількості"
+            }
+          ],
+          "expected": "Кількість лишається 1, показано пояснення, чому значення відхилено",
+          "projectId": "u-john-doe::default",
+          "title": "Кошик не приймає відʼємну кількість",
+          "state": "active",
+          "stateChangedAt": "2026-09-07T12:06:26.770Z",
+          "suiteId": "e20c594c-6f26-4d93-a37b-ceeda8752cac",
+          "priority": "normal",
+          "position": 1,
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-09-07T12:06:26.697Z",
+          "updatedAt": "2026-09-07T12:06:26.770Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "cairn-stable",
+              "value": "chk-qty-negative"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "b0f1591e-01bb-4207-820f-8f5330a57bcf",
+          "type": "automated",
+          "specRef": "e2e/checkout/payment.spec.ts:14",
+          "projectId": "u-john-doe::default",
+          "title": "Оплата карткою Visa проходить",
+          "state": "active",
+          "stateChangedAt": "2026-09-07T12:06:26.919Z",
+          "suiteId": "e20c594c-6f26-4d93-a37b-ceeda8752cac",
+          "priority": "normal",
+          "position": 2,
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-09-07T12:06:26.847Z",
+          "updatedAt": "2026-09-07T12:06:26.919Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "playwright-id",
+              "value": "checkout-payment-visa"
+            },
+            {
+              "kind": "qase",
+              "value": "SHOP-104"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "df8d4a71-cdf7-47a1-9467-a8c7e4c7b834",
+          "type": "automated",
+          "specRef": "e2e/checkout/payment.spec.ts:58",
+          "projectId": "u-john-doe::default",
+          "title": "Прострочена картка відхиляється з поясненням",
+          "state": "active",
+          "stateChangedAt": "2026-09-07T12:06:27.069Z",
+          "suiteId": "e20c594c-6f26-4d93-a37b-ceeda8752cac",
+          "priority": "normal",
+          "position": 3,
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-09-07T12:06:26.996Z",
+          "updatedAt": "2026-09-07T12:06:27.069Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "playwright-id",
+              "value": "checkout-payment-expired"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "6bfec5b1-3382-448a-ac78-01225c6a045e",
+          "type": "manual",
+          "steps": [
+            {
+              "action": "Ввести купон формату 2019 року"
+            }
+          ],
+          "expected": "Купон не приймається",
+          "projectId": "u-john-doe::default",
+          "title": "Старий формат купона (знято з підтримки)",
+          "state": "active",
+          "stateChangedAt": "2026-09-07T12:06:28.126Z",
+          "suiteId": "e20c594c-6f26-4d93-a37b-ceeda8752cac",
+          "priority": "normal",
+          "position": 4,
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-09-07T12:06:28.054Z",
+          "updatedAt": "2026-09-07T12:06:28.126Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "cairn-stable",
+              "value": "chk-coupon-legacy"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "3021acf3-2318-4c6a-9598-125c15f01600",
+          "type": "automated",
+          "specRef": "e2e/cart.spec.ts",
+          "projectId": "u-john-doe::default",
+          "title": "Додавання товару в кошик оновлює лічильник",
+          "state": "active",
+          "stateChangedAt": "2026-10-01T05:10:00.482Z",
+          "suiteId": "e20c594c-6f26-4d93-a37b-ceeda8752cac",
+          "priority": "high",
+          "position": 5,
+          "createdBy": "u-john-doe",
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-10-01T05:10:00.000Z",
+          "updatedAt": "2026-10-01T05:10:00.482Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "demo-seed-2710 › e2e/cart.spec.ts › Додавання товару в кошик оновлює лічильник"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "8a3a5e66-f502-4ea6-8ee6-085b4eeac69a",
+          "type": "automated",
+          "specRef": "e2e/cart.spec.ts",
+          "projectId": "u-john-doe::default",
+          "title": "Зміна кількості перераховує суму",
+          "state": "active",
+          "stateChangedAt": "2026-10-01T05:11:00.481Z",
+          "suiteId": "e20c594c-6f26-4d93-a37b-ceeda8752cac",
+          "priority": "normal",
+          "position": 6,
+          "createdBy": "u-john-doe",
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-10-01T05:11:00.000Z",
+          "updatedAt": "2026-10-01T05:11:00.481Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "demo-seed-2710 › e2e/cart.spec.ts › Зміна кількості перераховує суму"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "9207a499-12a0-4524-8e0d-8eb76cf11ede",
+          "type": "automated",
+          "specRef": "e2e/cart.spec.ts",
+          "projectId": "u-john-doe::default",
+          "title": "Видалення останнього товару показує порожній кошик",
+          "state": "active",
+          "stateChangedAt": "2026-10-01T05:12:00.453Z",
+          "suiteId": "e20c594c-6f26-4d93-a37b-ceeda8752cac",
+          "priority": "normal",
+          "position": 7,
+          "createdBy": "u-john-doe",
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-10-01T05:12:00.000Z",
+          "updatedAt": "2026-10-01T05:12:00.453Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "demo-seed-2710 › e2e/cart.spec.ts › Видалення останнього товару показує порожній кошик"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "7f0ad436-4076-445c-b1e8-a600bc448600",
+          "type": "automated",
+          "specRef": "e2e/cart.spec.ts",
+          "projectId": "u-john-doe::default",
+          "title": "Промокод WELCOME10 знижує суму на 10%",
+          "state": "active",
+          "stateChangedAt": "2026-10-01T05:13:00.446Z",
+          "suiteId": "e20c594c-6f26-4d93-a37b-ceeda8752cac",
+          "priority": "important",
+          "position": 8,
+          "createdBy": "u-john-doe",
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-10-01T05:13:00.000Z",
+          "updatedAt": "2026-10-01T05:13:00.446Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "demo-seed-2710 › e2e/cart.spec.ts › Промокод WELCOME10 знижує суму на 10%"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "e43e1a95-e2a2-42a1-93b6-62b04756fba6",
+          "type": "automated",
+          "specRef": "e2e/checkout.spec.ts",
+          "projectId": "u-john-doe::default",
+          "title": "Оплата карткою Mastercard проходить",
+          "state": "active",
+          "stateChangedAt": "2026-10-01T05:14:00.481Z",
+          "suiteId": "e20c594c-6f26-4d93-a37b-ceeda8752cac",
+          "priority": "critical",
+          "position": 9,
+          "createdBy": "u-john-doe",
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-10-01T05:14:00.000Z",
+          "updatedAt": "2026-10-01T05:14:00.481Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "demo-seed-2710 › e2e/checkout.spec.ts › Оплата карткою Mastercard проходить"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "3795a9be-16b1-4f54-816d-c7cba01e47dd",
+          "type": "automated",
+          "specRef": "e2e/checkout.spec.ts",
+          "projectId": "u-john-doe::default",
+          "title": "Оплата Apple Pay",
+          "state": "active",
+          "stateChangedAt": "2026-10-01T05:15:00.490Z",
+          "suiteId": "e20c594c-6f26-4d93-a37b-ceeda8752cac",
+          "priority": "normal",
+          "position": 10,
+          "createdBy": "u-john-doe",
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-10-01T05:15:00.000Z",
+          "updatedAt": "2026-10-01T05:15:00.490Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "demo-seed-2710 › e2e/checkout.spec.ts › Оплата Apple Pay"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "202acae7-f0ca-4a8f-b6b4-32ca3f7d6d69",
+          "type": "automated",
+          "specRef": "e2e/checkout.spec.ts",
+          "projectId": "u-john-doe::default",
+          "title": "3-D Secure відкриває підтвердження банку",
+          "state": "active",
+          "stateChangedAt": "2026-10-01T05:16:00.450Z",
+          "suiteId": "e20c594c-6f26-4d93-a37b-ceeda8752cac",
+          "priority": "high",
+          "position": 11,
+          "createdBy": "u-john-doe",
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-10-01T05:16:00.000Z",
+          "updatedAt": "2026-10-01T05:16:00.450Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "demo-seed-2710 › e2e/checkout.spec.ts › 3-D Secure відкриває підтвердження банку"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "0433a459-4a0a-4b6d-8c5b-dae4ddff94ab",
+          "type": "automated",
+          "specRef": "e2e/checkout.spec.ts",
+          "projectId": "u-john-doe::default",
+          "title": "Повторна оплата після відмови банку",
+          "state": "active",
+          "stateChangedAt": "2026-10-04T05:17:00.465Z",
+          "suiteId": "e20c594c-6f26-4d93-a37b-ceeda8752cac",
+          "priority": "normal",
+          "position": 12,
+          "createdBy": "u-john-doe",
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-10-04T05:17:00.000Z",
+          "updatedAt": "2026-10-04T05:17:00.465Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "demo-seed-2710 › e2e/checkout.spec.ts › Повторна оплата після відмови банку"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "fbe02e29-733b-40b4-8bac-edb8af2c6bcf",
+          "type": "automated",
+          "specRef": "e2e/delivery.spec.ts",
+          "projectId": "u-john-doe::default",
+          "title": "Доставка Новою поштою рахує вартість за вагою",
+          "state": "active",
+          "stateChangedAt": "2026-10-06T05:18:00.449Z",
+          "suiteId": "e20c594c-6f26-4d93-a37b-ceeda8752cac",
+          "priority": "important",
+          "position": 13,
+          "createdBy": "u-john-doe",
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-10-06T05:18:00.000Z",
+          "updatedAt": "2026-10-06T05:18:00.449Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "demo-seed-2710 › e2e/delivery.spec.ts › Доставка Новою поштою рахує вартість за вагою"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "9ac16ae7-a613-4739-bf5d-7a5af6a0bab0",
+          "type": "automated",
+          "specRef": "e2e/delivery.spec.ts",
+          "projectId": "u-john-doe::default",
+          "title": "Самовивіз прибирає вартість доставки",
+          "state": "active",
+          "stateChangedAt": "2026-10-06T05:19:00.459Z",
+          "suiteId": "e20c594c-6f26-4d93-a37b-ceeda8752cac",
+          "priority": "normal",
+          "position": 14,
+          "createdBy": "u-john-doe",
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-10-06T05:19:00.000Z",
+          "updatedAt": "2026-10-06T05:19:00.459Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "demo-seed-2710 › e2e/delivery.spec.ts › Самовивіз прибирає вартість доставки"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "d884c819-ee8f-4da6-8e93-4f10b66de548",
+          "type": "automated",
+          "specRef": "e2e/checkout.spec.ts",
+          "projectId": "u-john-doe::default",
+          "title": "Чек приходить на пошту після оплати",
+          "state": "active",
+          "stateChangedAt": "2026-10-09T05:20:00.470Z",
+          "suiteId": "e20c594c-6f26-4d93-a37b-ceeda8752cac",
+          "priority": "high",
+          "position": 15,
+          "createdBy": "u-john-doe",
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-10-09T05:20:00.000Z",
+          "updatedAt": "2026-10-09T05:20:00.470Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "demo-seed-2710 › e2e/checkout.spec.ts › Чек приходить на пошту після оплати"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "fe1084b0-46e7-4012-9444-c86be2e38f6b",
+          "type": "automated",
+          "specRef": "e2e/checkout.spec.ts",
+          "projectId": "u-john-doe::default",
+          "title": "Оформлення замовлення без реєстрації",
+          "state": "in_review",
+          "stateChangedAt": "2026-10-13T05:21:00.481Z",
+          "suiteId": "e20c594c-6f26-4d93-a37b-ceeda8752cac",
+          "priority": "normal",
+          "position": 16,
+          "createdBy": "u-john-doe",
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-10-13T05:21:00.000Z",
+          "updatedAt": "2026-10-13T05:21:00.481Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "demo-seed-2710 › e2e/checkout.spec.ts › Оформлення замовлення без реєстрації"
+            }
+          ],
+          "status": "draft",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "939b57c8-3df0-4107-8920-a31f5f55bf0a",
+          "type": "automated",
+          "specRef": "e2e/checkout.spec.ts",
+          "projectId": "u-john-doe::default",
+          "title": "Повернення коштів на картку",
+          "state": "draft",
+          "suiteId": "e20c594c-6f26-4d93-a37b-ceeda8752cac",
+          "priority": "normal",
+          "position": 17,
+          "createdBy": "u-john-doe",
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-10-18T05:22:00.000Z",
+          "updatedAt": "2026-10-18T05:22:00.000Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "demo-seed-2710 › e2e/checkout.spec.ts › Повернення коштів на картку"
+            }
+          ],
+          "status": "draft",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "7741ef78-84c8-4382-8a33-1fcb43180a67",
+          "type": "automated",
+          "specRef": "e2e/checkout.spec.ts",
+          "projectId": "u-john-doe::default",
+          "title": "Оплата частинами",
+          "state": "draft",
+          "suiteId": "e20c594c-6f26-4d93-a37b-ceeda8752cac",
+          "priority": "low",
+          "position": 18,
+          "createdBy": "u-john-doe",
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-10-22T05:23:00.000Z",
+          "updatedAt": "2026-10-22T05:23:00.000Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "demo-seed-2710 › e2e/checkout.spec.ts › Оплата частинами"
+            }
+          ],
+          "status": "draft",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "11e2d39a-35bb-4c41-908a-223ca6f7e283",
+          "type": "automated",
+          "specRef": "e2e/catalog/search.spec.ts:9",
+          "projectId": "u-john-doe::default",
+          "title": "Пошук за порожнім запитом",
+          "state": "active",
+          "stateChangedAt": "2026-09-07T12:06:27.229Z",
+          "suiteId": "e15e23cc-9e43-4d4e-9dc8-152541b47ce5",
+          "priority": "normal",
+          "position": 0,
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-09-07T12:06:27.155Z",
+          "updatedAt": "2026-09-07T12:06:27.229Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "playwright-id",
+              "value": "catalog-search-empty"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "aea3e946-379b-4122-b4fd-08ad067300c3",
+          "type": "automated",
+          "specRef": "e2e/catalog/filter.spec.ts:22",
+          "projectId": "u-john-doe::default",
+          "title": "Фільтр за ціною звужує видачу",
+          "state": "draft",
+          "suiteId": "e15e23cc-9e43-4d4e-9dc8-152541b47ce5",
+          "priority": "normal",
+          "position": 1,
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-09-07T12:06:27.311Z",
+          "updatedAt": "2026-09-07T12:06:27.381Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "playwright-id",
+              "value": "catalog-filter-price"
+            },
+            {
+              "kind": "testrail",
+              "value": "C2041"
+            }
+          ],
+          "status": "draft",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "149830ca-cf72-4582-986f-cb4fd90f3245",
+          "type": "manual",
+          "steps": [
+            {
+              "action": "Відкрити картку товару зі статусом «немає в наявності»"
+            },
+            {
+              "action": "Натиснути кнопку купівлі"
+            }
+          ],
+          "expected": "Кнопка недоступна, поруч сказано, коли товар очікується",
+          "projectId": "u-john-doe::default",
+          "title": "Товар, якого немає, не можна покласти в кошик",
+          "state": "draft",
+          "suiteId": "e15e23cc-9e43-4d4e-9dc8-152541b47ce5",
+          "priority": "normal",
+          "position": 2,
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-09-07T12:06:27.457Z",
+          "updatedAt": "2026-09-07T12:06:27.527Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "cairn-stable",
+              "value": "cat-oos-add"
+            }
+          ],
+          "status": "draft",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "db5e4a4a-457f-469c-9101-408a663f9315",
+          "type": "automated",
+          "specRef": "e2e/search.spec.ts",
+          "projectId": "u-john-doe::default",
+          "title": "Пошук за назвою знаходить товар",
+          "state": "active",
+          "stateChangedAt": "2026-10-01T05:24:00.452Z",
+          "suiteId": "e15e23cc-9e43-4d4e-9dc8-152541b47ce5",
+          "priority": "high",
+          "position": 3,
+          "createdBy": "u-john-doe",
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-10-01T05:24:00.000Z",
+          "updatedAt": "2026-10-01T05:24:00.452Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "demo-seed-2710 › e2e/search.spec.ts › Пошук за назвою знаходить товар"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "c5cdfe70-44b1-4f7d-8c87-1f4e0b71033f",
+          "type": "automated",
+          "specRef": "e2e/search.spec.ts",
+          "projectId": "u-john-doe::default",
+          "title": "Пошук з помилкою в слові пропонує виправлення",
+          "state": "active",
+          "stateChangedAt": "2026-10-01T05:25:00.449Z",
+          "suiteId": "e15e23cc-9e43-4d4e-9dc8-152541b47ce5",
+          "priority": "normal",
+          "position": 4,
+          "createdBy": "u-john-doe",
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-10-01T05:25:00.000Z",
+          "updatedAt": "2026-10-01T05:25:00.449Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "demo-seed-2710 › e2e/search.spec.ts › Пошук з помилкою в слові пропонує виправлення"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "30b56367-7446-4bcb-959f-09783a4a3d1e",
+          "type": "automated",
+          "specRef": "e2e/catalog.spec.ts",
+          "projectId": "u-john-doe::default",
+          "title": "Сортування за ціною від дешевих",
+          "state": "active",
+          "stateChangedAt": "2026-10-01T05:26:00.456Z",
+          "suiteId": "e15e23cc-9e43-4d4e-9dc8-152541b47ce5",
+          "priority": "normal",
+          "position": 5,
+          "createdBy": "u-john-doe",
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-10-01T05:26:00.000Z",
+          "updatedAt": "2026-10-01T05:26:00.456Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "demo-seed-2710 › e2e/catalog.spec.ts › Сортування за ціною від дешевих"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "17baf88d-d3fc-4472-a91b-243e7d6d9082",
+          "type": "automated",
+          "specRef": "e2e/catalog.spec.ts",
+          "projectId": "u-john-doe::default",
+          "title": "Фільтр за брендом поєднується з фільтром за ціною",
+          "state": "active",
+          "stateChangedAt": "2026-10-01T05:27:00.451Z",
+          "suiteId": "e15e23cc-9e43-4d4e-9dc8-152541b47ce5",
+          "priority": "important",
+          "position": 6,
+          "createdBy": "u-john-doe",
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-10-01T05:27:00.000Z",
+          "updatedAt": "2026-10-01T05:27:00.451Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "demo-seed-2710 › e2e/catalog.spec.ts › Фільтр за брендом поєднується з фільтром за ціною"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "a46a3c6f-7cd8-48b7-aed4-d921237b0592",
+          "type": "automated",
+          "specRef": "e2e/catalog.spec.ts",
+          "projectId": "u-john-doe::default",
+          "title": "Картка товару показує наявність на складі",
+          "state": "active",
+          "stateChangedAt": "2026-10-03T05:28:00.480Z",
+          "suiteId": "e15e23cc-9e43-4d4e-9dc8-152541b47ce5",
+          "priority": "normal",
+          "position": 7,
+          "createdBy": "u-john-doe",
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-10-03T05:28:00.000Z",
+          "updatedAt": "2026-10-03T05:28:00.480Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "demo-seed-2710 › e2e/catalog.spec.ts › Картка товару показує наявність на складі"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "1698095c-c1a1-4b8f-88dd-6de032dcd175",
+          "type": "automated",
+          "specRef": "e2e/catalog.spec.ts",
+          "projectId": "u-john-doe::default",
+          "title": "Галерея фото гортається свайпом",
+          "state": "active",
+          "stateChangedAt": "2026-10-05T05:29:00.451Z",
+          "suiteId": "e15e23cc-9e43-4d4e-9dc8-152541b47ce5",
+          "priority": "low",
+          "position": 8,
+          "createdBy": "u-john-doe",
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-10-05T05:29:00.000Z",
+          "updatedAt": "2026-10-05T05:29:00.451Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "demo-seed-2710 › e2e/catalog.spec.ts › Галерея фото гортається свайпом"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "ea038f1c-56d7-4076-8d74-04820f3a659e",
+          "type": "automated",
+          "specRef": "e2e/catalog.spec.ts",
+          "projectId": "u-john-doe::default",
+          "title": "Пагінація зберігає фільтри",
+          "state": "active",
+          "stateChangedAt": "2026-10-08T05:30:00.459Z",
+          "suiteId": "e15e23cc-9e43-4d4e-9dc8-152541b47ce5",
+          "priority": "normal",
+          "position": 9,
+          "createdBy": "u-john-doe",
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-10-08T05:30:00.000Z",
+          "updatedAt": "2026-10-08T05:30:00.459Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "demo-seed-2710 › e2e/catalog.spec.ts › Пагінація зберігає фільтри"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "ada3ba52-312f-45f2-8d02-c6acecfa1f23",
+          "type": "automated",
+          "specRef": "e2e/catalog.spec.ts",
+          "projectId": "u-john-doe::default",
+          "title": "Порівняння двох товарів",
+          "state": "active",
+          "stateChangedAt": "2026-10-11T05:31:00.456Z",
+          "suiteId": "e15e23cc-9e43-4d4e-9dc8-152541b47ce5",
+          "priority": "normal",
+          "position": 10,
+          "createdBy": "u-john-doe",
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-10-11T05:31:00.000Z",
+          "updatedAt": "2026-10-11T05:31:00.456Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "demo-seed-2710 › e2e/catalog.spec.ts › Порівняння двох товарів"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "6b4858dc-de44-481a-b7d2-a576a1a525f5",
+          "type": "automated",
+          "specRef": "e2e/catalog.spec.ts",
+          "projectId": "u-john-doe::default",
+          "title": "Відгуки сортуються за датою",
+          "state": "in_review",
+          "stateChangedAt": "2026-10-15T05:32:00.454Z",
+          "suiteId": "e15e23cc-9e43-4d4e-9dc8-152541b47ce5",
+          "priority": "low",
+          "position": 11,
+          "createdBy": "u-john-doe",
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-10-15T05:32:00.000Z",
+          "updatedAt": "2026-10-15T05:32:00.454Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "demo-seed-2710 › e2e/catalog.spec.ts › Відгуки сортуються за датою"
+            }
+          ],
+          "status": "draft",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "c0be55db-4756-4bd6-b29e-375c4758061b",
+          "type": "automated",
+          "specRef": "e2e/catalog.spec.ts",
+          "projectId": "u-john-doe::default",
+          "title": "Схожі товари не показують відсутніх",
+          "state": "active",
+          "stateChangedAt": "2026-10-20T05:33:00.486Z",
+          "suiteId": "e15e23cc-9e43-4d4e-9dc8-152541b47ce5",
+          "priority": "normal",
+          "position": 12,
+          "createdBy": "u-john-doe",
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-10-20T05:33:00.000Z",
+          "updatedAt": "2026-10-20T05:33:00.486Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "demo-seed-2710 › e2e/catalog.spec.ts › Схожі товари не показують відсутніх"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "a31cb9bd-d2de-46cb-914f-b7f038ef7fd4",
+          "type": "automated",
+          "specRef": "e2e/catalog.spec.ts",
+          "projectId": "u-john-doe::default",
+          "title": "Швидкий перегляд товару з видачі",
+          "state": "draft",
+          "suiteId": "e15e23cc-9e43-4d4e-9dc8-152541b47ce5",
+          "priority": "low",
+          "position": 13,
+          "createdBy": "u-john-doe",
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-10-24T05:34:00.000Z",
+          "updatedAt": "2026-10-24T05:34:00.000Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "demo-seed-2710 › e2e/catalog.spec.ts › Швидкий перегляд товару з видачі"
+            }
+          ],
+          "status": "draft",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "ee48c0c4-5709-4dd6-bbe7-1a62019cf8c6",
+          "type": "manual",
+          "steps": [
+            {
+              "action": "Відкрити форму відновлення пароля"
+            },
+            {
+              "action": "Ввести адресу зареєстрованого користувача"
+            },
+            {
+              "action": "Відкрити лист і перейти за посиланням"
+            }
+          ],
+          "expected": "Форма нового пароля відкривається, старий пароль більше не працює",
+          "projectId": "u-john-doe::default",
+          "title": "Відновлення пароля листом",
+          "state": "active",
+          "stateChangedAt": "2026-09-07T12:06:27.678Z",
+          "suiteId": "3f1f217c-5c31-4aa7-aa51-d65623d478a6",
+          "priority": "normal",
+          "position": 0,
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-09-07T12:06:27.608Z",
+          "updatedAt": "2026-09-07T12:06:27.678Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "testrail",
+              "value": "C1187"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "5810b88d-4004-4b32-8698-ebe55a4596b0",
+          "type": "manual",
+          "steps": [
+            {
+              "action": "Відкрити форму відновлення пароля"
+            },
+            {
+              "action": "Ввести адресу, якої немає в системі"
+            }
+          ],
+          "expected": "Відповідь така сама, як для наявної адреси",
+          "projectId": "u-john-doe::default",
+          "title": "Відновлення пароля для невідомої адреси не розкриває, чи є акаунт",
+          "state": "in_review",
+          "stateChangedAt": "2026-09-07T12:06:27.825Z",
+          "suiteId": "3f1f217c-5c31-4aa7-aa51-d65623d478a6",
+          "priority": "normal",
+          "position": 1,
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-09-07T12:06:27.754Z",
+          "updatedAt": "2026-09-07T12:06:27.825Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "cairn-stable",
+              "value": "acc-reset-unknown"
+            }
+          ],
+          "status": "draft",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "35d06122-c5aa-4edb-b4c2-c77910461d4b",
+          "type": "manual",
+          "steps": [
+            {
+              "action": "Увійти, зачекати понад 7 днів, відкрити застосунок"
+            }
+          ],
+          "expected": "Показано екран входу, дані не втрачені",
+          "projectId": "u-john-doe::default",
+          "title": "Сесія завершується через 7 днів",
+          "state": "draft",
+          "suiteId": "3f1f217c-5c31-4aa7-aa51-d65623d478a6",
+          "priority": "normal",
+          "position": 2,
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-09-07T12:06:27.899Z",
+          "updatedAt": "2026-09-07T12:06:27.971Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "cairn-stable",
+              "value": "acc-session-ttl"
+            }
+          ],
+          "status": "draft",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "0f26a7f7-c7c8-4fae-9b2c-c6edc2c1575e",
+          "type": "automated",
+          "specRef": "e2e/account.spec.ts",
+          "projectId": "u-john-doe::default",
+          "title": "Реєстрація з новою поштою",
+          "state": "active",
+          "stateChangedAt": "2026-10-01T05:35:00.451Z",
+          "suiteId": "3f1f217c-5c31-4aa7-aa51-d65623d478a6",
+          "priority": "high",
+          "position": 3,
+          "createdBy": "u-john-doe",
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-10-01T05:35:00.000Z",
+          "updatedAt": "2026-10-01T05:35:00.451Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "demo-seed-2710 › e2e/account.spec.ts › Реєстрація з новою поштою"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "c7665d5b-c571-431f-b05c-d92423ce954d",
+          "type": "automated",
+          "specRef": "e2e/account.spec.ts",
+          "projectId": "u-john-doe::default",
+          "title": "Вхід з неправильним паролем показує помилку",
+          "state": "active",
+          "stateChangedAt": "2026-10-01T05:36:00.453Z",
+          "suiteId": "3f1f217c-5c31-4aa7-aa51-d65623d478a6",
+          "priority": "high",
+          "position": 4,
+          "createdBy": "u-john-doe",
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-10-01T05:36:00.000Z",
+          "updatedAt": "2026-10-01T05:36:00.453Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "demo-seed-2710 › e2e/account.spec.ts › Вхід з неправильним паролем показує помилку"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "fb25039a-55a1-4299-9462-8410eae1a272",
+          "type": "automated",
+          "specRef": "e2e/account.spec.ts",
+          "projectId": "u-john-doe::default",
+          "title": "Зміна адреси доставки в профілі",
+          "state": "active",
+          "stateChangedAt": "2026-10-07T05:37:00.453Z",
+          "suiteId": "3f1f217c-5c31-4aa7-aa51-d65623d478a6",
+          "priority": "normal",
+          "position": 5,
+          "createdBy": "u-john-doe",
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-10-07T05:37:00.000Z",
+          "updatedAt": "2026-10-07T05:37:00.453Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "demo-seed-2710 › e2e/account.spec.ts › Зміна адреси доставки в профілі"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "3c80f975-f10d-4d63-b788-358945be8974",
+          "type": "automated",
+          "specRef": "e2e/account.spec.ts",
+          "projectId": "u-john-doe::default",
+          "title": "Історія замовлень показує останнє замовлення",
+          "state": "active",
+          "stateChangedAt": "2026-10-10T05:38:00.454Z",
+          "suiteId": "3f1f217c-5c31-4aa7-aa51-d65623d478a6",
+          "priority": "normal",
+          "position": 6,
+          "createdBy": "u-john-doe",
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-10-10T05:38:00.000Z",
+          "updatedAt": "2026-10-10T05:38:00.454Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "demo-seed-2710 › e2e/account.spec.ts › Історія замовлень показує останнє замовлення"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "964b92c3-276e-406a-8718-9eb0e70f7f9e",
+          "type": "automated",
+          "specRef": "e2e/account.spec.ts",
+          "projectId": "u-john-doe::default",
+          "title": "Вихід з усіх пристроїв",
+          "state": "in_review",
+          "stateChangedAt": "2026-10-16T05:39:00.456Z",
+          "suiteId": "3f1f217c-5c31-4aa7-aa51-d65623d478a6",
+          "priority": "normal",
+          "position": 7,
+          "createdBy": "u-john-doe",
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-10-16T05:39:00.000Z",
+          "updatedAt": "2026-10-16T05:39:00.456Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "demo-seed-2710 › e2e/account.spec.ts › Вихід з усіх пристроїв"
+            }
+          ],
+          "status": "draft",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "d5cc0749-fc11-4f8b-bc60-637c520f1125",
+          "type": "automated",
+          "specRef": "e2e/account.spec.ts",
+          "projectId": "u-john-doe::default",
+          "title": "Підписка на розсилку вимикається одним кліком",
+          "state": "active",
+          "stateChangedAt": "2026-10-21T05:40:00.447Z",
+          "suiteId": "3f1f217c-5c31-4aa7-aa51-d65623d478a6",
+          "priority": "low",
+          "position": 8,
+          "createdBy": "u-john-doe",
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-10-21T05:40:00.000Z",
+          "updatedAt": "2026-10-21T05:40:00.447Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "demo-seed-2710 › e2e/account.spec.ts › Підписка на розсилку вимикається одним кліком"
+            }
+          ],
+          "status": "active",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "ef87ee09-13c7-49c5-88ac-db5ef70c0b3d",
+          "type": "automated",
+          "specRef": "e2e/account.spec.ts",
+          "projectId": "u-john-doe::default",
+          "title": "Видалення акаунта просить підтвердження",
+          "state": "draft",
+          "suiteId": "3f1f217c-5c31-4aa7-aa51-d65623d478a6",
+          "priority": "normal",
+          "position": 9,
+          "createdBy": "u-john-doe",
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-10-25T05:41:00.000Z",
+          "updatedAt": "2026-10-25T05:41:00.000Z",
+          "origin": "manual",
+          "externalKeys": [
+            {
+              "kind": "path-title",
+              "value": "demo-seed-2710 › e2e/account.spec.ts › Видалення акаунта просить підтвердження"
+            }
+          ],
+          "status": "draft",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "1fb1a41b-436b-432a-aeb5-1c58caf42571",
+          "type": "manual",
+          "steps": [
+            {
+              "action": "Оформити замовлення як юридична особа"
+            },
+            {
+              "action": "Завантажити рахунок"
+            }
+          ],
+          "expected": "У рахунку є податковий номер і повна назва",
+          "projectId": "u-john-doe::default",
+          "title": "Рахунок для юридичної особи містить податковий номер",
+          "state": "in_review",
+          "priority": "normal",
+          "position": 0,
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-09-07T12:06:29.374Z",
+          "updatedAt": "2026-09-07T12:06:29.374Z",
+          "origin": "ai-generated",
+          "externalKeys": [
+            {
+              "kind": "cairn-stable",
+              "value": "cairn-invoice-01"
+            }
+          ],
+          "status": "draft",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "a7fa5372-ae96-4dbd-8a42-98a392e2613e",
+          "type": "manual",
+          "steps": [
+            {
+              "action": "Увійти з паролем"
+            },
+            {
+              "action": "Ввести код із застосунку"
+            }
+          ],
+          "expected": "Вхід виконано; без коду доступу немає",
+          "projectId": "u-john-doe::default",
+          "title": "Вхід із двофакторною автентифікацією",
+          "state": "in_review",
+          "priority": "normal",
+          "position": 1,
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-09-07T12:06:29.451Z",
+          "updatedAt": "2026-09-07T12:06:29.451Z",
+          "origin": "ai-generated",
+          "externalKeys": [
+            {
+              "kind": "cairn-stable",
+              "value": "cairn-2fa-01"
+            }
+          ],
+          "status": "draft",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "5238ddcf-61d5-4823-aa21-28fe515f9675",
+          "type": "manual",
+          "steps": [
+            {
+              "action": "Оформити замовлення карткою Visa"
+            },
+            {
+              "action": "Перевірити лист із чеком"
+            }
+          ],
+          "expected": "Замовлення оплачене, лист із чеком надійшов протягом хвилини",
+          "projectId": "u-john-doe::default",
+          "title": "Оплата карткою Visa проходить і надсилає чек",
+          "state": "in_review",
+          "priority": "normal",
+          "position": 2,
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-09-07T21:16:02.457Z",
+          "updatedAt": "2026-09-07T21:16:02.457Z",
+          "origin": "ai-generated",
+          "externalKeys": [
+            {
+              "kind": "cairn-stable",
+              "value": "cairn-visa-01"
+            }
+          ],
+          "status": "draft",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "0423720f-337a-4c8a-a40c-70ba1477abfa",
+          "type": "manual",
+          "steps": [
+            {
+              "action": "Відкрити кошик із товаром"
+            },
+            {
+              "action": "Ввести кількість -1 у поле кількості"
+            }
+          ],
+          "expected": "Кількість лишається 1, поле підсвічене, показано межі допустимих значень",
+          "projectId": "u-john-doe::default",
+          "title": "Кошик не приймає відʼємну кількість",
+          "state": "in_review",
+          "priority": "normal",
+          "position": 3,
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-09-07T21:16:14.596Z",
+          "updatedAt": "2026-09-07T21:16:14.596Z",
+          "origin": "ai-generated",
+          "externalKeys": [
+            {
+              "kind": "cairn-stable",
+              "value": "cairn-qty-01"
+            }
+          ],
+          "status": "draft",
+          "tags": []
+        },
+        {
+          "schemaVersion": 2,
+          "id": "6c7a5cf9-60cf-4021-b019-b53e75fe7ff3",
+          "type": "manual",
+          "steps": [
+            {
+              "action": "Відкрити кошик із одним товаром"
+            },
+            {
+              "action": "Ввести промокод NEW10 і застосувати"
+            },
+            {
+              "action": "Спробувати застосувати NEW10 удруге"
+            }
+          ],
+          "expected": "Знижка 10% застосована один раз; повторне застосування відхилено з поясненням",
+          "projectId": "u-john-doe::default",
+          "title": "Знижка новому покупцю застосовується один раз",
+          "state": "in_review",
+          "priority": "normal",
+          "position": 4,
+          "isFlaky": false,
+          "isMuted": false,
+          "createdAt": "2026-09-08T20:18:45.488Z",
+          "updatedAt": "2026-09-08T20:18:45.488Z",
+          "origin": "ai-generated",
+          "externalKeys": [
+            {
+              "kind": "cairn-stable",
+              "value": "cairn-discount-01"
+            }
+          ],
+          "status": "draft",
+          "tags": []
+        }
+      ],
+      "stability": {},
+      "defectCounts": {},
+      "total": 48,
+      "matching": 48,
+      "nextCursor": null
+    }
+  }
+}
