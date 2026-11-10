@@ -3,7 +3,7 @@ import type { CheckLevel, ListedTool, LintFinding } from './types.js';
 
 export { LINT_RULES, detectLanguage, type LintRule, type RuleHit } from './rules.js';
 export { LINT_THRESHOLDS, type LanguageCode } from './thresholds.js';
-export { toolListSize, type ToolListSize } from './size.js';
+export { estimateTokens, toolListSize, type ToolListSize } from './size.js';
 export { applyExceptions, type AppliedExceptions } from './exceptions.js';
 export type * from './types.js';
 
@@ -34,7 +34,7 @@ const RANK: Record<CheckLevel, number> = { info: 0, warn: 1, error: 2 };
  * (`error` by default) or above, when it failed or could not run — `could-not-run` is never a pass.
  * No gating finding is not green on its own: a list of zero tools yields no findings at all, so the caller must check
  * that tools were checked (as the contract test does). The `list-size` measure is a warning, so it does not gate at
- * the default level; its threshold is provisional.
+ * the default level; its threshold is the measured limit of our own biggest list.
  */
 export function gates(finding: LintFinding, minLevel: CheckLevel = 'error'): boolean {
   if (finding.class === 'heuristic') return false;
