@@ -684,9 +684,11 @@ export function createProgram(): Command {
       }
     });
 
-  program
-    .command('mcp')
-    .description('Plune tools for AI agents over the Model Context Protocol')
+  // A group: `serve` hangs on it, and so does every command that tests a foreign server. Those take their connection
+  // flags from `addConnectionOptions` (src/mcp-testing/connect/options.ts) and load the session inside the action.
+  const mcp = program.command('mcp').description('Plune tools for AI agents over the Model Context Protocol');
+
+  mcp
     .command('serve')
     .description('Serve the Plune tools over MCP stdio, for Claude Code, Codex and other MCP clients')
     .option('--project <id>', 'Project the tools work in (default: PLUNE_PROJECT, else the token\'s own project)')
