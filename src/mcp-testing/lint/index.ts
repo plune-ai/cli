@@ -13,7 +13,7 @@ const finding = (rule: LintRule | CallRule, hit: RuleHit): LintFinding => ({
   id: rule.id,
   class: rule.class,
   level: hit.level ?? rule.level,
-  state: 'failed',
+  state: hit.state ?? 'failed',
   target: hit.target,
   message: hit.message,
   expected: hit.expected,
@@ -22,7 +22,10 @@ const finding = (rule: LintRule | CallRule, hit: RuleHit): LintFinding => ({
   specRef: rule.specRef,
 });
 
-/** Lint a `tools/list` answer: one finding per rule hit, every one `failed` (a rule with nothing to say adds none). */
+/**
+ * Lint a `tools/list` answer: one finding per rule hit, `failed`, or `could-not-run` for a rule that could not judge
+ * the list (a rule with nothing to say adds none).
+ */
 export function lintTools(tools: readonly ListedTool[], rules = LINT_RULES): LintFinding[] {
   return rules.flatMap((rule) => rule.check(tools).map((hit) => finding(rule, hit)));
 }

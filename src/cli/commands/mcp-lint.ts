@@ -165,6 +165,7 @@ async function lint(flags: McpLintFlags, server: string[], io: LintIo): Promise<
     const unmeasured =
       tools.length === 0 ||
       !complete ||
+      applied.findings.some((f) => f.state === 'could-not-run') ||
       (calls !== null &&
         (calls.called.length === 0 || calls.called.some((c) => c.state === 'could-not-run')));
     const report: McpReport = {

@@ -61,6 +61,14 @@ export const LINT_THRESHOLDS = {
     minWordLength: 3,
     /** Decimals an overlap is reported with. */
     decimals: 2,
+    /**
+     * Tools above which the rules that compare every pair (`tools-similar`, `desc-no-when-not`) do not run and say
+     * `could-not-run`: the work grows with the square of a count the server chooses. Measured 2026-11-10 on one
+     * desktop core, with no two tools alike (the slowest case: no early stop): at 1000 tools the two rules take 0.25 s
+     * with 60-character descriptions and 2.3 s with 1000-character ones (`description.maxLength`); at 4000 short ones,
+     * 4.5 s. Well above the tool lists of real servers, which hold tens to hundreds.
+     */
+    maxTools: 1000,
   },
   size: {
     /**

@@ -240,12 +240,30 @@ export const MODES = {
   forever: CLEAN,
 };
 
+/** How many tools `many` lists: far past the lint's limit for comparing tools pair by pair. */
+export const MANY_TOOLS = 150_000;
+
+/**
+ * `many`: tools no two of which look alike and none of which says when not to use it, so a rule that compares every
+ * pair finds nothing to stop early on. Built when asked for, not for every mode.
+ */
+const many = () =>
+  Array.from({ length: MANY_TOOLS }, (_, i) => ({
+    name: `tool_${i}`,
+    description: `Returns a k${i}a of k${i}b to k${i}c in k${i}d or k${i}e.`,
+    inputSchema: object({}),
+    annotations: READ,
+  }));
+
 /** The tool as `tools/list` sends it: what a tool answers is not part of it. */
 const listed = ({ call: _call, hang: _hang, ...tool }) => JSON.parse(JSON.stringify(tool));
 
-/** A low-level SDK server for a mode; `paged` sends one tool per page, `forever` always says there is another page. */
+/**
+ * A low-level SDK server for a mode; `paged` sends one tool per page, `many` 2000, `forever` always says there is
+ * another page.
+ */
 export function lintServer(mode, callLog) {
-  const tools = MODES[mode];
+  const tools = mode === 'many' ? many() : MODES[mode];
   if (tools === undefined) throw new Error(`no mode ${mode}`);
   const server = new Server(
     { name: mode === 'hostile' ? '::error::x' : `lint-${mode}`, version: '1.2.3' },
@@ -253,11 +271,15 @@ export function lintServer(mode, callLog) {
   );
   server.setRequestHandler(ListToolsRequestSchema, (request) => {
     const page = Number(request.params?.cursor ?? 0);
-    if (mode === 'paged')
+    if (mode === 'paged' || mode === 'many') {
+      // `many` in pages of 2000 (75 pages): one page of every tool would pass the client's 10 MB stdio message limit.
+      const size = mode === 'many' ? 2_000 : 1;
+      const next = (page + 1) * size;
       return {
-        tools: [listed(tools[page])],
-        ...(page + 1 < tools.length ? { nextCursor: String(page + 1) } : {}),
+        tools: tools.slice(page * size, next).map(listed),
+        ...(next < tools.length ? { nextCursor: String(page + 1) } : {}),
       };
+    }
     if (mode === 'forever') return { tools: [listed(tools[0])], nextCursor: String(page + 1) };
     return { tools: tools.map(listed) };
   });

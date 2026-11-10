@@ -325,6 +325,15 @@ The connection flags (`--url`, `--sse`, `--header`, `--header-env`, `--env`, `--
 | `--call-limit <n>` | Call at most this many tools (default `10`). |
 | `--call-timeout <duration>` | How long to wait for one call (default `15s`, at most 2147483647 ms). A call with no answer is `could-not-run`, never a pass. |
 
+### Large tool lists
+
+Two rules compare every pair of tools: `tools-similar` and `desc-no-when-not` (its warning names
+a similar tool). Their work grows with the square of the tool count, so above 1000 tools they do
+not run: each reports one finding with state `could-not-run`, its own level and the message
+`too many tools to compare pairwise (N, limit 1000)`, and the run exits `3` (or `1` when a finding,
+this one included, is at the `--fail-on` level). Every other rule runs on the whole list. At 1000 tools the
+two rules take a few seconds at most, even with every description at the 1000-character mark.
+
 ### The exceptions file
 
 ```yaml
@@ -348,7 +357,7 @@ as stale. A suppressed finding is counted in the summary and listed, with its re
 | `0` | No finding at the `--fail-on` level, and everything was measured. |
 | `1` | At least one finding at the `--fail-on` level or above. |
 | `2` | The server did not start or did not answer (the last lines of its stderr are printed, secrets masked), or a flag or the exceptions file is wrong. |
-| `3` | Nothing measured: the server lists no tools, `tools/list` did not end within 100 pages, or with `--call` a call could not run or no tool was safe to call. Not measured is not clean. |
+| `3` | Nothing measured: the server lists no tools, `tools/list` did not end within 100 pages, a rule could not run (over 1000 tools, see below), or with `--call` a call could not run or no tool was safe to call. Not measured is not clean. |
 
 ## `plune mcp snapshot`
 

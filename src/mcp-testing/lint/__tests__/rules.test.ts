@@ -232,6 +232,29 @@ describe('mcp lint · rules', () => {
     expect(f?.class).toBe('measure');
   });
 
+  it('CLI · mcp lint · up to the tool limit the pairwise rules run; one tool more and they could-not-run, the rest still run', () => {
+    const limit = LINT_THRESHOLDS.similarity.maxTools;
+    expect(limit).toBeGreaterThan(1);
+    const many = (n: number) =>
+      Array.from({ length: n }, (_, i) => clean(`tool_${i}`, { description: `Returns a k${i}a of k${i}b to k${i}c in k${i}d or k${i}e.` }));
+    const pairwise = ['tools-similar', 'desc-no-when-not'];
+
+    const atLimit = lintTools(many(limit));
+    expect(atLimit.filter((f) => f.state !== 'failed')).toEqual([]);
+    expect(atLimit.filter((f) => f.id === 'desc-no-when-not')).toHaveLength(limit);
+
+    const over = lintTools([...many(limit), clean('tool_x', { inputSchema: { type: 'array' } })]);
+    const skipped = over.filter((f) => pairwise.includes(f.id));
+    expect(skipped.map((f) => `${f.id} ${f.level} ${f.state} ${f.message}`)).toEqual([
+      `desc-no-when-not info could-not-run too many tools to compare pairwise (${limit + 1}, limit ${limit})`,
+      `tools-similar warn could-not-run too many tools to compare pairwise (${limit + 1}, limit ${limit})`,
+    ]);
+    expect(over.filter((f) => !pairwise.includes(f.id)).map((f) => `${f.id} ${f.target.tool}`)).toEqual([
+      'input-schema-not-object tool_x',
+      'list-size tool_100',
+    ]);
+  });
+
   it('a shared server prefix does not make every pair of names look alike', () => {
     const tools = [clean('acme_weather_get'), clean('acme_stock_quote', { description: 'Look up the latest price of a stock ticker on its exchange. Not for funds.' })];
     expect(one(tools, 'tools-similar')).toEqual([]);
