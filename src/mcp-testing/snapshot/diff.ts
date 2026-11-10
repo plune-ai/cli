@@ -83,8 +83,8 @@ const sameType = (a: unknown, b: unknown): boolean =>
 class Collector {
   readonly changes: ContractChange[] = [];
   constructor(
-    private readonly entity: ChangeEntity,
-    private readonly name: string,
+    readonly entity: ChangeEntity,
+    readonly name: string,
   ) {}
 
   add(field: string, classification: ChangeClass, reason: string, before: unknown, after: unknown, extra: Partial<ContractChange> = {}): void {
@@ -252,7 +252,7 @@ function compareAnnotations(c: Collector, before: unknown, after: unknown): void
     if (same(b[k], a[k])) continue;
     const field = `annotations.${k}`;
     const modified: Partial<ContractChange> = { kind: 'modified' };
-    if (!(k in HINT_DEFAULTS)) {
+    if (!Object.hasOwn(HINT_DEFAULTS, k)) {
       if (k === 'title') c.add(field, 'informational', 'The display title in the annotations changed.', b[k], a[k], modified);
       else c.unknown(field, `\`${k}\``, b[k], a[k]);
       continue;
@@ -303,6 +303,22 @@ function compareTool(c: Collector, before: SnapshotTool, after: SnapshotTool): v
   compareSchema(c, 'output', '', before.outputSchema, after.outputSchema);
   compareAnnotations(c, before.annotations, after.annotations);
   comparePluneFields(c, before['x-plune'], after['x-plune']);
+  compareExecution(c, before.execution, after.execution);
+}
+
+/** How a tool runs. A tool that now requires a task fails a client that calls it plainly; the rest is not reasoned about. */
+function compareExecution(c: Collector, before: unknown, after: unknown): void {
+  if (same(before, after)) return;
+  if ((before !== undefined && !isRecord(before)) || (after !== undefined && !isRecord(after))) return c.unknown('execution', '`execution`', before, after);
+  const b = before ?? {};
+  const a = after ?? {};
+  for (const k of keysOf(b, a)) {
+    if (same(b[k], a[k])) continue;
+    const field = `execution.${k}`;
+    if (k === 'taskSupport' && a[k] === 'required') {
+      c.add(field, 'breaking', 'The tool now requires to be run as a task: a client that calls it plainly fails.', b[k], a[k], { kind: 'modified' });
+    } else c.unknown(field, `\`${k}\``, b[k], a[k]);
+  }
 }
 
 /** A resource or a resource template: its MIME type is how a client reads the content; the rest is what a model reads. */
@@ -345,7 +361,8 @@ function compareArguments(c: Collector, before: unknown, after: unknown): void {
     const was = b.get(name);
     const is = a.get(name);
     if (was === undefined) {
-      if (is?.['required'] === true) c.add(field, 'breaking', 'A new required argument: a request for the prompt without it now fails.', undefined, is);
+      if (is?.['required'] !== undefined && typeof is['required'] !== 'boolean') c.unknown(field, 'a new argument whose `required` is not a boolean', undefined, is);
+      else if (is?.['required'] === true) c.add(field, 'breaking', 'A new required argument: a request for the prompt without it now fails.', undefined, is);
       else c.add(field, 'non-breaking', 'A new optional argument.', undefined, is);
       continue;
     }
@@ -356,7 +373,8 @@ function compareArguments(c: Collector, before: unknown, after: unknown): void {
     const modified: Partial<ContractChange> = { kind: 'modified' };
     for (const k of keysOf(was, is)) {
       if (k === 'name' || same(was[k], is[k])) continue;
-      if (k === 'required') {
+      if (k === 'required' && [was[k], is[k]].some((v) => v !== undefined && typeof v !== 'boolean')) c.unknown(field, '`required` that is not a boolean', was[k], is[k]);
+      else if (k === 'required') {
         const w = was[k] === true;
         const i = is[k] === true;
         if (i && !w) c.add(field, 'breaking', 'The argument became required: a request without it now fails.', was[k], is[k], modified);
@@ -391,7 +409,7 @@ function compareCapabilities(out: ContractChange[], before: Rec | null, after: R
     else {
       for (const f of keysOf(bc, ac)) {
         if (same(bc[f], ac[f])) continue;
-        const says = NOTIFY[f];
+        const says = Object.hasOwn(NOTIFY, f) ? NOTIFY[f] : undefined;
         if (says === undefined || !isFlag(bc[f]) || !isFlag(ac[f])) c.unknown(f, `\`${f}\` of ${k}`, bc[f], ac[f]);
         else if (bc[f] === true) c.add(f, 'breaking', `The server no longer ${says(k)}: a client that relies on it misses changes.`, bc[f], ac[f]);
         else if (ac[f] === true) c.add(f, 'non-breaking', `The server now ${says(k)}.`, bc[f], ac[f]);
@@ -447,7 +465,29 @@ function duplicates(c: Collector, section: SectionName, key: string, before: Rec
   if (after.length > 1) {
     c.add('duplicate', 'breaking', `The ${noun} is listed ${after.length} times under one ${key}: a client that asks for it by its ${key} may get either entry.`, was, after);
   } else if (after.length === 0) c.add('duplicate', 'breaking', `${removed.replace(/\.$/, '')} (it was listed ${before.length} times).`, was, undefined);
-  else c.unknown('duplicate', `an entry listed ${before.length} times before and once now`, was, after[0]);
+  else {
+    // The one left against each of the former entries; the comparison with the worst outcome stands for all.
+    const worst = before
+      .map((entry) => {
+        const one = new Collector(c.entity, c.name);
+        compareEntity(one, section, entry, after[0]!);
+        return one.changes;
+      })
+      .reduce((w, changes) => (severity(changes) > severity(w) ? changes : w));
+    c.add('duplicate', 'informational', `The ${noun} was listed ${before.length} times and is listed once now: it is compared with each former entry, and the worst comparison is shown.`, was, after[0]);
+    c.changes.push(...worst);
+  }
+}
+
+/** breaking > not classified > non-breaking > informational > no change. */
+function severity(changes: readonly ContractChange[]): number {
+  return changes.reduce((w, ch) => Math.max(w, ch.classification === 'breaking' ? 3 : ch.unclassified === true ? 2 : RANK[ch.classification]), -1);
+}
+
+function compareEntity(c: Collector, section: SectionName, before: Rec, after: Rec): void {
+  if (section === 'tools') compareTool(c, before as unknown as SnapshotTool, after as unknown as SnapshotTool);
+  else if (section === 'prompts') comparePrompt(c, before, after);
+  else compareResource(c, before, after);
 }
 
 function compareSection(out: ContractChange[], section: SectionName, before: readonly Rec[], after: readonly Rec[]): void {
@@ -467,14 +507,25 @@ function compareSection(out: ContractChange[], section: SectionName, before: rea
     if (was.length > 1 || is.length > 1) duplicates(c, section, key, was, is);
     else if (was[0] === undefined) added(c, section, is[0]!);
     else if (is[0] === undefined) c.add(entity, 'breaking', removed, was[0], undefined);
-    else if (section === 'tools') compareTool(c, was[0] as unknown as SnapshotTool, is[0] as unknown as SnapshotTool);
-    else if (section === 'prompts') comparePrompt(c, was[0], is[0]);
-    else compareResource(c, was[0], is[0]);
+    else compareEntity(c, section, was[0], is[0]);
     out.push(...c.changes);
   }
 }
 
 const RANK: Record<ChangeClass, number> = { informational: 0, 'non-breaking': 1, breaking: 2 };
+
+/**
+ * A copy whose objects have no prototype, so a key a server chose (`constructor`, `toString`, `__proto__`) reads as
+ * that key or as nothing, never as a member of Object. A snapshot is at most a few hundred levels deep (parseSnapshot
+ * refuses a deeper file), so the recursion is bounded.
+ */
+function bare(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(bare);
+  if (!isRecord(value)) return value;
+  const out = Object.create(null) as Rec;
+  for (const [k, v] of Object.entries(value)) out[k] = bare(v);
+  return out;
+}
 
 export function summarize(changes: readonly ContractChange[]): ContractDiffSummary {
   const summary: ContractDiffSummary = { breaking: 0, 'non-breaking': 0, informational: 0, unclassified: 0, security: 0, overall: 'none' };
@@ -492,7 +543,9 @@ export function summarize(changes: readonly ContractChange[]): ContractDiffSumma
  * resources, resource templates and prompts, each by key. A section that is `null` (not declared) has no entities; its
  * capability says that it went.
  */
-export function diffSnapshots(before: McpSnapshot, after: McpSnapshot): ContractDiff {
+export function diffSnapshots(beforeAsRead: McpSnapshot, afterAsRead: McpSnapshot): ContractDiff {
+  const before = bare(beforeAsRead) as McpSnapshot;
+  const after = bare(afterAsRead) as McpSnapshot;
   const changes: ContractChange[] = [];
   const server = new Collector('server', '');
   compareServer(server, before.server as Rec | null, after.server as Rec | null);
@@ -535,7 +588,18 @@ export function renderDiffText(diff: ContractDiff): string {
   ].join('\n');
 }
 
-const cell = (s: string) => s.replace(/\r?\n/g, ' ').replace(/\|/g, '\\|');
+/**
+ * Server text as one Markdown table cell that renders as text: no HTML (a comment would hide the rest of the comment,
+ * or fake another tool's marker), no code span to break out of, no new row.
+ */
+const cell = (s: string) =>
+  s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/`/g, '&#96;')
+    .replace(/\r?\n/g, ' ')
+    .replace(/\|/g, '\\|');
 
 /** The diff as Markdown, for a pull request's run summary or comment. */
 export function renderDiffMarkdown(diff: ContractDiff): string {
@@ -549,8 +613,7 @@ export function renderDiffMarkdown(diff: ContractDiff): string {
     '| --- | --- | --- | --- | --- | --- |',
     ...diff.changes.map((ch) => {
       const f = flags(ch);
-      const name = ch.name === '' ? '' : `\`${cell(ch.name)}\``;
-      return `| ${ch.classification}${f === '' ? '' : ` (${f})`} | ${ch.entity} | ${name} | \`${cell(ch.field)}\` | ${ch.kind} | ${cell(ch.reason)} |`;
+      return `| ${ch.classification}${f === '' ? '' : ` (${f})`} | ${ch.entity} | ${cell(ch.name)} | ${cell(ch.field)} | ${ch.kind} | ${cell(ch.reason)} |`;
     }),
     '',
   ].join('\n');

@@ -38,6 +38,8 @@ export interface SnapshotTool {
   inputSchema?: unknown;
   outputSchema?: unknown;
   annotations?: Record<string, unknown>;
+  /** How the tool runs (`taskSupport`), as sent. */
+  execution?: Record<string, unknown>;
   'x-plune'?: PluneToolFields;
 }
 
@@ -84,16 +86,20 @@ export interface McpSnapshot {
   prompts: SnapshotPrompt[] | null;
 }
 
-/** What a server answered, as sent. A list left out was not asked for; the capability it belongs to must not be declared. */
+/**
+ * What a server answered, as sent. A list left out was not asked for, and the capability it belongs to must not be
+ * declared. `null`: the capability is declared and the server does not serve this list (a `resources` server without
+ * `resources/templates/list`); its section is `null` as well.
+ */
 export interface SnapshotInput {
   transport: SnapshotTransport;
   serverInfo?: unknown;
   instructions?: unknown;
   capabilities?: unknown;
-  tools?: readonly unknown[];
-  resources?: readonly unknown[];
-  resourceTemplates?: readonly unknown[];
-  prompts?: readonly unknown[];
+  tools?: readonly unknown[] | null;
+  resources?: readonly unknown[] | null;
+  resourceTemplates?: readonly unknown[] | null;
+  prompts?: readonly unknown[] | null;
 }
 
 export interface SnapshotOptions {
@@ -104,6 +110,10 @@ export interface SnapshotOptions {
    * values, tokens, the server's address. Each occurrence becomes `[redacted]`.
    */
   secrets?: readonly string[];
+  /** Values whose name says they are credentials: masked like `secrets`, whatever their length. */
+  credentials?: readonly string[];
+  /** The home directory of this machine's user: wherever a path starts with it, it becomes `~`. */
+  home?: string;
 }
 
 /** A server answer that cannot become a snapshot, or a file that is not one. */
@@ -124,7 +134,7 @@ export const SECTIONS = [
 export type SectionName = (typeof SECTIONS)[number]['section'];
 
 const FIELDS: Record<SectionName, readonly string[]> = {
-  tools: ['title', 'description', 'inputSchema', 'outputSchema', 'annotations'],
+  tools: ['title', 'description', 'inputSchema', 'outputSchema', 'annotations', 'execution'],
   resources: ['name', 'title', 'description', 'mimeType'],
   resourceTemplates: ['name', 'title', 'description', 'mimeType'],
   prompts: ['title', 'description', 'arguments'],
@@ -151,30 +161,59 @@ export function sortKeys(value: unknown): unknown {
 // short leaks it here; raise the bar only together with a test.
 const MIN_SECRET_LENGTH = 4;
 
-// A home directory at the start of a path: /home/<user>, /Users/<user>, C:\Users\<user>. Not inside a URL path, so a
-// `/home/` after a host name is left alone; a path that names no user directory is not caught.
-const HOME_DIR = /(?<![\w./\\-])(?:\/home\/|\/Users\/|[A-Za-z]:[\\/]Users[\\/])[^\\/\s"'`]+/g;
+/**
+ * The given home directory at the start of a path, with either separator, and in any letter case for a Windows path.
+ * Only that one: another user's `/home/<name>` is data a server may list (two such values must stay two), not this
+ * machine. Not inside a URL path, and not when the name goes on (`/home/carolyn` is not `/home/carol`).
+ */
+function homePattern(home: string | undefined): RegExp | undefined {
+  const trimmed = home?.replace(/[\\/]+$/, '');
+  if (trimmed === undefined || trimmed.length < 2) return undefined;
+  const path = trimmed
+    .split(/[\\/]/)
+    .map(escapeRegExp)
+    .join('[\\\\/]');
+  return new RegExp(`(?<![\\w./\\\\-])${path}(?![\\w-]|\\.\\w)`, /^[A-Za-z]:/.test(trimmed) ? 'gi' : 'g');
+}
 
 // A secret is found as written in any letter case, in keys (property names) as in values. A URL-encoded or base64 form
-// of it is not, and a home directory only at the start of a path: deliberate limits of a text match.
-function redact(value: unknown, secrets: RegExp | undefined): unknown {
-  if (typeof value === 'string') return (secrets === undefined ? value : value.replace(secrets, '[redacted]')).replace(HOME_DIR, '~');
-  if (Array.isArray(value)) return value.map((v) => redact(v, secrets));
+// of it is not, and the home directory only at the start of a path: deliberate limits of a text match.
+//
+// A known limit: masking runs before the diff, so two enum values (or two keys) that differ only by a secret or the home
+// directory in them become one text, and the diff sees one value where the server listed two. Its ceiling is a server
+// that puts a credential or this machine's home into an enum; the way past it is to compare the unmasked lists and mask
+// only what is written.
+function redact(value: unknown, secrets: RegExp | undefined, home: RegExp | undefined): unknown {
+  if (typeof value === 'string') {
+    const masked = secrets === undefined ? value : value.replace(secrets, '[redacted]');
+    return home === undefined ? masked : masked.replace(home, '~');
+  }
+  if (Array.isArray(value)) return value.map((v) => redact(v, secrets, home));
   if (!isRecord(value)) return value;
-  return Object.fromEntries(Object.entries(value).map(([k, v]) => [redact(k, secrets) as string, redact(v, secrets)]));
+  return Object.fromEntries(Object.entries(value).map(([k, v]) => [redact(k, secrets, home) as string, redact(v, secrets, home)]));
 }
 
 const isNameList = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');
 
+/** Keywords whose value is data, not a schema: kept as sent, order included. */
+const DATA_KEYWORDS = new Set(['default', 'const', 'examples', 'enum']);
+/** Keywords whose value maps names to schemas: the names are not keywords. */
+const NAMED_SCHEMAS = new Set(['properties', 'patternProperties', '$defs', 'definitions', 'dependentSchemas']);
+
 /**
- * `required` and a list under `type` are sets: their order follows the order of declaration, not the contract. Such a
- * list under one of those keys inside example data is sorted as well; it carries no meaning there either way.
+ * `required` and a list under `type` are sets: their order follows the order of declaration, not the contract. Only
+ * where they are keywords of a schema; inside data (`default`, `const`, `examples`, `enum`) nothing is reordered.
  */
 function sortSets(node: unknown): unknown {
   if (Array.isArray(node)) return node.map(sortSets);
   if (!isRecord(node)) return node;
   return Object.fromEntries(
-    Object.entries(node).map(([k, v]) => [k, (k === 'required' || k === 'type') && isNameList(v) ? [...v].sort() : sortSets(v)]),
+    Object.entries(node).map(([k, v]) => {
+      if (DATA_KEYWORDS.has(k)) return [k, v];
+      if ((k === 'required' || k === 'type') && isNameList(v)) return [k, [...v].sort()];
+      if (NAMED_SCHEMAS.has(k) && isRecord(v)) return [k, Object.fromEntries(Object.entries(v).map(([n, schema]) => [n, sortSets(schema)]))];
+      return [k, sortSets(v)];
+    }),
   );
 }
 
@@ -229,9 +268,12 @@ export function buildSnapshot(input: SnapshotInput, opts: SnapshotOptions = {}):
   const list = [...new Set((opts.secrets ?? []).map((s) => s.trim()).filter((s) => s.length >= MIN_SECRET_LENGTH))]
     // The longest first, so a secret that contains another is replaced whole.
     .sort((a, b) => b.length - a.length);
-  const secrets = list.length === 0 ? undefined : new RegExp(list.map(escapeRegExp).join('|'), 'gi');
+  const credentials = (opts.credentials ?? []).map((s) => s.trim()).filter((s) => s !== '');
+  const all = [...new Set([...list, ...credentials])].sort((a, b) => b.length - a.length);
+  const secrets = all.length === 0 ? undefined : new RegExp(all.map(escapeRegExp).join('|'), 'gi');
+  const home = homePattern(opts.home);
   const capabilities = isRecord(input.capabilities) ? input.capabilities : null;
-  const clean = <T>(v: unknown): T => sortKeys(redact(v, secrets)) as T;
+  const clean = <T>(v: unknown): T => sortKeys(redact(v, secrets, home)) as T;
 
   const snapshot: McpSnapshot = {
     kind: SNAPSHOT_KIND,
@@ -247,6 +289,7 @@ export function buildSnapshot(input: SnapshotInput, opts: SnapshotOptions = {}):
   };
   for (const { section, key, capability } of SECTIONS) {
     const listed = input[section];
+    if (listed === null) continue;
     if (listed === undefined) {
       if (capabilities?.[capability] !== undefined) throw new SnapshotFormatError(`the server declares ${capability}, but no ${section} list was given`);
       continue;
@@ -256,6 +299,27 @@ export function buildSnapshot(input: SnapshotInput, opts: SnapshotOptions = {}):
   }
   return snapshot;
 }
+
+/**
+ * Whether `value` holds an object or a list `limit` levels deep or deeper (`value` itself is level 0). Without
+ * recursion, so a hostile nesting cannot exhaust the stack before it is measured.
+ */
+export function nestedDeeperThan(value: unknown, limit: number): boolean {
+  const stack: [unknown, number][] = [[value, 0]];
+  while (stack.length > 0) {
+    const [node, depth] = stack.pop()!;
+    if (node === null || typeof node !== 'object') continue;
+    if (depth >= limit) return true;
+    for (const child of Array.isArray(node) ? node : Object.values(node)) stack.push([child, depth + 1]);
+  }
+  return false;
+}
+
+/**
+ * How deep a snapshot file may nest. A snapshot taken by this version stays far below it (the masking reads 64 levels
+ * of an entity); a file past it is refused before anything walks it recursively.
+ */
+const MAX_FILE_DEPTH = 256;
 
 /** Tools, resources, resource templates and prompts together: zero means the snapshot measured nothing. */
 export const entityCount = (s: McpSnapshot): number => SECTIONS.reduce((n, { section }) => n + (s[section]?.length ?? 0), 0);
@@ -272,6 +336,7 @@ export function parseSnapshot(raw: string): McpSnapshot {
   } catch (err) {
     throw new SnapshotFormatError(`not JSON: ${(err as Error).message}`);
   }
+  if (nestedDeeperThan(parsed, MAX_FILE_DEPTH)) throw new SnapshotFormatError(`nested deeper than ${MAX_FILE_DEPTH} levels, which no snapshot is`);
   if (!isRecord(parsed)) throw new SnapshotFormatError(`not a ${SNAPSHOT_KIND} file`);
   const found = parsed['format'] === FORMAT_V1 ? 1 : parsed['kind'] === SNAPSHOT_KIND ? parsed['schemaVersion'] : undefined;
   if (found === undefined) throw new SnapshotFormatError(`not a ${SNAPSHOT_KIND} file`);

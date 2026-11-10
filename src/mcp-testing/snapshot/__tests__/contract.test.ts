@@ -6,6 +6,7 @@ import {
   buildSnapshot,
   diffSnapshots,
   parseSnapshot,
+  renderDiffMarkdown,
   renderDiffText,
   serializeSnapshot,
   SnapshotFormatError,
@@ -431,5 +432,180 @@ describe('CLI · mcp diff · a name listed twice', () => {
   it('CLI · mcp diff · the same duplicates on both sides are no change', () => {
     const twice = input({ tools: [TOOL, { ...TOOL, description: 'Another one.' }] });
     expect(changes(twice, copy(twice))).toEqual([]);
+  });
+});
+
+describe('CLI · mcp diff · review round: rules that must not be fooled', () => {
+  const obj = (properties: Listed, required: string[]) => ({
+    type: 'object',
+    properties,
+    required,
+  });
+  const t = (inputSchema: unknown, extra: Listed = {}): Listed => ({
+    name: 't',
+    description: 'd',
+    inputSchema,
+    annotations: { readOnlyHint: true },
+    ...extra,
+  });
+  const tools = (...list: Listed[]) => input({ tools: list });
+
+  it('CLI · mcp diff · several equal entries to one: the one is compared with each and the worst class is kept', () => {
+    const before = t(obj({ a: { type: 'string', enum: ['x', 'y', 'z'] } }, ['a']));
+    const after = t(obj({ a: { type: 'string', enum: ['x'] }, b: { type: 'string' } }, ['a', 'b']));
+    const diff = diffSnapshots(buildSnapshot(tools(before, before)), buildSnapshot(tools(after)));
+    expect(diff.summary.overall).toBe('breaking');
+    expect(diff.changes.map((c) => [c.field, c.classification])).toEqual(
+      expect.arrayContaining([
+        ['inputSchema.a', 'breaking'],
+        ['inputSchema.b', 'breaking'],
+      ]),
+    );
+  });
+
+  it('CLI · mcp diff · several different entries to one: the comparison with the worst outcome is reported', () => {
+    const a = t(obj({ a: { type: 'string' } }, []));
+    const b = t(obj({ a: { type: 'string' }, z: { type: 'string', format: 'x' } }, []));
+    // The one left is `a`: against `a` no change, against `b` a parameter removed (breaking).
+    const diff = diffSnapshots(buildSnapshot(tools(a, b)), buildSnapshot(tools(a)));
+    expect(diff.summary.breaking).toBe(1);
+    expect(diff.changes.find((c) => c.classification === 'breaking')?.field).toBe('inputSchema.z');
+  });
+
+  it('CLI · mcp diff · markdown escapes server text: no comment, tag or backtick from the server survives', () => {
+    const name = 'a`<img src=x>`<!-- plune-eval-diff -->';
+    const e = (values: string[]) => ({
+      ...t(obj({ e: { type: 'string', enum: values } }, ['e'])),
+      name,
+    });
+    const md = renderDiffMarkdown(
+      diffSnapshots(
+        buildSnapshot(
+          tools(e(['<!-- plune-eval-diff -->', '<a href="https://e.example">ok</a>', 'k'])),
+        ),
+        buildSnapshot(tools(e(['k']))),
+      ),
+    );
+    expect(md).not.toContain('<!--');
+    expect(md).not.toContain('<img');
+    expect(md).not.toContain('<a ');
+    expect(md).not.toContain('`a');
+    expect(md).toContain('&lt;img src=x&gt;');
+    expect(md).toContain('&#96;');
+  });
+
+  it('CLI · mcp diff · a file nested far too deep is a format error, not a crash', () => {
+    const nested = `${'['.repeat(200_000)}1${']'.repeat(200_000)}`;
+    const deep = `{"kind": "plune-mcp-snapshot", "schemaVersion": 2, "transport": "stdio", "server": null, "instructions": null, "capabilities": {}, "tools": [{"name": "t", "inputSchema": {"examples": ${nested}}}], "resources": null, "resourceTemplates": null, "prompts": null}`;
+    expect(() => parseSnapshot(deep)).toThrow(SnapshotFormatError);
+    expect(() => parseSnapshot(deep)).toThrow(/nested deeper than/);
+  });
+
+  it('CLI · mcp diff · execution is kept; taskSupport becoming required is breaking, other execution changes not classified', () => {
+    const ex = (execution: unknown) =>
+      tools(t(obj({}, []), execution === undefined ? {} : { execution }));
+    expect(buildSnapshot(ex({ taskSupport: 'optional' })).tools?.[0]).toMatchObject({
+      execution: { taskSupport: 'optional' },
+    });
+    for (const from of [undefined, { taskSupport: 'optional' }, { taskSupport: 'forbidden' }]) {
+      const c = only(ex(from), ex({ taskSupport: 'required' }));
+      expect([c.field, c.classification, c.unclassified], JSON.stringify(from)).toEqual([
+        'execution.taskSupport',
+        'breaking',
+        undefined,
+      ]);
+    }
+    const other = only(ex({ taskSupport: 'required' }), ex({ taskSupport: 'optional' }));
+    expect([other.field, other.unclassified]).toEqual(['execution.taskSupport', true]);
+  });
+
+  it('CLI · mcp snapshot · arrays inside data keywords (default, const, examples, enum) keep their order', () => {
+    const s = buildSnapshot(
+      tools(
+        t(
+          obj(
+            {
+              a: {
+                type: 'object',
+                default: { type: ['b', 'a'], required: ['z', 'y'] },
+                examples: [{ type: ['d', 'c'] }],
+              },
+            },
+            [],
+          ),
+        ),
+      ),
+    );
+    const a = (s.tools?.[0]?.inputSchema as { properties: { a: Listed } }).properties.a;
+    expect(a['default']).toEqual({ type: ['b', 'a'], required: ['z', 'y'] });
+    expect(a['examples']).toEqual([{ type: ['d', 'c'] }]);
+    // A property named like a data keyword is still a schema, and its sets are still sorted.
+    const named = buildSnapshot(tools(t(obj({ default: { type: ['string', 'null'] } }, []))));
+    const prop = (named.tools?.[0]?.inputSchema as { properties: { default: Listed } }).properties
+      .default;
+    expect(prop['type']).toEqual(['null', 'string']);
+  });
+
+  it('CLI · mcp snapshot · only the home directory given is replaced, so other users stay apart', () => {
+    const p = (values: string[]) => t(obj({ p: { type: 'string', enum: values } }, ['p']));
+    const opts = { home: '/home/carol' };
+    const c = diffSnapshots(
+      buildSnapshot(tools(p(['/home/alice', '/home/bob'])), opts),
+      buildSnapshot(tools(p(['/home/alice'])), opts),
+    ).changes;
+    expect(c.map((x) => [x.field, x.classification])).toEqual([['inputSchema.p', 'breaking']]);
+    const text = serializeSnapshot(
+      buildSnapshot(
+        tools(t(obj({}, []), { description: 'Reads /home/carol/x and /home/carolyn/z' })),
+        opts,
+      ),
+    );
+    expect(text).toContain('Reads ~/x and /home/carolyn/z');
+    const win = serializeSnapshot(
+      buildSnapshot(tools(t(obj({}, []), { description: 'Reads c:\\users\\Carol\\y' })), {
+        home: 'C:\\Users\\carol',
+      }),
+    );
+    expect(win).toContain('Reads ~\\\\y');
+  });
+
+  it('CLI · mcp diff · server keys named like Object members are not taken for hints or flags', () => {
+    const ctor = only(
+      tools(t(obj({}, []))),
+      tools(t(obj({}, []), { annotations: { readOnlyHint: true, constructor: 'x' } })),
+    );
+    expect([ctor.field, ctor.unclassified]).toEqual(['annotations.constructor', true]);
+    const caps = (flag: boolean) =>
+      input({
+        capabilities: {
+          tools: { toString: flag },
+          resources: { subscribe: true, listChanged: true },
+          prompts: {},
+        },
+      });
+    const flag = only(caps(false), caps(true));
+    expect([flag.entity, flag.field, flag.unclassified]).toEqual(['capability', 'toString', true]);
+  });
+
+  it('CLI · mcp diff · a new prompt argument whose required is not a boolean is not classified', () => {
+    const withArgs = (args: unknown[]) => input({ prompts: [{ name: 'p', arguments: args }] });
+    const c = only(withArgs([]), withArgs([{ name: 'x', required: 'true' }]));
+    expect([c.field, c.unclassified]).toEqual(['arguments.x', true]);
+  });
+
+  it('CLI · mcp snapshot · a declared resources capability without a template list gives resourceTemplates null', () => {
+    const s = buildSnapshot(input({ resourceTemplates: null }));
+    expect(s.resourceTemplates).toBeNull();
+    expect(s.resources).toHaveLength(1);
+  });
+
+  it('CLI · mcp snapshot · a credential is masked at any length; other secrets from 4 characters', () => {
+    const text = serializeSnapshot(
+      buildSnapshot(input({ instructions: 'key k9z and ab' }), {
+        credentials: ['k9z'],
+        secrets: ['ab'],
+      }),
+    );
+    expect(text).toContain('"key [redacted] and ab"');
   });
 });

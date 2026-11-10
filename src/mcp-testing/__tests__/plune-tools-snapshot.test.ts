@@ -72,7 +72,7 @@ describe('CLI · mcp snapshot · Plune tools contract', () => {
     base.tools = (base.tools ?? []).filter((t) => t.name !== 'plune_get');
     const summary = pluneContractSummary(serializeSnapshot(base), live);
     expect(summary).toContain('**Overall: non-breaking**');
-    expect(summary).toContain('| non-breaking | tool | `plune_get` | `tool` | added | A new tool. |');
+    expect(summary).toContain('| non-breaking | tool | plune_get | tool | added | A new tool. |');
     // The base branch still holds a file of the tools-only format: said, not a failed step.
     expect(pluneContractSummary('{"format": "plune-mcp-snapshot/1", "tools": []}', live)).toContain(
       'The snapshot on the base branch cannot be read (schemaVersion 1 is not supported',

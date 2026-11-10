@@ -118,14 +118,14 @@ describe('mcp snapshot · secrets stay out (AC-9)', () => {
   it('header values, a token, the server address and a home directory do not reach the file', () => {
     const secrets = ['Bearer sk-live-0123456789abcdef', 'plt_9f8e7d6c5b4a', 'https://mcp.internal.example:8443'];
     const t = tool({
-      description: `Calls https://mcp.internal.example:8443/v1 with Authorization: Bearer sk-live-0123456789abcdef; config in /home/jdoe/.config/x and C:\\Users\\jdoe\\AppData.`,
+      description: `Calls https://mcp.internal.example:8443/v1 with Authorization: Bearer sk-live-0123456789abcdef; config in /home/jdoe/.config/x and /home/jdoe.`,
     });
     (t['inputSchema'] as { properties: Record<string, unknown> }).properties['token'] = {
       type: 'string',
       default: 'plt_9f8e7d6c5b4a',
-      examples: ['plt_9f8e7d6c5b4a', '/Users/jdoe/key.pem'],
+      examples: ['plt_9f8e7d6c5b4a', '/home/jdoe/key.pem'],
     };
-    const text = serializeSnapshot(buildSnapshot(listing([t]), { secrets }));
+    const text = serializeSnapshot(buildSnapshot(listing([t]), { secrets, home: '/home/jdoe' }));
     for (const leaked of [...secrets, 'sk-live-0123456789abcdef', 'mcp.internal.example', 'jdoe']) expect(text).not.toContain(leaked);
     expect(text).toContain('[redacted]');
     expect(text).toContain('~/.config/x');
@@ -291,8 +291,8 @@ describe('mcp snapshot · nothing is lost (AC-6)', () => {
     expect(text).toContain('3 change(s) to the contract, overall breaking: 1 breaking, 1 non-breaking, 1 informational (0 not classified, 1 security)');
     expect(text).toContain('description  modified [security]');
     const md = renderDiffMarkdown(diff);
-    expect(md).toContain('| breaking | tool | `weather_get` | `inputSchema.days` | removed |');
-    expect(md).toContain('| informational (security) | tool | `weather_get` | `description` | modified |');
+    expect(md).toContain('| breaking | tool | weather_get | inputSchema.days | removed |');
+    expect(md).toContain('| informational (security) | tool | weather_get | description | modified |');
     expect(renderDiffText({ changes: [], summary: diffSnapshots(snap(), snap()).summary })).toBe('No changes to the contract.');
     expect(diffSnapshots(snap(), snap()).summary.overall).toBe('none');
   });
