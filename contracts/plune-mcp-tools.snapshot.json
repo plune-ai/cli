@@ -1,5 +1,19 @@
 {
-  "format": "plune-mcp-snapshot/1",
+  "capabilities": {
+    "tools": {
+      "listChanged": true
+    }
+  },
+  "instructions": null,
+  "kind": "plune-mcp-snapshot",
+  "prompts": null,
+  "resourceTemplates": null,
+  "resources": null,
+  "schemaVersion": 2,
+  "server": {
+    "name": "plune",
+    "version": "0.0.0-snapshot"
+  },
   "tools": [
     {
       "annotations": {
@@ -2965,5 +2979,6 @@
         "write": true
       }
     }
-  ]
+  ],
+  "transport": "stdio"
 }

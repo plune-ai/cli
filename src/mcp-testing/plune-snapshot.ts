@@ -1,13 +1,14 @@
 // The contract snapshot of `plune mcp serve`, taken from what a client really receives: the real server behind its stdio
 // entry over an in-memory transport, in the 2025 era, after `plune_discover_tools` switched on every hidden tool, so the
 // list holds every tool of the contract. The JSON schemas come from the SDK, so this is the answer a model sees, and a
-// change of SDK shows in the diff too. `x-plune` (visibility, write) comes from the contract itself.
+// change of SDK shows in the diff too. `x-plune` (visibility, write) comes from the contract itself. The server, its
+// capabilities and instructions come from the `initialize` answer, as `plune mcp snapshot` takes them from any server.
 
 import { InMemoryTransport } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import { PLUNE_TOOLS } from '../mcp-tools/index.js';
 import { createPluneMcpServer } from '../mcp/server.js';
-import { buildSnapshot, diffSnapshots, parseSnapshot, renderDiffMarkdown, type ToolSnapshot } from './snapshot/index.js';
+import { buildSnapshot, diffSnapshots, parseSnapshot, renderDiffMarkdown, SnapshotFormatError, type McpSnapshot } from './snapshot/index.js';
 
 /** Relative to the repository root. */
 export const PLUNE_SNAPSHOT_FILE = 'contracts/plune-mcp-tools.snapshot.json';
@@ -34,6 +35,8 @@ export interface PluneConnectionOptions {
 }
 
 export interface PluneConnection {
+  /** The `initialize` answer (legacy era); undefined in the modern era, which has no handshake. */
+  readonly initialized: Record<string, unknown> | undefined;
   request(method: string, params?: Record<string, unknown>): Promise<Record<string, unknown>>;
   /** Asks `plune_discover_tools` for every hidden tool. */
   revealHidden(): Promise<void>;
@@ -82,9 +85,10 @@ export async function connectPluneServer(opts: PluneConnectionOptions = {}): Pro
       client.send({ jsonrpc: '2.0', id, method, params: era === 'modern' ? { ...params, _meta: MODERN_META } : params }).catch(reject);
     });
 
+  let initialized: Record<string, unknown> | undefined;
   try {
     if (era === 'legacy') {
-      await request('initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'snapshot', version: '1' } });
+      initialized = await request('initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'snapshot', version: '1' } });
       await client.send({ jsonrpc: '2.0', method: 'notifications/initialized' });
     }
   } catch (err) {
@@ -92,6 +96,7 @@ export async function connectPluneServer(opts: PluneConnectionOptions = {}): Pro
     throw err;
   }
   return {
+    initialized,
     request,
     async revealHidden() {
       const names = PLUNE_TOOLS.filter((t) => t.visibility === 'discoverable').map((t) => t.name);
@@ -108,19 +113,29 @@ export async function connectPluneServer(opts: PluneConnectionOptions = {}): Pro
 }
 
 /** The `tools/list` answer of the server with a write token, after every discoverable tool was switched on. */
-export async function listAllPluneTools(): Promise<unknown[]> {
+export async function listAllPluneTools(): Promise<{ tools: unknown[]; initialized: Record<string, unknown> | undefined }> {
   const c = await connectPluneServer();
   try {
     await c.revealHidden();
-    return await c.listTools();
+    return { tools: await c.listTools(), initialized: c.initialized };
   } finally {
     await c.close();
   }
 }
 
-/** A snapshot of a `tools/list` answer of our server, with `x-plune` from the contract. */
-export function snapshotPluneTools(listed: readonly unknown[], secrets: readonly string[] = []): ToolSnapshot {
-  return buildSnapshot(listed, {
+/**
+ * A snapshot of our server's answers, with `x-plune` from the contract. Its only capability is tools: a resource or a
+ * prompt list it declared would have to be listed here as well, and `buildSnapshot` refuses a declared list not given.
+ */
+export function snapshotPluneTools(listed: readonly unknown[], initialized: Record<string, unknown> | undefined, secrets: readonly string[] = []): McpSnapshot {
+  const input = {
+    transport: 'stdio' as const,
+    serverInfo: initialized?.['serverInfo'],
+    instructions: initialized?.['instructions'],
+    capabilities: initialized?.['capabilities'],
+    tools: listed,
+  };
+  return buildSnapshot(input, {
     pluneFields: (name) => {
       const t = PLUNE_TOOLS.find((d) => d.name === name);
       return t === undefined ? undefined : { visibility: t.visibility, write: t.write };
@@ -129,15 +144,24 @@ export function snapshotPluneTools(listed: readonly unknown[], secrets: readonly
   });
 }
 
-export async function pluneToolsSnapshot(): Promise<ToolSnapshot> {
-  return snapshotPluneTools(await listAllPluneTools(), [TOKEN, API_URL]);
+export async function pluneToolsSnapshot(): Promise<McpSnapshot> {
+  const { tools, initialized } = await listAllPluneTools();
+  return snapshotPluneTools(tools, initialized, [TOKEN, API_URL]);
 }
 
 /** The run summary of a pull request: this branch's contract against the base branch's file (`null`: there is none). */
-export function pluneContractSummary(baseFile: string | null, current: ToolSnapshot): string {
+export function pluneContractSummary(baseFile: string | null, current: McpSnapshot): string {
   const head = '### Tool contract\n\n';
   if (baseFile === null) return `${head}No snapshot of the tool contract on the base branch yet, so nothing to compare.\n`;
-  const diff = diffSnapshots(parseSnapshot(baseFile), current);
+  let base: McpSnapshot;
+  try {
+    base = parseSnapshot(baseFile);
+  } catch (err) {
+    // The base branch holds a file of another format version: the branch that changes the format compares nothing.
+    if (err instanceof SnapshotFormatError) return `${head}The snapshot on the base branch cannot be read (${err.message}), so nothing to compare.\n`;
+    throw err;
+  }
+  const diff = diffSnapshots(base, current);
   if (diff.changes.length === 0) return `${head}${renderDiffMarkdown(diff)}`;
   return `${head}This contract is shared by \`plune mcp serve\` and the platform's built-in agent: a change reaches both.\n\n${renderDiffMarkdown(diff)}`;
 }

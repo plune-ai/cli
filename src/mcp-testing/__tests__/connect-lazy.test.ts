@@ -18,6 +18,15 @@ vi.mock('../../cli/commands/mcp-check.js', () => {
   loaded.check = true;
   return {};
 });
+const contract = vi.hoisted(() => ({ snapshot: false, diff: false }));
+vi.mock('../../cli/commands/mcp-snapshot.js', () => {
+  contract.snapshot = true;
+  return {};
+});
+vi.mock('../../cli/commands/mcp-diff.js', () => {
+  contract.diff = true;
+  return {};
+});
 
 import type { Command } from 'commander';
 import { createProgram } from '../../cli.js';
@@ -48,17 +57,39 @@ describe('CLI · mcp connect · cold start', () => {
     expect(loaded).toEqual({ session: false, lint: false, check: false });
   });
 
+  it('CLI · mcp snapshot · --help of snapshot and diff loads neither command nor the connection core', () => {
+    run(['mcp', 'snapshot', '--help']);
+    run(['mcp', 'diff', '--help']);
+    expect({ ...loaded, ...contract }).toEqual({
+      session: false,
+      lint: false,
+      check: false,
+      snapshot: false,
+      diff: false,
+    });
+  });
+
   it('CLI · mcp connect · src/cli.ts imports neither the core, the lint command nor the MCP client at the top', () => {
     const top = readFileSync(new URL('../../cli.ts', import.meta.url), 'utf8')
       .split('\n')
       .filter((l) => l.startsWith('import ') && !l.startsWith('import type '));
     expect(top.join('\n')).not.toMatch(
-      /mcp-testing\/(?!connect\/options\.js')|@modelcontextprotocol|mcp-lint|mcp-check/,
+      /mcp-testing\/(?!connect\/options\.js')|@modelcontextprotocol|mcp-lint|mcp-check|mcp-snapshot|mcp-diff/,
     );
   });
 
   it('CLI · mcp connect · mcp is a group: serve and lint under it', () => {
     const mcp = createProgram().commands.find((c) => c.name() === 'mcp');
-    expect(mcp?.commands.map((c) => c.name())).toEqual(['serve', 'check', 'lint']);
+    expect(
+      mcp?.commands.map((c) => c.name()).filter((n) => n !== 'snapshot' && n !== 'diff'),
+    ).toEqual(['serve', 'check', 'lint']);
+  });
+
+  it('CLI · mcp snapshot · snapshot and diff hang on the mcp group, after lint', () => {
+    const names =
+      createProgram()
+        .commands.find((c) => c.name() === 'mcp')
+        ?.commands.map((c) => c.name()) ?? [];
+    expect(names).toEqual(['serve', 'check', 'lint', 'snapshot', 'diff']);
   });
 });
