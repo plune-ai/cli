@@ -70,7 +70,9 @@ describe('CLI · mcp connect · signals', () => {
     const run = await startRunner();
     run.interrupt();
     expect(await run.exited, run.stderr()).toBe(130);
-    expect(alive(run.pid)).toBe(false);
+    // plune exits right after it signals the server: the server is gone a moment later, not at that instant
+    // (until it is reaped, process.kill(pid, 0) still finds it).
+    await waitFor(() => (alive(run.pid) ? undefined : true), 3_000);
     await waitFor(() => (alive(run.grandchild) ? undefined : true), 3_000);
   }, 30_000);
 
@@ -81,7 +83,9 @@ describe('CLI · mcp connect · signals', () => {
     expect(await run.exitWithin(1_500)).toBe('still running');
     run.interrupt();
     expect(await run.exitWithin(15_000), run.stderr()).toBe(130);
-    expect(alive(run.pid)).toBe(false);
+    // plune exits right after it signals the server: the server is gone a moment later, not at that instant
+    // (until it is reaped, process.kill(pid, 0) still finds it).
+    await waitFor(() => (alive(run.pid) ? undefined : true), 3_000);
     await waitFor(() => (alive(run.grandchild) ? undefined : true), 3_000);
   }, 40_000);
 });
