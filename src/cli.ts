@@ -9,6 +9,8 @@ import type { ReportFormat } from './reporters/index.js';
 import type { ImportFlags } from './cli/commands/requirements-import.js';
 import type { LinksFlags } from './cli/commands/requirements-links.js';
 import type { McpLintFlags } from './cli/commands/mcp-lint.js';
+import type { McpSnapshotFlags } from './cli/commands/mcp-snapshot.js';
+import type { McpDiffFlags } from './cli/commands/mcp-diff.js';
 // The connection flags of `plune mcp` commands: commander and a duration parser, no MCP client (that loads in the action).
 import { addConnectionOptions } from './mcp-testing/connect/options.js';
 
@@ -774,6 +776,69 @@ export function createProgram(): Command {
           cwd: process.cwd(),
           clientVersion: pkg.version,
         });
+      } catch (err) {
+        failUnexpected(err, verbose);
+      }
+    });
+
+  addConnectionOptions(
+    mcp
+      .command('snapshot')
+      .description(
+        'Write the contract of any MCP server (tools, resources, resource templates, prompts, capabilities) as stable JSON: exit 2 when a declared list cannot be read, 3 when the server lists nothing',
+      ),
+  )
+    .option('--out <path>', 'Write the snapshot to this file, whole or not at all (default: stdout)')
+    .action(async (server: string[], options: McpSnapshotFlags, command: Command) => {
+      const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
+      const { handleMcpSnapshot } = await import('./cli/commands/mcp-snapshot.js');
+      try {
+        process.exitCode = await handleMcpSnapshot(options, server, {
+          out: (s) => process.stdout.write(s),
+          err: (s) => process.stderr.write(s),
+          env: process.env,
+          cwd: process.cwd(),
+          clientVersion: pkg.version,
+        });
+      } catch (err) {
+        failUnexpected(err, verbose);
+      }
+    });
+
+  addConnectionOptions(
+    mcp
+      .command('diff')
+      .description(
+        'Compare a contract snapshot with another snapshot file or a live server (after --): every change breaking, non-breaking or informational, exit 1 at --fail-on',
+      )
+      .argument('<baseline>', 'The snapshot file to compare with'),
+  )
+    .option('--fail-on <level>', 'Exit 1 on a change of this class: breaking, any (not classified too) or none', 'breaking')
+    .option('--format <format>', 'human, json or markdown (a pull request comment)', 'human')
+    .action(async (baseline: string, rest: string[], options: McpDiffFlags, command: Command) => {
+      const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
+      const { handleMcpDiff, diffOperands } = await import('./cli/commands/mcp-diff.js');
+      const { reportFailure } = await import('./cli/commands/mcp-snapshot.js');
+      const io = {
+        out: (s: string) => process.stdout.write(s),
+        err: (s: string) => process.stderr.write(s),
+        env: process.env,
+        cwd: process.cwd(),
+        clientVersion: pkg.version,
+      };
+      try {
+        // Commander drops the `--`; the arguments as parsed (kept on the root, untyped) say where it was.
+        let root: Command = command;
+        while (root.parent !== null) root = root.parent;
+        const rawArgs = (root as unknown as { rawArgs?: string[] }).rawArgs ?? process.argv;
+        let operands;
+        try {
+          operands = diffOperands([baseline, ...rest], rawArgs);
+        } catch (err) {
+          process.exitCode = reportFailure('diff', err, io);
+          return;
+        }
+        process.exitCode = await handleMcpDiff(options, operands, io);
       } catch (err) {
         failUnexpected(err, verbose);
       }

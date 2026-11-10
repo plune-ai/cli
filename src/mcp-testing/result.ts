@@ -135,3 +135,17 @@ export interface McpCheckReport {
     calls: { tool: string; ms: number }[];
   };
 }
+
+/**
+ * What `plune mcp diff` reports: every change between two contract snapshots, classified by the rules of
+ * src/mcp-testing/snapshot/diff.ts, and the exit code it gave. No time, no file path and nothing that says where the
+ * current snapshot came from: a live server and its snapshot file give the same bytes.
+ */
+export interface McpDiffReport {
+  schemaVersion: 1;
+  command: 'diff';
+  failOn: 'breaking' | 'any' | 'none';
+  summary: import('./snapshot/diff.js').ContractDiffSummary;
+  changes: import('./snapshot/diff.js').ContractChange[];
+  exitCode: 0 | 1 | 3;
+}
