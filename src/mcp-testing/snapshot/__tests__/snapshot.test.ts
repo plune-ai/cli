@@ -12,8 +12,8 @@ import {
   renderDiffText,
   serializeSnapshot,
   type ContractChange,
+  type McpSnapshot,
   type SnapshotTool,
-  type ToolSnapshot,
 } from '../index.js';
 
 type Listed = Record<string, unknown>;
@@ -41,7 +41,9 @@ const tool = (extra: Listed = {}): Listed => ({
   ...extra,
 });
 
-const snap = (...tools: Listed[]) => buildSnapshot(tools);
+/** The answers of a server that declares tools and lists these. */
+const listing = (tools: Listed[]) => ({ transport: 'stdio' as const, capabilities: { tools: {} }, tools });
+const snap = (...tools: Listed[]) => buildSnapshot(listing(tools));
 
 /** The weather tool with its input schema edited by `edit` (a deep copy, so cases never share state). */
 function withInput(edit: (s: { properties: Record<string, Record<string, unknown>>; required: string[] } & Listed) => void): Listed {
@@ -89,9 +91,9 @@ describe('mcp snapshot · stable text', () => {
   it('tools by name, keys sorted at every level, two-space indent, one LF at the end, reads back the same', () => {
     const text = serializeSnapshot(snap(tool({ name: 'z_tool' }), tool({ name: 'a_tool' })));
     const parsed = parseSnapshot(text);
-    expect(parsed.tools.map((t) => t.name)).toEqual(['a_tool', 'z_tool']);
-    expect(Object.keys(parsed.tools[0] as object)).toEqual(['annotations', 'description', 'inputSchema', 'name', 'outputSchema', 'title']);
-    expect(text).toMatch(/^\{\n {2}"format"/);
+    expect(parsed.tools!.map((t) => t.name)).toEqual(['a_tool', 'z_tool']);
+    expect(Object.keys(parsed.tools![0] as object)).toEqual(['annotations', 'description', 'inputSchema', 'name', 'outputSchema', 'title']);
+    expect(text).toMatch(/^\{\n {2}"capabilities"/);
     expect(text.endsWith('}\n')).toBe(true);
     expect(text).not.toContain('\r');
     expect(serializeSnapshot(parsed)).toBe(text);
@@ -100,15 +102,15 @@ describe('mcp snapshot · stable text', () => {
   it('keeps only the contract fields of an entry, and a property named __proto__ as a property', () => {
     const t = tool({ _meta: { a: 1 }, icons: [] });
     (t['inputSchema'] as { properties: Record<string, unknown> }).properties = JSON.parse('{"__proto__": {"type": "string"}}');
-    const [s] = snap(t).tools;
+    const [s] = snap(t).tools!;
     expect(Object.keys(s as object)).not.toContain('_meta');
     expect(Object.keys((s?.inputSchema as { properties: object }).properties)).toEqual(['__proto__']);
   });
 
   it('an entry without a name throws; a file that is not a snapshot throws', () => {
-    expect(() => buildSnapshot([{ title: 'x' }])).toThrow(/entry 0 has no name/);
+    expect(() => buildSnapshot(listing([{ title: 'x' }]))).toThrow(/tools\/list entry 0 has no name/);
     expect(() => parseSnapshot('{"tools": []}')).toThrow(/not a plune-mcp-snapshot/);
-    expect(() => parseSnapshot('{"format": "plune-mcp-snapshot/1", "tools": [{}]}')).toThrow(/no name/);
+    expect(() => parseSnapshot(serializeSnapshot(snap(tool())).replace('"name": "weather_get"', '"title2": "x"'))).toThrow(/a tool has no name/);
   });
 });
 
@@ -123,7 +125,7 @@ describe('mcp snapshot · secrets stay out (AC-9)', () => {
       default: 'plt_9f8e7d6c5b4a',
       examples: ['plt_9f8e7d6c5b4a', '/Users/jdoe/key.pem'],
     };
-    const text = serializeSnapshot(buildSnapshot([t], { secrets }));
+    const text = serializeSnapshot(buildSnapshot(listing([t]), { secrets }));
     for (const leaked of [...secrets, 'sk-live-0123456789abcdef', 'mcp.internal.example', 'jdoe']) expect(text).not.toContain(leaked);
     expect(text).toContain('[redacted]');
     expect(text).toContain('~/.config/x');
@@ -131,7 +133,7 @@ describe('mcp snapshot · secrets stay out (AC-9)', () => {
 
   it('a short value is not taken for a secret, and a /home/ inside a URL path is not a machine path', () => {
     const t = tool({ description: 'Returns 1 page of https://example.com/home/page for the city.' });
-    const text = serializeSnapshot(buildSnapshot([t], { secrets: ['1', ''] }));
+    const text = serializeSnapshot(buildSnapshot(listing([t]), { secrets: ['1', ''] }));
     expect(text).toContain('Returns 1 page of https://example.com/home/page');
   });
 });
@@ -213,7 +215,7 @@ describe('mcp snapshot · non-breaking (AC-3)', () => {
 describe('mcp snapshot · description, title, annotations, x-plune', () => {
   it('a description change is its own informational record marked security; a title change is not marked (AC-4)', () => {
     const all = changes([tool()], [tool({ description: 'Get the current weather for any city.', title: 'Weather now' })]);
-    expect(all.map((c) => [c.field, c.classification, c.security === true])).toEqual([
+    expect(all.map((c) => [c.field, c.classification, c.signal === 'security'])).toEqual([
       ['title', 'informational', false],
       ['description', 'informational', true],
     ]);
@@ -221,7 +223,7 @@ describe('mcp snapshot · description, title, annotations, x-plune', () => {
   it('a parameter description change is marked security too', () => {
     const after = withInput((s) => (s.properties['city'] = { type: 'string', description: 'Any city' }));
     const c = only([tool()], [after]);
-    expect([c.field, c.classification, c.security]).toEqual(['inputSchema.city', 'informational', true]);
+    expect([c.field, c.classification, c.signal]).toEqual(['inputSchema.city', 'informational', 'security']);
   });
   it('readOnlyHint true to false is breaking; false to true is informational (AC-5)', () => {
     const writer = tool({ annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true } });
@@ -237,11 +239,11 @@ describe('mcp snapshot · description, title, annotations, x-plune', () => {
     expect([c.field, c.classification, c.unclassified]).toEqual(['annotations.openWorldHint', 'informational', undefined]);
   });
   it('x-plune: write false to true and visibility core to discoverable are breaking; the reverse is informational', () => {
-    const plune = (visibility: 'core' | 'discoverable', write: boolean): ToolSnapshot => ({
-      format: 'plune-mcp-snapshot/1',
-      tools: [{ ...(snap(tool()).tools[0] as SnapshotTool), 'x-plune': { visibility, write } }],
+    const plune = (visibility: 'core' | 'discoverable', write: boolean): McpSnapshot => ({
+      ...snap(),
+      tools: [{ ...(snap(tool()).tools![0] as SnapshotTool), 'x-plune': { visibility, write } }],
     });
-    const d = (a: ToolSnapshot, b: ToolSnapshot) => diffSnapshots(a, b).changes.map((c) => [c.field, c.classification]);
+    const d = (a: McpSnapshot, b: McpSnapshot) => diffSnapshots(a, b).changes.map((c) => [c.field, c.classification]);
     expect(d(plune('core', false), plune('core', true))).toEqual([['x-plune.write', 'breaking']]);
     expect(d(plune('core', false), plune('discoverable', false))).toEqual([['x-plune.visibility', 'breaking']]);
     expect(d(plune('discoverable', true), plune('core', false))).toEqual([
@@ -286,12 +288,12 @@ describe('mcp snapshot · nothing is lost (AC-6)', () => {
     const diff = diffSnapshots(snap(tool()), snap(...after));
     expect(diff.summary).toEqual({ breaking: 1, 'non-breaking': 1, informational: 1, unclassified: 0, security: 1, overall: 'breaking' });
     const text = renderDiffText(diff);
-    expect(text).toContain('3 change(s) to the tool contract, overall breaking: 1 breaking, 1 non-breaking, 1 informational (0 not classified, 1 security)');
+    expect(text).toContain('3 change(s) to the contract, overall breaking: 1 breaking, 1 non-breaking, 1 informational (0 not classified, 1 security)');
     expect(text).toContain('description  modified [security]');
     const md = renderDiffMarkdown(diff);
-    expect(md).toContain('| breaking | `weather_get` | `inputSchema.days` | removed |');
-    expect(md).toContain('| informational (security) | `weather_get` | `description` | modified |');
-    expect(renderDiffText({ changes: [], summary: diffSnapshots(snap(), snap()).summary })).toBe('No changes to the tool contract.');
+    expect(md).toContain('| breaking | tool | `weather_get` | `inputSchema.days` | removed |');
+    expect(md).toContain('| informational (security) | tool | `weather_get` | `description` | modified |');
+    expect(renderDiffText({ changes: [], summary: diffSnapshots(snap(), snap()).summary })).toBe('No changes to the contract.');
     expect(diffSnapshots(snap(), snap()).summary.overall).toBe('none');
   });
 });
@@ -360,8 +362,8 @@ describe('mcp snapshot · bounds, defaults and the edges of the rules', () => {
 
   it('a description of the whole input or output schema is marked security', () => {
     const c = only([tool()], [withInput((s) => (s['description'] = 'Arguments'))]);
-    expect([c.field, c.classification, c.security, c.unclassified]).toEqual(['inputSchema', 'informational', true, undefined]);
-    expect(only([tool()], [withOutput((s) => (s['description'] = 'Result'))]).security).toBe(true);
+    expect([c.field, c.classification, c.signal, c.unclassified]).toEqual(['inputSchema', 'informational', 'security', undefined]);
+    expect(only([tool()], [withOutput((s) => (s['description'] = 'Result'))]).signal).toBe('security');
   });
 
   it('openWorldHint false to true and idempotentHint true to false say what changed; both informational', () => {
@@ -379,23 +381,23 @@ describe('mcp snapshot · bounds, defaults and the edges of the rules', () => {
     expect(diffSnapshots(a, b).changes).toEqual([]);
     // A file written before the list was sorted compares equal too: the diff reads a type list as a set.
     const written = parseSnapshot(serializeSnapshot(a));
-    (written.tools[0]!.inputSchema as { properties: Record<string, { type: string[] }> }).properties['days']!.type = ['string', 'null'];
+    (written.tools![0]!.inputSchema as { properties: Record<string, { type: string[] }> }).properties['days']!.type = ['string', 'null'];
     expect(diffSnapshots(written, b).changes).toEqual([]);
   });
 
   it('a secret in a property name and in another letter case does not reach the file', () => {
     const t = withInput((s) => (s.properties['x-api-key-SeCrEt123'] = { type: 'string', description: 'Pass SECRET123 here' }));
-    const text = serializeSnapshot(buildSnapshot([t], { secrets: ['secret123'] }));
+    const text = serializeSnapshot(buildSnapshot(listing([t]), { secrets: ['secret123'] }));
     expect(text.toLowerCase()).not.toContain('secret123');
     expect(text).toContain('"x-api-key-[redacted]"');
   });
 
-  it('a pipe in a reason is escaped, so a Markdown row keeps its five columns', () => {
+  it('a pipe in a reason is escaped, so a Markdown row keeps its six columns', () => {
     const diff = diffSnapshots(snap(days({ format: 'a|b' })), snap(days({ format: 'c|d' })));
     const row = renderDiffMarkdown(diff)
       .split('\n')
       .find((l) => l.includes('inputSchema.days'));
-    expect(row?.split(/(?<!\\)\|/)).toHaveLength(7);
+    expect(row?.split(/(?<!\\)\|/)).toHaveLength(8);
   });
 
   it('the Markdown says how many changes could not be classified, above the table', () => {

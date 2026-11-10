@@ -1,4 +1,4 @@
-import type { SnapshotTool, ToolSnapshot } from './snapshot.js';
+import { byCodeUnits, SECTIONS, type McpSnapshot, type SectionName, type SnapshotTool } from './snapshot.js';
 
 /**
  * Two snapshots compared, every change classified by fixed rules (the first that matches), so the same change always gets
@@ -6,16 +6,30 @@ import type { SnapshotTool, ToolSnapshot } from './snapshot.js';
  * `informational` with `unclassified: true`, and the summary counts those apart.
  *
  * A description or a title is its own record. A description changes what a model is told to do with the tool, so a
- * change to it carries `security: true`: after a description was approved, a new one is how a tool is swapped under a
- * client, and it must not hide among the small edits.
+ * change to it carries `signal: 'security'`: after a description was approved, a new one is how a tool is swapped under
+ * a client, and it must not hide among the small edits. The signal is orthogonal to the class and gates nothing by
+ * itself: it is a reason for a reviewer to look, not a verdict.
  */
 
 export type ChangeKind = 'added' | 'removed' | 'modified';
 export type ChangeClass = 'breaking' | 'non-breaking' | 'informational';
+export type ChangeEntity = 'server' | 'transport' | 'instructions' | 'capability' | 'tool' | 'resource' | 'resourceTemplate' | 'prompt';
+/**
+ * `security`: a change to what a model reads or is allowed to do (a description, the instructions, a hint towards
+ * writing or destroying, a new tool that does not say it is read-only). `identity`: the server calls itself by another
+ * name.
+ */
+export type ChangeSignal = 'security' | 'identity';
 
 export interface ContractChange {
-  tool: string;
-  /** `tool`, `title`, `description`, `annotations.<hint>`, `x-plune.<field>`, or a schema path: `inputSchema.cases[].id`. */
+  entity: ChangeEntity;
+  /** The entity's key: a tool or prompt name, a resource URI, a URI template, a capability; empty for the rest. */
+  name: string;
+  /**
+   * The entity itself (`tool`, `resource`, `resourceTemplate`, `prompt`, `capability`, `duplicate`) when it came or
+   * went, else what changed in it: `description`, `mimeType`, `annotations.<hint>`, `arguments.<name>`, `listChanged`,
+   * a schema path (`inputSchema.cases[].id`).
+   */
   field: string;
   kind: ChangeKind;
   classification: ChangeClass;
@@ -23,8 +37,7 @@ export interface ContractChange {
   reason: string;
   before: unknown;
   after: unknown;
-  /** A change to what a model reads about the tool. */
-  security?: true;
+  signal?: ChangeSignal;
   /** No rule knew this change. */
   unclassified?: true;
 }
@@ -35,6 +48,7 @@ export interface ContractDiffSummary {
   informational: number;
   /** Of the informational ones, how many no rule knew. */
   unclassified: number;
+  /** How many carry `signal: 'security'`. */
   security: number;
   /** The worst class among the changes; `none` without changes. */
   overall: ChangeClass | 'none';
@@ -68,10 +82,13 @@ const sameType = (a: unknown, b: unknown): boolean =>
 
 class Collector {
   readonly changes: ContractChange[] = [];
-  constructor(private readonly tool: string) {}
+  constructor(
+    private readonly entity: ChangeEntity,
+    private readonly name: string,
+  ) {}
 
   add(field: string, classification: ChangeClass, reason: string, before: unknown, after: unknown, extra: Partial<ContractChange> = {}): void {
-    this.changes.push({ tool: this.tool, field, kind: kindOf(before, after), classification, reason, before, after, ...extra });
+    this.changes.push({ entity: this.entity, name: this.name, field, kind: kindOf(before, after), classification, reason, before, after, ...extra });
   }
 
   unknown(field: string, what: string, before: unknown, after: unknown): void {
@@ -107,7 +124,7 @@ function compareSchema(c: Collector, side: Side, path: string, before: unknown, 
   if (!same(before['description'], after['description'])) {
     const what = path === '' ? `whole ${side} schema` : side === 'input' ? 'parameter' : 'field';
     c.add(field, 'informational', `The ${what} description changed: it is what a model reads.`, before['description'], after['description'], {
-      security: true,
+      signal: 'security',
     });
   }
   for (const k of [...new Set([...Object.keys(before), ...Object.keys(after)])].sort()) {
@@ -234,7 +251,7 @@ function compareAnnotations(c: Collector, before: unknown, after: unknown): void
   for (const k of [...new Set([...Object.keys(b), ...Object.keys(a)])].sort()) {
     if (same(b[k], a[k])) continue;
     const field = `annotations.${k}`;
-    const modified = { kind: 'modified' as const };
+    const modified: Partial<ContractChange> = { kind: 'modified' };
     if (!(k in HINT_DEFAULTS)) {
       if (k === 'title') c.add(field, 'informational', 'The display title in the annotations changed.', b[k], a[k], modified);
       else c.unknown(field, `\`${k}\``, b[k], a[k]);
@@ -242,6 +259,9 @@ function compareAnnotations(c: Collector, before: unknown, after: unknown): void
     }
     const was = typeof b[k] === 'boolean' ? b[k] : HINT_DEFAULTS[k];
     const is = typeof a[k] === 'boolean' ? a[k] : HINT_DEFAULTS[k];
+    // Towards writing or destroying is a reason to look, whatever the class: also a hint now set to the default `true`.
+    const riskier = (k === 'readOnlyHint' && was === true && is !== true) || (k === 'destructiveHint' && is === true && (was === false || a[k] === true));
+    if (riskier) Object.assign(modified, { signal: 'security' as const });
     if (k === 'readOnlyHint' && was === true && is === false) {
       c.add(field, 'breaking', 'The tool is no longer read-only: a client that ran it unattended now runs a writer.', b[k], a[k], modified);
     } else if (k === 'destructiveHint' && was === false && is === true) {
@@ -270,17 +290,188 @@ function comparePluneFields(c: Collector, before: unknown, after: unknown): void
   }
 }
 
+const keysOf = (b: Rec, a: Rec): string[] => [...new Set([...Object.keys(b), ...Object.keys(a)])].sort();
+
 function compareTool(c: Collector, before: SnapshotTool, after: SnapshotTool): void {
   if (!same(before.title, after.title)) c.add('title', 'informational', 'The title changed.', before.title, after.title);
   if (!same(before.description, after.description)) {
     c.add('description', 'informational', 'The description changed: it is what a model is told about the tool.', before.description, after.description, {
-      security: true,
+      signal: 'security',
     });
   }
   compareSchema(c, 'input', '', before.inputSchema, after.inputSchema);
   compareSchema(c, 'output', '', before.outputSchema, after.outputSchema);
   compareAnnotations(c, before.annotations, after.annotations);
   comparePluneFields(c, before['x-plune'], after['x-plune']);
+}
+
+/** A resource or a resource template: its MIME type is how a client reads the content; the rest is what a model reads. */
+function compareResource(c: Collector, before: Rec, after: Rec): void {
+  for (const k of keysOf(before, after)) {
+    if (k === 'uri' || k === 'uriTemplate' || same(before[k], after[k])) continue;
+    if (k === 'mimeType') {
+      c.add(k, 'breaking', `The MIME type changed from ${show(before[k])} to ${show(after[k])}: a client that reads the content by its type misreads it.`, before[k], after[k]);
+    } else if (k === 'description') {
+      c.add(k, 'informational', 'The description changed: it is what a model is told about the content.', before[k], after[k], { signal: 'security' });
+    } else if (k === 'name' || k === 'title') c.add(k, 'informational', `The ${k} changed.`, before[k], after[k]);
+    else c.unknown(k, `\`${k}\``, before[k], after[k]);
+  }
+}
+
+function comparePrompt(c: Collector, before: Rec, after: Rec): void {
+  for (const k of keysOf(before, after)) {
+    if (k === 'name' || k === 'arguments' || same(before[k], after[k])) continue;
+    if (k === 'description') {
+      c.add(k, 'informational', 'The description changed: it is what a model is told about the prompt.', before[k], after[k], { signal: 'security' });
+    } else if (k === 'title') c.add(k, 'informational', 'The title changed.', before[k], after[k]);
+    else c.unknown(k, `\`${k}\``, before[k], after[k]);
+  }
+  if (!same(before['arguments'], after['arguments'])) compareArguments(c, before['arguments'], after['arguments']);
+}
+
+/** Prompt arguments by name. A list that is not one of named objects, or a name given twice, is not reasoned about. */
+function compareArguments(c: Collector, before: unknown, after: unknown): void {
+  const byName = (v: unknown): Map<string, Rec> | undefined => {
+    const list = v ?? [];
+    if (!Array.isArray(list) || !list.every((x) => isRecord(x) && typeof x['name'] === 'string')) return undefined;
+    const map = new Map((list as Rec[]).map((x) => [x['name'] as string, x]));
+    return map.size === list.length ? map : undefined;
+  };
+  const b = byName(before);
+  const a = byName(after);
+  if (b === undefined || a === undefined) return c.unknown('arguments', 'the arguments (not a list of uniquely named arguments)', before, after);
+  for (const name of [...new Set([...b.keys(), ...a.keys()])].sort(byCodeUnits)) {
+    const field = `arguments.${name}`;
+    const was = b.get(name);
+    const is = a.get(name);
+    if (was === undefined) {
+      if (is?.['required'] === true) c.add(field, 'breaking', 'A new required argument: a request for the prompt without it now fails.', undefined, is);
+      else c.add(field, 'non-breaking', 'A new optional argument.', undefined, is);
+      continue;
+    }
+    if (is === undefined) {
+      c.add(field, 'breaking', 'An argument was removed: a request that passes it is refused or ignores it.', was, undefined);
+      continue;
+    }
+    const modified: Partial<ContractChange> = { kind: 'modified' };
+    for (const k of keysOf(was, is)) {
+      if (k === 'name' || same(was[k], is[k])) continue;
+      if (k === 'required') {
+        const w = was[k] === true;
+        const i = is[k] === true;
+        if (i && !w) c.add(field, 'breaking', 'The argument became required: a request without it now fails.', was[k], is[k], modified);
+        else if (w && !i) c.add(field, 'non-breaking', 'The argument is no longer required.', was[k], is[k], modified);
+        else c.add(field, 'informational', `required changed from ${show(was[k])} to ${show(is[k])}, which means the same.`, was[k], is[k], modified);
+      } else if (k === 'description') {
+        c.add(field, 'informational', 'The argument description changed: it is what a model reads.', was[k], is[k], { ...modified, signal: 'security' });
+      } else if (k === 'title') c.add(field, 'informational', 'The argument title changed.', was[k], is[k], modified);
+      else c.unknown(field, `\`${k}\``, was[k], is[k]);
+    }
+  }
+}
+
+const NOTIFY: Record<string, (capability: string) => string> = {
+  listChanged: (cap) => `notifies when its ${cap} list changes`,
+  subscribe: () => 'offers subscriptions to resource changes',
+};
+const isFlag = (v: unknown) => v === undefined || typeof v === 'boolean';
+
+/** Each declared capability by name; inside one, the `listChanged` and `subscribe` flags. */
+function compareCapabilities(out: ContractChange[], before: Rec | null, after: Rec | null): void {
+  const b = before ?? {};
+  const a = after ?? {};
+  for (const k of keysOf(b, a)) {
+    if (same(b[k], a[k])) continue;
+    const c = new Collector('capability', k);
+    const bc = b[k];
+    const ac = a[k];
+    if (!Object.hasOwn(a, k)) c.add('capability', 'breaking', `The server no longer declares ${k}: a client that uses it now fails.`, bc, undefined);
+    else if (!Object.hasOwn(b, k)) c.add('capability', 'non-breaking', `The server now declares ${k}.`, undefined, ac);
+    else if (!isRecord(bc) || !isRecord(ac)) c.unknown('capability', `the ${k} capability`, bc, ac);
+    else {
+      for (const f of keysOf(bc, ac)) {
+        if (same(bc[f], ac[f])) continue;
+        const says = NOTIFY[f];
+        if (says === undefined || !isFlag(bc[f]) || !isFlag(ac[f])) c.unknown(f, `\`${f}\` of ${k}`, bc[f], ac[f]);
+        else if (bc[f] === true) c.add(f, 'breaking', `The server no longer ${says(k)}: a client that relies on it misses changes.`, bc[f], ac[f]);
+        else if (ac[f] === true) c.add(f, 'non-breaking', `The server now ${says(k)}.`, bc[f], ac[f]);
+        else c.add(f, 'informational', `${f} changed from ${show(bc[f])} to ${show(ac[f])}, which means the same.`, bc[f], ac[f]);
+      }
+    }
+    out.push(...c.changes);
+  }
+}
+
+/** The server's name, version and title; a new name carries the `identity` signal. */
+function compareServer(c: Collector, before: Rec | null, after: Rec | null): void {
+  const b = before ?? {};
+  const a = after ?? {};
+  for (const k of keysOf(b, a)) {
+    if (same(b[k], a[k])) continue;
+    if (k === 'name') {
+      c.add(k, 'informational', 'The server calls itself by another name: a client that keys its settings by the name may take it for another server.', b[k], a[k], {
+        signal: 'identity',
+      });
+    } else if (k === 'version' || k === 'title') c.add(k, 'informational', `The server ${k} changed.`, b[k], a[k]);
+    else c.unknown(k, `\`${k}\``, b[k], a[k]);
+  }
+}
+
+const ENTITIES: Record<SectionName, { entity: ChangeEntity; noun: string; added: string; removed: string }> = {
+  tools: { entity: 'tool', noun: 'tool', added: 'A new tool.', removed: 'The tool was removed: a client that calls it now fails.' },
+  resources: { entity: 'resource', noun: 'resource', added: 'A new resource.', removed: 'The resource was removed: a client that reads it now fails.' },
+  resourceTemplates: {
+    entity: 'resourceTemplate',
+    noun: 'resource template',
+    added: 'A new resource template.',
+    removed: 'The resource template was removed: a client that reads through it now fails.',
+  },
+  prompts: { entity: 'prompt', noun: 'prompt', added: 'A new prompt.', removed: 'The prompt was removed: a client that requests it now fails.' },
+};
+
+function added(c: Collector, section: SectionName, entry: Rec): void {
+  const { entity, added: reason } = ENTITIES[section];
+  const annotations = entry['annotations'];
+  if (section === 'tools' && !(isRecord(annotations) && annotations['readOnlyHint'] === true)) {
+    c.add(entity, 'non-breaking', 'A new tool that does not say it is read-only (readOnlyHint): a client may run a writer unasked.', undefined, entry, {
+      signal: 'security',
+    });
+  } else c.add(entity, 'non-breaking', reason, undefined, entry);
+}
+
+/** A key the list holds more than once: the entries under it are not compared one by one, and never one silently. */
+function duplicates(c: Collector, section: SectionName, key: string, before: Rec[], after: Rec[]): void {
+  if (same(before, after)) return;
+  const { noun, removed } = ENTITIES[section];
+  const was = before.length === 0 ? undefined : before;
+  if (after.length > 1) {
+    c.add('duplicate', 'breaking', `The ${noun} is listed ${after.length} times under one ${key}: a client that asks for it by its ${key} may get either entry.`, was, after);
+  } else if (after.length === 0) c.add('duplicate', 'breaking', `${removed.replace(/\.$/, '')} (it was listed ${before.length} times).`, was, undefined);
+  else c.unknown('duplicate', `an entry listed ${before.length} times before and once now`, was, after[0]);
+}
+
+function compareSection(out: ContractChange[], section: SectionName, before: readonly Rec[], after: readonly Rec[]): void {
+  const { key } = SECTIONS.find((s) => s.section === section)!;
+  const { entity, removed } = ENTITIES[section];
+  const group = (list: readonly Rec[]) => {
+    const map = new Map<string, Rec[]>();
+    for (const e of list) map.set(e[key] as string, [...(map.get(e[key] as string) ?? []), e]);
+    return map;
+  };
+  const b = group(before);
+  const a = group(after);
+  for (const name of [...new Set([...b.keys(), ...a.keys()])].sort(byCodeUnits)) {
+    const c = new Collector(entity, name);
+    const was = b.get(name) ?? [];
+    const is = a.get(name) ?? [];
+    if (was.length > 1 || is.length > 1) duplicates(c, section, key, was, is);
+    else if (was[0] === undefined) added(c, section, is[0]!);
+    else if (is[0] === undefined) c.add(entity, 'breaking', removed, was[0], undefined);
+    else if (section === 'tools') compareTool(c, was[0] as unknown as SnapshotTool, is[0] as unknown as SnapshotTool);
+    else if (section === 'prompts') comparePrompt(c, was[0], is[0]);
+    else compareResource(c, was[0], is[0]);
+    out.push(...c.changes);
+  }
 }
 
 const RANK: Record<ChangeClass, number> = { informational: 0, 'non-breaking': 1, breaking: 2 };
@@ -290,25 +481,36 @@ export function summarize(changes: readonly ContractChange[]): ContractDiffSumma
   for (const ch of changes) {
     summary[ch.classification] += 1;
     if (ch.unclassified === true) summary.unclassified += 1;
-    if (ch.security === true) summary.security += 1;
+    if (ch.signal === 'security') summary.security += 1;
     if (summary.overall === 'none' || RANK[ch.classification] > RANK[summary.overall]) summary.overall = ch.classification;
   }
   return summary;
 }
 
-/** Every change from `before` to `after`, tools in name order. */
-export function diffSnapshots(before: ToolSnapshot, after: ToolSnapshot): ContractDiff {
-  const b = new Map(before.tools.map((t) => [t.name, t]));
-  const a = new Map(after.tools.map((t) => [t.name, t]));
+/**
+ * Every change from `before` to `after`: the server, the transport, the instructions, the capabilities, then tools,
+ * resources, resource templates and prompts, each by key. A section that is `null` (not declared) has no entities; its
+ * capability says that it went.
+ */
+export function diffSnapshots(before: McpSnapshot, after: McpSnapshot): ContractDiff {
   const changes: ContractChange[] = [];
-  for (const name of [...new Set([...b.keys(), ...a.keys()])].sort()) {
-    const c = new Collector(name);
-    const was = b.get(name);
-    const is = a.get(name);
-    if (was === undefined) c.add('tool', 'non-breaking', 'A new tool.', undefined, is);
-    else if (is === undefined) c.add('tool', 'breaking', 'The tool was removed: a client that calls it now fails.', was, undefined);
-    else compareTool(c, was, is);
-    for (const change of c.changes) changes.push(change);
+  const server = new Collector('server', '');
+  compareServer(server, before.server as Rec | null, after.server as Rec | null);
+  const whole = new Collector('transport', '');
+  if (before.transport !== after.transport) {
+    whole.add('transport', 'informational', 'The snapshots were taken over different transports; the contract is compared as it is.', before.transport, after.transport);
+  }
+  const instructions = new Collector('instructions', '');
+  if (!same(before.instructions, after.instructions)) {
+    instructions.add('instructions', 'informational', 'The instructions changed: they are what a model is told about the whole server.', before.instructions ?? undefined, after.instructions ?? undefined, {
+      signal: 'security',
+    });
+  }
+  changes.push(...server.changes, ...whole.changes, ...instructions.changes);
+  compareCapabilities(changes, before.capabilities, after.capabilities);
+  for (const { section } of SECTIONS) {
+    const list = (s: McpSnapshot) => (s[section] ?? []) as unknown as readonly Rec[];
+    compareSection(changes, section, list(before), list(after));
   }
   return { changes, summary: summarize(changes) };
 }
@@ -316,35 +518,39 @@ export function diffSnapshots(before: ToolSnapshot, after: ToolSnapshot): Contra
 const counts = (s: ContractDiffSummary) =>
   `${s.breaking} breaking, ${s['non-breaking']} non-breaking, ${s.informational} informational (${s.unclassified} not classified, ${s.security} security)`;
 
-const flags = (ch: ContractChange) => [ch.security === true ? 'security' : '', ch.unclassified === true ? 'not classified' : ''].filter(Boolean).join(', ');
+const SIGNAL_BADGE: Record<ChangeSignal, string> = { security: 'security', identity: 'server identity' };
+const flags = (ch: ContractChange) =>
+  [ch.signal === undefined ? '' : SIGNAL_BADGE[ch.signal], ch.unclassified === true ? 'not classified' : ''].filter(Boolean).join(', ');
+const subject = (ch: ContractChange) => (ch.name === '' ? ch.entity : `${ch.entity} ${ch.name}`);
 
 /** The diff as plain lines, for a terminal or a failing test. */
 export function renderDiffText(diff: ContractDiff): string {
-  if (diff.changes.length === 0) return 'No changes to the tool contract.';
+  if (diff.changes.length === 0) return 'No changes to the contract.';
   return [
-    `${diff.changes.length} change(s) to the tool contract, overall ${diff.summary.overall}: ${counts(diff.summary)}`,
+    `${diff.changes.length} change(s) to the contract, overall ${diff.summary.overall}: ${counts(diff.summary)}`,
     ...diff.changes.map((ch) => {
       const f = flags(ch);
-      return `  ${ch.classification.padEnd(13)} ${ch.tool}  ${ch.field}  ${ch.kind}${f === '' ? '' : ` [${f}]`}: ${ch.reason}`;
+      return `  ${ch.classification.padEnd(13)} ${subject(ch)}  ${ch.field}  ${ch.kind}${f === '' ? '' : ` [${f}]`}: ${ch.reason}`;
     }),
   ].join('\n');
 }
 
 const cell = (s: string) => s.replace(/\r?\n/g, ' ').replace(/\|/g, '\\|');
 
-/** The diff as Markdown, for a pull request's run summary. */
+/** The diff as Markdown, for a pull request's run summary or comment. */
 export function renderDiffMarkdown(diff: ContractDiff): string {
-  if (diff.changes.length === 0) return 'No changes to the tool contract.\n';
+  if (diff.changes.length === 0) return 'No changes to the contract.\n';
   const { unclassified } = diff.summary;
   return [
     `**Overall: ${diff.summary.overall}** — ${counts(diff.summary)}`,
     '',
     ...(unclassified > 0 ? [`${unclassified} change(s) could not be classified — check them by hand.`, ''] : []),
-    '| Class | Tool | Field | Change | Reason |',
-    '| --- | --- | --- | --- | --- |',
+    '| Class | Entity | Name | Field | Change | Reason |',
+    '| --- | --- | --- | --- | --- | --- |',
     ...diff.changes.map((ch) => {
       const f = flags(ch);
-      return `| ${ch.classification}${f === '' ? '' : ` (${f})`} | \`${cell(ch.tool)}\` | \`${cell(ch.field)}\` | ${ch.kind} | ${cell(ch.reason)} |`;
+      const name = ch.name === '' ? '' : `\`${cell(ch.name)}\``;
+      return `| ${ch.classification}${f === '' ? '' : ` (${f})`} | ${ch.entity} | ${name} | \`${cell(ch.field)}\` | ${ch.kind} | ${cell(ch.reason)} |`;
     }),
     '',
   ].join('\n');
