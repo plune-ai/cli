@@ -18,8 +18,32 @@ const ANSWER_MS = 5_000;
 
 type Msg = { id?: number; method?: string; result?: Record<string, unknown>; error?: { code: number; message: string } };
 
-/** The `tools/list` answer of the server with a write token, after every discoverable tool was switched on. */
-export async function listAllPluneTools(): Promise<unknown[]> {
+export type ProtocolEra = 'legacy' | 'modern';
+
+/** The `_meta` a 2026-07-28 client sends with every request, in place of a handshake. */
+const MODERN_META = {
+  'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+  'io.modelcontextprotocol/clientCapabilities': {},
+};
+
+export interface PluneConnectionOptions {
+  era?: ProtocolEra;
+  scope?: 'read' | 'write';
+  /** The platform behind the tools; by default any request to it fails, since listing tools never makes one. */
+  fetchImpl?: typeof fetch;
+}
+
+export interface PluneConnection {
+  request(method: string, params?: Record<string, unknown>): Promise<Record<string, unknown>>;
+  /** Asks `plune_discover_tools` for every hidden tool. */
+  revealHidden(): Promise<void>;
+  listTools(): Promise<unknown[]>;
+  close(): Promise<void>;
+}
+
+/** A client of the real server behind its stdio entry, over an in-memory transport, opened in the given era. */
+export async function connectPluneServer(opts: PluneConnectionOptions = {}): Promise<PluneConnection> {
+  const era = opts.era ?? 'legacy';
   const [client, serverSide] = InMemoryTransport.createLinkedPair();
   const handle = serveStdio(
     (ctx) =>
@@ -27,12 +51,13 @@ export async function listAllPluneTools(): Promise<unknown[]> {
         {
           token: TOKEN,
           apiUrl: API_URL,
-          // Listing and discovering tools never reach the platform.
-          fetchImpl: (async () => {
-            throw new Error('the tool list must not call the platform');
-          }) as typeof fetch,
+          fetchImpl:
+            opts.fetchImpl ??
+            ((async () => {
+              throw new Error('the tool list must not call the platform');
+            }) as typeof fetch),
           version: '0.0.0-snapshot',
-          scope: 'write',
+          scope: opts.scope ?? 'write',
         },
         ctx.era,
       ),
@@ -54,20 +79,42 @@ export async function listAllPluneTools(): Promise<unknown[]> {
         if (m.error) reject(new Error(`${method}: ${m.error.code} ${m.error.message}`));
         else resolve(m.result ?? {});
       });
-      client.send({ jsonrpc: '2.0', id, method, params }).catch(reject);
+      client.send({ jsonrpc: '2.0', id, method, params: era === 'modern' ? { ...params, _meta: MODERN_META } : params }).catch(reject);
     });
 
   try {
-    await request('initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'snapshot', version: '1' } });
-    await client.send({ jsonrpc: '2.0', method: 'notifications/initialized' });
-    const names = PLUNE_TOOLS.filter((t) => t.visibility === 'discoverable').map((t) => t.name);
-    const discovered = await request('tools/call', { name: 'plune_discover_tools', arguments: { names } });
-    if (discovered['isError'] === true) throw new Error(`plune_discover_tools failed: ${JSON.stringify(discovered['content'])}`);
-    const tools = (await request('tools/list'))['tools'];
-    if (!Array.isArray(tools)) throw new Error('tools/list answered without a tools array');
-    return tools;
-  } finally {
+    if (era === 'legacy') {
+      await request('initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'snapshot', version: '1' } });
+      await client.send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+    }
+  } catch (err) {
     await handle.close();
+    throw err;
+  }
+  return {
+    request,
+    async revealHidden() {
+      const names = PLUNE_TOOLS.filter((t) => t.visibility === 'discoverable').map((t) => t.name);
+      const discovered = await request('tools/call', { name: 'plune_discover_tools', arguments: { names } });
+      if (discovered['isError'] === true) throw new Error(`plune_discover_tools failed: ${JSON.stringify(discovered['content'])}`);
+    },
+    async listTools() {
+      const tools = (await request('tools/list'))['tools'];
+      if (!Array.isArray(tools)) throw new Error('tools/list answered without a tools array');
+      return tools;
+    },
+    close: () => handle.close(),
+  };
+}
+
+/** The `tools/list` answer of the server with a write token, after every discoverable tool was switched on. */
+export async function listAllPluneTools(): Promise<unknown[]> {
+  const c = await connectPluneServer();
+  try {
+    await c.revealHidden();
+    return await c.listTools();
+  } finally {
+    await c.close();
   }
 }
 

@@ -355,6 +355,19 @@ describe('mcp lint · size', () => {
     expect(size.largest?.name).toBe('stock_get');
     expect(toolListSize([]).largest).toBeUndefined();
   });
+
+  it('gives the known size of a fixture: 44 characters are 11 tokens, 45 round up to 12', () => {
+    const size = toolListSize([
+      { name: 'a', inputSchema: { type: 'object' } },
+      { name: 'ab', inputSchema: { type: 'object' } },
+    ]);
+    expect(size.tools).toEqual([
+      { name: 'a', tokens: 11 },
+      { name: 'ab', tokens: 12 },
+    ]);
+    expect(size.totalTokens).toBe(23);
+    expect(size.largest).toEqual({ name: 'ab', tokens: 12 });
+  });
 });
 
 describe('mcp lint · the module stands alone', () => {
