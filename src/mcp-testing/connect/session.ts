@@ -64,6 +64,13 @@ export interface Session {
   /** The `serverInfo` of the handshake, as the server sent it (undefined when it sent none). */
   readonly server: { name: string; version: string } | undefined;
   /**
+   * The handshake as it went: the protocol version this client offered, and the `initialize` result as the server
+   * sent it (before any schema), so a malformed answer is seen. Not masked: what is printed of it goes through `redact`.
+   */
+  readonly handshake: { offered: unknown; result: unknown };
+  /** The last lines the server process wrote to stderr so far, masked (stdio only; empty otherwise). */
+  stderrTail(): string[];
+  /**
    * A fetch for requests the session makes besides MCP (discovery, later OAuth). It refuses a URL outside `origin`,
    * adds the `--header` values only when `origin` is the server's own, and follows no redirect.
    */
@@ -105,11 +112,16 @@ function createTransport(target: ConnectTarget): Transport {
 function tap(
   transport: Transport,
   journal: Journal,
-  on: { error: (err: Error) => void; closed: () => void },
+  on: {
+    error: (err: Error) => void;
+    closed: () => void;
+    frame: (dir: 'out' | 'in', message: object) => void;
+  },
 ): void {
   const send = transport.send.bind(transport);
   transport.send = (message, options) => {
     journal.write('out', { frame: message });
+    on.frame('out', message);
     return send(message, options);
   };
   const logged = new WeakSet<object>();
@@ -117,6 +129,7 @@ function tap(
     if (logged.has(message)) return;
     logged.add(message);
     journal.write('in', { frame: message });
+    on.frame('in', message);
   });
   intercept(transport, 'onclose', on.closed);
   intercept(transport, 'onerror', on.error);
@@ -226,7 +239,22 @@ export async function openSession(config: ConnectConfig): Promise<Session> {
   let transportClosed = false;
   // On Windows a command that does not exist still "spawns"; the ENOENT comes after, as a transport error.
   let spawnError: Error | undefined;
+  // The initialize request and its answer, kept as they went (the SDK keeps only what its schema let through).
+  const handshake: { id?: unknown; offered: unknown; result: unknown } = {
+    offered: undefined,
+    result: undefined,
+  };
   tap(transport, journal, {
+    frame: (dir, message) => {
+      const m = message as { id?: unknown; method?: unknown; params?: unknown; result?: unknown };
+      if (dir === 'out' && m.method === 'initialize') {
+        handshake.id = m.id;
+        handshake.offered = (
+          m.params as { protocolVersion?: unknown } | undefined
+        )?.protocolVersion;
+      } else if (dir === 'in' && handshake.id !== undefined && m.id === handshake.id)
+        handshake.result = m.result;
+    },
     closed: () => (transportClosed = true),
     error: (err) => {
       if (
@@ -321,6 +349,8 @@ export async function openSession(config: ConnectConfig): Promise<Session> {
     redact,
     server:
       info === undefined ? undefined : { name: String(info.name), version: String(info.version) },
+    handshake: { offered: handshake.offered, result: handshake.result },
+    stderrTail: () => [...tail],
     async request(method, params, options) {
       try {
         return await client.request(
