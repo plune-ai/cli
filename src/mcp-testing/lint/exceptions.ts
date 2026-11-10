@@ -1,31 +1,37 @@
 import type { LintException, LintFinding } from './types.js';
 
-export interface AppliedExceptions {
+export interface AppliedExceptions<E extends LintException = LintException> {
   /** Findings no exception covers. */
   findings: LintFinding[];
   /** Findings an exception covers, with it. */
-  excepted: { finding: LintFinding; exception: LintException }[];
+  excepted: { finding: LintFinding; exception: E }[];
   /** Exceptions that matched nothing: the finding is gone, so the exception is stale. */
-  unused: LintException[];
+  unused: E[];
 }
 
-const sameTarget = (f: LintFinding, e: LintException) => f.id === e.id && f.target.tool === e.target.tool && f.target.param === e.target.param;
+const covers = (e: LintException, f: LintFinding) =>
+  f.id === e.id &&
+  (e.target.tool === undefined || f.target.tool === e.target.tool) &&
+  (e.target.param === undefined || f.target.param === e.target.param);
+
+const where = (e: LintException) =>
+  `${e.target.tool ?? 'every tool'}${e.target.param === undefined ? '' : `.${e.target.param}`}`;
 
 /**
  * Set deliberate exceptions aside. An exception without a reason is refused outright: an exception is a decision,
  * and a decision nobody can read back is a silenced check.
  */
-export function applyExceptions(findings: readonly LintFinding[], exceptions: readonly LintException[]): AppliedExceptions {
+export function applyExceptions<E extends LintException>(findings: readonly LintFinding[], exceptions: readonly E[]): AppliedExceptions<E> {
   const unexplained = exceptions.filter((e) => typeof e.reason !== 'string' || e.reason.trim() === '');
   if (unexplained.length > 0) {
-    const list = unexplained.map((e) => `${e.id} on ${e.target.tool}${e.target.param === undefined ? '' : `.${e.target.param}`}`).join(', ');
+    const list = unexplained.map((e) => `${e.id} on ${where(e)}`).join(', ');
     throw new Error(`a lint exception needs a reason: ${list}`);
   }
-  const used = new Set<LintException>();
+  const used = new Set<E>();
   const kept: LintFinding[] = [];
-  const excepted: AppliedExceptions['excepted'] = [];
+  const excepted: AppliedExceptions<E>['excepted'] = [];
   for (const finding of findings) {
-    const exception = exceptions.find((e) => sameTarget(finding, e));
+    const exception = exceptions.find((e) => covers(e, finding));
     if (exception === undefined) kept.push(finding);
     else {
       used.add(exception);

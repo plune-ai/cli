@@ -19,6 +19,8 @@ export interface RuleHit {
 
 export interface LintRule {
   id: string;
+  /** What the rule finds, in one sentence: the rule catalog (`plune mcp lint --list-rules`) prints it. */
+  description: string;
   class: CheckClass;
   level: CheckLevel;
   fix: string;
@@ -27,12 +29,12 @@ export interface LintRule {
 }
 
 const T = LINT_THRESHOLDS;
-const SCHEMA = 'https://modelcontextprotocol.io/specification/2025-11-25/schema';
-const TOOLS_PAGE = 'https://modelcontextprotocol.io/specification/2025-11-25/server/tools';
+export const SCHEMA = 'https://modelcontextprotocol.io/specification/2025-11-25/schema';
+export const TOOLS_PAGE = 'https://modelcontextprotocol.io/specification/2025-11-25/server/tools';
 
 type Schema = Record<string, unknown>;
 
-const isRecord = (v: unknown): v is Schema => typeof v === 'object' && v !== null && !Array.isArray(v);
+export const isRecord = (v: unknown): v is Schema => typeof v === 'object' && v !== null && !Array.isArray(v);
 const props = (s: unknown): Schema => (isRecord(s) && isRecord(s.properties) ? s.properties : {});
 const text = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() !== '' ? v : undefined);
 
@@ -214,6 +216,7 @@ const tool = (t: ListedTool, param?: string): LintTarget => (param === undefined
 export const LINT_RULES: readonly LintRule[] = [
   {
     id: 'input-schema-not-object',
+    description: 'The input schema is missing or its root is not of type "object".',
     class: 'deterministic',
     level: 'error',
     fix: 'Give the tool an inputSchema whose root has "type": "object" (a tool without parameters: {"type": "object", "additionalProperties": false}).',
@@ -230,6 +233,7 @@ export const LINT_RULES: readonly LintRule[] = [
   },
   {
     id: 'output-schema-not-object',
+    description: 'The output schema is given, but its root is not of type "object".',
     class: 'deterministic',
     level: 'error',
     fix: 'Make the output schema an object at the root ("type": "object") and return the result inside it, or leave outputSchema out.',
@@ -246,6 +250,7 @@ export const LINT_RULES: readonly LintRule[] = [
   },
   {
     id: 'required-unknown-property',
+    description: '"required" names a property a closed schema does not define, so no call can satisfy it.',
     class: 'deterministic',
     level: 'error',
     fix: 'Remove the name from "required", or add the property it names to "properties".',
@@ -272,6 +277,7 @@ export const LINT_RULES: readonly LintRule[] = [
   {
     // An error although the specification says SHOULD: tools/call finds a tool by name alone, so a duplicate is unreachable.
     id: 'name-duplicate',
+    description: 'Two tools share a name, so only one of them can be called.',
     class: 'deterministic',
     level: 'error',
     fix: 'Give each tool its own name; tools/call picks a tool by name alone, so a second tool of the same name cannot be called.',
@@ -291,6 +297,7 @@ export const LINT_RULES: readonly LintRule[] = [
   {
     // The specification words its name rules as SHOULD, so a name outside them is a warning, not an error.
     id: 'name-invalid',
+    description: 'The name uses characters or a length outside what the specification recommends.',
     class: 'deterministic',
     level: 'warn',
     fix: 'Use only ASCII letters, digits, underscore, hyphen and dot in the name, within the length the specification gives.',
@@ -309,6 +316,7 @@ export const LINT_RULES: readonly LintRule[] = [
     // Absence is a fact, not a guess: deterministic. The specification makes a description optional, so this is quality
     // advice at warning level, not a violation of the specification; specRef points at the optional field itself.
     id: 'desc-missing',
+    description: 'The tool has no description to choose it by.',
     class: 'deterministic',
     level: 'warn',
     fix: 'Describe what the tool does, when to use it and when not to: the model chooses tools by name and description alone. The specification does not require a description; this is advice on quality.',
@@ -320,6 +328,7 @@ export const LINT_RULES: readonly LintRule[] = [
   },
   {
     id: 'desc-short',
+    description: 'The description is too short to tell when to choose the tool.',
     class: 'heuristic',
     level: 'info',
     fix: 'Say in a sentence or two what the tool does and what it returns.',
@@ -340,6 +349,7 @@ export const LINT_RULES: readonly LintRule[] = [
   },
   {
     id: 'desc-long',
+    description: 'The description is long enough to cost every request.',
     class: 'heuristic',
     level: 'warn',
     fix: 'Shorten the description to what a model needs to choose the tool; move reference detail into parameter descriptions.',
@@ -360,6 +370,7 @@ export const LINT_RULES: readonly LintRule[] = [
   },
   {
     id: 'desc-no-when-not',
+    description: 'The description does not say when not to use the tool (a warning when a similar tool exists).',
     class: 'heuristic',
     level: 'info',
     fix: 'Add when not to use the tool and what to use instead ("Do not use for …; use … instead").',
@@ -387,6 +398,7 @@ export const LINT_RULES: readonly LintRule[] = [
   },
   {
     id: 'tools-similar',
+    description: 'Two tools have names or descriptions too alike to tell apart.',
     class: 'heuristic',
     level: 'warn',
     fix: 'Make the names and descriptions of the two tools say how they differ, or merge them.',
@@ -409,6 +421,7 @@ export const LINT_RULES: readonly LintRule[] = [
   },
   {
     id: 'param-enum-in-text',
+    description: 'A string parameter lists its allowed values in the description instead of an enum.',
     class: 'heuristic',
     level: 'warn',
     fix: 'List the allowed values in "enum" rather than in the description, so the client can check them.',
@@ -431,6 +444,7 @@ export const LINT_RULES: readonly LintRule[] = [
   },
   {
     id: 'param-type-by-name',
+    description: 'A parameter named like a number, flag, date or URL is a free string.',
     class: 'heuristic',
     level: 'warn',
     fix: 'Give the parameter the type its name promises (number, boolean), or a "format" (date-time, uri).',
@@ -462,6 +476,7 @@ export const LINT_RULES: readonly LintRule[] = [
   },
   {
     id: 'param-desc-missing',
+    description: 'A parameter has no description.',
     class: 'heuristic',
     level: 'info',
     fix: 'Describe the parameter: what it means, its unit or format, and what happens when it is left out.',
@@ -475,6 +490,7 @@ export const LINT_RULES: readonly LintRule[] = [
   },
   {
     id: 'param-example-missing',
+    description: 'A free-form object parameter has no example of its keys.',
     class: 'heuristic',
     level: 'info',
     fix: 'Show the shape of a free-form object: add "examples" to the schema, or an example in the description.',
@@ -502,6 +518,7 @@ export const LINT_RULES: readonly LintRule[] = [
   },
   {
     id: 'required-missing',
+    description: 'The input schema has parameters but no "required" list.',
     class: 'heuristic',
     level: 'info',
     fix: 'Add "required" with the parameters a call cannot do without (an empty list if every one is optional).',
@@ -518,6 +535,7 @@ export const LINT_RULES: readonly LintRule[] = [
   },
   {
     id: 'name-style-mismatch',
+    description: 'The name does not follow the naming style of the other tools.',
     class: 'heuristic',
     level: 'warn',
     fix: 'Name the tool in the style the other tools of the server use.',
@@ -537,6 +555,7 @@ export const LINT_RULES: readonly LintRule[] = [
   },
   {
     id: 'name-not-snake',
+    description: 'The name is not snake_case.',
     class: 'heuristic',
     level: 'info',
     fix: 'Prefer snake_case names: the most common style among MCP servers.',
@@ -550,6 +569,7 @@ export const LINT_RULES: readonly LintRule[] = [
   },
   {
     id: 'annotations-missing',
+    description: 'The tool has no annotations (readOnlyHint, destructiveHint, idempotentHint, openWorldHint).',
     class: 'deterministic',
     level: 'info',
     fix: 'Add annotations: readOnlyHint, destructiveHint, idempotentHint and openWorldHint tell a client what the tool may do.',
@@ -561,6 +581,7 @@ export const LINT_RULES: readonly LintRule[] = [
   },
   {
     id: 'hint-readonly-writes',
+    description: 'The tool is marked read-only, but its name says it changes something.',
     class: 'heuristic',
     level: 'warn',
     fix: 'Set readOnlyHint to false if the tool changes anything, or rename it if it does not.',
@@ -577,6 +598,7 @@ export const LINT_RULES: readonly LintRule[] = [
   },
   {
     id: 'hint-destructive-understated',
+    description: 'The tool says its updates are additive, but its name says it overwrites or removes.',
     class: 'heuristic',
     level: 'warn',
     fix: 'Set destructiveHint to true (the default) for a tool that overwrites or removes; false promises additive updates only.',
@@ -593,6 +615,7 @@ export const LINT_RULES: readonly LintRule[] = [
   },
   {
     id: 'hint-idempotent-missing',
+    description: 'A tool that changes things does not say whether repeating a call is safe.',
     class: 'heuristic',
     level: 'info',
     fix: 'Say whether repeating the same call changes anything more: set idempotentHint.',
@@ -604,6 +627,7 @@ export const LINT_RULES: readonly LintRule[] = [
   },
   {
     id: 'list-no-paging',
+    description: 'A tool that returns a list by its name cannot be asked for less.',
     class: 'heuristic',
     level: 'warn',
     fix: 'Let the caller bound the answer: add a limit and a cursor (or page) parameter.',
@@ -624,6 +648,7 @@ export const LINT_RULES: readonly LintRule[] = [
   },
   {
     id: 'list-size',
+    description: 'The whole tool list costs more tokens on every request than the limit.',
     class: 'measure',
     level: 'warn',
     fix: 'Shorten the biggest tools first (descriptions, nested schemas), or hide rarely used tools behind discovery.',

@@ -1,7 +1,7 @@
 /**
  * The result format every MCP check shares (lint, agent checks, the security scan): one shape,
  * so a report, a JUnit file or the platform reads them the same way. Field and state names are final; a report may
- * add fields but never change what these mean.
+ * add fields but never change what these mean. The report a command prints around them is in ../result.ts.
  */
 
 /** `measure`: a number against a threshold. `deterministic`: yes or no by a rule. `heuristic`: advice. */
@@ -56,9 +56,12 @@ export interface ListedTool {
   annotations?: ToolAnnotations | undefined;
 }
 
-/** A deliberate exception: this rule on this target is accepted, and why. */
+/**
+ * A deliberate exception: this rule on this target is accepted, and why. A target without `tool` covers the rule on
+ * every tool; without `param`, every parameter of the tool as well as the tool itself.
+ */
 export interface LintException {
   id: string;
-  target: LintTarget;
+  target: Partial<LintTarget>;
   reason: string;
 }

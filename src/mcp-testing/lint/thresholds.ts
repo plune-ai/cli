@@ -80,6 +80,14 @@ export const LINT_THRESHOLDS = {
     charsPerToken: 4,
     budget: PLUNE_BUDGET,
   },
+  call: {
+    /**
+     * Estimated tokens of one `tools/call` result (its JSON, as the client receives it) above which the answer is
+     * reported: the limit of our own biggest answer (`budget.answers.plune_cases_search`), as `maxListTokens` is for
+     * the list.
+     */
+    maxResultTokens: PLUNE_BUDGET.answers.plune_cases_search,
+  },
   language: {
     /**
      * A text is taken to be in a listed language when at least this many of its stop words occur; two, so a lone
