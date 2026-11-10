@@ -232,6 +232,68 @@ plune report --format json -o run.json
 | `0` | Rendered the saved run. |
 | `2` | No saved run yet (run `plune run` first), or the saved file is unreadable/malformed. |
 
+## `plune mcp check`
+
+Checks that any MCP server starts and answers the basic requests, before you lint it, snapshot it or
+point an agent at it. It needs no Plune account and never calls the platform. "The server is broken"
+and "the server could not be checked" are different answers, and the second never looks like a pass.
+
+```bash
+plune mcp check -- node dist/server.js                        # a stdio server
+plune mcp check --url http://127.0.0.1:3000/mcp --wait 20s     # a server CI starts beside this step
+plune mcp check --smoke --out check.json -- node dist/server.js
+```
+
+### Checks
+
+In this order, each with a stable id, a state and one sentence on what it saw:
+
+| Check | What it asks |
+|-------|--------------|
+| `start` | The process started (stdio), or the server answered at `--url`. |
+| `initialize` | The handshake finished; `serverInfo` (name, version) is recorded. |
+| `protocol-version` | The protocol version the server chose. One older than the latest this client offers is shown as information, not a failure. |
+| `capabilities` | What the server declares. |
+| `tools-list`, `resources-list`, `resource-templates-list`, `prompts-list` | The list, read to its last page (at most 100), and how many entries it has. A list whose capability the server did not declare is `not-applicable`. |
+| `ping` | The server answers `ping`. |
+
+### States
+
+| State | Meaning |
+|-------|---------|
+| `passed` | The check got the answer it asked for. |
+| `failed` | The server answered with a JSON-RPC error, the connection was lost after the handshake, the process exited before `initialize`, or a declared list did not answer as one. |
+| `not-applicable` | The server did not declare the capability the check needs (or, with `--smoke`, the tool is not called; the reason says why). |
+| `could-not-run` | Not measured. With `timedOut: true`: no answer within `--check-timeout`. Without it: skipped after two timeouts in a row, or something before it did not finish. A check that only reads what the handshake gave (`capabilities`) does not end a run of timeouts. If the declared capabilities cannot be read, `capabilities` is `failed` and the lists are `could-not-run`, never `not-applicable`. |
+| `pending` | Reserved; `check` does not report it. |
+
+### Options
+
+The connection flags (`--url`, `--sse`, `--header`, `--header-env`, `--env`, `--cwd`, `--timeout`,
+`--debug-out`) are those of every `plune mcp` command that tests a server; `--timeout` bounds the
+connection and the handshake. The check's own:
+
+| Option | Meaning |
+|--------|---------|
+| `--check-timeout <duration>` | How long one check may wait for an answer (default `15s`). |
+| `--wait <duration>` | Keep trying to reach the server at `--url` for this long (default `0`): for a server that CI starts beside this step. Only for `--url`. |
+| `--smoke` | After the checks, call each tool that says `readOnlyHint: true`, does not say `destructiveHint: true` and has no required parameter, always with `{}`. A call is `passed` when it answers without `isError`, `failed` on a JSON-RPC error or `isError: true` (with its text), `could-not-run` with no answer. A tool not called is listed as `not-applicable` with the reason (`not-read-only`, `destructive`, `required-arguments`, `smoke-limit`, `duplicate-name`, `invalid-name`). Two timeouts in a row end the mode. |
+| `--smoke-limit <n>` | Call at most this many tools (default `5`). |
+| `--smoke-timeout <duration>` | How long to wait for one call (default `15s`). |
+| `--budget <duration>` | How long `--smoke` may take in all (default `60s`); the calls it leaves no time for are `could-not-run`. |
+| `--allow-write-calls` | With `--smoke`, also call tools that do not say they are read-only, still only those without required parameters. A warning goes to stderr before the first call, and the report says `writeCallsAllowed: true`. `readOnlyHint` is what the server says of itself, not a guarantee. A tool that says `destructiveHint: true` is never called; there is no flag for that. |
+| `--out <path>` | Also write the report as JSON to this file: the `plune` version, the format version, the server's name and version, the transport (never the URL, the command, its environment or the headers), the protocol version, every check with its state and detail, the durations, the last lines of the server's stderr (masked), the `--smoke` limits and calls, and `writeCallsAllowed`. It can be attached to a ticket as it is. |
+| `--format <fmt>` | `human` (default) or `json` on stdout. Durations are only in the `timing` field, so two runs on the same server give the same JSON but for it. |
+
+### Exit codes
+
+| Exit | Meaning |
+|------|---------|
+| `0` | Every check that applies passed (`not-applicable` does not count against it). |
+| `1` | At least one check or smoke call `failed`. |
+| `2` | Nothing about the server's health is proven, and you can fix why: the command was not found or did not start, the server could not be reached (after `--wait`), it answered `401` or `403` (pass the credentials with `--header-env`; `check` does not discover or run OAuth), or a flag is wrong. |
+| `3` | Nothing failed, but something could not be measured: a check `could-not-run`, no check passed, or `--smoke` found no tool to call. Not measured is not healthy. |
+
 ## `plune mcp lint`
 
 Checks the tool list of any MCP server for what makes a model choose wrong: missing or vague
