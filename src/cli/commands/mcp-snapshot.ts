@@ -4,6 +4,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { renameSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import {
   connectionConfig,
@@ -11,13 +12,14 @@ import {
   type ConnectConfig,
   type ConnectionFlags,
 } from '../../mcp-testing/connect/options.js';
-import { maskUrl } from '../../mcp-testing/connect/redact.js';
+import { isSecretEnv, isSecretHeader, maskUrl } from '../../mcp-testing/connect/redact.js';
 import { ConnectError, openSession, type Session } from '../../mcp-testing/connect/session.js';
 import { MCP_EXIT } from '../../mcp-testing/exit-codes.js';
 import { noCommands } from '../../mcp-testing/render.js';
 import {
   buildSnapshot,
   entityCount,
+  nestedDeeperThan,
   SECTIONS,
   serializeSnapshot,
   SnapshotFormatError,
@@ -115,20 +117,69 @@ export async function takeSnapshot(config: ConnectConfig): Promise<McpSnapshot> 
   try {
     const { serverInfo, capabilities, instructions } = session.handshake;
     const declared = isRecord(capabilities) ? capabilities : {};
+    const masked = (value: unknown, what: string) => {
+      // The connection's masking reads MASK_DEPTH levels and cuts the rest to one marker; a cut schema would compare
+      // equal to any other cut schema, so a change below the cut would pass as no change.
+      if (nestedDeeperThan(value, MASK_DEPTH))
+        throw new SnapshotFormatError(
+          `${what} is nested deeper than ${MASK_DEPTH} levels, past what the masking of secrets reads, so it cannot be compared. No snapshot written`,
+        );
+      return session.redact.value(value);
+    };
     const input: SnapshotInput = {
       transport: config.target.kind,
-      serverInfo: session.redact.value(serverInfo),
-      instructions: session.redact.value(instructions),
-      capabilities: session.redact.value(capabilities),
+      serverInfo: masked(serverInfo, 'The server info'),
+      instructions: masked(instructions, 'The instructions'),
+      capabilities: masked(capabilities, 'The capabilities'),
     };
-    for (const { section, capability, method } of SECTIONS) {
+    for (const { section, capability, method, key, entity } of SECTIONS) {
       if (declared[capability] === undefined) continue;
-      input[section] = session.redact.value(await listAll(session, method, section)) as unknown[];
+      const listed = await listAll(session, method, section);
+      input[section] =
+        listed === null
+          ? null
+          : listed.map((entry, i) => {
+              const id = isRecord(entry) ? entry[key] : undefined;
+              return masked(
+                entry,
+                typeof id === 'string'
+                  ? `The ${entity} ${JSON.stringify(id)}`
+                  : `${method} entry ${i}`,
+              );
+            });
     }
-    return buildSnapshot(input, { secrets: addressOf(config) });
+    return buildSnapshot(input, {
+      secrets: addressOf(config),
+      credentials: credentialsOf(config),
+      home: homedir(),
+    });
   } finally {
     await session.close();
   }
+}
+
+/** How deep the connection's masking reads an entity (its own limit, in src/mcp-testing/connect/redact.ts). */
+const MASK_DEPTH = 64;
+/** As the connection's masking: a value shorter than this is looked for only when its name says it is a credential. */
+const MIN_ARGUMENT_LENGTH = 8;
+
+/**
+ * What the snapshot masks at any length besides what the connection masks: the values of credential-named variables
+ * and headers, however short (`API_KEY=sk12345`), and the command line that starts the server, which a server may
+ * repeat (its path names this machine).
+ */
+function credentialsOf(config: ConnectConfig): string[] {
+  const { target } = config;
+  if (target.kind !== 'stdio')
+    return Object.entries(target.headers)
+      .filter(([name]) => isSecretHeader(name))
+      .map(([, value]) => value);
+  return [
+    ...Object.entries(target.env)
+      .filter(([name]) => isSecretEnv(name))
+      .map(([, value]) => value),
+    ...[target.command, ...target.args].filter((part) => part.length >= MIN_ARGUMENT_LENGTH),
+  ];
 }
 
 /** The forms of an HTTP server's address, masked by the snapshot wherever the server repeats it. */
@@ -139,8 +190,15 @@ function addressOf(config: ConnectConfig): string[] {
   return [target.url, url.href, maskUrl(target.url), url.origin];
 }
 
-/** One list to its last page, at most MAX_PAGES. */
-async function listAll(session: Session, method: string, key: string): Promise<unknown[]> {
+/** The JSON-RPC code of a method the server does not have. */
+const METHOD_NOT_FOUND = -32601;
+
+/**
+ * One list to its last page, at most MAX_PAGES. `null`: the server has no `resources/templates/list` (Method not found
+ * on the first page) although it declares resources; a server with resources and no templates is common, and its
+ * templates section is then `null`. Any other list that is missing fails.
+ */
+async function listAll(session: Session, method: string, key: string): Promise<unknown[] | null> {
   const items: unknown[] = [];
   let cursor: string | undefined;
   for (let page = 1; page <= MAX_PAGES; page++) {
@@ -149,6 +207,12 @@ async function listAll(session: Session, method: string, key: string): Promise<u
       answer = await session.request(method, cursor === undefined ? undefined : { cursor });
     } catch (err) {
       if (err instanceof ConnectError) throw err;
+      if (
+        method === 'resources/templates/list' &&
+        page === 1 &&
+        (err as { code?: unknown }).code === METHOD_NOT_FOUND
+      )
+        return null;
       throw new ConnectError(
         'protocol',
         `The server declares ${method.split('/')[0]}, but ${method} failed: ${(err as Error).message}. No snapshot written.`,

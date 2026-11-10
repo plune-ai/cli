@@ -431,7 +431,8 @@ describe('CLI · mcp diff · classes and exit codes', () => {
     expect(MCP_DIFF_MARKER).toBe('<!-- plune-mcp-diff -->');
     expect(md.out.startsWith(`${MCP_DIFF_MARKER}\n`)).toBe(true);
     expect(md.out).not.toContain('<!-- plune-eval-diff -->');
-    expect(md.out).toContain('| breaking | tool | `Zeta` | `tool` | removed |');
+    expect(md.out.split('<!--').length - 1).toBe(1);
+    expect(md.out).toContain('| breaking | tool | Zeta | tool | removed |');
   });
 
   it('CLI · mcp diff · two snapshots with no entity at all: exit 3, nothing to compare', async () => {
@@ -492,5 +493,60 @@ describe('CLI · mcp diff · classes and exit codes', () => {
     expect(() =>
       diffOperands(['a.json', 'b.json', 'c.json'], raw('a.json', 'b.json', 'c.json')),
     ).toThrow(/at most two snapshot files/);
+  });
+});
+
+describe('CLI · mcp snapshot · review round', () => {
+  it('CLI · mcp snapshot · a schema deeper than the masking reads is exit 2 with the tool and the limit, no file', async () => {
+    for (const mode of ['deepA', 'deepB']) {
+      const dir = tmp();
+      const run = await snapshot({ mode, cwd: dir, flags: { out: 'deep.json' } });
+      expect(run.code, run.err).toBe(2);
+      expect(run.err).toContain('tool "deep"');
+      expect(run.err).toContain('64 levels');
+      expect(readdirSync(dir)).toEqual([]);
+    }
+  });
+
+  it('CLI · mcp snapshot · a short credential and the command line repeated by the server do not reach the file', async () => {
+    const dir = tmp();
+    const run = await snapshot({
+      mode: 'argv',
+      cwd: dir,
+      flags: { out: 'argv.json', env: ['API_KEY=sk12345'] },
+    });
+    expect(run.code, run.err).toBe(0);
+    const bytes = readFileSync(join(dir, 'argv.json'));
+    for (const leaked of ['sk12345', FIXTURE, process.execPath]) {
+      expect(bytes.includes(Buffer.from(leaked)), `holds ${leaked}`).toBe(false);
+      expect(bytes.toString('utf8').toLowerCase()).not.toContain(leaked.toLowerCase());
+    }
+    expect(bytes.toString('utf8')).toContain('key=[redacted] argv=[redacted] [redacted] argv');
+  });
+
+  it('CLI · mcp snapshot · resources declared and no resources/templates/list (Method not found): templates null, exit 0', async () => {
+    const dir = tmp();
+    const run = await snapshot({ mode: 'no-templates', cwd: dir, flags: { out: 'n.json' } });
+    expect(run.code, run.err).toBe(0);
+    const s = JSON.parse(readFileSync(join(dir, 'n.json'), 'utf8')) as Record<string, unknown>;
+    expect(s['resourceTemplates']).toBeNull();
+    expect(s['resources']).toHaveLength(2);
+  });
+
+  it('CLI · mcp diff · a snapshot file nested 200 000 levels deep is exit 2 without a stack, even with --fail-on none', async () => {
+    const dir = tmp();
+    await written(dir, 'a.json');
+    const text = readFileSync(join(dir, 'a.json'), 'utf8').replace(
+      '"instructions": "Read a note before you delete it."',
+      `"instructions": "x", "extra": ${'['.repeat(200_000)}1${']'.repeat(200_000)}`,
+    );
+    writeFileSync(join(dir, 'deep.json'), text);
+    const run = await diff(
+      { baseline: 'deep.json', current: 'a.json' },
+      { cwd: dir, flags: { failOn: 'none' } },
+    );
+    expect(run.code).toBe(2);
+    expect(run.err).toMatch(/^plune mcp diff: deep\.json: .*nested deeper than/);
+    expect(run.err).not.toMatch(/\n\s+at /);
   });
 });

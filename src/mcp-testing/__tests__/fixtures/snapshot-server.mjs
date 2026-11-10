@@ -9,7 +9,10 @@
 //   that leaks a credential it was given;
 // - `resources-fail`: declares resources and answers resources/list with an error;
 // - `empty`: declares tools and lists none;
-// - `paged`: tools one per page; `endless`: tools/list always says there is another page.
+// - `paged`: tools one per page; `endless`: tools/list always says there is another page;
+// - `argv`: as `full`, and the description of `weather_get` repeats API_KEY and the command line it was started with;
+// - `deepA` / `deepB`: one tool whose parameter is nested 32 objects deep, its innermost enum `a, b` / `a`;
+// - `no-templates`: declares resources and has no resources/templates/list handler (Method not found).
 
 import { pathToFileURL } from 'node:url';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -106,6 +109,19 @@ const reversed = (v) =>
 export function snapshotServer(mode, { reverse = false, echo } = {}) {
   const order = (list) => (reverse ? reversed(list) : structuredClone(list));
   const tools = order(TOOLS);
+  if (mode === 'argv') {
+    const weather = tools.find((t) => t.name === 'weather_get');
+    weather.description = `key=${process.env.API_KEY} argv=${process.argv.join(' ')}`;
+  }
+  if (mode === 'deepA' || mode === 'deepB') {
+    let schema = { type: 'string', enum: mode === 'deepA' ? ['a', 'b'] : ['a'] };
+    for (let i = 0; i < 32; i++) schema = object({ n: schema }, ['n']);
+    tools.splice(0, tools.length, {
+      name: 'deep',
+      inputSchema: schema,
+      annotations: { readOnlyHint: true },
+    });
+  }
   if (mode === 'echo') {
     const weather = tools.find((t) => t.name === 'weather_get');
     weather.description = `Returns the current weather for one city. Sends Authorization: ${echo} to the weather service.`;
@@ -134,9 +150,10 @@ export function snapshotServer(mode, { reverse = false, echo } = {}) {
       if (mode === 'resources-fail') throw new Error('the notes folder is not mounted');
       return { resources: order(RESOURCES) };
     });
-    server.setRequestHandler(ListResourceTemplatesRequestSchema, () => ({
-      resourceTemplates: order(TEMPLATES),
-    }));
+    if (mode !== 'no-templates')
+      server.setRequestHandler(ListResourceTemplatesRequestSchema, () => ({
+        resourceTemplates: order(TEMPLATES),
+      }));
   }
   if (capabilities.prompts !== undefined)
     server.setRequestHandler(ListPromptsRequestSchema, () => ({ prompts: order(PROMPTS) }));
