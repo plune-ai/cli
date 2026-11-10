@@ -5,12 +5,19 @@
  * its own format and nothing else.
  */
 
-import { writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { renameSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
 import { UsageError } from '../connect/options.js';
 import type { McpCheckReport, McpDiffReport, McpReport } from '../result.js';
 import { markdownCell } from '../snapshot/index.js';
-import { checkHuman, diffHuman, diffMarkdown, lintHuman, noCommands } from './human.js';
+import {
+  checkHuman,
+  diffHuman,
+  diffMarkdown,
+  lintHuman,
+  noCommands,
+  noCommandsJson,
+} from './human.js';
 import type { McpRun, ReportCheck } from './model.js';
 import type { ReportFormat, ReportOutputs } from './options.js';
 
@@ -18,47 +25,100 @@ export * from './model.js';
 export * from './options.js';
 export { checkRun, diffRun, lintRun } from './runs.js';
 
+const firstLine = (text: string) => text.split(/\r?\n/)[0] ?? '';
+
 /** Lines GitHub turns into an annotation start with this; ours are the only ones (see `noCommands`). */
 const COMMAND = '::';
 
 /**
- * The files first (a relative path from `cwd`, else this process's folder), then stdout: the exit code is the one the files record, whatever happens to the printing. Only
- * the `github` renderer prints lines that start with `::`; any other text goes through `noCommands`.
+ * Every text is built first, stdout and each file: a renderer that fails leaves no file behind. Then the files, each
+ * through a temporary file beside it renamed over it, then stdout: the exit code is the one the files record,
+ * whatever happens to the printing. A relative path is read from `cwd`, else from this process's folder.
  */
 export function writeReport(
   run: McpRun,
   outputs: ReportOutputs,
   io: { out(text: string): void; err(text: string): void; cwd?: string },
 ): void {
-  for (const file of outputs.files) {
-    try {
-      writeFileSync(resolve(io.cwd ?? '.', file.path), render(run, file.format));
-    } catch (err) {
-      throw new UsageError(
-        `--out: could not write ${file.path} (${(err as NodeJS.ErrnoException).code ?? 'error'}).`,
-      );
-    }
-  }
-  const text = render(run, outputs.format);
+  const files: { name: string; path: string; text: string }[] = [];
+  let building: ReportFormat = outputs.format;
+  let stdout: string;
   try {
-    io.out(outputs.format === 'github' ? text : noCommands(text));
+    for (const f of outputs.files) {
+      building = f.format;
+      files.push({
+        name: f.path,
+        path: resolve(io.cwd ?? '.', f.path),
+        text: render(run, f.format),
+      });
+    }
+    building = outputs.format;
+    stdout = render(run, outputs.format);
+  } catch (err) {
+    throw new UsageError(
+      `could not build the ${building} report (${firstLine((err as Error).message)}); no file was written.`,
+    );
+  }
+  writeFiles(files);
+  try {
+    io.out(stdout);
   } catch (err) {
     io.err(`plune mcp ${run.command}: could not print the report (${(err as Error).message}).\n`);
   }
 }
 
+/**
+ * Each file is whole or not there: written to a temporary file in its own folder, then renamed over the target. The
+ * set is not one step on the file system: a rename that fails after others leaves those files written, and the error
+ * names them. `reportOutputs` refuses the usual causes (two flags for one file, a folder, a missing folder) before
+ * the server is reached.
+ */
+function writeFiles(files: { name: string; path: string; text: string }[]): void {
+  const temps = files.map((f, i) =>
+    join(dirname(f.path), `.${basename(f.path)}.${process.pid}.${i}.tmp`),
+  );
+  const drop = (from: number) => {
+    for (const t of temps.slice(from)) rmSync(t, { force: true });
+  };
+  const code = (err: unknown) => (err as NodeJS.ErrnoException).code ?? 'error';
+  for (const [i, f] of files.entries()) {
+    try {
+      writeFileSync(temps[i] ?? '', f.text);
+    } catch (err) {
+      drop(0);
+      throw new UsageError(`--out: could not write ${f.name} (${code(err)}); no file was written.`);
+    }
+  }
+  const written: string[] = [];
+  for (const [i, f] of files.entries()) {
+    try {
+      renameSync(temps[i] ?? '', f.path);
+      written.push(f.name);
+    } catch (err) {
+      drop(i);
+      const kept = written.length === 0 ? 'no file was written' : `written: ${written.join(', ')}`;
+      throw new UsageError(`--out: could not write ${f.name} (${code(err)}); ${kept}.`);
+    }
+  }
+}
+
+/** One format of a run, with the workflow commands of its text neutralized (see `noCommands`). */
 export function render(run: McpRun, format: ReportFormat): string {
   switch (format) {
     case 'json':
-      return `${JSON.stringify(run.document, null, 2)}\n`;
+      return noCommandsJson(`${JSON.stringify(run.document, null, 2)}\n`);
     case 'human':
-      return run.command === 'lint'
-        ? lintHuman(run.document as McpReport, { showInfo: run.showInfo })
-        : run.command === 'check'
-          ? checkHuman(run.document as McpCheckReport)
-          : diffHuman(run.document as McpDiffReport);
+      return noCommands(
+        run.command === 'lint'
+          ? lintHuman(run.document as McpReport, { showInfo: run.showInfo })
+          : run.command === 'check'
+            ? checkHuman(run.document as McpCheckReport)
+            : diffHuman(run.document as McpDiffReport),
+      );
     case 'markdown':
-      return run.command === 'diff' ? diffMarkdown(run.document as McpDiffReport) : markdown(run);
+      return noCommands(
+        run.command === 'diff' ? diffMarkdown(run.document as McpDiffReport) : markdown(run),
+      );
     case 'github':
       return github(run);
     case 'junit-xml':
@@ -83,9 +143,9 @@ type CaseOutcome =
 
 /**
  * A case's outcome from its checks, the worst first: anything that could not run is an `error` (never a pass, never
- * skipped); a failed measure or deterministic check is a `failure`; a failed heuristic is advice, `skipped` as
- * `advisory`, and so is a finding below the run's --fail-on; then `pending` and `not-applicable`, both `skipped`;
- * a case with none of these passed.
+ * skipped); a failed check is a `failure` when it fails the command's own gate, else advice (`advisory`, set by the
+ * command's adapter in ./runs.ts), `skipped`; then `pending` and `not-applicable`, both `skipped`; a case with none
+ * of these passed. So the exit code is 1 exactly when a case failed.
  */
 function outcomeOf(checks: ReportCheck[]): CaseOutcome {
   const pick = (
@@ -102,7 +162,7 @@ function outcomeOf(checks: ReportCheck[]): CaseOutcome {
   const by = (f: (c: ReportCheck) => boolean) => checks.filter(f);
   const cnr = by((c) => c.state === 'could-not-run');
   if (cnr.length > 0) return pick('error', 'could-not-run', 'could-not-run: ', cnr);
-  const failed = by((c) => c.state === 'failed' && c.class !== 'heuristic' && c.advisory !== true);
+  const failed = by((c) => c.state === 'failed' && c.advisory !== true);
   if (failed.length > 0) return pick('failure', failed[0]?.class ?? 'deterministic', '', failed);
   const advice = by((c) => c.state === 'failed');
   if (advice.length > 0) return pick('skipped', 'advisory', 'advisory: ', advice);
@@ -186,12 +246,22 @@ const detailOf = (c: ReportCheck) =>
 export const ANNOTATION_LIMITS = { error: 10, warning: 10, notice: 10 } as const;
 
 /**
+ * Rows of the Markdown table of lint and check, and checks spelled out in one JUnit case: the first ones, then one
+ * line with how many more the JSON report holds. A pull request comment is limited in size, and 100 000 rows read as
+ * none.
+ */
+export const MARKDOWN_ROWS = 200;
+const andMore = (n: number) => `… and ${n} more in the full report.`;
+
+/**
  * The escaping of the Actions runner (actions/runner, src/Runner.Common/ActionCommand.cs): in the message `%`, `\r`
  * and `\n`; in a property `:` and `,` as well. `%` first, or the `%` of an escape would be escaped again.
  */
 const escapeData = (s: string) =>
   s.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
 const escapeProperty = (s: string) => escapeData(s).replace(/:/g, '%3A').replace(/,/g, '%2C');
+/** Server text in an annotation cannot carry the older command form either (see `noCommands`). */
+const noLegacy = (s: string) => s.replaceAll('##[', '##?[');
 
 /** Failed by its level; could-not-run as a warning (not measured, not a violation); anything else is not annotated. */
 function annotationOf(c: ReportCheck): keyof typeof ANNOTATION_LIMITS | undefined {
@@ -222,7 +292,7 @@ function github(run: McpRun): string {
     used[kind]++;
     const title = `${c.state === 'could-not-run' ? 'could not run: ' : ''}${c.id}${c.target === '' ? '' : ` ${c.target}`}`;
     lines.push(
-      `${COMMAND}${kind} title=${escapeProperty(title)}${COMMAND}${escapeData(detailOf(c))}`,
+      `${COMMAND}${kind} title=${escapeProperty(noLegacy(title))}${COMMAND}${escapeData(noLegacy(detailOf(c)))}`,
     );
   }
   const tail = [
@@ -253,15 +323,18 @@ function markdown(run: McpRun): string {
     '',
   ];
   if (rows.length === 0) lines.push('Nothing to show: every check that applies passed.');
-  else
+  else {
     lines.push(
       '| State | Level | Check | Target | Expected | Actual | Fix |',
       '| --- | --- | --- | --- | --- | --- | --- |',
-      ...rows.map(
-        (c) =>
-          `| ${c.state} | ${c.level} | ${markdownCell(c.id)} | ${markdownCell(c.target)} | ${markdownCell(c.expected)} | ${markdownCell(c.actual)} | ${markdownCell(c.fix)} |`,
-      ),
     );
+    // One row at a time: a server's list can hold more findings than one call takes arguments.
+    for (const c of rows.slice(0, MARKDOWN_ROWS))
+      lines.push(
+        `| ${c.state} | ${c.level} | ${markdownCell(c.id)} | ${markdownCell(c.target)} | ${markdownCell(c.expected)} | ${markdownCell(c.actual)} | ${markdownCell(c.fix)} |`,
+      );
+    if (rows.length > MARKDOWN_ROWS) lines.push('', andMore(rows.length - MARKDOWN_ROWS));
+  }
   return `${lines.join('\n')}\n`;
 }
 
@@ -306,7 +379,11 @@ function junitXml(run: McpRun): string {
       lines.push(`${head}/>`);
       continue;
     }
-    const body = c.outcome.checks.map(detailOf).join('\n\n');
+    const { checks } = c.outcome;
+    const body = [
+      ...checks.slice(0, MARKDOWN_ROWS).map(detailOf),
+      ...(checks.length > MARKDOWN_ROWS ? [andMore(checks.length - MARKDOWN_ROWS)] : []),
+    ].join('\n\n');
     lines.push(
       `${head}>`,
       `      <${c.outcome.kind} type="${xmlAttr(c.outcome.type)}" message="${xmlAttr(c.outcome.message)}">${xmlText(body)}</${c.outcome.kind}>`,
@@ -314,5 +391,9 @@ function junitXml(run: McpRun): string {
     );
   }
   lines.push('  </testsuite>', '</testsuites>');
-  return `${lines.join('\n')}\n`;
+  // No line of the file reads as a workflow command, should a step print it: `##[` as a character reference, which
+  // a reader decodes to the same text; a line that starts with `::` gets a `?` (see `noCommands`).
+  return `${lines.join('\n')}\n`
+    .replace(/^([\s\u0085]*)::/gm, '$1?::')
+    .replaceAll('##[', '##&#91;');
 }

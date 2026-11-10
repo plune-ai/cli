@@ -114,7 +114,7 @@ async function diff(
   rawOut: (text: string) => void,
 ): Promise<number> {
   const failOn = oneOf('--fail-on', flags.failOn ?? 'breaking', FAIL_ON);
-  const outputs = reportOutputs(flags);
+  const outputs = reportOutputs(flags, io.cwd);
   const live = operands.server.length > 0 || flags.url !== undefined;
   if (operands.current !== undefined && live)
     throw new UsageError(

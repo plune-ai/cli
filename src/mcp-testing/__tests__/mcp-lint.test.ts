@@ -232,14 +232,15 @@ describe('CLI · mcp lint · findings and exit codes', () => {
     expect(code).toBe(3);
   }, 60_000);
 
-  it('CLI · mcp lint · a 10 000-level input schema at the default --fail-on: exit 1 with the report, not a crash', async () => {
+  it('CLI · mcp lint · a 10 000-level input schema at the default --fail-on: exit 3 with the report, not a crash', async () => {
     const run = await lint({ mode: 'deep' });
     expect(run.err).not.toContain('This one is on us');
     expect(run.out).toMatch(/^error +deep_get +required-unknown-property$/m);
     expect(run.out).toContain(
       `  inputSchema nested deeper than ${LINT_THRESHOLDS.schema.maxDepth} levels\n`,
     );
-    expect(run.code).toBe(1);
+    // The rule could not judge the tool: not measured, as the JUnit file says (could-not-run, an error).
+    expect(run.code).toBe(3);
   }, 60_000);
 
   it('CLI · mcp lint · Ukrainian descriptions written well give no findings (AC-10)', async () => {

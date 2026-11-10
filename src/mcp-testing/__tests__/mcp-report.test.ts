@@ -2,18 +2,44 @@
 // GitHub annotations, Markdown and JUnit XML, against the fixture servers of ./fixtures as real processes and against
 // runs built by hand where a server cannot send the input (a raw new line reaches no renderer from a server).
 
-import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from 'node:fs';
+import { createServer, type Server as HttpServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+  McpError,
+} from '@modelcontextprotocol/sdk/types.js';
+import { afterEach, describe, expect, it } from 'vitest';
 import { handleMcpCheck, type McpCheckFlags } from '../../cli/commands/mcp-check.js';
 import { handleMcpDiff, type McpDiffFlags } from '../../cli/commands/mcp-diff.js';
 import { handleMcpLint, type McpLintFlags } from '../../cli/commands/mcp-lint.js';
 import { handleMcpSnapshot } from '../../cli/commands/mcp-snapshot.js';
 import { readJUnit } from '../../importers/junit.js';
 import { parseXml } from '../../importers/xml.js';
-import { ANNOTATION_LIMITS, render, type McpRun, type ReportCheck } from '../report/index.js';
+import { noCommands } from '../report/human.js';
+import {
+  ANNOTATION_LIMITS,
+  MARKDOWN_ROWS,
+  render,
+  writeReport,
+  type McpRun,
+  type ReportCheck,
+} from '../report/index.js';
+import { markdownCell } from '../snapshot/index.js';
+import { LEGACY_STDERR } from './fixtures/lint-server.mjs';
 import type { McpCheckReport, McpReport } from '../result.js';
 import { generateReports, REPORT_FIXTURES } from './fixtures/reports/generate.js';
 
@@ -21,10 +47,54 @@ const fixture = (name: string) => fileURLToPath(new URL(`./fixtures/${name}`, im
 const LINT = [process.execPath, fixture('lint-server.mjs')];
 const CHECK = [process.execPath, fixture('check-server.mjs')];
 const SNAPSHOT = [process.execPath, fixture('snapshot-server.mjs')];
+const RAW = [process.execPath, fixture('raw-stdio.mjs')];
 const REPORTS = fixture('reports');
 const GOLDEN = join(REPORTS, 'golden-v1');
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'plune-report-'));
+
+const servers: { close(): Promise<void> }[] = [];
+afterEach(async () => {
+  for (const s of servers.splice(0)) await s.close();
+});
+
+/**
+ * A Streamable HTTP server that repeats the Authorization header it was sent: in a tool's description and in the
+ * error a call of that tool gets.
+ */
+async function echoServer(): Promise<string> {
+  const http: HttpServer = createServer((req, res) => {
+    const said = String(req.headers['authorization'] ?? '');
+    const server = new Server({ name: 'echo', version: '1.0.0' }, { capabilities: { tools: {} } });
+    server.setRequestHandler(ListToolsRequestSchema, () => ({
+      tools: [
+        {
+          name: 'read_echo',
+          description: `Reads with ${said}. Do not use it to write.`,
+          inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+          annotations: { readOnlyHint: true, destructiveHint: false },
+        },
+      ],
+    }));
+    server.setRequestHandler(CallToolRequestSchema, () => {
+      throw new McpError(-32603, `refused ${said}`);
+    });
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+      enableJsonResponse: true,
+    });
+    void server.connect(transport).then(() => transport.handleRequest(req, res));
+  });
+  await new Promise<void>((done) => http.listen(0, '127.0.0.1', done));
+  servers.push({
+    close: () =>
+      new Promise<void>((done) => {
+        http.closeAllConnections();
+        http.close(() => done());
+      }),
+  });
+  return `http://127.0.0.1:${(http.address() as AddressInfo).port}/mcp`;
+}
 
 let generated: Promise<{ dir: string; codes: Record<string, number> }> | undefined;
 /** The JUnit fixtures written again by the commands as they are now, once for this file. */
@@ -55,14 +125,18 @@ const sink = () => {
   };
 };
 
+/** `base` and `mode` start the server; an empty `base` starts nothing (a server at --url). */
+const command = (base: string[], mode: string) => (base.length === 0 ? [] : [...base, mode]);
+
 async function lint(
   mode: string,
   flags: McpLintFlags = {},
   env: NodeJS.ProcessEnv = {},
   cwd = tmp(),
+  base = LINT,
 ): Promise<Run> {
   const { s, io } = sink();
-  const code = await handleMcpLint({ timeout: '20s', ...flags }, [...LINT, mode], io(env, cwd));
+  const code = await handleMcpLint({ timeout: '20s', ...flags }, command(base, mode), io(env, cwd));
   return { code, ...s };
 }
 
@@ -70,14 +144,25 @@ async function check(
   mode: string,
   flags: McpCheckFlags = {},
   env: NodeJS.ProcessEnv = {},
+  base = CHECK,
 ): Promise<Run> {
   const { s, io } = sink();
-  const code = await handleMcpCheck({ timeout: '20s', ...flags }, [...CHECK, mode], io(env, tmp()));
+  const code = await handleMcpCheck(
+    { timeout: '20s', ...flags },
+    command(base, mode),
+    io(env, tmp()),
+  );
   return { code, ...s };
 }
 
 /** A snapshot of the fixture in `full` mode, then `diff` of it against the fixture live in `mode`. */
-async function diff(mode: string, flags: McpDiffFlags = {}, cwd = tmp()): Promise<Run> {
+async function diff(
+  mode: string,
+  flags: McpDiffFlags = {},
+  cwd = tmp(),
+  env: NodeJS.ProcessEnv = {},
+  base = SNAPSHOT,
+): Promise<Run> {
   if (!existsSync(join(cwd, 'base.json'))) {
     const taken = sink();
     await handleMcpSnapshot(
@@ -90,8 +175,8 @@ async function diff(mode: string, flags: McpDiffFlags = {}, cwd = tmp()): Promis
   const { s, io } = sink();
   const code = await handleMcpDiff(
     { timeout: '20s', ...flags },
-    { baseline: 'base.json', server: [...SNAPSHOT, mode] },
-    io({}, cwd),
+    { baseline: 'base.json', server: command(base, mode) },
+    io(env, cwd),
   );
   return { code, ...s };
 }
@@ -276,7 +361,8 @@ describe('CLI · mcp report · junit-xml', () => {
       make({ id: 'could-not-run-heuristic', state: 'could-not-run', class: 'heuristic' }),
       make({ id: 'not-applicable', state: 'not-applicable' }),
       make({ id: 'pending', state: 'pending' }),
-      make({ id: 'heuristic', state: 'failed', class: 'heuristic', level: 'warn' }),
+      make({ id: 'advice', state: 'failed', class: 'heuristic', level: 'warn', advisory: true }),
+      make({ id: 'heuristic-at-fail-on', state: 'failed', class: 'heuristic', level: 'warn' }),
       make({ id: 'below-fail-on', state: 'failed', level: 'info', advisory: true }),
       make({ id: 'worst-wins', state: 'failed' }),
       make({ id: 'worst-wins', state: 'could-not-run' }),
@@ -289,7 +375,8 @@ describe('CLI · mcp report · junit-xml', () => {
       'mcp.lint#could-not-run-heuristic': 'error',
       'mcp.lint#not-applicable': 'skipped',
       'mcp.lint#pending': 'skipped',
-      'mcp.lint#heuristic': 'skipped',
+      'mcp.lint#advice': 'skipped',
+      'mcp.lint#heuristic-at-fail-on': 'failure',
       'mcp.lint#below-fail-on': 'skipped',
       'mcp.lint#worst-wins': 'error',
     });
@@ -341,10 +428,12 @@ describe('CLI · mcp report · junit-xml', () => {
     });
     expect(read('diff-breaking.xml')).toEqual({
       'mcp.diff#breaking-changes': 'failure',
+      // The default --fail-on breaking: every change listed again, as advice.
+      'mcp.diff#contract-changes': 'skipped',
       'mcp.diff#unclassified-changes': 'pass',
       'mcp.diff#security-signals': 'pass',
     });
-    expect(Object.values(read('diff-same.xml'))).toEqual(['pass', 'pass', 'pass']);
+    expect(Object.values(read('diff-same.xml'))).toEqual(['pass', 'pass', 'pass', 'pass']);
   }, 120_000);
 
   it('CLI · mcp report · the set of classname#name is the same whatever the server found, its name or its times (AC-5)', async () => {
@@ -590,4 +679,238 @@ describe('CLI · mcp report · safety', () => {
     });
     expect(names.filter((n) => /xml|junit/i.test(n))).toEqual([]);
   });
+});
+
+describe('CLI · mcp report · workflow commands', () => {
+  const NEL = String.fromCharCode(0x85);
+
+  it('CLI · mcp report · noCommands also trims NEL, as the runner does, before it looks for ::', () => {
+    expect(noCommands(` ${NEL}::error::x\n\t::warning::y`)).toBe(
+      ` ${NEL}?::error::x\n\t?::warning::y`,
+    );
+  });
+
+  it('CLI · mcp report · the older ##[ form is neutralized anywhere: every format, every --out file and stderr; json parses back to the same text', async () => {
+    const leaks: string[] = [];
+    for (const [name, run] of [
+      ['lint', (format: string, out: string[]) => lint('legacy', { format, out, showInfo: true })],
+      ['check', (format: string, out: string[]) => check('legacy', { format, out }, {}, LINT)],
+    ] as const) {
+      for (const format of ['human', 'json', 'github', 'markdown']) {
+        const dir = tmp();
+        const out = ['json', 'junit-xml', 'markdown'].map((f) => `${f}=${join(dir, `r.${f}`)}`);
+        const r = await run(format, out);
+        expect(r.code, `${name} ${format}: ${r.err}`).not.toBe(2);
+        leaks.push(
+          r.out,
+          r.err,
+          ...readdirSync(dir).map((f) => readFileSync(join(dir, f), 'utf8')),
+        );
+        if (format === 'json') {
+          const doc = JSON.parse(r.out) as Record<string, unknown>;
+          const file = JSON.parse(readFileSync(join(dir, 'r.json'), 'utf8')) as Record<
+            string,
+            unknown
+          >;
+          expect(file).toEqual(doc);
+          if (name === 'lint') {
+            const report = doc as unknown as McpReport;
+            expect(report.server?.name).toBe('srv ##[set-output name=x;]y');
+            expect(report.findings.map((f) => f.target.tool)).toContain('a##[set-output name=x;]y');
+          } else expect((doc as unknown as McpCheckReport).stderrTail).toContain(LEGACY_STDERR);
+        }
+      }
+    }
+    const crash = await lint('legacy-crash');
+    expect(crash.code).toBe(2);
+    expect(crash.err).toContain('warming up ##?[stop-commands]t');
+    leaks.push(crash.out, crash.err);
+    for (const text of leaks) expect(text).not.toContain('##[');
+  }, 60_000);
+});
+
+describe('CLI · mcp report · outputs', () => {
+  it('CLI · mcp report · 140 000 findings: every --out is written, the markdown table is cut with a count of the rest', async () => {
+    const dir = tmp();
+    const out = ['json=r.json', 'markdown=r.md', 'junit-xml=r.xml'];
+    const r = await lint('bare', { format: 'markdown', out }, {}, dir, RAW);
+    expect([r.code, r.err]).toEqual([3, '']);
+    expect(readdirSync(dir).sort()).toEqual(['r.json', 'r.md', 'r.xml']);
+    const report = JSON.parse(readFileSync(join(dir, 'r.json'), 'utf8')) as McpReport;
+    const rows = r.out.split('\n').filter((l) => /^\| (failed|could-not-run|pending) /.test(l));
+    expect(rows).toHaveLength(MARKDOWN_ROWS);
+    const shown = report.findings.filter((f) => f.level !== 'info' || f.state === 'could-not-run');
+    expect(r.out).toContain(`… and ${shown.length - MARKDOWN_ROWS} more in the full report.`);
+    expect(readFileSync(join(dir, 'r.md'), 'utf8')).toBe(r.out);
+    expect(() => readJUnit(readFileSync(join(dir, 'r.xml'), 'utf8'), 'r.xml')).not.toThrow();
+  }, 120_000);
+
+  it('CLI · mcp report · two --out naming one file, or a folder, are exit 2 before the server is started, and nothing is written', async () => {
+    const dir = tmp();
+    mkdirSync(join(dir, 'adir'));
+    const log = join(dir, 'started.log');
+    const never = [
+      process.execPath,
+      '-e',
+      `require('fs').writeFileSync(${JSON.stringify(log)}, 'x')`,
+    ];
+    const cases: [string[], string][] = [
+      [
+        ['json=r.out', 'junit-xml=r.out'],
+        '--out junit-xml=r.out: the same file as --out json=r.out.',
+      ],
+      [['json=a.json', 'junit-xml=adir'], '--out junit-xml=adir: a folder, not a file.'],
+      [['json=nope/x.json'], '--out json=nope/x.json: the folder nope does not exist.'],
+    ];
+    if (process.platform === 'win32')
+      cases.push([
+        ['json=r.out', 'markdown=R.OUT'],
+        '--out markdown=R.OUT: the same file as --out json=r.out.',
+      ]);
+    for (const [out, words] of cases) {
+      const { s, io } = sink();
+      const code = await handleMcpLint({ timeout: '20s', out }, never, io({}, dir));
+      expect([code, s.err]).toEqual([2, `plune mcp lint: ${words}\n`]);
+    }
+    expect(readdirSync(dir)).toEqual(['adir']);
+  });
+
+  it('CLI · mcp report · a report that cannot be built writes no file and says so', () => {
+    const dir = tmp();
+    const document = { exitCode: 0 } as Record<string, unknown>;
+    document['self'] = document;
+    const run = { ...runOf([make({})]), document: document as unknown as McpReport };
+    const outputs = {
+      format: 'human' as const,
+      files: [
+        { format: 'markdown' as const, path: 'a.md' },
+        { format: 'json' as const, path: 'b.json' },
+      ],
+    };
+    expect(() => writeReport(run, outputs, { out: () => {}, err: () => {}, cwd: dir })).toThrow(
+      /^could not build the json report \(.+\); no file was written\.$/,
+    );
+    expect(readdirSync(dir)).toEqual([]);
+  });
+});
+
+describe('CLI · mcp report · the exit code and the JUnit file agree', () => {
+  /** 1 exactly when a case failed; 3 when none failed and one could not run; 0 when neither. */
+  const agree = (code: number, file: string, what: string) => {
+    const states = Object.values(statuses(readFileSync(file, 'utf8')));
+    expect(code, `${what}: ${states.join(' ')}`).toBe(
+      states.includes('failure') ? 1 : states.includes('error') ? 3 : 0,
+    );
+    expect([0, 1, 3]).toContain(code);
+  };
+
+  it.each(['error', 'warn', 'info', 'never'])(
+    'CLI · mcp report · lint --fail-on %s, on every fixture',
+    async (failOn) => {
+      for (const [mode, flags] of [
+        ['clean', {}],
+        ['mixed', {}],
+        ['heuristic', {}],
+        ['hang', { call: true, callTimeout: '300ms' }],
+        ['calls', { call: true }],
+        ['deep', {}],
+        ['empty', {}],
+      ] as const) {
+        const dir = tmp();
+        const r = await lint(mode, { ...flags, failOn, out: ['junit-xml=r.xml'] }, {}, dir);
+        agree(r.code, join(dir, 'r.xml'), `lint ${mode} --fail-on ${failOn}`);
+      }
+    },
+    60_000,
+  );
+
+  it('CLI · mcp report · check, on every fixture', async () => {
+    for (const [mode, flags] of [
+      ['healthy', {}],
+      ['resources-error', {}],
+      ['hang-tools', { checkTimeout: '300ms' }],
+      ['smoke', { smoke: true }],
+      ['tools-only', { smoke: true }],
+    ] as const) {
+      const dir = tmp();
+      const r = await check(mode, { ...flags, out: [`junit-xml=${join(dir, 'r.xml')}`] });
+      agree(r.code, join(dir, 'r.xml'), `check ${mode}`);
+    }
+  }, 60_000);
+
+  it.each(['breaking', 'any', 'none'])(
+    'CLI · mcp report · diff --fail-on %s, on every fixture',
+    async (failOn) => {
+      const cwd = tmp();
+      for (const mode of ['full', 'empty', 'argv']) {
+        const r = await diff(mode, { failOn, out: ['junit-xml=r.xml'] }, cwd);
+        agree(r.code, join(cwd, 'r.xml'), `diff ${mode} --fail-on ${failOn}`);
+      }
+      const nothing = await emptyDiff({ failOn, out: [`junit-xml=${join(cwd, 'e.xml')}`] });
+      agree(nothing.code, join(cwd, 'e.xml'), `diff of two empty snapshots --fail-on ${failOn}`);
+    },
+    60_000,
+  );
+
+  it('CLI · mcp report · diff --fail-on any fails the contract-changes case on any change, only then', async () => {
+    const cwd = tmp();
+    const read = () => statuses(readFileSync(join(cwd, 'r.xml'), 'utf8'));
+    expect((await diff('argv', { failOn: 'any', out: ['junit-xml=r.xml'] }, cwd)).code).toBe(1);
+    expect(read()).toMatchObject({
+      'mcp.diff#contract-changes': 'failure',
+      'mcp.diff#breaking-changes': 'pass',
+    });
+    expect((await diff('argv', { failOn: 'breaking', out: ['junit-xml=r.xml'] }, cwd)).code).toBe(
+      0,
+    );
+    expect(read()).toMatchObject({ 'mcp.diff#contract-changes': 'skipped' });
+    expect((await diff('full', { failOn: 'any', out: ['junit-xml=r.xml'] }, cwd)).code).toBe(0);
+    expect(read()).toMatchObject({ 'mcp.diff#contract-changes': 'pass' });
+  }, 60_000);
+});
+
+describe('CLI · mcp report · markdown cells', () => {
+  it('CLI · mcp report · server text in a table cell mentions nobody and links nothing', () => {
+    const cell = markdownCell('@team see [x](https://e.example) ![i](https://e.example/i.png) #12');
+    // What is left once the character references are taken out holds none of them.
+    expect(cell.replace(/&#?[0-9a-z]+;/g, '')).not.toMatch(/[@[\]!#]/);
+    expect(cell).toContain('&#64;team see &#91;x&#93;(https://e.example) &#33;&#91;i&#93;');
+    expect(cell).toContain('&#35;12');
+  });
+});
+
+describe('CLI · mcp report · a secret in a header', () => {
+  it('CLI · mcp report · a header value the server repeats in a description and an error is in no format and no --out file (AC-8)', async () => {
+    const secret = 'Bearer header-secret-value-7788';
+    const url = await echoServer();
+    const dir = tmp();
+    const printed: string[] = [];
+    const flags = { url, headerEnv: ['Authorization=MCP_AUTH'] };
+    const env = { MCP_AUTH: secret };
+    for (const format of ['human', 'json', 'github', 'markdown']) {
+      const out = (n: string) =>
+        ['json', 'junit-xml', 'markdown'].map((f) => `${f}=${join(dir, `${n}-${format}.${f}`)}`);
+      const runs = [
+        await lint(
+          '',
+          { ...flags, call: true, showInfo: true, format, out: out('lint') },
+          env,
+          dir,
+          [],
+        ),
+        await check('', { ...flags, smoke: true, format, out: out('check') }, env, []),
+        await diff('', { ...flags, format, out: out('diff') }, dir, env, []),
+      ];
+      for (const r of runs) {
+        expect(r.code, r.err).not.toBe(2);
+        printed.push(r.out, r.err);
+      }
+    }
+    const files = readdirSync(dir).filter((f) => f !== 'base.json');
+    expect(files).toHaveLength(36);
+    for (const text of [...printed, ...files.map((f) => readFileSync(join(dir, f), 'utf8'))]) {
+      expect(text).not.toContain('header-secret-value-7788');
+    }
+    expect(printed.join('')).toContain('***');
+  }, 60_000);
 });

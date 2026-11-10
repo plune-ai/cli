@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuites name="plune mcp diff" tests="3" failures="0" errors="0" skipped="0">
-  <testsuite name="plune mcp diff" tests="3" failures="0" errors="0" skipped="0">
+<testsuites name="plune mcp diff" tests="4" failures="0" errors="0" skipped="0">
+  <testsuite name="plune mcp diff" tests="4" failures="0" errors="0" skipped="0">
     <testcase classname="mcp.diff" name="breaking-changes"/>
+    <testcase classname="mcp.diff" name="contract-changes"/>
     <testcase classname="mcp.diff" name="unclassified-changes"/>
     <testcase classname="mcp.diff" name="security-signals"/>
   </testsuite>

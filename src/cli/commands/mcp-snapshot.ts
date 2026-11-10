@@ -16,7 +16,7 @@ import { isSecretEnv, isSecretHeader, maskUrl } from '../../mcp-testing/connect/
 import { ConnectError, openSession, type Session } from '../../mcp-testing/connect/session.js';
 import { listAll as listToEnd, MAX_PAGES } from '../../mcp-testing/connect/tools.js';
 import { MCP_EXIT } from '../../mcp-testing/exit-codes.js';
-import { noCommands } from '../../mcp-testing/report/human.js';
+import { noCommands, noCommandsJson } from '../../mcp-testing/report/human.js';
 import {
   buildSnapshot,
   entityCount,
@@ -53,7 +53,8 @@ export async function handleMcpSnapshot(
 ): Promise<number> {
   const io: SnapshotIo = {
     ...raw,
-    out: (text) => raw.out(noCommands(text)),
+    // stdout carries only the snapshot, a JSON document.
+    out: (text) => raw.out(noCommandsJson(text)),
     err: (text) => raw.err(noCommands(text)),
   };
   try {

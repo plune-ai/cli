@@ -365,7 +365,7 @@ level), and an entry left with nothing to cover is stale.
 | Exit | Meaning |
 |------|---------|
 | `0` | No finding at the `--fail-on` level, and everything was measured. |
-| `1` | At least one finding at the `--fail-on` level or above. |
+| `1` | At least one finding that failed at the `--fail-on` level or above. A rule that could not run is exit `3`, at any level. |
 | `2` | The server did not start or did not answer (the last lines of its stderr are printed, secrets masked), or a flag or the exceptions file is wrong. |
 | `3` | Nothing measured: the server lists no tools, `tools/list` did not end within 100 pages, a rule could not run (over 1000 tools, or an input schema nested deeper than 64 levels, see above), or with `--call` a call could not run or no tool was safe to call. Not measured is not clean. |
 
@@ -490,21 +490,32 @@ plune mcp diff mcp-snapshot.json --out json=diff.json --out junit-xml=diff.xml -
 | `--reporter junit-xml` | A bare `--out <path>` is written as JUnit XML instead of JSON. It needs an `--out`. |
 | `--out [<format>=]<path>` | Also write the report to a file; repeatable. Without a format the file is JSON (JUnit with `--reporter junit-xml`); with one, `json`, `junit-xml` or `markdown`. The files are written before anything is printed, and the exit code is the one they record. |
 
+Before the server is started, `--out` is refused (exit `2`) when two flags name one file (the same
+full path; on Windows, whatever the case), when a path is a folder, or when its folder does not exist.
+Every text is built before the first file is written: if one cannot be built, no file is written.
+Each file is written to a temporary file in its own folder and renamed over the target, so a file is
+there whole or not at all. The set of files is not one step: if a rename fails after others, the
+files already renamed stay, and the error names them.
+
 A value that is not in the list (`--format xml`, `--reporter xunit`, `--out html=r.html`, a word
 before `=` that is not a format) is exit `2` with the values allowed, in the same words on every
 command. The `--out` of `check` before these flags (one file, JSON) works as it did.
 
 Every format gets the report after secrets are masked (see `--out` of `plune mcp check`) and with
-every text from the server made printable: no control character, no new line of its own. No line of
-stdout starts with `::` (the start of a GitHub Actions workflow command) unless the `github` format
-wrote it.
+every text from the server made printable: no control character, no new line of its own. Nothing a
+command prints, to stdout or stderr, or writes to an `--out` file reads as a GitHub Actions workflow
+command. The runner reads two forms: `::` at the start of a line once its leading white space is
+trimmed, and the older `##[` anywhere in a line (`##[set-output …]`, `##[stop-commands]`). A line
+that starts with `::` gets a `?` before it, unless the `github` format wrote it as an annotation;
+every `##[` becomes `##?[`. In JSON it is written `##\u005b` and in JUnit XML `##&#91;`, both of
+which read back as the same text.
 
 | Format | What it is |
 |--------|------------|
 | `human` | The report for a person, as each command describes it above. |
 | `json` | One document of the command, named by `kind` (`mcp-lint-report`, `mcp-check-report`, `mcp-diff-report`; the rule catalog is `mcp-lint-rules`) and an integer `schemaVersion`. |
 | `github` | Annotations for a GitHub Actions step, one line each: `::error`, `::warning` or `::notice` by the finding's level (a check that could not run is a warning), `title=` the check id and its target, the message, then `expected`, `actual`, `fix`. No `file=`: the finding is about the server, so GitHub shows it on the run's page. Escaped as the Actions runner reads them: `%`, `\r` and `\n` in the message, `:` and `,` as well in the title. GitHub keeps 10 error and 10 warning annotations per step; past that the first ones are printed and one line counts the rest. A last line gives the counts and the exit code. |
-| `markdown` | A pull request comment that starts with the command's hidden marker (`<!-- plune-mcp-lint -->`, `<!-- plune-mcp-check -->`, `<!-- plune-mcp-diff -->`): the counts and a table of what did not pass. `diff` keeps its own table of changes. |
+| `markdown` | A pull request comment that starts with the command's hidden marker (`<!-- plune-mcp-lint -->`, `<!-- plune-mcp-check -->`, `<!-- plune-mcp-diff -->`): the counts and a table of what did not pass, at most 200 rows and then one line with how many more the JSON holds. `diff` keeps its own table of changes. Server text in a cell cannot add HTML, a code span, a new row, a mention (`@`), a link or an image (`[`, `]`, `!`) or an issue reference (`#`): those characters are written as character references. |
 | `junit-xml` | One test suite of fixed cases, for `plune run import` and any CI that reads JUnit. |
 
 ### JSON versions
@@ -522,7 +533,10 @@ so `classname#name`, the key `plune run import` matches a case by, is the same o
   a rule found are listed in the case's text;
 - `check`: one case per check, and `smoke` (`not-applicable` without `--smoke`), with each call in
   its text;
-- `diff`: `breaking-changes`, `unclassified-changes` and `security-signals`.
+- `diff`: `breaking-changes`, `contract-changes` (every change), `unclassified-changes` and
+  `security-signals`.
+
+A case's text spells out at most 200 findings, then one line with how many more the JSON holds.
 
 No count, server name, version or time is in `name`, and the suite has no `timestamp`; `time` is set
 on the cases of `check`, which times its checks. A case takes the worst state of its findings:
@@ -534,7 +548,15 @@ on the cases of `check`, which times its checks. A case takes the worst state of
 | `could-not-run` | `<error type="could-not-run" message>` | `error` | `broken` |
 | `not-applicable` | `<skipped type="not-applicable" message="not-applicable: …">` | `skipped` | `skipped` |
 | `pending` | `<skipped type="pending" message="pending: …">` | `skipped` | `skipped` |
-| a heuristic finding, or a finding below `--fail-on` | `<skipped type="advisory" message>` | `skipped` | `skipped` |
+| `failed`, but not failing the run (see below) | `<skipped type="advisory" message>` | `skipped` | `skipped` |
+
+The exit code and the file say the same: exit `1` exactly when a case is a `<failure>`; exit `3`
+when none is and one is an `<error>`; exit `0` when there is neither. A finding is a `<failure>` only
+when it fails the command's own gate: for `lint`, a finding that failed at `--fail-on` or above,
+whatever its class (with `--fail-on warn` a heuristic warning fails too); for `diff`,
+`breaking-changes` under `--fail-on breaking` or `any`, `contract-changes` only under `--fail-on any`,
+while `unclassified-changes` and `security-signals` are always advice; for `check`, every check that
+failed. Anything else that failed is advice.
 
 `could-not-run` is never a pass and never skipped: `plune run import --fail-on-failures` counts
 `failed` and `broken` as a failure, so a server that could not be measured does not pass the gate.

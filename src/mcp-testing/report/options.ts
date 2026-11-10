@@ -1,8 +1,11 @@
 /**
  * The report flags of every `plune mcp` command that tests a server: `--format`, `--reporter` and the repeatable
- * `--out`. Commander and the usage error only, so the command line can register them without loading a renderer.
+ * `--out`. Commander, node and the usage error only, so the command line can register them without loading a
+ * renderer.
  */
 
+import { statSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import type { Command } from 'commander';
 import { UsageError } from '../connect/options.js';
 
@@ -55,9 +58,11 @@ function oneOf<T extends string>(flag: string, value: string, allowed: readonly 
 /**
  * What the flags ask for, read before anything connects: a wrong value is exit 2 with the values allowed. A bare
  * `--out <path>` is JSON, or JUnit with `--reporter junit-xml`; `<format>=<path>` names its format, and a word before
- * `=` that is not one of them is refused rather than taken as part of a file name.
+ * `=` that is not one of them is refused rather than taken as part of a file name. A file is refused here too, before
+ * the server is started, when it cannot be written whole: two flags naming one file (by its full path, without case
+ * on Windows), a folder, a folder that does not exist. A relative path is read from `cwd`.
  */
-export function reportOutputs(flags: ReportFlags): ReportOutputs {
+export function reportOutputs(flags: ReportFlags, cwd: string = process.cwd()): ReportOutputs {
   const format = oneOf('--format', flags.format ?? 'human', STDOUT_FORMATS);
   const reporter =
     flags.reporter === undefined ? undefined : oneOf('--reporter', flags.reporter, REPORTERS);
@@ -70,7 +75,19 @@ export function reportOutputs(flags: ReportFlags): ReportOutputs {
       named === null ? (reporter ?? 'json') : oneOf('--out', named[1] ?? '', FILE_FORMATS);
     const path = named === null ? raw : (named[2] ?? '');
     if (path === '') throw new UsageError(`--out ${raw}: the file name is missing.`);
-    return { format: fileFormat, path };
+    return { format: fileFormat, path, raw };
   });
-  return { format, files };
+  const seen = new Map<string, string>();
+  for (const { path, raw } of files) {
+    const full = resolve(cwd, path);
+    const key = process.platform === 'win32' ? full.toLowerCase() : full;
+    const first = seen.get(key);
+    if (first !== undefined) throw new UsageError(`--out ${raw}: the same file as --out ${first}.`);
+    seen.set(key, raw);
+    if (statSync(full, { throwIfNoEntry: false })?.isDirectory() === true)
+      throw new UsageError(`--out ${raw}: a folder, not a file.`);
+    if (statSync(dirname(full), { throwIfNoEntry: false })?.isDirectory() !== true)
+      throw new UsageError(`--out ${raw}: the folder ${dirname(path)} does not exist.`);
+  }
+  return { format, files: files.map(({ format: f, path }) => ({ format: f, path })) };
 }

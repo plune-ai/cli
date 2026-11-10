@@ -18,7 +18,7 @@ temporary folder and compares.
 What keeps them stable:
 
 - `classname` is `mcp.<command>` and `name` the id of the check (a rule id for `lint`, a check id for `check`, one of
-  `breaking-changes`, `unclassified-changes`, `security-signals` for `diff`): no count, server name, version or time;
+  `breaking-changes`, `contract-changes`, `unclassified-changes`, `security-signals` for `diff`): no count, server name, version or time;
 - the suite has no `timestamp`;
 - `time` (how long a check of `check` took) is the one field two runs differ in, and the script removes the attribute
   from every case. Nothing else is changed.

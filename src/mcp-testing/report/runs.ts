@@ -214,35 +214,59 @@ export function checkRun(report: McpCheckReport): McpRun {
   };
 }
 
-const DIFF_CASES = [
+type DiffFailOn = McpDiffReport['failOn'];
+
+/**
+ * The cases of `diff`. `fails` is the command's own gate (`--fail-on`): a change under a case that does not fail the
+ * run is advice, so the exit code is 1 exactly when a case failed. `contract-changes` holds every change and fails
+ * only under `--fail-on any`; the other two are for a reviewer and never fail the run.
+ */
+const DIFF_CASES: {
+  id: string;
+  title: string;
+  class: ReportCheck['class'];
+  expected: string;
+  fix: string;
+  takes: (ch: ContractChange) => boolean;
+  fails: (failOn: DiffFailOn) => boolean;
+}[] = [
   {
     id: 'breaking-changes',
     title: 'No change to the contract breaks a client',
     class: 'deterministic',
-    level: 'error',
     expected: 'no breaking change since the baseline snapshot',
     fix: 'Undo the change, or release it as breaking and commit a new baseline snapshot.',
-    takes: (ch: ContractChange) => ch.classification === 'breaking',
+    takes: (ch) => ch.classification === 'breaking',
+    fails: (failOn) => failOn !== 'none',
+  },
+  {
+    id: 'contract-changes',
+    title: 'The contract is the one of the baseline snapshot',
+    class: 'deterministic',
+    expected: 'no change since the baseline snapshot',
+    fix: 'Undo the change, or commit a new baseline snapshot once it is accepted.',
+    takes: () => true,
+    fails: (failOn) => failOn === 'any',
   },
   {
     id: 'unclassified-changes',
     title: 'Every change to the contract is classified',
     class: 'heuristic',
-    level: 'warn',
     expected: 'a change some rule knows',
     fix: 'Check the change by hand; commit a new baseline snapshot once it is accepted.',
-    takes: (ch: ContractChange) => ch.unclassified === true,
+    takes: (ch) => ch.unclassified === true,
+    fails: () => false,
   },
   {
     id: 'security-signals',
     title: 'No change to what a tool says about its safety',
     class: 'heuristic',
-    level: 'warn',
     expected: 'the same safety hints as in the baseline snapshot',
     fix: 'Check that the tool still does what its hints say before accepting the change.',
-    takes: (ch: ContractChange) => ch.signal === 'security',
+    takes: (ch) => ch.signal === 'security',
+    fails: () => false,
   },
-] as const;
+];
 
 export function diffRun(report: McpDiffReport): McpRun {
   const base = { command: 'diff' as const, document: report, showInfo: false };
@@ -253,25 +277,27 @@ export function diffRun(report: McpDiffReport): McpRun {
       checks: [],
       nothing: 'neither snapshot holds a tool, resource, resource template or prompt',
     };
-  const checks = DIFF_CASES.flatMap((c) =>
-    report.changes.filter(c.takes).map(
+  const checks = DIFF_CASES.flatMap((c) => {
+    const fails = c.fails(report.failOn);
+    return report.changes.filter(c.takes).map(
       (ch): ReportCheck => ({
         id: c.id,
         title: c.title,
         target: ch.name === '' ? ch.entity : `${ch.entity} ${ch.name}`,
         state: 'failed',
         class: c.class,
-        level: c.level,
+        // What fails the run is an error; advice a warning, and every change listed again an info line.
+        level: fails ? 'error' : c.id === 'contract-changes' ? 'info' : 'warn',
         message: ch.reason,
         expected: c.expected,
         actual: `${ch.field} ${ch.kind} (${ch.classification})`,
         fix: c.fix,
         specRef: '',
         durationMs: null,
-        ...(report.failOn === 'none' ? { advisory: true as const } : {}),
+        ...(fails ? {} : { advisory: true as const }),
       }),
-    ),
-  );
+    );
+  });
   return {
     ...base,
     cases: DIFF_CASES.map((c) => ({ id: c.id, title: c.title })),

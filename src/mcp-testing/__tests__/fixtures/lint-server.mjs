@@ -193,6 +193,21 @@ const CONTROL = [
  * A name no report format may pass on as it is: NUL and ESC, the three characters XML escapes, a fake second workflow
  * command after a new line, and two characters XML 1.0 does not allow (U+FFFF, a lone surrogate).
  */
+/**
+ * The older workflow command form, which the Actions runner reads anywhere in a line: in a tool name, a description,
+ * the server's name (lintServer) and a line of stderr (the script).
+ */
+export const LEGACY_STDERR = 'warming up ##[stop-commands]t';
+const LEGACY = [
+  { name: 'a##[set-output name=x;]y', inputSchema: { properties: {} } },
+  {
+    name: 'b',
+    description: 'Reads ##[stop-commands]t and nothing else. Do not use it for writing.',
+    inputSchema: object({}),
+    annotations: READ,
+  },
+];
+
 const XML = [
   {
     name: 'x\u0000y\u001b<a&b"c::error::x\n::error::y\uffff\ud800',
@@ -286,6 +301,8 @@ export const MODES = {
   xml: XML,
   // Built when the server starts, from its environment (see lintServer).
   secret: [],
+  legacy: LEGACY,
+  'legacy-crash': LEGACY,
 };
 
 /** How many tools `many` lists: far past the lint's limit for comparing tools pair by pair. */
@@ -319,7 +336,15 @@ export function lintServer(mode, callLog) {
         : MODES[mode];
   if (tools === undefined) throw new Error(`no mode ${mode}`);
   const server = new Server(
-    { name: mode === 'hostile' ? '::error::x' : `lint-${mode}`, version: '1.2.3' },
+    {
+      name:
+        mode === 'hostile'
+          ? '::error::x'
+          : mode === 'legacy'
+            ? 'srv ##[set-output name=x;]y'
+            : `lint-${mode}`,
+      version: '1.2.3',
+    },
     { capabilities: { tools: {} } },
   );
   server.setRequestHandler(ListToolsRequestSchema, (request) => {
@@ -347,6 +372,8 @@ export function lintServer(mode, callLog) {
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const mode = process.argv[2];
+  if (mode === 'legacy' || mode === 'legacy-crash') process.stderr.write(`${LEGACY_STDERR}\n`);
+  if (mode === 'legacy-crash') process.exit(1);
   if (mode === 'crash') {
     process.stderr.write(`starting with API_TOKEN=${process.env.API_TOKEN}\n`);
     process.stderr.write('fatal: cannot open the database\n');

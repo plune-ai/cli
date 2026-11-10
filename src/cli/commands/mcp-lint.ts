@@ -120,7 +120,7 @@ async function lint(
   io: LintIo,
   rawOut: (text: string) => void,
 ): Promise<number> {
-  const outputs = reportOutputs(flags);
+  const outputs = reportOutputs(flags, io.cwd);
   if (flags.listRules === true) {
     const format = outputs.format;
     if (format !== 'human' && format !== 'json')
@@ -174,7 +174,9 @@ async function lint(
     const applied = applyExceptions(findings, exceptions?.active ?? []);
 
     const clean = (text: string) => printable(session.redact.text(text));
-    const violations = applied.findings.some((f) => failsAt(f, failOn));
+    // A finding that could not run is not measured (exit 3), not a violation: only what failed fails the run, so the
+    // exit code and the JUnit file (report/index.ts) say the same.
+    const violations = applied.findings.some((f) => f.state === 'failed' && failsAt(f, failOn));
     const unmeasured =
       tools.length === 0 ||
       !complete ||

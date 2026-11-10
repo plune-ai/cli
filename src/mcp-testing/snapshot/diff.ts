@@ -590,14 +590,20 @@ export function renderDiffText(diff: ContractDiff): string {
 
 /**
  * Server text as one Markdown table cell that renders as text: no HTML (a comment would hide the rest of the comment,
- * or fake another tool's marker), no code span to break out of, no new row.
+ * or fake another tool's marker), no code span to break out of, no new row; no mention of a person or a team, no link
+ * and no image (`@`, `[`, `]`, `!`, `#` as references). `#` right after `&`, before the references that hold one.
  */
 export const markdownCell = (s: string): string =>
   s
     .replace(/&/g, '&amp;')
+    .replace(/#/g, '&#35;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/`/g, '&#96;')
+    .replace(/@/g, '&#64;')
+    .replace(/\[/g, '&#91;')
+    .replace(/\]/g, '&#93;')
+    .replace(/!/g, '&#33;')
     .replace(/\r?\n/g, ' ')
     .replace(/\|/g, '\\|');
 const cell = markdownCell;

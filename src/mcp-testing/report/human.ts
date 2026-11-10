@@ -104,10 +104,23 @@ export function lintHuman(report: McpReport, { showInfo }: { showInfo: boolean }
 }
 
 /**
- * No line of our output may read as a CI workflow command: a line that starts with `::` once its leading spaces are
- * gone gets a `?` before the `::`. Every text a command prints goes through here last, whatever produced it.
+ * No line of our output may read as a CI workflow command. The Actions runner reads two forms (actions/runner,
+ * src/Runner.Common/ActionCommand.cs):
+ * - `::name …::data` at the start of a line once its leading white space is trimmed (`TryParseV2`, line 35; .NET
+ *   trims NEL, U+0085, which `\s` does not match): such a line gets a `?` before the `::`;
+ * - the older `##[name …]data` anywhere in the line (`TryParse`, line 132: `IndexOf`, not a prefix), which
+ *   includes `##[set-output …]` and `##[stop-commands]`: every `##[` becomes `##?[`.
+ * Every text a command prints, to stdout or stderr, goes through here last, whatever produced it; a JSON document
+ * goes through `noCommandsJson` instead, the GitHub annotations through their own escaping.
  */
-export const noCommands = (text: string): string => text.replace(/^(\s*)::/gm, '$1?::');
+export const noCommands = (text: string): string =>
+  text.replace(/^([\s\u0085]*)::/gm, '$1?::').replaceAll('##[', '##?[');
+
+/**
+ * `noCommands` for a JSON document: `##[` written as `##\u005b`, which `JSON.parse` reads back as the same text. A
+ * line of JSON never starts with `::` (a string's line breaks are escaped), so that is all it needs.
+ */
+export const noCommandsJson = (json: string): string => json.replaceAll('##[', '##\\u005b');
 
 /** One entry of the rule catalog (`--list-rules`). */
 export interface RuleEntry {
