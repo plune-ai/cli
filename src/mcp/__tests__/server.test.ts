@@ -129,6 +129,15 @@ describe.each(['legacy', 'modern'] as const)('plune mcp serve, %s era', (era) =>
     expect(c.listChanged()).toBeGreaterThan(0);
   });
 
+  it('a hidden tool called before discover_tools is a -32602 protocol error, and nothing reaches the platform', async () => {
+    // The usual way to meet this answer: the model calls a tool it read about before switching it on. A client only MAY
+    // pass a protocol error to the model, so the hint to call discover_tools can be lost (the SDK 1.x server gave isError).
+    const c = await connect(era);
+    expect(await names(c)).not.toContain('plune_run_create');
+    await expect(c.callTool('plune_run_create', { run: { name: 'x' }, dry_run: true })).rejects.toThrow(/-32602 .*plune_run_create/);
+    expect(c.platform.calls).toHaveLength(0);
+  });
+
   it('sends X-Plune-Session on every call, the same one for the whole process', async () => {
     const c = await connect(era, { answer: () => ({ status: 200, body: { id: 'm1', name: 'x', state: 'draft', sources: [] } }) });
     await c.callTool('plune_mission_get', { missionId: 'm1' });

@@ -86,7 +86,16 @@ export function createPluneMcpServer(opts: PluneMcpServerOptions): McpServer {
 export async function serveMcpStdio(opts: PluneMcpServerOptions): Promise<void> {
   const transport = new StdioServerTransport();
   await new Promise<void>((resolve) => {
-    serveStdio(() => createPluneMcpServer(opts), { transport });
+    // Out-of-band errors (a line that is not JSON-RPC, a failed write) have no request to answer, so stderr is the only
+    // place to say so. One short line from the message only, never the payload: it may carry tool arguments. A schema
+    // failure's message is a long dump of the offending message's shape, so it gets a fixed sentence instead.
+    serveStdio(() => createPluneMcpServer(opts), {
+      transport,
+      onerror: (error) => {
+        const said = error.name === 'ZodError' ? 'ignored a line that is not a JSON-RPC message' : error.message.replace(/\s+/g, ' ').slice(0, 200);
+        process.stderr.write(`plune mcp: ${said}\n`);
+      },
+    });
     // serveStdio owns the transport and sets its onclose; chain onto it to learn when stdin is closed.
     const owned = transport.onclose;
     transport.onclose = () => {

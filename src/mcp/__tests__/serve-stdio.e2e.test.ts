@@ -95,6 +95,8 @@ type Message = { jsonrpc?: string; id?: number; method?: string; params?: Record
 
 interface RawServe {
   send(msg: Record<string, unknown>): void;
+  /** Write these bytes to stdin as they are (a broken message). */
+  raw(text: string): void;
   /** The response with this id, or 'timeout' when the server stays silent. */
   answer(id: number, timeoutMs?: number): Promise<Message | 'timeout'>;
   /** Close stdin, wait for the exit. `ms` is null when it did not exit within the budget (then it is killed). */
@@ -131,6 +133,7 @@ function spawnServe(env = serveEnv()): RawServe {
 
   return {
     send: (msg) => child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', ...msg })}\n`),
+    raw: (text) => child.stdin.write(text),
     answer: (id, timeoutMs = ANSWER_TIMEOUT_MS) =>
       new Promise((resolve) => {
         const timer = setTimeout(() => resolve('timeout'), timeoutMs);
@@ -383,6 +386,23 @@ describe('CLI · mcp serve · stdio lifecycle', () => {
     expect(exit).toEqual({ code: 0, ms: expect.any(Number) });
     expect(out).not.toContain(TOKEN);
     expect(s.stderr()).not.toContain(TOKEN);
+  });
+
+  it('CLI · mcp serve · a broken line on stdin is reported on stderr; stdout stays protocol, the token stays out', async () => {
+    const s = spawnServe();
+    s.send({ id: 1, method: 'initialize', params: { protocolVersion: LEGACY, capabilities: {}, clientInfo: { name: 'x', version: '1' } } });
+    await s.answer(1);
+    // JSON, but not a JSON-RPC message: there is no id to answer, so the only place to say so is stderr. (A line that
+    // is not JSON at all the transport skips without a word.) The token inside must not be echoed.
+    s.raw(`{"jsonrpc":"2.0","token":"${TOKEN}","params":[1]}\n`);
+    s.send({ id: 3, method: 'tools/list', params: {} });
+    expect(await s.answer(3), 'the server still answers after the broken line').not.toBe('timeout');
+    const exit = await s.end();
+
+    expect(s.stderr().trim().length).toBeGreaterThan(0);
+    expect(s.stderr()).not.toContain(TOKEN);
+    for (const line of s.stdout().slice(0, -1).split('\n')) expect((JSON.parse(line) as Message).jsonrpc).toBe('2.0');
+    expect(exit.code).toBe(0);
   });
 
   it('CLI · mcp serve · without a token the reason goes to stderr, stdout stays empty, exit 2', () => {
