@@ -1,0 +1,2969 @@
+{
+  "format": "plune-mcp-snapshot/1",
+  "tools": [
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Call the REST API directly"
+      },
+      "description": "Reach any Plune REST endpoint under /v1 that no other tool covers. Every guard still holds: a deletion is previewed first and needs confirm, and the platform refuses an agent what it refuses over HTTP.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {},
+          "confirm": {
+            "description": "The confirm value of a preview",
+            "minLength": 1,
+            "type": "string"
+          },
+          "dry_run": {
+            "description": "true: answer what would be sent, and send nothing",
+            "type": "boolean"
+          },
+          "method": {
+            "enum": [
+              "GET",
+              "POST",
+              "PUT",
+              "PATCH",
+              "DELETE"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "description": "A path under /v1, e.g. /v1/suites",
+            "maxLength": 2048,
+            "minLength": 1,
+            "type": "string"
+          },
+          "query": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "method",
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "plune_api_request",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {},
+          "dryRun": {
+            "type": "boolean"
+          },
+          "preview": {
+            "additionalProperties": {},
+            "properties": {
+              "confirm": {
+                "type": "string"
+              },
+              "expiresInSeconds": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "method": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "confirm",
+              "expiresInSeconds",
+              "method",
+              "path"
+            ],
+            "type": "object"
+          },
+          "request": {
+            "additionalProperties": false,
+            "properties": {
+              "body": {},
+              "method": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "query": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "path"
+            ],
+            "type": "object"
+          },
+          "status": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "title": "Call the REST API directly",
+      "x-plune": {
+        "visibility": "discoverable",
+        "write": true
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Propose test cases"
+      },
+      "description": "Propose up to 100 new test cases for a person to review: they land in the review queue as proposals and become cases only when someone approves them. Nothing is created silently.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "cases": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "execution": {
+                  "description": "auto: can be automated; manual (default): stays with a person",
+                  "enum": [
+                    "auto",
+                    "manual"
+                  ],
+                  "type": "string"
+                },
+                "expected": {
+                  "maxLength": 2000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "priority": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "rationale": {
+                  "description": "Why the case is worth having",
+                  "maxLength": 400,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "source": {
+                  "additionalProperties": false,
+                  "description": "What you read to design it",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "url",
+                        "openapi-operation",
+                        "requirement",
+                        "pasted-text"
+                      ],
+                      "type": "string"
+                    },
+                    "value": {
+                      "maxLength": 100,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "value"
+                  ],
+                  "type": "object"
+                },
+                "steps": {
+                  "items": {
+                    "maxLength": 400,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "maxItems": 20,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "technique": {
+                  "maxLength": 32,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "title": {
+                  "maxLength": 300,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "expected",
+                "steps",
+                "title"
+              ],
+              "type": "object"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": "array"
+          },
+          "dry_run": {
+            "description": "true: answer what would be sent, and send nothing",
+            "type": "boolean"
+          },
+          "target": {
+            "description": "What the cases test: the product address, or the mission name",
+            "maxLength": 2048,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "cases",
+          "target"
+        ],
+        "type": "object"
+      },
+      "name": "plune_case_propose",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "applied": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "dryRun": {
+            "type": "boolean"
+          },
+          "report": {
+            "additionalProperties": {},
+            "properties": {},
+            "type": "object"
+          },
+          "requested": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "requests": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "body": {},
+                "method": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "query": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "method",
+                "path"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "results": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "error": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "ok": {
+                  "type": "boolean"
+                },
+                "status": {
+                  "maximum": 9007199254740991,
+                  "minimum": -9007199254740991,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "ok"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "applied",
+          "dryRun",
+          "requested"
+        ],
+        "type": "object"
+      },
+      "title": "Propose test cases",
+      "x-plune": {
+        "visibility": "core",
+        "write": true
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Generate cases from pasted text"
+      },
+      "description": "Generate test case proposals from pasted text — a requirement, a user story, the text of a ticket — with the project's AI. It spends the project's AI budget. The proposals land in the review queue and nothing becomes a case until a person approves it. The run is queued: keep its id and poll it with plune_cases_generation_get until it is done. A Jira ticket by its key is not taken here: paste its text.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmDuplicates": {
+            "description": "true: go ahead although cases or proposals from this text exist (the platform answers 409 duplicate_source first)",
+            "type": "boolean"
+          },
+          "dry_run": {
+            "description": "true: answer what would be sent, and send nothing",
+            "type": "boolean"
+          },
+          "input": {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "pasted-text",
+                "type": "string"
+              },
+              "text": {
+                "description": "The requirement, story or ticket text, at least 20 words and at most 12000 characters",
+                "type": "string"
+              },
+              "title": {
+                "maxLength": 300,
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "text"
+            ],
+            "type": "object"
+          },
+          "language": {
+            "description": "The cases' language; the project's AI language when left out",
+            "maxLength": 35,
+            "minLength": 2,
+            "type": "string"
+          },
+          "maxCases": {
+            "description": "How many proposals at most; 8 when left out",
+            "maximum": 12,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "projectId": {
+            "description": "The project; the one the server was started with when left out",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "input"
+        ],
+        "type": "object"
+      },
+      "name": "plune_cases_generate",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "dryRun": {
+            "type": "boolean"
+          },
+          "request": {
+            "additionalProperties": false,
+            "properties": {
+              "body": {},
+              "method": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "query": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "path"
+            ],
+            "type": "object"
+          },
+          "result": {
+            "additionalProperties": {},
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "dryRun"
+        ],
+        "type": "object"
+      },
+      "title": "Generate cases from pasted text",
+      "x-plune": {
+        "visibility": "core",
+        "write": true
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Read a case generation"
+      },
+      "description": "Check where a run of cases from pasted text stands — queued, running, done, failed or cancelled — with how many proposals it made, how many it skipped, and what it cost.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "generationId": {
+            "description": "The id the start answered with",
+            "minLength": 1,
+            "type": "string"
+          },
+          "projectId": {
+            "description": "The project; the one the server was started with when left out",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "generationId"
+        ],
+        "type": "object"
+      },
+      "name": "plune_cases_generation_get",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "generation": {
+            "additionalProperties": {},
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "generation"
+        ],
+        "type": "object"
+      },
+      "title": "Read a case generation",
+      "x-plune": {
+        "visibility": "core",
+        "write": false
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Find test cases"
+      },
+      "description": "Find test cases of the project by filter — suite, state, tag, priority, text and the other filters of the case list — one page at a time, with the total and how many match.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "description": "nextCursor of the previous page",
+            "minLength": 1,
+            "type": "string"
+          },
+          "filters": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              ]
+            },
+            "description": "Query filters of GET /v1/test-cases: a list is OR inside one key, keys are AND-ed (e.g. {\"suiteId\": \"s1\", \"tag\": [\"smoke\"]})",
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "limit": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "name": "plune_cases_search",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "matching": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "nextCursor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "testCases": {
+            "items": {
+              "additionalProperties": {},
+              "properties": {
+                "id": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "total": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "nextCursor",
+          "testCases"
+        ],
+        "type": "object"
+      },
+      "title": "Find test cases",
+      "x-plune": {
+        "visibility": "core",
+        "write": false
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Edit test cases"
+      },
+      "description": "Edit up to 100 existing test cases in one call — title, steps, expected result, priority, tags, suite — each applied on its own, with a count of how many were applied.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "cases": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "changes": {
+                  "additionalProperties": {},
+                  "description": "Fields of PATCH /v1/test-cases/:id",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "type": "object"
+                },
+                "id": {
+                  "description": "The case id",
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "changes",
+                "id"
+              ],
+              "type": "object"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": "array"
+          },
+          "dry_run": {
+            "description": "true: answer what would be sent, and send nothing",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "cases"
+        ],
+        "type": "object"
+      },
+      "name": "plune_cases_update",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "applied": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "dryRun": {
+            "type": "boolean"
+          },
+          "report": {
+            "additionalProperties": {},
+            "properties": {},
+            "type": "object"
+          },
+          "requested": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "requests": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "body": {},
+                "method": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "query": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "method",
+                "path"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "results": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "error": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "ok": {
+                  "type": "boolean"
+                },
+                "status": {
+                  "maximum": 9007199254740991,
+                  "minimum": -9007199254740991,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "ok"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "applied",
+          "dryRun",
+          "requested"
+        ],
+        "type": "object"
+      },
+      "title": "Edit test cases",
+      "x-plune": {
+        "visibility": "discoverable",
+        "write": true
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Find more tools"
+      },
+      "description": "Look for a capability that is not in your tool list — editing cases, writing results, starting runs, cataloguing API endpoints, a raw API call — and switch the ones you need on for this session.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "names": {
+            "description": "Tools to switch on",
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "type": "array"
+          },
+          "query": {
+            "description": "Words of the task, e.g. \"write results\"",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "plune_discover_tools",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "inputSchema": {
+                  "additionalProperties": {},
+                  "description": "JSON Schema of the arguments, where the tool list is fixed and a tool is called by its name",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "type": "object"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "write": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "description",
+                "name",
+                "title",
+                "write"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "revealed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "visible": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "available",
+          "revealed",
+          "visible"
+        ],
+        "type": "object"
+      },
+      "title": "Find more tools",
+      "x-plune": {
+        "visibility": "core",
+        "write": false
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Propose API endpoints"
+      },
+      "description": "Propose up to 100 API endpoints you found in a spec, the code or traffic for the project's API catalog; each waits in the review queue until a person approves it.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "dry_run": {
+            "description": "true: answer what would be sent, and send nothing",
+            "type": "boolean"
+          },
+          "endpoints": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "auth": {
+                  "items": {
+                    "maxLength": 100,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "maxItems": 10,
+                  "type": "array"
+                },
+                "environment": {
+                  "maxLength": 100,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "method": {
+                  "enum": [
+                    "GET",
+                    "PUT",
+                    "POST",
+                    "DELETE",
+                    "OPTIONS",
+                    "HEAD",
+                    "PATCH",
+                    "TRACE"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "description": "A template: /users/{id}, never /users/42",
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "pattern": "^\\/[^?#\\s]*$",
+                  "type": "string"
+                },
+                "seenAt": {
+                  "description": "ISO 8601 date and time with an offset",
+                  "type": "string"
+                },
+                "source": {
+                  "enum": [
+                    "spec",
+                    "code",
+                    "traffic"
+                  ],
+                  "type": "string"
+                },
+                "summary": {
+                  "maxLength": 500,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "trust": {
+                  "enum": [
+                    "confirmed",
+                    "derived"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "method",
+                "path",
+                "source"
+              ],
+              "type": "object"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "endpoints"
+        ],
+        "type": "object"
+      },
+      "name": "plune_endpoint_propose",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "applied": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "dryRun": {
+            "type": "boolean"
+          },
+          "report": {
+            "additionalProperties": {},
+            "properties": {},
+            "type": "object"
+          },
+          "requested": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "requests": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "body": {},
+                "method": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "query": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "method",
+                "path"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "results": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "error": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "ok": {
+                  "type": "boolean"
+                },
+                "status": {
+                  "maximum": 9007199254740991,
+                  "minimum": -9007199254740991,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "ok"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "applied",
+          "dryRun",
+          "requested"
+        ],
+        "type": "object"
+      },
+      "title": "Propose API endpoints",
+      "x-plune": {
+        "visibility": "discoverable",
+        "write": true
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Read one object"
+      },
+      "description": "Read one test case, run or review queue entry in full when you already hold its id — steps, state, history fields and everything the platform keeps on it.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "Its id",
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "test-case",
+              "run",
+              "review-item"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "name": "plune_get",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "item": {
+            "additionalProperties": {},
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "kind": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "item",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "title": "Read one object",
+      "x-plune": {
+        "visibility": "core",
+        "write": false
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Create a mission"
+      },
+      "description": "Create a testing mission for a product: its name, a short description of what the product is, where it runs, and whether documentation exists. It starts as a draft you fill in.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "documentation": {
+            "description": "Is there documentation: provided (it is among the sources), none, or unknown",
+            "enum": [
+              "unknown",
+              "provided",
+              "none"
+            ],
+            "type": "string"
+          },
+          "dry_run": {
+            "description": "true: answer what would be sent, and send nothing",
+            "type": "boolean"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "draft",
+              "active",
+              "done"
+            ],
+            "type": "string"
+          },
+          "summary": {
+            "description": "What the product is, in 3-5 sentences",
+            "maxLength": 2000,
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where the product runs; null takes it off"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "plune_mission_create",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "dryRun": {
+            "type": "boolean"
+          },
+          "request": {
+            "additionalProperties": false,
+            "properties": {
+              "body": {},
+              "method": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "query": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "path"
+            ],
+            "type": "object"
+          },
+          "result": {
+            "additionalProperties": {},
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "dryRun"
+        ],
+        "type": "object"
+      },
+      "title": "Create a mission",
+      "x-plune": {
+        "visibility": "core",
+        "write": true
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Read a mission"
+      },
+      "description": "Read a testing mission with everything it holds — its brief, state, documentation answer and every source attached to it — before planning or continuing the work on it.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "missionId": {
+            "description": "The mission id",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "missionId"
+        ],
+        "type": "object"
+      },
+      "name": "plune_mission_get",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "mission": {
+            "additionalProperties": {},
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "mission"
+        ],
+        "type": "object"
+      },
+      "title": "Read a mission",
+      "x-plune": {
+        "visibility": "core",
+        "write": false
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Update a mission"
+      },
+      "description": "Change a testing mission: rename it, rewrite the brief, set or remove the address, answer whether documentation exists, or move it between draft, active and done.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "documentation": {
+            "description": "Is there documentation: provided (it is among the sources), none, or unknown",
+            "enum": [
+              "unknown",
+              "provided",
+              "none"
+            ],
+            "type": "string"
+          },
+          "dry_run": {
+            "description": "true: answer what would be sent, and send nothing",
+            "type": "boolean"
+          },
+          "missionId": {
+            "description": "The mission id",
+            "minLength": 1,
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "draft",
+              "active",
+              "done"
+            ],
+            "type": "string"
+          },
+          "summary": {
+            "description": "What the product is, in 3-5 sentences",
+            "maxLength": 2000,
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where the product runs; null takes it off"
+          }
+        },
+        "required": [
+          "missionId"
+        ],
+        "type": "object"
+      },
+      "name": "plune_mission_update",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "dryRun": {
+            "type": "boolean"
+          },
+          "request": {
+            "additionalProperties": false,
+            "properties": {
+              "body": {},
+              "method": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "query": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "path"
+            ],
+            "type": "object"
+          },
+          "result": {
+            "additionalProperties": {},
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "dryRun"
+        ],
+        "type": "object"
+      },
+      "title": "Update a mission",
+      "x-plune": {
+        "visibility": "core",
+        "write": true
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Project context"
+      },
+      "description": "Start here: learn the project you are working in with one call — its projects, the suite tree, how many test cases it has, its testing missions, and how much waits in the review queue.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "plune_project_context",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "cases": {
+            "additionalProperties": false,
+            "properties": {
+              "total": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "total"
+            ],
+            "type": "object"
+          },
+          "missions": {
+            "items": {
+              "additionalProperties": {},
+              "properties": {
+                "id": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "projectId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "projects": {
+            "items": {
+              "additionalProperties": {},
+              "properties": {
+                "id": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "reviewQueue": {
+            "additionalProperties": false,
+            "properties": {
+              "more": {
+                "type": "boolean"
+              },
+              "pending": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "more",
+              "pending"
+            ],
+            "type": "object"
+          },
+          "suites": {
+            "items": {
+              "additionalProperties": {},
+              "properties": {
+                "id": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "cases",
+          "missions",
+          "projectId",
+          "projects",
+          "reviewQueue",
+          "suites"
+        ],
+        "type": "object"
+      },
+      "title": "Project context",
+      "x-plune": {
+        "visibility": "core",
+        "write": false
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Ask a person"
+      },
+      "description": "Ask a person what you do not know instead of guessing: a plain question with up to three options, or a request for access to an API description, the code, staging or a HAR file.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "access": {
+            "description": "access only: what you ask to be given",
+            "items": {
+              "enum": [
+                "openapi",
+                "repo",
+                "staging",
+                "har"
+              ],
+              "type": "string"
+            },
+            "maxItems": 4,
+            "minItems": 1,
+            "type": "array"
+          },
+          "dry_run": {
+            "description": "true: answer what would be sent, and send nothing",
+            "type": "boolean"
+          },
+          "missionId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "options": {
+            "description": "plain only: what the person may pick from",
+            "items": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "type": "array"
+          },
+          "template": {
+            "description": "plain: a question with up to three options; access: ask for an API description, the code, a staging host or a HAR file",
+            "enum": [
+              "plain",
+              "access"
+            ],
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "template",
+          "text"
+        ],
+        "type": "object"
+      },
+      "name": "plune_question_ask",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "dryRun": {
+            "type": "boolean"
+          },
+          "request": {
+            "additionalProperties": false,
+            "properties": {
+              "body": {},
+              "method": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "query": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "path"
+            ],
+            "type": "object"
+          },
+          "result": {
+            "additionalProperties": {},
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "dryRun"
+        ],
+        "type": "object"
+      },
+      "title": "Ask a person",
+      "x-plune": {
+        "visibility": "core",
+        "write": true
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Read questions and answers"
+      },
+      "description": "Check the questions asked to people and the answers they gave — all of them or one mission's, waiting or answered — so the work continues from what a person actually said.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "description": "nextCursor of the previous page",
+            "minLength": 1,
+            "type": "string"
+          },
+          "limit": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "missionId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "changes_requested",
+              "approved",
+              "rejected"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "plune_question_list",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "nextCursor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "questions": {
+            "items": {
+              "additionalProperties": {},
+              "properties": {
+                "id": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "nextCursor",
+          "questions"
+        ],
+        "type": "object"
+      },
+      "title": "Read questions and answers",
+      "x-plune": {
+        "visibility": "core",
+        "write": false
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Request the mission report"
+      },
+      "description": "Ask the platform to build the completion report of a mission from its own data and queue it for a person to approve; it needs an accepted strategy first.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "dry_run": {
+            "description": "true: answer what would be sent, and send nothing",
+            "type": "boolean"
+          },
+          "missionId": {
+            "description": "The mission id",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "missionId"
+        ],
+        "type": "object"
+      },
+      "name": "plune_report_request",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "dryRun": {
+            "type": "boolean"
+          },
+          "request": {
+            "additionalProperties": false,
+            "properties": {
+              "body": {},
+              "method": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "query": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "path"
+            ],
+            "type": "object"
+          },
+          "result": {
+            "additionalProperties": {},
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "dryRun"
+        ],
+        "type": "object"
+      },
+      "title": "Request the mission report",
+      "x-plune": {
+        "visibility": "core",
+        "write": true
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Write results into a run"
+      },
+      "description": "Record up to 100 test results into an open run in one request — passed, failed, skipped, with their keys and evidence — and learn how many the platform accepted.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "combination": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "configuration": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "dry_run": {
+            "description": "true: answer what would be sent, and send nothing",
+            "type": "boolean"
+          },
+          "results": {
+            "description": "Results as POST /v1/runs/:id/results takes them",
+            "items": {
+              "additionalProperties": {},
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": "array"
+          },
+          "runId": {
+            "description": "The run id",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "results",
+          "runId"
+        ],
+        "type": "object"
+      },
+      "name": "plune_results_write",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "applied": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "dryRun": {
+            "type": "boolean"
+          },
+          "report": {
+            "additionalProperties": {},
+            "properties": {},
+            "type": "object"
+          },
+          "requested": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "requests": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "body": {},
+                "method": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "query": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "method",
+                "path"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "results": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "error": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "ok": {
+                  "type": "boolean"
+                },
+                "status": {
+                  "maximum": 9007199254740991,
+                  "minimum": -9007199254740991,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "ok"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "applied",
+          "dryRun",
+          "requested"
+        ],
+        "type": "object"
+      },
+      "title": "Write results into a run",
+      "x-plune": {
+        "visibility": "discoverable",
+        "write": true
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Decide queue entries"
+      },
+      "description": "Approve or reject up to 100 review queue entries in one decision. The first call changes nothing and returns a preview with a confirm value; repeat the same call with confirm to apply it. An entry skipped as policy_refused was refused by the review policy of the project (for example, the person who proposed it cannot approve it): do not retry it — it needs another reviewer; its detail says why.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "description": "The confirm value of the preview",
+            "minLength": 1,
+            "type": "string"
+          },
+          "itemIds": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": "array"
+          },
+          "note": {
+            "description": "Why — required to reject",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "rejectionCategory": {
+            "description": "Required to reject",
+            "enum": [
+              "duplicate",
+              "incorrect",
+              "out-of-scope",
+              "low-value",
+              "not-testable",
+              "other"
+            ],
+            "type": "string"
+          },
+          "verdict": {
+            "enum": [
+              "approved",
+              "rejected"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "itemIds",
+          "verdict"
+        ],
+        "type": "object"
+      },
+      "name": "plune_review_decide",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "applied": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "preview": {
+            "additionalProperties": {},
+            "properties": {
+              "confirm": {
+                "type": "string"
+              },
+              "expiresInSeconds": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "total": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "confirm",
+              "expiresInSeconds",
+              "total"
+            ],
+            "type": "object"
+          },
+          "report": {
+            "additionalProperties": {},
+            "properties": {},
+            "type": "object"
+          },
+          "requested": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "applied",
+          "requested"
+        ],
+        "type": "object"
+      },
+      "title": "Decide queue entries",
+      "x-plune": {
+        "visibility": "core",
+        "write": true
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Read the review queue"
+      },
+      "description": "See what waits for a decision in the review queue — proposed cases, discovered tests, endpoints, strategies, reports — narrowed by state and kind, newest first, one page at a time.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "description": "nextCursor of the previous page",
+            "minLength": 1,
+            "type": "string"
+          },
+          "kinds": {
+            "description": "Questions are read with the question tool",
+            "items": {
+              "enum": [
+                "result",
+                "proposal",
+                "discovered",
+                "endpoint",
+                "strategy",
+                "report",
+                "memory_rule"
+              ],
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "limit": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "changes_requested",
+              "approved",
+              "rejected"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "plune_review_list",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "additionalProperties": {},
+              "properties": {
+                "id": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
+      "title": "Read the review queue",
+      "x-plune": {
+        "visibility": "core",
+        "write": false
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Start a run"
+      },
+      "description": "Start a test run on the platform to record results into — named, with its environment and the cases it covers — using the body of POST /v1/runs (schemaVersion 2).",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "dry_run": {
+            "description": "true: answer what would be sent, and send nothing",
+            "type": "boolean"
+          },
+          "run": {
+            "additionalProperties": {},
+            "description": "The body of POST /v1/runs",
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "run"
+        ],
+        "type": "object"
+      },
+      "name": "plune_run_create",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "dryRun": {
+            "type": "boolean"
+          },
+          "request": {
+            "additionalProperties": false,
+            "properties": {
+              "body": {},
+              "method": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "query": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "path"
+            ],
+            "type": "object"
+          },
+          "result": {
+            "additionalProperties": {},
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "dryRun"
+        ],
+        "type": "object"
+      },
+      "title": "Start a run",
+      "x-plune": {
+        "visibility": "discoverable",
+        "write": true
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Add a source to a mission"
+      },
+      "description": "Attach something to read to a mission: a link (page, OpenAPI document, repository, ticket) or the text of a file of the project — Markdown, plain text or JSON, up to 1 MiB.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "dry_run": {
+            "description": "true: answer what would be sent, and send nothing",
+            "type": "boolean"
+          },
+          "kind": {
+            "enum": [
+              "url",
+              "openapi",
+              "repo",
+              "ticket",
+              "file"
+            ],
+            "type": "string"
+          },
+          "missionId": {
+            "description": "The mission id",
+            "minLength": 1,
+            "type": "string"
+          },
+          "name": {
+            "description": "The file name, for file (.md, .markdown, .txt, .json)",
+            "type": "string"
+          },
+          "ref": {
+            "description": "The link, for url, openapi, repo and ticket",
+            "type": "string"
+          },
+          "text": {
+            "description": "The file text, for file",
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "missionId"
+        ],
+        "type": "object"
+      },
+      "name": "plune_source_add",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "dryRun": {
+            "type": "boolean"
+          },
+          "request": {
+            "additionalProperties": false,
+            "properties": {
+              "body": {},
+              "method": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "query": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "path"
+            ],
+            "type": "object"
+          },
+          "result": {
+            "additionalProperties": {},
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "dryRun"
+        ],
+        "type": "object"
+      },
+      "title": "Add a source to a mission",
+      "x-plune": {
+        "visibility": "core",
+        "write": true
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Propose a test strategy"
+      },
+      "description": "Propose a test strategy for a mission in ISTQB sections — objectives, scope in and out, approach, levels and techniques, risks, entry and exit criteria — for a person to accept.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "additionalProperties": false,
+            "properties": {
+              "approach": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "assumption": {
+                      "const": true,
+                      "description": "You assumed it: a person confirms",
+                      "type": "boolean"
+                    },
+                    "source": {
+                      "additionalProperties": false,
+                      "description": "Where it was read",
+                      "properties": {
+                        "kind": {
+                          "enum": [
+                            "mission-source",
+                            "doc-section",
+                            "screen",
+                            "endpoint",
+                            "requirement",
+                            "url"
+                          ],
+                          "type": "string"
+                        },
+                        "ref": {
+                          "maxLength": 300,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "ref"
+                      ],
+                      "type": "object"
+                    },
+                    "text": {
+                      "description": "Markdown",
+                      "maxLength": 1000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "waitingOn": {
+                      "description": "The id of an open question of this mission it waits for",
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "text"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 25,
+                "minItems": 1,
+                "type": "array"
+              },
+              "entryCriteria": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "assumption": {
+                      "const": true,
+                      "description": "You assumed it: a person confirms",
+                      "type": "boolean"
+                    },
+                    "source": {
+                      "additionalProperties": false,
+                      "description": "Where it was read",
+                      "properties": {
+                        "kind": {
+                          "enum": [
+                            "mission-source",
+                            "doc-section",
+                            "screen",
+                            "endpoint",
+                            "requirement",
+                            "url"
+                          ],
+                          "type": "string"
+                        },
+                        "ref": {
+                          "maxLength": 300,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "ref"
+                      ],
+                      "type": "object"
+                    },
+                    "text": {
+                      "description": "Markdown",
+                      "maxLength": 1000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "waitingOn": {
+                      "description": "The id of an open question of this mission it waits for",
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "text"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 25,
+                "minItems": 1,
+                "type": "array"
+              },
+              "exitCriteria": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "assumption": {
+                      "const": true,
+                      "description": "You assumed it: a person confirms",
+                      "type": "boolean"
+                    },
+                    "source": {
+                      "additionalProperties": false,
+                      "description": "Where it was read",
+                      "properties": {
+                        "kind": {
+                          "enum": [
+                            "mission-source",
+                            "doc-section",
+                            "screen",
+                            "endpoint",
+                            "requirement",
+                            "url"
+                          ],
+                          "type": "string"
+                        },
+                        "ref": {
+                          "maxLength": 300,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "ref"
+                      ],
+                      "type": "object"
+                    },
+                    "text": {
+                      "description": "Markdown",
+                      "maxLength": 1000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "waitingOn": {
+                      "description": "The id of an open question of this mission it waits for",
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "text"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 25,
+                "minItems": 1,
+                "type": "array"
+              },
+              "objectives": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "assumption": {
+                      "const": true,
+                      "description": "You assumed it: a person confirms",
+                      "type": "boolean"
+                    },
+                    "source": {
+                      "additionalProperties": false,
+                      "description": "Where it was read",
+                      "properties": {
+                        "kind": {
+                          "enum": [
+                            "mission-source",
+                            "doc-section",
+                            "screen",
+                            "endpoint",
+                            "requirement",
+                            "url"
+                          ],
+                          "type": "string"
+                        },
+                        "ref": {
+                          "maxLength": 300,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "ref"
+                      ],
+                      "type": "object"
+                    },
+                    "text": {
+                      "description": "Markdown",
+                      "maxLength": 1000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "waitingOn": {
+                      "description": "The id of an open question of this mission it waits for",
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "text"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 25,
+                "minItems": 1,
+                "type": "array"
+              },
+              "profile": {
+                "additionalProperties": false,
+                "properties": {
+                  "characteristics": {
+                    "items": {
+                      "enum": [
+                        "functional-suitability",
+                        "performance-efficiency",
+                        "compatibility",
+                        "interaction-capability",
+                        "reliability",
+                        "security",
+                        "maintainability",
+                        "flexibility",
+                        "safety"
+                      ],
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "levels": {
+                    "items": {
+                      "enum": [
+                        "component",
+                        "component-integration",
+                        "system",
+                        "system-integration",
+                        "acceptance"
+                      ],
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "notes": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "assumption": {
+                          "const": true,
+                          "description": "You assumed it: a person confirms",
+                          "type": "boolean"
+                        },
+                        "source": {
+                          "additionalProperties": false,
+                          "description": "Where it was read",
+                          "properties": {
+                            "kind": {
+                              "enum": [
+                                "mission-source",
+                                "doc-section",
+                                "screen",
+                                "endpoint",
+                                "requirement",
+                                "url"
+                              ],
+                              "type": "string"
+                            },
+                            "ref": {
+                              "maxLength": 300,
+                              "minLength": 1,
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "ref"
+                          ],
+                          "type": "object"
+                        },
+                        "text": {
+                          "description": "Markdown",
+                          "maxLength": 1000,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "waitingOn": {
+                          "description": "The id of an open question of this mission it waits for",
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "text"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 25,
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "split": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "api": {
+                        "maximum": 100,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "manual": {
+                        "maximum": 100,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "ui": {
+                        "maximum": 100,
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "api",
+                      "manual",
+                      "ui"
+                    ],
+                    "type": "object"
+                  },
+                  "techniques": {
+                    "items": {
+                      "enum": [
+                        "equivalence-partitioning",
+                        "boundary-value",
+                        "decision-table",
+                        "state-transition",
+                        "statement",
+                        "branch",
+                        "error-guessing",
+                        "exploratory",
+                        "checklist"
+                      ],
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "characteristics",
+                  "levels",
+                  "notes",
+                  "split",
+                  "techniques"
+                ],
+                "type": "object"
+              },
+              "risks": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "assumption": {
+                      "const": true,
+                      "description": "You assumed it: a person confirms",
+                      "type": "boolean"
+                    },
+                    "caseIds": {
+                      "items": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "maxItems": 50,
+                      "type": "array"
+                    },
+                    "impact": {
+                      "enum": [
+                        "low",
+                        "medium",
+                        "high"
+                      ],
+                      "type": "string"
+                    },
+                    "likelihood": {
+                      "enum": [
+                        "low",
+                        "medium",
+                        "high"
+                      ],
+                      "type": "string"
+                    },
+                    "requirementIds": {
+                      "items": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "maxItems": 50,
+                      "type": "array"
+                    },
+                    "source": {
+                      "additionalProperties": false,
+                      "description": "Where it was read",
+                      "properties": {
+                        "kind": {
+                          "enum": [
+                            "mission-source",
+                            "doc-section",
+                            "screen",
+                            "endpoint",
+                            "requirement",
+                            "url"
+                          ],
+                          "type": "string"
+                        },
+                        "ref": {
+                          "maxLength": 300,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "ref"
+                      ],
+                      "type": "object"
+                    },
+                    "text": {
+                      "description": "Markdown",
+                      "maxLength": 1000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "waitingOn": {
+                      "description": "The id of an open question of this mission it waits for",
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "impact",
+                    "likelihood",
+                    "text"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 50,
+                "minItems": 1,
+                "type": "array"
+              },
+              "scope": {
+                "additionalProperties": false,
+                "properties": {
+                  "in": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "assumption": {
+                          "const": true,
+                          "description": "You assumed it: a person confirms",
+                          "type": "boolean"
+                        },
+                        "source": {
+                          "additionalProperties": false,
+                          "description": "Where it was read",
+                          "properties": {
+                            "kind": {
+                              "enum": [
+                                "mission-source",
+                                "doc-section",
+                                "screen",
+                                "endpoint",
+                                "requirement",
+                                "url"
+                              ],
+                              "type": "string"
+                            },
+                            "ref": {
+                              "maxLength": 300,
+                              "minLength": 1,
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "ref"
+                          ],
+                          "type": "object"
+                        },
+                        "text": {
+                          "description": "Markdown",
+                          "maxLength": 1000,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "waitingOn": {
+                          "description": "The id of an open question of this mission it waits for",
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "text"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 25,
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "out": {
+                    "description": "What is deliberately not tested, and why",
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "assumption": {
+                          "const": true,
+                          "description": "You assumed it: a person confirms",
+                          "type": "boolean"
+                        },
+                        "source": {
+                          "additionalProperties": false,
+                          "description": "Where it was read",
+                          "properties": {
+                            "kind": {
+                              "enum": [
+                                "mission-source",
+                                "doc-section",
+                                "screen",
+                                "endpoint",
+                                "requirement",
+                                "url"
+                              ],
+                              "type": "string"
+                            },
+                            "ref": {
+                              "maxLength": 300,
+                              "minLength": 1,
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "ref"
+                          ],
+                          "type": "object"
+                        },
+                        "text": {
+                          "description": "Markdown",
+                          "maxLength": 1000,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "waitingOn": {
+                          "description": "The id of an open question of this mission it waits for",
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "text"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 25,
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "in",
+                  "out"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "approach",
+              "entryCriteria",
+              "exitCriteria",
+              "objectives",
+              "profile",
+              "risks",
+              "scope"
+            ],
+            "type": "object"
+          },
+          "dry_run": {
+            "description": "true: answer what would be sent, and send nothing",
+            "type": "boolean"
+          },
+          "missionId": {
+            "description": "The mission id",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "content",
+          "missionId"
+        ],
+        "type": "object"
+      },
+      "name": "plune_strategy_propose",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "dryRun": {
+            "type": "boolean"
+          },
+          "request": {
+            "additionalProperties": false,
+            "properties": {
+              "body": {},
+              "method": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "query": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "path"
+            ],
+            "type": "object"
+          },
+          "result": {
+            "additionalProperties": {},
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "dryRun"
+        ],
+        "type": "object"
+      },
+      "title": "Propose a test strategy",
+      "x-plune": {
+        "visibility": "core",
+        "write": true
+      }
+    }
+  ]
+}
