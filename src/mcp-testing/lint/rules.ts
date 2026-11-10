@@ -1,5 +1,5 @@
 import { LINT_THRESHOLDS, type LanguageCode } from './thresholds.js';
-import { toolListSize } from './size.js';
+import { jsonText, toolListSize } from './size.js';
 import type { CheckClass, CheckLevel, CheckState, ListedTool, LintTarget } from './types.js';
 
 /**
@@ -74,24 +74,50 @@ interface SchemaNode {
   kind: 'root' | 'param' | 'items';
 }
 
-/** Every object-ish node of an input schema with a readable path: `cases`, `cases[]`, `cases[].changes`. */
-function schemaNodes(schema: unknown): SchemaNode[] {
+/**
+ * Every object-ish node of an input schema with a readable path: `cases`, `cases[]`, `cases[].changes`, in the order
+ * of the schema. Undefined when a node lies deeper than `schema.maxDepth`: the server chooses the depth, so the walk
+ * keeps its own stack rather than the call stack, and stops at the limit.
+ */
+function schemaNodes(schema: unknown): SchemaNode[] | undefined {
   if (!isRecord(schema)) return [];
-  const out: SchemaNode[] = [{ path: '', schema, kind: 'root' }];
-  const walk = (s: Schema, prefix: string) => {
-    for (const [name, p] of Object.entries(props(s))) {
+  const out: SchemaNode[] = [];
+  const todo: (SchemaNode & { depth: number })[] = [{ path: '', schema, kind: 'root', depth: 0 }];
+  for (let node = todo.pop(); node !== undefined; node = todo.pop()) {
+    if (node.depth > T.schema.maxDepth) return undefined;
+    out.push(node);
+    const children: (typeof node)[] = [];
+    for (const [name, p] of Object.entries(props(node.schema))) {
       if (!isRecord(p)) continue;
-      const path = prefix === '' ? name : `${prefix}.${name}`;
-      out.push({ path, schema: p, kind: 'param' });
-      walk(p, path);
-      if (isRecord(p.items)) {
-        out.push({ path: `${path}[]`, schema: p.items, kind: 'items' });
-        walk(p.items, `${path}[]`);
-      }
+      const path = node.path === '' ? name : `${node.path}.${name}`;
+      const depth = node.depth + 1;
+      children.push({ path, schema: p, kind: 'param', depth });
+      if (isRecord(p.items)) children.push({ path: `${path}[]`, schema: p.items, kind: 'items', depth: depth + 1 });
     }
-  };
-  walk(schema, '');
+    // Reversed onto the stack, so the first child comes off first and its whole subtree before the next. One push
+    // each: a spread of a server's property list could pass the limit on arguments.
+    for (const child of children.reverse()) todo.push(child);
+  }
   return out;
+}
+
+/**
+ * The hits of a rule over every node of a tool's input schema; for a schema nested past `schema.maxDepth`, one
+ * `could-not-run` hit for the tool instead, since the rule judged none of its nodes.
+ */
+function eachNode(t: ListedTool, check: (node: SchemaNode) => RuleHit[]): RuleHit[] {
+  const nodes = schemaNodes(t.inputSchema);
+  if (nodes !== undefined) return nodes.flatMap(check);
+  const limit = T.schema.maxDepth;
+  return [
+    {
+      target: tool(t),
+      message: `inputSchema nested deeper than ${limit} levels`,
+      expected: `at most ${limit} levels`,
+      actual: `more than ${limit} levels`,
+      state: 'could-not-run',
+    },
+  ];
 }
 
 /** The parameters at the top of the input schema. */
@@ -249,7 +275,7 @@ export const LINT_RULES: readonly LintRule[] = [
           target: tool(t),
           message: 'The input schema is not a JSON Schema object of type "object".',
           expected: 'inputSchema.type = "object"',
-          actual: isRecord(t.inputSchema) ? `inputSchema.type = ${JSON.stringify(t.inputSchema.type)}` : `inputSchema = ${JSON.stringify(t.inputSchema)}`,
+          actual: isRecord(t.inputSchema) ? `inputSchema.type = ${jsonText(t.inputSchema.type)}` : `inputSchema = ${jsonText(t.inputSchema)}`,
         })),
   },
   {
@@ -266,7 +292,7 @@ export const LINT_RULES: readonly LintRule[] = [
           target: tool(t),
           message: 'The output schema is not of type "object" at the root.',
           expected: 'outputSchema.type = "object"',
-          actual: isRecord(t.outputSchema) ? `outputSchema.type = ${JSON.stringify(t.outputSchema.type)}` : `outputSchema = ${JSON.stringify(t.outputSchema)}`,
+          actual: isRecord(t.outputSchema) ? `outputSchema.type = ${jsonText(t.outputSchema.type)}` : `outputSchema = ${jsonText(t.outputSchema)}`,
         })),
   },
   {
@@ -278,7 +304,7 @@ export const LINT_RULES: readonly LintRule[] = [
     specRef: `${SCHEMA}#tool-inputschema`,
     check: (tools) =>
       tools.flatMap((t) =>
-        schemaNodes(t.inputSchema).flatMap((node) => {
+        eachNode(t, (node) => {
           const required = node.schema.required;
           // An open schema can still satisfy "required" through additionalProperties or composition: not judged here,
           // a candidate for a heuristic rule. Only a closed node makes the name unsatisfiable.
@@ -522,23 +548,22 @@ export const LINT_RULES: readonly LintRule[] = [
     specRef: '',
     check: (tools) =>
       tools.flatMap((t) =>
-        schemaNodes(t.inputSchema)
-          .filter((n) => n.kind === 'param')
-          .flatMap((n) => {
-            const p = n.schema;
-            const free = isFreeObject(p) || (isRecord(p.items) && isFreeObject(p.items));
-            if (!free || p.examples !== undefined || p.default !== undefined) return [];
-            const d = text(p.description);
-            if (d !== undefined && saysInOwnLanguage(d, 'example') !== false) return [];
-            return [
-              {
-                target: tool(t, n.path),
-                message: 'A free-form object parameter without an example: the model has to guess its keys.',
-                expected: 'examples, or an example in the description',
-                actual: 'none',
-              },
-            ];
-          }),
+        eachNode(t, (n) => {
+          if (n.kind !== 'param') return [];
+          const p = n.schema;
+          const free = isFreeObject(p) || (isRecord(p.items) && isFreeObject(p.items));
+          if (!free || p.examples !== undefined || p.default !== undefined) return [];
+          const d = text(p.description);
+          if (d !== undefined && saysInOwnLanguage(d, 'example') !== false) return [];
+          return [
+            {
+              target: tool(t, n.path),
+              message: 'A free-form object parameter without an example: the model has to guess its keys.',
+              expected: 'examples, or an example in the description',
+              actual: 'none',
+            },
+          ];
+        }),
       ),
   },
   {

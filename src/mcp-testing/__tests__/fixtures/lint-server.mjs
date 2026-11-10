@@ -3,6 +3,7 @@
 // the client as it would from a careless server.
 // - run as a script (`node lint-server.mjs <mode>`) it serves over stdio; `crash` prints API_TOKEN to stderr and exits
 //   before it reads anything;
+// - `deep` takes how many levels to nest as a second argument (`node lint-server.mjs deep 100000`);
 // - `lintServer(mode, callLog)` builds the same server for an HTTP transport in the test process.
 // Every tools/call is appended to `callLog` (FIXTURE_CALL_LOG for the script), one tool name per line, before it is
 // answered, so a test can say which tools were called and which never were.
@@ -223,6 +224,30 @@ const HOSTILE = [
   },
 ];
 
+/** How many levels the input schema of `deep_get` (mode `deep`) nests: far past the lint's depth limit. */
+export const DEEP_LEVELS = 10_000;
+
+/**
+ * `deep`: `deep_get`, whose input schema nests `DEEP_LEVELS` objects (`a.a.a…`), beside the tool with one warning.
+ * The schema is written as text: JSON.stringify gives up on it, so the SDK could not send it, as a server written in
+ * another language can. The listed schema holds a marker that `send` swaps for that text.
+ */
+const DEEP_MARKER = '__deep_schema__';
+const DEEP = [
+  {
+    name: 'deep_get',
+    description:
+      'Returns one value from a very deeply nested input. Do not use it for anything else.',
+    inputSchema: DEEP_MARKER,
+    annotations: READ,
+  },
+  ...HEURISTIC,
+];
+const deepSchema = (levels) => {
+  const level = '{"type":"object","properties":{"a":';
+  return `${level.repeat(levels)}{"type":"object","properties":{}}${'}}'.repeat(levels)}`;
+};
+
 export const MODES = {
   dupe: DUPE,
   numname: NUMNAME,
@@ -238,6 +263,7 @@ export const MODES = {
   control: CONTROL,
   paged: CLEAN,
   forever: CLEAN,
+  deep: DEEP,
 };
 
 /** How many tools `many` lists: far past the lint's limit for comparing tools pair by pair. */
@@ -300,5 +326,14 @@ if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.a
     process.stderr.write('  ::error::z\n');
     process.exit(1);
   }
-  await lintServer(mode, process.env.FIXTURE_CALL_LOG).connect(new StdioServerTransport());
+  const transport = new StdioServerTransport();
+  if (mode === 'deep') {
+    const levels = Number(process.argv[3] ?? DEEP_LEVELS);
+    transport.send = (message) =>
+      new Promise((resolve) => {
+        const line = JSON.stringify(message).replace(`"${DEEP_MARKER}"`, deepSchema(levels));
+        process.stdout.write(`${line}\n`, () => resolve());
+      });
+  }
+  await lintServer(mode, process.env.FIXTURE_CALL_LOG).connect(transport);
 }
