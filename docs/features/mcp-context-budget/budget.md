@@ -68,7 +68,7 @@
 
 ## Відповіді інструментів (живі відповіді демо-проєкту)
 
-Фікстури — **живі відповіді** HTTP API бети для демо-акаунта, проєкт `u-demo-shop::default`, зняті 2026-11-10 лише читанням: зібраний `plune mcp serve` через stdio викликав `plune_project_context`, `plune_cases_search` (`limit` 100) і `plune_review_list`, а відповіді платформи записано в `src/mcp-testing/__tests__/fixtures/plune-budget-live.json` (60 КБ, без обрізання). `plune-budget.fixtures.ts` віддає їх за шляхом і запитом.
+Фікстури — **живі відповіді** HTTP API бети для демо-акаунта, проєкт `u-john-doe::default`, зняті 2026-11-10 лише читанням: зібраний `plune mcp serve` через stdio викликав `plune_project_context`, `plune_cases_search` (`limit` 100) і `plune_review_list`, а відповіді платформи записано в `src/mcp-testing/__tests__/fixtures/plune-budget-live.json` (60 КБ, без обрізання). `plune-budget.fixtures.ts` віддає їх за шляхом і запитом.
 
 - Очищення перед записом: id автора кейсів замінено на `u-john-doe`; два інші проєкти акаунта отримали вигадані id і назви, їхня компанія — `Example Corp`. Адрес пошти, імен людей і токенів у відповідях не було; тест `the recorded answers hold no address, token or user id but the sample ones` стежить, щоб так і лишалося. Назви кейсів, наборів і черги демо-магазину лишено як є (українською).
 - Місій у демо-акаунті немає, тож `plune_mission_get` міряється на синтетичній місії з 5 джерелами (John Doe).

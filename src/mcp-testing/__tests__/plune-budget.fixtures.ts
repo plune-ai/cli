@@ -1,5 +1,5 @@
 // The platform behind the read tools when their answers are measured: live answers of the beta demo account (project
-// u-demo-shop::default, read-only, 2026-11-10) as src/mcp-tools/execute.ts receives them from the HTTP API, kept in
+// u-john-doe::default, read-only, 2026-11-10) as src/mcp-tools/execute.ts receives them from the HTTP API, kept in
 // fixtures/plune-budget-live.json. Cleaned before they were stored: the user id is u-john-doe, the account's other
 // projects carry made-up ids and names; the demo shop's own cases, suites and queue are as captured (in Ukrainian).
 // The demo account has no missions, so the one mission `plune_mission_get` reads is synthetic (John Doe, user@plune.ai).
@@ -42,7 +42,7 @@ const source = (i: number) => ({
 
 const SYNTHETIC_MISSION = {
   id: FIXTURE_MISSION_ID,
-  projectId: 'u-demo-shop::default',
+  projectId: 'u-john-doe::default',
   name: 'Checkout',
   summary:
     'An online shop where a signed-in user fills a cart, pays by card and follows the order. The mission covers the way from the cart to the confirmation, the refusals of payment and the e-mails sent.',
