@@ -13,7 +13,7 @@ import { createProgram } from '../../cli.js';
 import { handleMcpCheck, type McpCheckFlags } from '../../cli/commands/mcp-check.js';
 import type { McpCheckReport } from '../result.js';
 import { checkServer } from './fixtures/check-server.mjs';
-import { streamableServer } from './fixtures/http-servers.js';
+import { recorder, streamableServer } from './fixtures/http-servers.js';
 
 const FIXTURE = fileURLToPath(new URL('./fixtures/check-server.mjs', import.meta.url));
 const HOSTILE = fileURLToPath(new URL('./fixtures/check-hostile.mjs', import.meta.url));
@@ -21,6 +21,7 @@ const HOSTILE = fileURLToPath(new URL('./fixtures/check-hostile.mjs', import.met
 const servers: { close(): Promise<void> }[] = [];
 afterEach(async () => {
   for (const s of servers.splice(0)) await s.close();
+  vi.unstubAllEnvs();
 });
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'plune-check-'));
@@ -96,6 +97,21 @@ async function httpServer(mode: string, port = 0): Promise<string> {
       }),
   });
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}/mcp`;
+}
+
+/**
+ * A machine logged in to Plune whose platform records every request: a token in the environment, `PLUNE_API_URL` at
+ * the recorder, a fresh HOME. Both are in `process.env` and in the env the command is given.
+ */
+async function loggedIn(): Promise<{ env: NodeJS.ProcessEnv; requests: unknown[] }> {
+  const home = tmp();
+  vi.stubEnv('HOME', home);
+  vi.stubEnv('USERPROFILE', home);
+  const platform = await recorder();
+  servers.push(platform);
+  const env = { PLUNE_TOKEN: 'plune-test-token', PLUNE_API_URL: platform.origin };
+  for (const [name, value] of Object.entries(env)) vi.stubEnv(name, value);
+  return { env, requests: platform.requests };
 }
 
 /** A port nothing listens on, for now. */
@@ -537,6 +553,16 @@ describe('CLI · mcp check · flags', () => {
       ),
     ).toEqual([]);
     expect(readFileSync(new URL('README.md', root), 'utf8')).toContain('plune mcp check');
+  });
+
+  it('CLI · mcp check · logged in to Plune, it still never calls the platform: stdio, HTTP and --smoke', async () => {
+    const platform = await loggedIn();
+    const stdio = await json({ mode: 'smoke', flags: { smoke: true }, env: platform.env });
+    const http = await json({ flags: { url: await httpServer('healthy') }, env: platform.env });
+    // 1: two of the smoke fixture's read-only tools answer with an error, on purpose.
+    expect([stdio.code, http.code]).toEqual([1, 0]);
+    expect(stdio.report.smoke?.calls.length).toBeGreaterThan(0);
+    expect(platform.requests).toEqual([]);
   });
 });
 
