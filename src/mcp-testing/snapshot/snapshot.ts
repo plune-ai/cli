@@ -64,43 +64,43 @@ const MIN_SECRET_LENGTH = 4;
 // `/home/` after a host name is left alone; a path that names no user directory is not caught.
 const HOME_DIR = /(?<![\w./\\-])(?:\/home\/|\/Users\/|[A-Za-z]:[\\/]Users[\\/])[^\\/\s"'`]+/g;
 
-function redact(value: unknown, secrets: readonly string[]): unknown {
-  if (typeof value === 'string') {
-    let text = value;
-    for (const s of secrets) text = text.split(s).join('[redacted]');
-    return text.replace(HOME_DIR, '~');
-  }
+// A secret is found as written in any letter case, in keys (property names) as in values. A URL-encoded or base64 form
+// of it is not, and a home directory only at the start of a path: deliberate limits of a text match.
+function redact(value: unknown, secrets: RegExp | undefined): unknown {
+  if (typeof value === 'string') return (secrets === undefined ? value : value.replace(secrets, '[redacted]')).replace(HOME_DIR, '~');
   if (Array.isArray(value)) return value.map((v) => redact(v, secrets));
   if (!isRecord(value)) return value;
-  return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, redact(v, secrets)]));
+  return Object.fromEntries(Object.entries(value).map(([k, v]) => [redact(k, secrets) as string, redact(v, secrets)]));
 }
 
+const isNameList = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');
+
 /**
- * A `required` list is a set: its order follows the order the properties were declared in, not the contract. A list of
- * names under a `required` key inside example data is sorted as well; it carries no meaning there either way.
+ * `required` and a list under `type` are sets: their order follows the order of declaration, not the contract. Such a
+ * list under one of those keys inside example data is sorted as well; it carries no meaning there either way.
  */
-function sortRequired(node: unknown): unknown {
-  if (Array.isArray(node)) return node.map(sortRequired);
+function sortSets(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(sortSets);
   if (!isRecord(node)) return node;
   return Object.fromEntries(
-    Object.entries(node).map(([k, v]) => [
-      k,
-      k === 'required' && Array.isArray(v) && v.every((x) => typeof x === 'string') ? [...v].sort() : sortRequired(v),
-    ]),
+    Object.entries(node).map(([k, v]) => [k, (k === 'required' || k === 'type') && isNameList(v) ? [...v].sort() : sortSets(v)]),
   );
 }
 
 /** `$schema` at the root of a tool schema names the JSON Schema dialect the SDK writes, not anything about the tool. */
 function normalizeSchema(schema: unknown): unknown {
   if (!isRecord(schema)) return schema;
-  return sortRequired(Object.fromEntries(Object.entries(schema).filter(([k]) => k !== '$schema')));
+  return sortSets(Object.fromEntries(Object.entries(schema).filter(([k]) => k !== '$schema')));
 }
+
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** A snapshot of a `tools/list` answer, read as data: an entry without a string `name` cannot be compared and throws. */
 export function buildSnapshot(listed: readonly unknown[], opts: SnapshotOptions = {}): ToolSnapshot {
-  const secrets = [...new Set((opts.secrets ?? []).map((s) => s.trim()).filter((s) => s.length >= MIN_SECRET_LENGTH))]
+  const list = [...new Set((opts.secrets ?? []).map((s) => s.trim()).filter((s) => s.length >= MIN_SECRET_LENGTH))]
     // The longest first, so a secret that contains another is replaced whole.
     .sort((a, b) => b.length - a.length);
+  const secrets = list.length === 0 ? undefined : new RegExp(list.map(escapeRegExp).join('|'), 'gi');
   const tools = listed.map((entry, i): SnapshotTool => {
     if (!isRecord(entry) || typeof entry['name'] !== 'string') throw new Error(`tools/list entry ${i} has no name`);
     const tool: Record<string, unknown> = { name: entry['name'] };

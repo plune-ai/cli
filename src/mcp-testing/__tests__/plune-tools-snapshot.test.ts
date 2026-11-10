@@ -37,7 +37,7 @@ describe('CLI · mcp snapshot · Plune tools contract', () => {
     expect.fail(
       [
         `The tool contract differs from ${PLUNE_SNAPSHOT_FILE}.`,
-        diff.changes.length === 0 ? 'The contract is the same; only the text of the file differs (formatting, line endings, or an edit by hand).' : renderDiffText(diff),
+        diff.changes.length === 0 ? 'The contract is the same; only the text of the file differs (formatting, line endings, an edit by hand, or a file written by an older normalization).' : renderDiffText(diff),
         'The contract is shared by `plune mcp serve` and the platform\'s built-in agent: a change reaches both.',
         UPDATE_HINT,
       ].join('\n'),

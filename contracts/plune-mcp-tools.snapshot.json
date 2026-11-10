@@ -559,8 +559,8 @@
           },
           "nextCursor": {
             "type": [
-              "string",
-              "null"
+              "null",
+              "string"
             ]
           },
           "testCases": {
@@ -1407,8 +1407,8 @@
           },
           "projectId": {
             "type": [
-              "string",
-              "null"
+              "null",
+              "string"
             ]
           },
           "projects": {
@@ -1632,8 +1632,8 @@
         "properties": {
           "nextCursor": {
             "type": [
-              "string",
-              "null"
+              "null",
+              "string"
             ]
           },
           "questions": {
@@ -2070,8 +2070,8 @@
           },
           "nextCursor": {
             "type": [
-              "string",
-              "null"
+              "null",
+              "string"
             ]
           }
         },

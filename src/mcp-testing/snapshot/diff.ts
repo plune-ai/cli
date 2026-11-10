@@ -62,6 +62,9 @@ const kindOf = (before: unknown, after: unknown): ChangeKind => (before === unde
 const stringSet = (v: unknown): Set<string> => new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
 /** Enum values compared by their JSON text, so `1` and `"1"` stay apart. */
 const valueSet = (v: unknown[]): Map<string, unknown> => new Map(v.map((x) => [JSON.stringify(x), x]));
+/** A list of types is a set: `["string","null"]` is `["null","string"]`. */
+const sameType = (a: unknown, b: unknown): boolean =>
+  Array.isArray(a) && Array.isArray(b) ? same([...valueSet(a).keys()].sort(), [...valueSet(b).keys()].sort()) : same(a, b);
 
 class Collector {
   readonly changes: ContractChange[] = [];
@@ -94,7 +97,7 @@ function compareSchema(c: Collector, side: Side, path: string, before: unknown, 
   }
   if (!isRecord(before) || !isRecord(after)) return c.unknown(field, 'the schema', before, after);
 
-  if (!same(before['type'], after['type'])) {
+  if (!sameType(before['type'], after['type'])) {
     // The rest of the node follows the type, so it is not reported on its own.
     return c.add(`${field}`, 'breaking', `The type changed from ${show(before['type'])} to ${show(after['type'])}.`, before['type'], after['type']);
   }
@@ -102,32 +105,77 @@ function compareSchema(c: Collector, side: Side, path: string, before: unknown, 
   compareProperties(c, side, path, field, before, after);
   if (!same(before['items'], after['items'])) compareSchema(c, side, `${path}[]`, before['items'], after['items']);
   if (!same(before['description'], after['description'])) {
-    if (path === '') c.unknown(field, 'the description of the whole schema', before['description'], after['description']);
-    else {
-      c.add(field, 'informational', `The ${side === 'input' ? 'parameter' : 'field'} description changed: it is what a model reads.`, before['description'], after['description'], {
-        security: true,
-      });
-    }
+    const what = path === '' ? `whole ${side} schema` : side === 'input' ? 'parameter' : 'field';
+    c.add(field, 'informational', `The ${what} description changed: it is what a model reads.`, before['description'], after['description'], {
+      security: true,
+    });
   }
   for (const k of [...new Set([...Object.keys(before), ...Object.keys(after)])].sort()) {
     if (SCHEMA_RULED.has(k) || same(before[k], after[k])) continue;
+    if (side === 'input' && compareInputConstraint(c, field, k, before[k], after[k])) continue;
+    // A deliberate limit: composition (anyOf, oneOf, allOf), references ($ref, $defs), nullable and the rest are not
+    // reasoned about. They show as not classified, counted apart and called out above the Markdown table.
     c.unknown(field, `\`${k}\``, before[k], after[k]);
   }
 }
 
+const UPPER_BOUNDS = new Set(['maximum', 'exclusiveMaximum', 'maxLength', 'maxItems']);
+const LOWER_BOUNDS = new Set(['minimum', 'exclusiveMinimum', 'minLength', 'minItems']);
+
+/** What an argument may be: a tighter rule refuses a call that passed before. Returns whether a rule knew `k`. */
+function compareInputConstraint(c: Collector, field: string, k: string, before: unknown, after: unknown): boolean {
+  if (UPPER_BOUNDS.has(k) || LOWER_BOUNDS.has(k)) {
+    if ((before !== undefined && typeof before !== 'number') || (after !== undefined && typeof after !== 'number')) return false;
+    if (before === undefined) c.add(field, 'breaking', `\`${k}\` ${show(after)} now limits the value: a call outside it is refused.`, before, after);
+    else if (after === undefined) c.add(field, 'non-breaking', `The \`${k}\` limit of ${show(before)} was lifted.`, before, after);
+    else if (UPPER_BOUNDS.has(k) ? after < before : after > before) {
+      c.add(field, 'breaking', `\`${k}\` tightened from ${show(before)} to ${show(after)}: a call outside it is refused.`, before, after);
+    } else c.add(field, 'non-breaking', `\`${k}\` loosened from ${show(before)} to ${show(after)}.`, before, after);
+    return true;
+  }
+  if (k === 'pattern' || k === 'const') {
+    if (after === undefined) c.add(field, 'non-breaking', `The \`${k}\` rule was lifted.`, before, after);
+    else c.add(field, 'breaking', `The value must now match \`${k}\` ${show(after)}: a call that passed before may be refused.`, before, after);
+    return true;
+  }
+  if (k === 'additionalProperties') {
+    const closedOrOpen = (v: unknown) => v === undefined || typeof v === 'boolean';
+    if (!closedOrOpen(before) || !closedOrOpen(after)) return false;
+    if (after === false) c.add(field, 'breaking', 'Unknown arguments are refused now: a call that passed an extra one fails.', before, after);
+    else if (before === false) c.add(field, 'non-breaking', 'Unknown arguments are allowed now.', before, after);
+    else c.add(field, 'informational', `additionalProperties changed from ${show(before)} to ${show(after)}, which allows the same arguments.`, before, after);
+    return true;
+  }
+  if (k === 'default') {
+    c.add(field, 'informational', 'The default changed: callers that omit the parameter get a different value.', before, after);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * No enum allows any value. The input loses when a value is no longer allowed (a call that passed it fails); the output
+ * loses when it may hold a value it did not before (a client that switches over the values does not know it).
+ */
 function compareEnum(c: Collector, side: Side, field: string, before: unknown, after: unknown): void {
-  if (side === 'output') return c.unknown(field, 'the enum of a returned value', before, after);
-  if (before === undefined && Array.isArray(after)) return c.add(field, 'breaking', 'The values were narrowed to a list.', before, after);
-  if (Array.isArray(before) && after === undefined) return c.add(field, 'non-breaking', 'The list of allowed values was lifted.', before, after);
-  if (!Array.isArray(before) || !Array.isArray(after)) return c.unknown(field, 'the enum', before, after);
-  const b = valueSet(before);
-  const a = valueSet(after);
-  const removed = [...b.keys()].filter((k) => !a.has(k));
-  const added = [...a.keys()].filter((k) => !b.has(k));
-  if (removed.length === 0 && added.length === 0) return; // reordered only
-  if (added.length === 0) return c.add(field, 'breaking', `The enum was narrowed: ${removed.join(', ')} no longer allowed.`, before, after);
-  if (removed.length === 0) return c.add(field, 'non-breaking', `The enum was widened: ${added.join(', ')} now allowed.`, before, after);
-  c.unknown(field, 'the enum (values both added and removed)', before, after);
+  if ((before !== undefined && !Array.isArray(before)) || (after !== undefined && !Array.isArray(after))) {
+    return c.unknown(field, 'the enum', before, after);
+  }
+  const b = before === undefined ? undefined : valueSet(before);
+  const a = after === undefined ? undefined : valueSet(after);
+  const removed = b === undefined ? [] : [...b.keys()].filter((k) => a !== undefined && !a.has(k));
+  const added = a === undefined ? [] : [...a.keys()].filter((k) => b !== undefined && !b.has(k));
+  const narrowed = removed.length > 0 || (b === undefined && a !== undefined);
+  const widened = added.length > 0 || (b !== undefined && a === undefined);
+  if (!narrowed && !widened) return; // reordered only
+  const lost = b === undefined ? 'the values became a fixed list' :`${removed.join(', ')} no longer allowed`;
+  const gained = a === undefined ? 'the list of values was lifted' : `${added.join(', ')} now possible`;
+  if (side === 'input') {
+    if (narrowed) return c.add(field, 'breaking', `The enum was narrowed: ${lost}; a call that passes it now fails.`, before, after);
+    return c.add(field, 'non-breaking', `The enum was widened: ${gained}.`, before, after);
+  }
+  if (widened) return c.add(field, 'breaking', `The result enum was widened: ${gained}; a client does not know the new value.`, before, after);
+  c.add(field, 'non-breaking', `The result enum was narrowed: ${lost}.`, before, after);
 }
 
 function compareProperties(c: Collector, side: Side, path: string, field: string, before: Rec, after: Rec): void {
@@ -137,6 +185,11 @@ function compareProperties(c: Collector, side: Side, path: string, field: string
   const ar = stringSet(after['required']);
   if (!isRecord(before['properties']) && before['properties'] !== undefined) c.unknown(field, '`properties`', before['properties'], after['properties']);
   else if (!isRecord(after['properties']) && after['properties'] !== undefined) c.unknown(field, '`properties`', before['properties'], after['properties']);
+  // `required: true` on a property (the draft-3 form) or a lone string is not a list of names: no rule below reads it.
+  const names = (v: unknown) => v === undefined || (Array.isArray(v) && v.every((x) => typeof x === 'string'));
+  if ((!names(before['required']) || !names(after['required'])) && !same(before['required'], after['required'])) {
+    c.unknown(field, '`required`', before['required'], after['required']);
+  }
   const what = side === 'input' ? 'parameter' : 'field';
 
   for (const name of [...new Set([...Object.keys(bp), ...Object.keys(ap)])].sort()) {
@@ -193,6 +246,10 @@ function compareAnnotations(c: Collector, before: unknown, after: unknown): void
       c.add(field, 'breaking', 'The tool is no longer read-only: a client that ran it unattended now runs a writer.', b[k], a[k], modified);
     } else if (k === 'destructiveHint' && was === false && is === true) {
       c.add(field, 'breaking', 'The tool may now destroy data: a client that ran it without asking now must ask.', b[k], a[k], modified);
+    } else if (k === 'openWorldHint' && was === false && is === true) {
+      c.add(field, 'informational', 'The tool now reaches outside its own data (openWorldHint).', b[k], a[k], modified);
+    } else if (k === 'idempotentHint' && was === true && is === false) {
+      c.add(field, 'informational', 'The tool is no longer idempotent: a repeated call may act twice.', b[k], a[k], modified);
     } else c.add(field, 'informational', `The hint ${k} changed and the tool is not less safe for it.`, b[k], a[k], modified);
   }
 }
@@ -273,14 +330,16 @@ export function renderDiffText(diff: ContractDiff): string {
   ].join('\n');
 }
 
-const cell = (s: string) => s.replace(/\r?\n/g, ' ').replace(/\|/g, '\|');
+const cell = (s: string) => s.replace(/\r?\n/g, ' ').replace(/\|/g, '\\|');
 
 /** The diff as Markdown, for a pull request's run summary. */
 export function renderDiffMarkdown(diff: ContractDiff): string {
   if (diff.changes.length === 0) return 'No changes to the tool contract.\n';
+  const { unclassified } = diff.summary;
   return [
     `**Overall: ${diff.summary.overall}** — ${counts(diff.summary)}`,
     '',
+    ...(unclassified > 0 ? [`${unclassified} change(s) could not be classified — check them by hand.`, ''] : []),
     '| Class | Tool | Field | Change | Reason |',
     '| --- | --- | --- | --- | --- |',
     ...diff.changes.map((ch) => {

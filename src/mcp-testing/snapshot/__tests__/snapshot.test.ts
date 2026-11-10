@@ -253,19 +253,22 @@ describe('mcp snapshot · description, title, annotations, x-plune', () => {
 
 describe('mcp snapshot · nothing is lost (AC-6)', () => {
   it('an unknown change is informational with "Could not classify", counted apart', () => {
-    const after = withInput((s) => (s.properties['days'] = { type: 'integer', maximum: 7 }));
+    const after = withInput((s) => (s.properties['days'] = { type: 'integer', format: 'int32' }));
     const diff = diffSnapshots(snap(tool()), snap(after));
     expect(diff.changes).toHaveLength(1);
     expect(diff.changes[0]).toMatchObject({ field: 'inputSchema.days', classification: 'informational', unclassified: true });
-    expect(diff.changes[0]?.reason).toMatch(/^Could not classify: `maximum` changed/);
+    expect(diff.changes[0]?.reason).toMatch(/^Could not classify: `format` changed/);
     expect(diff.summary).toMatchObject({ informational: 1, unclassified: 1, overall: 'informational' });
   });
-  it('an enum changed both ways cannot be compared: informational, not classified', () => {
+  it('an input enum that lost a value is breaking even when it gained another', () => {
     const after = withInput((s) => (s.properties['units'] = { type: 'string', enum: ['metric', 'kelvin'] }));
-    expect(only([tool()], [after])).toMatchObject({ classification: 'informational', unclassified: true });
+    const c = only([tool()], [after]);
+    expect(c).toMatchObject({ field: 'inputSchema.units', classification: 'breaking' });
+    expect(c.unclassified).toBeUndefined();
+    expect(c.reason).toContain('"imperial"');
   });
-  it('an output enum, an unknown annotation and an unknown x-plune field are not dropped', () => {
-    const out = withOutput((s) => (s.properties['note'] = { type: 'string', enum: ['a'] }));
+  it('a composed schema, an unknown annotation and an unknown x-plune field are not dropped', () => {
+    const out = withOutput((s) => (s.properties['note'] = { type: 'string', anyOf: [{ minLength: 1 }] }));
     expect(only([tool()], [out])).toMatchObject({ unclassified: true });
     expect(only([tool()], [tool({ annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, x: 1 } })])).toMatchObject({
       field: 'annotations.x',
@@ -290,6 +293,118 @@ describe('mcp snapshot · nothing is lost (AC-6)', () => {
     expect(md).toContain('| informational (security) | `weather_get` | `description` | modified |');
     expect(renderDiffText({ changes: [], summary: diffSnapshots(snap(), snap()).summary })).toBe('No changes to the tool contract.');
     expect(diffSnapshots(snap(), snap()).summary.overall).toBe('none');
+  });
+});
+
+describe('mcp snapshot · bounds, defaults and the edges of the rules', () => {
+  const days = (extra: Record<string, unknown>) => withInput((s) => (s.properties['days'] = { type: 'integer', ...extra }));
+  const cls = (before: Listed, after: Listed) => only([before], [after]).classification;
+
+  it('input: a bound that tightens or appears is breaking; one that loosens or goes is non-breaking', () => {
+    for (const [lo, hi] of [
+      ['minimum', 'maximum'],
+      ['exclusiveMinimum', 'exclusiveMaximum'],
+      ['minLength', 'maxLength'],
+      ['minItems', 'maxItems'],
+    ] as const) {
+      expect(cls(days({}), days({ [hi]: 7 })), `${hi} appears`).toBe('breaking');
+      expect(cls(days({ [hi]: 7 }), days({ [hi]: 5 })), `${hi} lower`).toBe('breaking');
+      expect(cls(days({ [hi]: 5 }), days({ [hi]: 7 })), `${hi} higher`).toBe('non-breaking');
+      expect(cls(days({ [hi]: 5 }), days({})), `${hi} goes`).toBe('non-breaking');
+      expect(cls(days({}), days({ [lo]: 1 })), `${lo} appears`).toBe('breaking');
+      expect(cls(days({ [lo]: 1 }), days({ [lo]: 2 })), `${lo} higher`).toBe('breaking');
+      expect(cls(days({ [lo]: 2 }), days({ [lo]: 1 })), `${lo} lower`).toBe('non-breaking');
+      expect(cls(days({ [lo]: 1 }), days({})), `${lo} goes`).toBe('non-breaking');
+    }
+  });
+
+  it('input: pattern or const that appears or changes is breaking, that goes is non-breaking', () => {
+    for (const k of ['pattern', 'const']) {
+      expect(cls(days({}), days({ [k]: '^1' })), `${k} appears`).toBe('breaking');
+      expect(cls(days({ [k]: '^1' }), days({ [k]: '^2' })), `${k} changes`).toBe('breaking');
+      expect(cls(days({ [k]: '^1' }), days({})), `${k} goes`).toBe('non-breaking');
+    }
+  });
+
+  it('input: additionalProperties closed is breaking, opened is non-breaking', () => {
+    const open = withInput((s) => (s['additionalProperties'] = true));
+    const closed = withInput((s) => (s['additionalProperties'] = false));
+    expect(verdict(only([tool()], [closed]))).toEqual({ field: 'inputSchema', kind: 'added', classification: 'breaking' });
+    expect(cls(open, closed)).toBe('breaking');
+    expect(cls(closed, open)).toBe('non-breaking');
+    expect(cls(closed, tool())).toBe('non-breaking');
+  });
+
+  it('output: an enum that gained a value is breaking, one that only lost values is non-breaking', () => {
+    const note = (e: unknown) => withOutput((s) => (s.properties['note'] = e === undefined ? { type: 'string' } : { type: 'string', enum: e }));
+    expect(cls(note(['a']), note(['a', 'b']))).toBe('breaking');
+    expect(cls(note(['a', 'b']), note(['a', 'c']))).toBe('breaking');
+    expect(cls(note(['a']), note(undefined))).toBe('breaking');
+    expect(cls(note(['a', 'b']), note(['a']))).toBe('non-breaking');
+    expect(cls(note(undefined), note(['a']))).toBe('non-breaking');
+  });
+
+  it('a changed default is informational with its own reason, not unclassified', () => {
+    const c = only([days({ default: 3 })], [days({ default: 5 })]);
+    expect(c).toMatchObject({ field: 'inputSchema.days', classification: 'informational' });
+    expect(c.unclassified).toBeUndefined();
+    expect(c.reason).toContain('callers that omit the parameter get a different value');
+  });
+
+  it('a required that is not a list of names and changed is not dropped', () => {
+    expect(only([days({ required: true })], [days({ required: false })])).toMatchObject({ field: 'inputSchema.days', unclassified: true });
+    const odd = (r: unknown) => withInput((s) => (s['required'] = r as string[]));
+    const all = changes([odd('city')], [odd('days')]);
+    expect(all.map((c) => [c.field, c.unclassified])).toEqual([['inputSchema', true]]);
+  });
+
+  it('a description of the whole input or output schema is marked security', () => {
+    const c = only([tool()], [withInput((s) => (s['description'] = 'Arguments'))]);
+    expect([c.field, c.classification, c.security, c.unclassified]).toEqual(['inputSchema', 'informational', true, undefined]);
+    expect(only([tool()], [withOutput((s) => (s['description'] = 'Result'))]).security).toBe(true);
+  });
+
+  it('openWorldHint false to true and idempotentHint true to false say what changed; both informational', () => {
+    const hints = (h: Record<string, boolean>) => tool({ annotations: { readOnlyHint: true, destructiveHint: false, ...h } });
+    const open = only([hints({ openWorldHint: false })], [hints({ openWorldHint: true })]);
+    expect([open.classification, open.reason]).toEqual(['informational', 'The tool now reaches outside its own data (openWorldHint).']);
+    const idem = only([hints({ idempotentHint: true })], [hints({ idempotentHint: false })]);
+    expect([idem.classification, idem.reason]).toEqual(['informational', 'The tool is no longer idempotent: a repeated call may act twice.']);
+  });
+
+  it('the order inside a type list changes nothing', () => {
+    const a = snap(days({ type: ['string', 'null'] }));
+    const b = snap(days({ type: ['null', 'string'] }));
+    expect(serializeSnapshot(b)).toBe(serializeSnapshot(a));
+    expect(diffSnapshots(a, b).changes).toEqual([]);
+    // A file written before the list was sorted compares equal too: the diff reads a type list as a set.
+    const written = parseSnapshot(serializeSnapshot(a));
+    (written.tools[0]!.inputSchema as { properties: Record<string, { type: string[] }> }).properties['days']!.type = ['string', 'null'];
+    expect(diffSnapshots(written, b).changes).toEqual([]);
+  });
+
+  it('a secret in a property name and in another letter case does not reach the file', () => {
+    const t = withInput((s) => (s.properties['x-api-key-SeCrEt123'] = { type: 'string', description: 'Pass SECRET123 here' }));
+    const text = serializeSnapshot(buildSnapshot([t], { secrets: ['secret123'] }));
+    expect(text.toLowerCase()).not.toContain('secret123');
+    expect(text).toContain('"x-api-key-[redacted]"');
+  });
+
+  it('a pipe in a reason is escaped, so a Markdown row keeps its five columns', () => {
+    const diff = diffSnapshots(snap(days({ format: 'a|b' })), snap(days({ format: 'c|d' })));
+    const row = renderDiffMarkdown(diff)
+      .split('\n')
+      .find((l) => l.includes('inputSchema.days'));
+    expect(row?.split(/(?<!\\)\|/)).toHaveLength(7);
+  });
+
+  it('the Markdown says how many changes could not be classified, above the table', () => {
+    const md = renderDiffMarkdown(diffSnapshots(snap(days({ format: 'a' })), snap(days({ format: 'b' }))));
+    const lines = md.split('\n');
+    const note = lines.indexOf('1 change(s) could not be classified — check them by hand.');
+    expect(note).toBeGreaterThan(0);
+    expect(note).toBeLessThan(lines.findIndex((l) => l.startsWith('| Class')));
+    expect(renderDiffMarkdown(diffSnapshots(snap(tool()), snap(tool(), tool({ name: 'stock_get' }))))).not.toContain('could not be classified');
   });
 });
 
