@@ -107,6 +107,8 @@ async function loggedIn(): Promise<{ env: NodeJS.ProcessEnv; requests: unknown[]
   const home = tmp();
   vi.stubEnv('HOME', home);
   vi.stubEnv('USERPROFILE', home);
+  // The stored login is read from XDG_CONFIG_HOME first; in a test worker os.homedir() keeps the real home.
+  vi.stubEnv('XDG_CONFIG_HOME', home);
   const platform = await recorder();
   servers.push(platform);
   const env = { PLUNE_TOKEN: 'plune-test-token', PLUNE_API_URL: platform.origin };
