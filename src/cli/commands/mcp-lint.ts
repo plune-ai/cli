@@ -9,8 +9,8 @@ import {
   UsageError,
   type ConnectionFlags,
 } from '../../mcp-testing/connect/options.js';
-import { selectSafeTools } from '../../mcp-testing/connect/safe-tools.js';
 import { ConnectError, openSession, type Session } from '../../mcp-testing/connect/session.js';
+import { asTools, callableTools, callTool, listAll } from '../../mcp-testing/connect/tools.js';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import {
   ExceptionsFileError,
@@ -66,8 +66,6 @@ export interface LintIo {
 }
 
 export const DEFAULT_IGNORE_FILE = 'plune-mcp-ignore.yaml';
-/** Pages of tools/list read at most: a server that always answers with a cursor would otherwise be read forever. */
-const MAX_PAGES = 100;
 const FAIL_ON: readonly FailOn[] = ['error', 'warn', 'info', 'never'];
 const FORMATS = ['human', 'json'] as const;
 type Format = (typeof FORMATS)[number];
@@ -230,50 +228,24 @@ function readExceptions(flag: string | undefined, io: LintIo) {
   return { name, ...parseExceptionsFile(readFileSync(path, 'utf8'), name, today) };
 }
 
-/**
- * tools/list to its last page, at most MAX_PAGES. An entry that is not an object, or has no string name, keeps its
- * place under an empty name, which the name rules report; `unnamed` holds those entries with what they had for a name,
- * so --call never sends one.
- */
+/** tools/list to its last page (connect/tools.ts); an error answer stops the lint as a server that did not answer. */
 async function listTools(session: Session): Promise<{
   tools: ListedTool[];
   unnamed: Map<ListedTool, string>;
   pages: number;
   complete: boolean;
 }> {
-  const tools: ListedTool[] = [];
-  const unnamed = new Map<ListedTool, string>();
-  let cursor: string | undefined;
-  for (let pages = 1; pages <= MAX_PAGES; pages++) {
-    let page: unknown;
-    try {
-      page = await session.request('tools/list', cursor === undefined ? undefined : { cursor });
-    } catch (err) {
-      if (err instanceof ConnectError) throw err;
-      throw new ConnectError(
-        'protocol',
-        `The server answered tools/list with an error: ${(err as Error).message}`,
-        [],
-      );
-    }
-    const listed: unknown[] = isRecord(page) && Array.isArray(page.tools) ? page.tools : [];
-    for (const t of listed) {
-      const name = isRecord(t) ? t.name : undefined;
-      if (typeof name === 'string' && name !== '') {
-        tools.push(t as unknown as ListedTool);
-        continue;
-      }
-      const tool: ListedTool = { ...(isRecord(t) ? t : {}), name: '' };
-      unnamed.set(tool, name === undefined ? '(no name)' : String(JSON.stringify(name)));
-      tools.push(tool);
-    }
-    cursor =
-      isRecord(page) && typeof page.nextCursor === 'string' && page.nextCursor !== ''
-        ? page.nextCursor
-        : undefined;
-    if (cursor === undefined) return { tools, unnamed, pages, complete: true };
+  try {
+    const listing = await listAll(session, 'tools/list', 'tools');
+    return { ...asTools(listing.items), pages: listing.pages, complete: listing.complete };
+  } catch (err) {
+    if (err instanceof ConnectError) throw err;
+    throw new ConnectError(
+      'protocol',
+      `The server answered tools/list with an error: ${(err as Error).message}`,
+      [],
+    );
   }
-  return { tools, unnamed, pages: MAX_PAGES, complete: false };
 }
 
 /** Keywords whose value maps names to schemas: the names are not keywords. */
@@ -373,9 +345,8 @@ function schemaValidator(): CallContext {
 }
 
 /**
- * Calls each tool `selectSafeTools` allows, one after another, with `{}`; a call with no answer is could-not-run.
- * A name the whole list holds twice is never called (tools/call picks by name, so a read-only entry could run the
- * destructive one), nor an entry without a name.
+ * Calls each tool `callableTools` allows (connect/tools.ts), one after another, with `{}`; a call with no answer is
+ * could-not-run.
  */
 async function callSafeTools(
   session: Session,
@@ -385,36 +356,21 @@ async function callSafeTools(
   timeoutMs: number,
   timeoutText: string,
 ) {
-  const counts = new Map<string, number>();
-  for (const t of tools) if (!unnamed.has(t)) counts.set(t.name, (counts.get(t.name) ?? 0) + 1);
-  const refused: { tool: string; reason: string }[] = [];
-  const candidates: ListedTool[] = [];
-  for (const t of tools) {
-    const label = unnamed.get(t);
-    if (label !== undefined) refused.push({ tool: label, reason: 'invalid-name' });
-    else if ((counts.get(t.name) ?? 0) > 1)
-      refused.push({ tool: t.name, reason: 'duplicate-name' });
-    else candidates.push(t);
-  }
-  const { safe, skipped } = selectSafeTools(candidates);
+  const { safe, skipped } = callableTools(tools, unnamed);
   const schemas = schemaValidator();
   const findings: LintFinding[] = [];
   const called: CallOutcome[] = [];
   for (const tool of safe.slice(0, limit)) {
-    try {
-      const result = await session.request(
-        'tools/call',
-        { name: tool.name, arguments: {} },
-        { timeoutMs },
-      );
-      const found = lintCall(tool, result, schemas);
+    const answer = await callTool(session, tool.name, timeoutMs);
+    if (answer.kind === 'result') {
+      const found = lintCall(tool, answer.result, schemas);
       findings.push(...found);
       called.push({ tool: tool.name, state: found.length > 0 ? 'failed' : 'passed' });
-    } catch (err) {
+    } else {
       const reason =
-        err instanceof ConnectError && err.kind === 'timeout'
+        answer.kind === 'timeout'
           ? `no answer within --call-timeout (${timeoutText})`
-          : (err as Error).message;
+          : answer.message;
       called.push({ tool: tool.name, state: 'could-not-run', reason });
     }
   }
@@ -422,8 +378,7 @@ async function callSafeTools(
     findings,
     called,
     skipped: [
-      ...refused,
-      ...skipped.map((s) => ({ tool: s.tool.name, reason: s.reason as string })),
+      ...skipped,
       ...safe.slice(limit).map((t) => ({ tool: t.name, reason: 'call-limit' })),
     ],
   };
