@@ -25,7 +25,7 @@ export async function handleMcpServe(flags: McpServeFlags, deps: McpServeDeps): 
 
   const apiUrl = resolveApiUrl(deps.apiUrl);
   const projectId = flags.project?.trim() || process.env['PLUNE_PROJECT']?.trim() || undefined;
-  const serve = deps.serve ?? (await import('../../mcp/server.js')).serveStdio;
+  const serve = deps.serve ?? (await import('../../mcp/server.js')).serveMcpStdio;
 
   await serve({
     token,

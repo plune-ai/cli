@@ -1,27 +1,31 @@
-// `plune mcp serve` as a real process (dist/cli.cjs) over real stdio, from both protocol eras
-// (plune-ai/plune#2421). The in-memory tests in server.test.ts never see stdout, the process exit or the
-// opening exchange; these do. Run with `pnpm test:e2e` (it builds first).
+// `plune mcp serve` as a real process (dist/cli.cjs) over real stdio, from both protocol eras.
+// The in-memory tests in server.test.ts never see stdout, the process exit or the opening exchange; these do.
+// Run with `pnpm test:e2e` (it builds first).
 //
 // Two clients:
-// - legacy (2025-11-25, `initialize` handshake): the SDK 1.x Client this package already depends on;
+// - legacy (2025-11-25, `initialize` handshake): the SDK 1.x Client (a dev dependency kept for exactly this);
 // - modern (2026-07-28, per-request `_meta`, no handshake): a few lines of JSON written to stdin by hand,
 //   shaped after the specification text, not after any SDK, so the check is against the spec:
 //   https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio
 //   https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning
+//   https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/subscriptions
 //   https://modelcontextprotocol.io/specification/2026-07-28/schema
 //
-// Measured with @modelcontextprotocol/sdk 1.32.2 (the server's transport today):
+// Measured on the dual-era transport (@modelcontextprotocol/server 2.4.0, serveStdio):
 //
-// | request (stdio)                                       | server answer                                              |
-// |-------------------------------------------------------|------------------------------------------------------------|
-// | `server/discover` with modern `_meta`, first message  | JSON-RPC error -32601 "Method not found"                   |
-// | `tools/list` with modern `_meta`, no `initialize`     | served under legacy rules: no `resultType`, `ttlMs`, `cacheScope` |
-// | `initialize` with protocolVersion 2025-11-25          | result, protocolVersion 2025-11-25                         |
-// | `initialize` with protocolVersion 1900-01-01          | result, protocolVersion 2025-11-25 (the server's latest)   |
-// | stdin closed                                          | process exits with code 0 well under a second              |
+// | request (stdio)                                       | server answer                                                  |
+// |-------------------------------------------------------|----------------------------------------------------------------|
+// | `server/discover` with modern `_meta`, first message  | DiscoverResult: supportedVersions ["2026-07-28"], ttlMs 0      |
+// | `tools/list` with modern `_meta`                      | resultType "complete", ttlMs 0, cacheScope "private"           |
+// | modern request naming version 1900-01-01              | -32022, data.supported / data.requested                        |
+// | `subscriptions/listen` {toolsListChanged}             | acknowledged; list_changed only on it, stamped subscriptionId  |
+// | `initialize` with protocolVersion 2025-11-25          | result, protocolVersion 2025-11-25                             |
+// | `initialize` with protocolVersion 1900-01-01          | result, protocolVersion 2025-11-25 (the server's latest)       |
+// | stdin closed                                          | process exits with code 0 well under a second                  |
 //
-// The compatibility matrix below is that truth. A change in the server (the move to a transport that also
-// speaks 2026-07-28) turns it red until the row is rewritten on purpose.
+// Before the move (SDK 1.x transport) `server/discover` got -32601 «Method not found» and a modern request was served
+// under legacy rules. The compatibility matrix below is today's truth; a change in the server turns it red until the
+// row is rewritten on purpose.
 
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import * as fs from 'node:fs';
@@ -87,7 +91,7 @@ function serveEnv(extra: Record<string, string> = {}): Record<string, string> {
 // ---------------------------------------------------------------------------------------------------------
 // The modern client: JSON lines on stdin, JSON lines from stdout. Nothing else.
 
-type Message = { jsonrpc?: string; id?: number; method?: string; result?: Record<string, unknown>; error?: { code: number; message: string } };
+type Message = { jsonrpc?: string; id?: number; method?: string; params?: Record<string, unknown>; result?: Record<string, unknown>; error?: { code: number; message: string } };
 
 interface RawServe {
   send(msg: Record<string, unknown>): void;
@@ -211,9 +215,9 @@ async function modernClientOutcome(): Promise<{ outcome: Outcome; evidence: unkn
 }
 
 const COMPATIBILITY: { client: string; run: () => Promise<{ outcome: Outcome; evidence: unknown }>; expected: Outcome; answer?: unknown }[] = [
-  { client: `legacy ${LEGACY} (initialize)`, run: legacyClientOutcome, expected: 'works' },
-  // Today: the server knows no `server/discover`. After the move to both eras this row becomes 'works'.
-  { client: `modern ${MODERN} (server/discover probe)`, run: modernClientOutcome, expected: 'refused', answer: { code: -32601, message: 'Method not found' } },
+  { client: `legacy ${LEGACY} (initialize)`, run: legacyClientOutcome, expected: 'works', answer: defaultVisibleTools('write').length },
+  // Before the move to a dual-era transport this row was 'refused' with -32601 «Method not found».
+  { client: `modern ${MODERN} (server/discover probe)`, run: modernClientOutcome, expected: 'works', answer: defaultVisibleTools('write').length },
 ];
 
 describe('CLI · mcp serve · compatibility matrix by client era', () => {
@@ -271,38 +275,76 @@ describe('CLI · mcp serve · legacy client (SDK 1.x, 2025-11-25)', () => {
 // AC-2: the modern client by hand, and what the server actually answers.
 
 describe('CLI · mcp serve · modern client (2026-07-28, JSON lines)', () => {
-  it('CLI · mcp serve · server/discover as the first message is answered with «Method not found»', async () => {
+  const names = (m: Message) => ((m.result?.['tools'] as { name: string }[] | undefined) ?? []).map((t) => t.name);
+  const subscriptionOf = (m: Message) => (m.params?.['_meta'] as Record<string, unknown> | undefined)?.['io.modelcontextprotocol/subscriptionId'];
+
+  it('CLI · mcp serve · server/discover as the first message returns a DiscoverResult naming 2026-07-28', async () => {
     const s = spawnServe();
     s.send({ id: 1, method: 'server/discover', params: { _meta: modernMeta() } });
     const a = await s.answer(1);
     await s.end();
-    expect(a).toEqual({ jsonrpc: '2.0', id: 1, error: { code: -32601, message: 'Method not found' } });
+    if (a === 'timeout') throw new Error('no answer to server/discover');
+    expect(a.error).toBeUndefined();
+    expect(a.result).toMatchObject({ resultType: 'complete', capabilities: { tools: {} }, ttlMs: expect.any(Number), cacheScope: expect.any(String) });
+    expect(a.result?.['supportedVersions']).toContain(MODERN);
   });
 
-  it('CLI · mcp serve · a modern request without the probe is served under legacy rules (no resultType, ttlMs, cacheScope)', async () => {
-    // The «era-ambiguous method» case of the versioning page: the server does not check that `initialize` came
-    // first, so a modern-only client that skips the probe gets a 2025-era answer instead of a clear failure.
+  it('CLI · mcp serve · a version the server does not speak is refused with -32022 and the supported list', async () => {
     const s = spawnServe();
-    s.send({ id: 1, method: 'tools/list', params: { _meta: modernMeta() } });
-    const list = await s.answer(1);
-    s.send({ id: 2, method: 'tools/call', params: { name: 'plune_discover_tools', arguments: { names: ['plune_run_create'] }, _meta: modernMeta() } });
-    const call = await s.answer(2);
+    s.send({ id: 1, method: 'tools/list', params: { _meta: modernMeta('1900-01-01') } });
+    const a = await s.answer(1);
+    await s.end();
+    if (a === 'timeout') throw new Error('no answer');
+    expect(a.error?.code).toBe(-32022);
+    expect((a.error as { data?: { supported?: string[]; requested?: string } }).data).toMatchObject({ requested: '1900-01-01', supported: expect.arrayContaining([MODERN]) });
+  });
+
+  it('CLI · mcp serve · list, a platform call and discover_tools; the change comes on the subscription only', async () => {
+    const s = spawnServe();
+    s.send({ id: 1, method: 'server/discover', params: { _meta: modernMeta() } });
+    await s.answer(1);
+    s.send({ id: 2, method: 'subscriptions/listen', params: { _meta: modernMeta(), notifications: { toolsListChanged: true } } });
     s.send({ id: 3, method: 'tools/list', params: { _meta: modernMeta() } });
-    const again = await s.answer(3);
+    const list = await s.answer(3);
+    s.send({ id: 4, method: 'tools/call', params: { name: 'plune_project_context', arguments: {}, _meta: modernMeta() } });
+    const ctx = await s.answer(4);
+    s.send({ id: 5, method: 'tools/call', params: { name: 'plune_discover_tools', arguments: { names: ['plune_run_create'] }, _meta: modernMeta() } });
+    const reveal = await s.answer(5);
+    s.send({ id: 6, method: 'tools/list', params: { _meta: modernMeta() } });
+    const again = await s.answer(6);
+    await new Promise((resolve) => setTimeout(resolve, 100));
     await s.end();
 
-    if (list === 'timeout' || call === 'timeout' || again === 'timeout') throw new Error('the server stayed silent');
-    const names = (m: Message) => ((m.result?.['tools'] as { name: string }[] | undefined) ?? []).map((t) => t.name);
-    expect(Object.keys(list.result ?? {})).toEqual(['tools']);
+    if (list === 'timeout' || ctx === 'timeout' || reveal === 'timeout' || again === 'timeout') throw new Error('the server stayed silent');
+    // A 2026-07-28 list: resultType, and ttlMs 0 so a client that does not listen still re-reads after discover_tools.
+    expect(list.result).toMatchObject({ resultType: 'complete', ttlMs: 0 });
     expect(names(list)).toEqual(defaultVisibleTools('write'));
-    expect(call.result?.['isError']).toBeUndefined();
+    expect(ctx.result).toMatchObject({ resultType: 'complete', structuredContent: { projectId: 'p1', cases: { total: 3 } } });
+    expect(ctx.result?.['isError']).toBeFalsy();
+    expect(reveal.result?.['isError']).toBeFalsy();
     expect(names(again)).toEqual([...defaultVisibleTools('write'), 'plune_run_create']);
-    // The list change is announced as a bare notification, which 2026-07-28 allows only inside a
-    // `subscriptions/listen` stream the client asked for.
-    expect(s.messages().some((m) => m.method === 'notifications/tools/list_changed')).toBe(true);
+
+    const ack = s.messages().find((m) => m.method === 'notifications/subscriptions/acknowledged');
+    expect(ack && subscriptionOf(ack)).toBe(2);
+    const changed = s.messages().filter((m) => m.method === 'notifications/tools/list_changed');
+    expect(changed.length).toBeGreaterThan(0);
+    for (const m of changed) expect(subscriptionOf(m), 'list_changed outside the subscription').toBe(2);
   });
 
-  it('CLI · mcp serve · initialize with an unknown version is answered with the server\'s own latest', async () => {
+  it('CLI · mcp serve · without a subscription discover_tools sends no list_changed (the client did not ask)', async () => {
+    const s = spawnServe();
+    s.send({ id: 1, method: 'tools/call', params: { name: 'plune_discover_tools', arguments: { names: ['plune_run_create'] }, _meta: modernMeta() } });
+    const reveal = await s.answer(1);
+    s.send({ id: 2, method: 'tools/list', params: { _meta: modernMeta() } });
+    const again = await s.answer(2);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await s.end();
+    if (reveal === 'timeout' || again === 'timeout') throw new Error('the server stayed silent');
+    expect(names(again)).toContain('plune_run_create');
+    expect(s.messages().filter((m) => m.method !== undefined)).toEqual([]);
+  });
+
+  it('CLI · mcp serve · initialize with an unknown version is answered with the server\'s own latest legacy revision', async () => {
     const s = spawnServe();
     s.send({ id: 1, method: 'initialize', params: { protocolVersion: '1900-01-01', capabilities: {}, clientInfo: { name: 'x', version: '1' } } });
     const a = await s.answer(1);
