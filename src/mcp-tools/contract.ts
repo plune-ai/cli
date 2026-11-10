@@ -316,7 +316,15 @@ export const PLUNE_TOOLS = [
     }),
     output: z.object({
       revealed: z.array(z.string()),
-      available: z.array(z.object({ name: z.string(), title: z.string(), description: z.string(), write: z.boolean() })),
+      available: z.array(
+        z.object({
+          name: z.string(),
+          title: z.string(),
+          description: z.string(),
+          write: z.boolean(),
+          inputSchema: z.record(z.string(), z.unknown()).optional().describe('JSON Schema of the arguments, where the tool list is fixed and a tool is called by its name'),
+        }),
+      ),
       visible: z.array(z.string()),
     }),
     write: false,

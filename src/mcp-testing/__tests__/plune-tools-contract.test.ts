@@ -24,21 +24,25 @@ const MODERN_META = {
   'io.modelcontextprotocol/clientCapabilities': {},
 };
 
-async function listTools(era: Era, scope: 'read' | 'write', revealHidden: boolean): Promise<ListedTool[]> {
+/** The list after the hidden tools were asked for, and, when they were, the list the same connection gave before. */
+async function listTools(era: Era, scope: 'read' | 'write', revealHidden: boolean): Promise<{ tools: ListedTool[]; before?: ListedTool[] }> {
   const [client, serverSide] = InMemoryTransport.createLinkedPair();
   open.push(
     serveStdio(
-      () =>
-        createPluneMcpServer({
-          token: 'plt_test',
-          apiUrl: 'https://api.test',
-          // Listing tools never reaches the platform; a call that did would fail the test here.
-          fetchImpl: (async () => {
-            throw new Error('the tool list must not call the platform');
-          }) as typeof fetch,
-          version: '0.0.0-test',
-          scope,
-        }),
+      (ctx) =>
+        createPluneMcpServer(
+          {
+            token: 'plt_test',
+            apiUrl: 'https://api.test',
+            // Listing tools never reaches the platform; a call that did would fail the test here.
+            fetchImpl: (async () => {
+              throw new Error('the tool list must not call the platform');
+            }) as typeof fetch,
+            version: '0.0.0-test',
+            scope,
+          },
+          ctx.era,
+        ),
       { transport: serverSide },
     ),
   );
@@ -74,12 +78,13 @@ async function listTools(era: Era, scope: 'read' | 'write', revealHidden: boolea
     await request('initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'lint', version: '1' } });
     await client.send({ jsonrpc: '2.0', method: 'notifications/initialized' });
   }
-  if (revealHidden) {
-    const names = PLUNE_TOOLS.filter((t) => t.visibility === 'discoverable').map((t) => t.name);
-    const r = await request('tools/call', { name: 'plune_discover_tools', arguments: { names } });
-    expect(r['isError']).toBeFalsy();
-  }
-  return (await request('tools/list'))['tools'] as ListedTool[];
+  const list = async () => (await request('tools/list'))['tools'] as ListedTool[];
+  if (!revealHidden) return { tools: await list() };
+  const before = await list();
+  const names = PLUNE_TOOLS.filter((t) => t.visibility === 'discoverable').map((t) => t.name);
+  const r = await request('tools/call', { name: 'plune_discover_tools', arguments: { names } });
+  expect(r['isError']).toBeFalsy();
+  return { tools: await list(), before };
 }
 
 /** Our own contract is held to the specification's SHOULDs too: a deterministic warning fails it, not only an error. */
@@ -93,19 +98,22 @@ function table(findings: readonly LintFinding[]): string {
   return rows.map((r) => r.map((cell, i) => (i < widths.length ? cell.padEnd(widths[i] ?? 0) : cell)).join('  ')).join('\n');
 }
 
-// Counts as the server lists them today, in either era: write scope 17 core tools, all 22 once discover_tools reveals the hidden
-// ones, and 8 for a read token (every hidden tool writes, so a read token never sees them).
+// Counts as the server lists them today: write scope 17 core tools, and 8 for a read token (every hidden tool writes, so a
+// read token never sees them). After discover_tools the 2025 era lists all 22; in 2026-07-28 the list must not change as
+// a side effect of a request, so it is the very list the same connection gave before.
 const VIEWS = (['legacy', 'modern'] as const).flatMap((era) => [
-  { name: `${era} era, write scope, as listed first`, era, scope: 'write', revealHidden: false, count: 17 } as const,
-  { name: `${era} era, write scope, after plune_discover_tools`, era, scope: 'write', revealHidden: true, count: 22 } as const,
-  { name: `${era} era, read scope`, era, scope: 'read', revealHidden: false, count: 8 } as const,
+  { name: `${era} era, write scope, as listed first`, era, scope: 'write', revealHidden: false, count: 17, unchanged: false } as const,
+  { name: `${era} era, write scope, after plune_discover_tools`, era, scope: 'write', revealHidden: true, count: era === 'legacy' ? 22 : 17, unchanged: era === 'modern' } as const,
+  { name: `${era} era, read scope`, era, scope: 'read', revealHidden: false, count: 8, unchanged: false } as const,
 ]);
 
 describe('CLI · mcp lint · Plune tools contract', () => {
   it.each(VIEWS)('$name: no deterministic finding outside the exceptions; heuristics printed', async (view) => {
-    const tools = await listTools(view.era, view.scope, view.revealHidden);
+    const { tools, before } = await listTools(view.era, view.scope, view.revealHidden);
     // Nothing listed is nothing checked, which is not a pass.
     expect(tools.length).toBe(view.count);
+    if (view.unchanged) expect(tools).toEqual(before);
+    else if (before !== undefined) expect(tools).not.toEqual(before);
 
     const applied = applyExceptions(lintTools(tools), PLUNE_LINT_EXCEPTIONS);
     const failing = applied.findings.filter(failsOurContract);
@@ -128,7 +136,7 @@ describe('CLI · mcp lint · Plune tools contract', () => {
     let heuristics = 0;
     const used = new Set<object>();
     for (const view of VIEWS) {
-      const tools = await listTools(view.era, view.scope, view.revealHidden);
+      const { tools } = await listTools(view.era, view.scope, view.revealHidden);
       expect(tools.length, view.name).toBe(view.count);
       const applied = applyExceptions(lintTools(tools), PLUNE_LINT_EXCEPTIONS);
       for (const e of applied.excepted) used.add(e.exception);
