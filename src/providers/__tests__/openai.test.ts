@@ -56,6 +56,20 @@ describe('OpenAIProvider (ADR-PRV01)', () => {
     expect(mockCreate.mock.calls[1]?.[0]).toMatchObject({ temperature: 0 });
   });
 
+  it('sends the limit as max_completion_tokens and no max_tokens, in both request paths', async () => {
+    mockCreate.mockResolvedValue({
+      choices: [{ message: { content: 'x' } }],
+      usage: { prompt_tokens: 1, completion_tokens: 1 },
+    });
+    const provider = makeOpenAiProvider(config, { OPENAI_API_KEY: 'sk-test' });
+    await provider.complete(req);
+    await provider.respond!({ provider: 'openai', model: 'gpt-4o-mini', max_tokens: 100, messages: [], tools: [] });
+    for (const call of mockCreate.mock.calls) {
+      expect(call[0]).toMatchObject({ max_completion_tokens: 100 });
+      expect(call[0]).not.toHaveProperty('max_tokens');
+    }
+  });
+
   it('does NOT request usage cost and leaves cost_usd undefined (direct OpenAI, ADR-PRC02)', async () => {
     mockCreate.mockResolvedValue({
       choices: [{ message: { content: 'x' } }],

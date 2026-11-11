@@ -86,6 +86,20 @@ describe('OpenRouterProvider (ADR-PRV01)', () => {
     expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ usage: { include: true } }));
   });
 
+  it('still sends the limit as max_tokens, in both request paths', async () => {
+    mockCreate.mockResolvedValue({
+      choices: [{ message: { content: 'x' } }],
+      usage: { prompt_tokens: 1, completion_tokens: 1 },
+    });
+    const provider = makeOpenRouterProvider(config, { OPENROUTER_API_KEY: 'sk-or-test' });
+    await provider.complete(req);
+    await provider.respond!({ provider: 'openrouter', model: config.model, max_tokens: 100, messages: [], tools: [] });
+    for (const call of mockCreate.mock.calls) {
+      expect(call[0]).toMatchObject({ max_tokens: 100 });
+      expect(call[0]).not.toHaveProperty('max_completion_tokens');
+    }
+  });
+
   it('leaves cost_usd undefined when OpenRouter omits usage.cost', async () => {
     mockCreate.mockResolvedValue({
       choices: [{ message: { content: 'x' } }],
