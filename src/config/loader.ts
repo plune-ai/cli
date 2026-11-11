@@ -3,6 +3,7 @@ import { parse } from 'yaml';
 import { applyEnvOverrides } from './env-overrides.js';
 import { ConfigNotFoundError, ConfigValidationError, YamlParseError } from './errors.js';
 import { discoverConfigPath } from './discover.js';
+import { mcpVariableIssues } from './mcp.js';
 import { pluneConfigSchema } from './schema.js';
 import type { Config } from '../types/config.js';
 
@@ -44,5 +45,11 @@ export async function loadConfig(opts: LoadConfigOptions = {}): Promise<Config> 
     );
   }
 
-  return applyEnvOverrides(result.data as unknown as Config, env);
+  const config = result.data as unknown as Config;
+  // `${VAR}` is checked here and filled only when a server is reached, so the config (and its hash) keeps it as written.
+  const unset = mcpVariableIssues(config, env);
+  if (unset.length > 0)
+    throw new ConfigValidationError(`Config validation failed in ${resolvedPath}`, unset);
+
+  return applyEnvOverrides(config, env);
 }

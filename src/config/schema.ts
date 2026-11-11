@@ -133,6 +133,67 @@ const evalRepeatsShape = {
   pass_threshold: z.number().gt(0, SHARE_MESSAGE).max(1, SHARE_MESSAGE).optional(),
 };
 
+// --- MCP: the server an agentic eval talks to, and the limits that end its loop ---
+
+// The longest a timer can wait; the connection core caps its durations at the same value.
+const MAX_TIMER_MS = 2_147_483_647;
+const limit = z.number().int().positive();
+
+const mcpLimitsSchema = z
+  .object({
+    max_steps: limit.optional(),
+    max_tool_calls: limit.optional(),
+    max_total_tokens: limit.optional(),
+    timeout_ms: limit.max(MAX_TIMER_MS).optional(),
+    tool_timeout_ms: limit.max(MAX_TIMER_MS).optional(),
+  })
+  .strict();
+
+const mcpServerSchema = z
+  .object({
+    command: z.string().min(1).optional(),
+    args: z.array(z.string()).optional(),
+    env: z.record(z.string(), z.string()).optional(),
+    cwd: z.string().min(1).optional(),
+    url: z.string().min(1).optional(),
+    headers: z.record(z.string(), z.string()).optional(),
+  })
+  .strict();
+
+// The same two forms as the connection flags of `plune mcp`: a command (stdio) or a URL (HTTP).
+const mcpServersSchema = z
+  .record(z.string().min(1), mcpServerSchema)
+  .superRefine((servers, ctx) => {
+    for (const [name, server] of Object.entries(servers)) {
+      const issue = (message: string) => ctx.addIssue({ code: 'custom', path: [name], message });
+      const stdio = server.command !== undefined;
+      const http = server.url !== undefined;
+      if (stdio && http)
+        issue(`server "${name}" has both command and url; give command (stdio) or url (HTTP), not both`);
+      else if (!stdio && !http)
+        issue(`server "${name}" needs command (a stdio server) or url (an HTTP server)`);
+      else if (stdio && server.headers !== undefined)
+        issue(`server "${name}": headers are for a server at url, not one started with command`);
+      else if (http && (server.args ?? server.env ?? server.cwd) !== undefined)
+        issue(`server "${name}": args, env and cwd are for a server started with command, not one at url`);
+    }
+  });
+
+const mcpRootSchema = z
+  .object({ servers: mcpServersSchema, limits: mcpLimitsSchema.optional() })
+  .strict();
+
+const evalMcpSchema = z
+  .object({
+    server: z.string().min(1),
+    allowed_tools: z
+      .array(z.string().min(1))
+      .min(1, 'allowed_tools must name at least one tool; leave it out to allow every tool the server lists')
+      .optional(),
+    limits: mcpLimitsSchema.optional(),
+  })
+  .strict();
+
 // --- EvalConfig ---
 
 const evalConfigSchema = z
@@ -146,6 +207,7 @@ const evalConfigSchema = z
     dataset: datasetRefSchema,
     assertions: z.array(assertionConfigSchema),
     ...evalRepeatsShape,
+    mcp: evalMcpSchema.optional(),
   })
   .refine(
     (data) => !(data.prompt !== undefined && data.prompt_file !== undefined),
@@ -163,9 +225,22 @@ export const pluneConfigSchema = z
       .optional(),
     pricing: pricingSchema.optional(),
     ...evalRepeatsShape,
+    // A CLI older than this block stops on it: the root is strict.
+    mcp: mcpRootSchema.optional(),
     evals: z.array(evalConfigSchema).min(1),
   })
-  .strict();
+  .strict()
+  .superRefine((config, ctx) => {
+    config.evals.forEach((evalConfig, i) => {
+      const server = evalConfig.mcp?.server;
+      if (server === undefined || config.mcp?.servers[server] !== undefined) return;
+      ctx.addIssue({
+        code: 'custom',
+        path: ['evals', i, 'mcp', 'server'],
+        message: `eval "${evalConfig.id}" uses MCP server "${server}", which mcp.servers does not define`,
+      });
+    });
+  });
 
 export type PluneConfig = z.infer<typeof pluneConfigSchema>;
 
