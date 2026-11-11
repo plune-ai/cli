@@ -16,8 +16,8 @@
 #
 # Cost. `plune run --dry-run` prices `max_steps` calls of each prompt, times `runs`, per model; it does not count the
 # tool list sent with every step (~8.3k estimated tokens for the 17 tools listed first, ~2.4k for the 8 of a read
-# token; src/mcp-testing/lint/thresholds.ts) or the tool answers. The schedule stays off until the cost of one real
-# run is measured and the operator has confirmed it.
+# token; src/mcp-testing/lint/thresholds.ts) or the tool answers. The first real run (both models, 3 repeats a
+# scenario) cost about $2, so the workflow runs weekly.
 #
 # Offline: src/mcp/__tests__/mcp-agent-scenarios.e2e.test.ts plays every scenario with PLUNE_MOCK_PROVIDER=1 and a
 # scripted model, once with the expected calls (it must pass) and once with a wrong one (it must fail).

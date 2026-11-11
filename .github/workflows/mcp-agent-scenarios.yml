@@ -17,9 +17,10 @@ on:
         description: One scenario, one repeat per model, to check that each provider takes the requests before a full run
         type: boolean
         default: false
-  # Nightly: switched on only after the operator confirms the cost of one real run (see mcp-evals/plune.yaml).
-  # schedule:
-  #   - cron: '23 3 * * *'
+  # Weekly, Monday 03:23 UTC: one full run costs about $2 in model calls (both models, 3 repeats a scenario), so weekly
+  # is about $8-9 a month. The behaviour measured so far is stable run to run, so a nightly run would buy little.
+  schedule:
+    - cron: '23 3 * * 1'
 
 permissions:
   contents: read
