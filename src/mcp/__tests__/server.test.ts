@@ -8,22 +8,12 @@ import { serveStdio, type StdioServerHandle } from '@modelcontextprotocol/server
 import { afterEach, describe, expect, it } from 'vitest';
 import { MAX_VISIBLE_TOOLS, PLUNE_TOOLS, defaultVisibleTools } from '../../mcp-tools/index.js';
 import { createPluneMcpServer } from '../server.js';
+import { CREATED, REFUSAL, fakeFetch, platformAnswer, type AnswerFn } from './fixtures/platform.js';
+import { FIXTURE_MISSION_ID } from '../../mcp-testing/__tests__/plune-budget.fixtures.js';
 
-type Answer = { status: number; body?: unknown };
 type Era = 'legacy' | 'modern';
 type Msg = { id?: number; method?: string; params?: Record<string, unknown>; result?: Record<string, unknown>; error?: { code: number; message: string } };
 type ToolResult = { isError?: boolean; content?: { type: string; text: string }[]; structuredContent?: unknown };
-
-function fakeFetch(answer: (method: string, url: URL, headers: Headers) => Answer | undefined) {
-  const calls: { method: string; url: URL; headers: Headers }[] = [];
-  const fetchImpl = (async (input: string | URL, init?: RequestInit) => {
-    const call = { method: init?.method ?? 'GET', url: new URL(String(input)), headers: new Headers(init?.headers) };
-    calls.push(call);
-    const a = answer(call.method, call.url, call.headers) ?? { status: 200, body: {} };
-    return new Response(a.body === undefined ? null : JSON.stringify(a.body), { status: a.status, headers: { 'content-type': 'application/json' } });
-  }) as typeof fetch;
-  return { calls, fetchImpl };
-}
 
 const open: StdioServerHandle[] = [];
 afterEach(async () => {
@@ -35,7 +25,7 @@ const MODERN_META = {
   'io.modelcontextprotocol/clientCapabilities': {},
 };
 
-async function connect(era: Era, opts: { scope?: 'read' | 'write'; answer?: Parameters<typeof fakeFetch>[0] } = {}) {
+async function connect(era: Era, opts: { scope?: 'read' | 'write'; answer?: AnswerFn } = {}) {
   const platform = fakeFetch(opts.answer ?? (() => undefined));
   const [client, serverSide] = InMemoryTransport.createLinkedPair();
   open.push(
@@ -144,9 +134,9 @@ describe.each(['legacy', 'modern'] as const)('plune mcp serve, %s era', (era) =>
   });
 
   it('sends X-Plune-Session on every call, the same one for the whole process', async () => {
-    const c = await connect(era, { answer: () => ({ status: 200, body: { id: 'm1', name: 'x', state: 'draft', sources: [] } }) });
-    await c.callTool('plune_mission_get', { missionId: 'm1' });
-    await c.callTool('plune_mission_get', { missionId: 'm1' });
+    const c = await connect(era, { answer: platformAnswer });
+    await c.callTool('plune_mission_get', { missionId: FIXTURE_MISSION_ID });
+    await c.callTool('plune_mission_get', { missionId: FIXTURE_MISSION_ID });
     const sessions = c.platform.calls.map((call) => call.headers.get('x-plune-session'));
     expect(sessions[0]).toBeTruthy();
     expect(new Set(sessions).size).toBe(1);
@@ -164,7 +154,7 @@ describe.each(['legacy', 'modern'] as const)('plune mcp serve, %s era', (era) =>
   });
 
   it('a read token the server refuses: the tool says so clearly', async () => {
-    const c = await connect(era, { answer: (m) => (m === 'POST' ? { status: 403, body: { error: 'read-only token' } } : undefined) });
+    const c = await connect(era, { answer: (m) => (m === 'POST' ? REFUSAL.readOnly : undefined) });
     const r = await c.callTool('plune_mission_create', { name: 'Checkout' });
     expect(r.isError).toBe(true);
     expect(text(r)).toMatch(/403/);
@@ -173,8 +163,9 @@ describe.each(['legacy', 'modern'] as const)('plune mcp serve, %s era', (era) =>
   });
 
   it('an MCP bulk delete returns the same refusal as HTTP', async () => {
-    const refusal = { error: 'an agent cannot delete in bulk — a person does it from the dashboard', code: 'bulk_delete_needs_person' };
-    const c = await connect(era, { answer: (_m, url, h) => (url.pathname === '/v1/test-cases/bulk' && h.get('x-plune-session') ? { status: 403, body: refusal } : undefined) });
+    // The platform refuses it only to an agent: the answer depends on X-Plune-Session being sent.
+    const refusal = REFUSAL.bulkDelete.body;
+    const c = await connect(era, { answer: platformAnswer });
     await c.callTool('plune_discover_tools', { names: ['plune_api_request'] });
     const call = { method: 'POST', path: '/v1/test-cases/bulk', body: { ids: ['a'], action: { kind: 'delete' } } };
     const preview = await c.callTool('plune_api_request', call);
@@ -224,10 +215,10 @@ describe('plune mcp serve, modern era: a fixed tool list', () => {
   });
 
   it('CLI · mcp serve · 2026-07-28 · a hidden tool is called by its name, without discover_tools, and does its work', async () => {
-    const c = await connect('modern', { answer: (m, url) => (m === 'POST' && url.pathname === '/v1/runs' ? { status: 201, body: { id: 'r1' } } : undefined) });
+    const c = await connect('modern', { answer: platformAnswer });
     const r = await c.callTool('plune_run_create', { run: { name: 'Checkout' } });
     expect(r.isError).toBeFalsy();
-    expect(r.structuredContent).toMatchObject({ dryRun: false, result: { id: 'r1' } });
+    expect(r.structuredContent).toMatchObject({ dryRun: false, result: { id: CREATED.run } });
     expect(c.platform.calls.map((call) => `${call.method} ${call.url.pathname}`)).toEqual(['POST /v1/runs']);
   });
 
@@ -239,7 +230,7 @@ describe('plune mcp serve, modern era: a fixed tool list', () => {
   });
 
   it('CLI · mcp serve · 2026-07-28 · a token the platform refuses as read-only: a hidden writer is then refused before a request, the list stays', async () => {
-    const c = await connect('modern', { answer: (m) => (m === 'POST' ? { status: 403, body: { error: 'read-only token' } } : undefined) });
+    const c = await connect('modern', { answer: (m) => (m === 'POST' ? REFUSAL.readOnly : undefined) });
     const before = await c.listResult();
     const first = await c.callTool('plune_mission_create', { name: 'Checkout' });
     expect(first.structuredContent).toMatchObject({ error: { status: 403, code: 'read_only_token' } });

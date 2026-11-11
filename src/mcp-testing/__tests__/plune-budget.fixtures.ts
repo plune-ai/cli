@@ -40,7 +40,7 @@ const source = (i: number) => ({
   addedAt: AT,
 });
 
-const SYNTHETIC_MISSION = {
+export const SYNTHETIC_MISSION = {
   id: FIXTURE_MISSION_ID,
   projectId: 'u-john-doe::default',
   name: 'Checkout',

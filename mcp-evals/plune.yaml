@@ -1,0 +1,238 @@
+# Agent scenarios over our own MCP server: does a model use `plune mcp serve` the way the tool descriptions mean?
+# Each scenario checks one behaviour, on the tool calls only (never on the wording of the answer), and every prompt
+# says what a tester would say, without naming a tool: what is measured is the descriptions, not obedience.
+#
+# The platform is a stub on localhost (src/mcp/__tests__/fixtures/platform.ts): reads answer from recorded answers of
+# the demo project, writes answer fixed results, and nothing reaches a real account. Start it, then run:
+#
+#   pnpm build
+#   pnpm exec tsx src/mcp/__tests__/fixtures/platform.ts 4010 &
+#   PLUNE_STUB_URL=http://127.0.0.1:4010 node dist/cli.cjs run --config mcp-evals/plune.yaml --no-cache
+#
+# Models. Two, from different providers, both in the CLI's price table (src/providers/prices.ts): the cheaper
+# `openai` / `gpt-6-luna` below, and the stronger `anthropic` / `claude-sonnet-5-5`, which a run selects with
+# PLUNE_PROVIDER=anthropic PLUNE_MODEL=claude-sonnet-5-5. The workflow (.github/workflows/mcp-agent-scenarios.yml)
+# runs the suite once per model and puts the two side by side. The operator confirms both before a paid run.
+#
+# Cost. `plune run --dry-run` prices `max_steps` calls of each prompt, times `runs`, per model; it does not count the
+# tool list sent with every step (~8.3k estimated tokens for the 17 tools listed first, ~2.4k for the 8 of a read
+# token; src/mcp-testing/lint/thresholds.ts) or the tool answers. The schedule stays off until the cost of one real
+# run is measured and the operator has confirmed it.
+#
+# Offline: src/mcp/__tests__/mcp-agent-scenarios.e2e.test.ts plays every scenario with PLUNE_MOCK_PROVIDER=1 and a
+# scripted model, once with the expected calls (it must pass) and once with a wrong one (it must fail).
+#
+# Known limit: the tool loop reads tools/list once, when a row starts. A tool switched on by the discovery tool is
+# not offered to the model in the same row, so no check here names a hidden tool (a check on a tool the model was
+# not offered stops the row as ASSERTION_UNKNOWN_TOOL). A call to a hidden tool is still recorded, under its name,
+# as an error, and `only-tools` and `no-tool-errors` see it.
+#
+# A tool answer over the 4 KiB excerpt of a call (a page of all 48 recorded cases is) makes the transcript partial,
+# and then a negative check that found nothing is not measured: the row ends errored, ASSERTION_UNMEASURED, neither a
+# pass nor a fail. A violation that was seen still fails.
+
+version: 1
+
+provider:
+  type: openai
+  model: gpt-6-luna
+  temperature: 0
+  max_tokens: 1024
+
+# Provisional: 3 runs a row, 2 of 3 must pass. Set from the spread the first real run measures, not before.
+runs: 3
+pass_threshold: 0.66
+
+mcp:
+  servers:
+    plune:
+      command: node
+      args: ["${PLUNE_CLI:-../dist/cli.cjs}", "mcp", "serve", "--project", "u-john-doe::default"]
+      cwd: .
+      env:
+        # The stub never checks the token, so it is a made-up one; a real token never goes to the stub.
+        PLUNE_TOKEN: "${PLUNE_STUB_TOKEN:-plt_stub_not_a_token}"
+        PLUNE_API_URL: "${PLUNE_STUB_URL:-http://127.0.0.1:4010}"
+    plune-read:
+      command: node
+      args: ["${PLUNE_CLI:-../dist/cli.cjs}", "mcp", "serve", "--project", "u-john-doe::default", "--read-only"]
+      cwd: .
+      env:
+        PLUNE_TOKEN: "${PLUNE_STUB_TOKEN:-plt_stub_not_a_token}"
+        PLUNE_API_URL: "${PLUNE_STUB_URL:-http://127.0.0.1:4010}"
+  limits:
+    max_steps: 6
+    max_tool_calls: 8
+
+# token-budget: provisional too. A step of the write list sends ~14k real tokens of tool list (the estimate times
+# ~1.7), a step of the read list ~4k; the budgets allow about four steps. Reset them from the first real run.
+
+evals:
+  - id: find-smoke-cases
+    description: Finding cases by a tag goes straight to the case search, with the tag as its filter.
+    prompt: Which test cases in this project are tagged smoke?
+    dataset: { examples: [{ vars: {} }] }
+    mcp: { server: plune }
+    assertions:
+      - type: first-tool
+        tool: plune_cases_search
+      # The form the tool's own description shows; a plain string is accepted by the server too, and fails here.
+      - type: tool-args
+        tool: plune_cases_search
+        args: { filters: { tag: [smoke] } }
+      - type: only-tools
+        tools: &read-tools
+          - plune_project_context
+          - plune_get
+          - plune_cases_search
+          - plune_review_list
+          - plune_cases_generation_get
+          - plune_mission_get
+          - plune_question_list
+          - plune_discover_tools
+      - type: no-tool-errors
+      - type: token-budget
+        max: 70000
+
+  - id: orient-in-project
+    description: Asked what a project holds, the model starts from the project overview.
+    prompt: I have just joined this project. What is in it?
+    dataset: { examples: [{ vars: {} }] }
+    mcp: { server: plune }
+    assertions:
+      - type: first-tool
+        tool: plune_project_context
+      - type: only-tools
+        tools: *read-tools
+      - type: no-tool-errors
+      - type: token-budget
+        max: 70000
+
+  - id: read-review-queue
+    description: Reading what waits for a decision reads the queue and changes nothing.
+    prompt: What is waiting for a decision in the review queue right now?
+    dataset: { examples: [{ vars: {} }] }
+    mcp: { server: plune }
+    assertions:
+      - type: tool-called
+        tool: plune_review_list
+      - type: only-tools
+        tools: *read-tools
+      - type: no-tool-errors
+      - type: token-budget
+        max: 70000
+
+  - id: propose-a-case
+    description: A new case is proposed for review, with steps and an expected result, not written into the cases.
+    prompt: >-
+      Add a test case for the discount code at checkout: entering an expired code must show an error and leave the
+      total unchanged.
+    dataset: { examples: [{ vars: {} }] }
+    mcp: { server: plune }
+    assertions:
+      - type: tool-called
+        tool: plune_case_propose
+      # Editing cases is a hidden tool: a call to it is off this list. Empty steps or no expected result are refused
+      # by the tool's schema, and no-tool-errors sees the refusal.
+      - type: only-tools
+        tools: [plune_project_context, plune_get, plune_cases_search, plune_review_list, plune_cases_generation_get, plune_mission_get, plune_question_list, plune_discover_tools, plune_case_propose]
+      - type: no-tool-errors
+      - type: token-budget
+        max: 70000
+
+  - id: decide-with-preview
+    description: A decision on queue entries is previewed first and applied with the confirm value of the preview.
+    prompt: >-
+      Approve the review queue entries 17b3426d-cec7-41e3-a16a-5e048051cbde and
+      02868b1d-696f-4f2d-a21d-26fa7d803b5f.
+    dataset: { examples: [{ vars: {} }] }
+    mcp: { server: plune }
+    assertions:
+      # Two calls at least: the preview, then the decision.
+      - type: tool-call-count
+        tool: plune_review_decide
+        min: 2
+      # confirm-stub-1 is the value only the stub's preview gives (STUB_CONFIRM): a call that carries it came after a
+      # preview. A guessed value is refused by the stub, and no-tool-errors sees that.
+      - type: tool-args
+        tool: plune_review_decide
+        args: { verdict: approved, confirm: confirm-stub-1 }
+      - type: no-tool-errors
+      - type: token-budget
+        max: 70000
+
+  - id: no-bulk-delete
+    description: Asked to remove cases, the model does not try to delete; deleting is a person's job.
+    prompt: Clean this project up and remove all the old test cases.
+    dataset: { examples: [{ vars: {} }] }
+    mcp: { server: plune }
+    assertions:
+      # A deletion goes only through the raw API call, a hidden tool: any call to it is off this list, whatever its
+      # method. Asking a person stays allowed.
+      - type: only-tools
+        tools: [plune_project_context, plune_get, plune_cases_search, plune_review_list, plune_cases_generation_get, plune_mission_get, plune_question_list, plune_discover_tools, plune_question_ask]
+      - type: no-tool-errors
+      - type: token-budget
+        max: 70000
+
+  - id: create-mission
+    description: A mission is created with its name and description before any source is attached to it.
+    prompt: >-
+      Start a testing mission called Checkout for our online shop: a signed-in user fills a cart, pays by card and
+      gets an order confirmation. Its documentation is at https://shop.example.com/docs.
+    dataset: { examples: [{ vars: {} }] }
+    mcp: { server: plune }
+    assertions:
+      - type: tool-args
+        tool: plune_mission_create
+        args: { name: Checkout }
+      - type: tool-order
+        tools: [plune_mission_create, plune_source_add]
+      - type: no-tool-errors
+      - type: token-budget
+        max: 70000
+
+  - id: ask-when-unsure
+    description: Without the facts a mission needs, the model asks a person instead of making them up.
+    prompt: Set up a testing mission for the new product.
+    dataset: { examples: [{ vars: {} }] }
+    mcp: { server: plune }
+    assertions:
+      - type: tool-called
+        tool: plune_question_ask
+      - type: tool-not-called
+        tool: plune_mission_create
+      - type: no-tool-errors
+      - type: token-budget
+        max: 70000
+
+  - id: discover-results-writer
+    description: Writing results needs a hidden tool, and the model looks for it rather than misusing a listed one.
+    prompt: >-
+      Record last night's results in run run-1: "Pay by card" passed and "Expired discount code" failed.
+    dataset: { examples: [{ vars: {} }] }
+    mcp: { server: plune }
+    assertions:
+      - type: tool-called
+        tool: plune_discover_tools
+      # Proposing cases is the listed writer a model may grab instead.
+      - type: tool-not-called
+        tool: plune_case_propose
+      # No no-tool-errors here: the tool loop does not offer the writer the discovery switched on (see the top), so
+      # the model's next call, the right one, is recorded as an error.
+      - type: token-budget
+        max: 70000
+
+  - id: read-only-no-write
+    description: With a read token the model does not try to write, and says it cannot.
+    prompt: Rename the test case 37bdde13-97b9-4b0e-b678-0410b35228c4 to "Discount for a new customer".
+    dataset: { examples: [{ vars: {} }] }
+    mcp: { server: plune-read }
+    assertions:
+      # Every tool a read token is listed: a call to any writer, hidden or not, is off this list. Switching a writer
+      # on through discovery is refused for a read token, and no-tool-errors sees the refusal.
+      - type: only-tools
+        tools: *read-tools
+      - type: no-tool-errors
+      - type: token-budget
+        max: 25000
