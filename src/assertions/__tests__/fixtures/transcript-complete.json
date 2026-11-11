@@ -1,0 +1,94 @@
+{
+  "server": "fx",
+  "tools": [
+    {
+      "name": "echo",
+      "offered": true,
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "files/read",
+      "offered": true,
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "fail",
+      "offered": true
+    },
+    {
+      "name": "big",
+      "offered": true
+    },
+    {
+      "name": "slow",
+      "offered": true
+    },
+    {
+      "name": "crash",
+      "offered": true
+    }
+  ],
+  "steps": [
+    {
+      "index": 1,
+      "text": "",
+      "finish_reason": "tool_calls",
+      "usage": {
+        "input_tokens": 10,
+        "output_tokens": 5,
+        "cost_usd": 0
+      },
+      "calls": [
+        {
+          "id": "call_0_0",
+          "name": "echo",
+          "args": {
+            "text": "hi"
+          },
+          "executed": true,
+          "is_error": false,
+          "duration_ms": 3,
+          "result": {
+            "text": "hi",
+            "bytes": 2,
+            "truncated": false
+          }
+        },
+        {
+          "id": "call_0_1",
+          "name": "files/read",
+          "args": {
+            "path": "a.txt"
+          },
+          "executed": true,
+          "is_error": false,
+          "duration_ms": 1,
+          "result": {
+            "text": "contents of a.txt",
+            "bytes": 17,
+            "truncated": false
+          }
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "text": "done reading",
+      "finish_reason": "stop",
+      "usage": {
+        "input_tokens": 10,
+        "output_tokens": 5,
+        "cost_usd": 0
+      },
+      "calls": []
+    }
+  ],
+  "stop": {
+    "reason": "complete"
+  },
+  "collection": "complete"
+}

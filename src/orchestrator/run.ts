@@ -8,10 +8,14 @@ import { cacheKey, configHash } from '../util/hash.js';
 import { extractJson } from '../assertions/json-extract.js';
 import { isCacheable } from '../cache/cache.js';
 import { getAssertion } from '../assertions/index.js';
+import { ASSERTION_CLASSES } from '../assertions/classes.js';
+import { AssertionRunError } from '../assertions/tool-calls/transcript.js';
 import { buildJudge } from './judge.js';
 import { mapLimit } from './concurrency.js';
 import { ProviderError, AuthError } from '../providers/errors.js';
 import type {
+  AgentAdvice,
+  AgentTranscript,
   AssertionResultRecord,
   CacheSummary,
   EvalResult,
@@ -98,7 +102,11 @@ export function resolvePrompt(
 }
 
 export function toRunError(err: unknown): RunError {
-  if (err instanceof ProviderError || err instanceof AuthError) {
+  if (
+    err instanceof ProviderError ||
+    err instanceof AuthError ||
+    err instanceof AssertionRunError
+  ) {
     return { code: err.code, message: err.message };
   }
   return { code: 'ERROR', message: err instanceof Error ? err.message : String(err) };
@@ -122,15 +130,21 @@ export function costFields(c: { cost_usd: number; priced?: boolean }): {
   return { cost_usd: c.cost_usd, ...pricedField(c.priced) };
 }
 
-/** The row's assertions on an answer, with what the judge calls among them cost. Shared by plain and agentic rows. */
+/**
+ * The row's assertions on an answer, with what the judge calls among them cost. Shared by plain and agentic rows;
+ * an agentic row passes its transcript. A heuristic never decides the row: what it finds, or why it could not run,
+ * goes to `advice`, not to `records`.
+ */
 export async function assess(
   p: Pick<RowParams, 'assertions' | 'row' | 'provider' | 'providerConfig' | 'embedder'>,
   output: string,
+  transcript?: AgentTranscript,
 ): Promise<{
   records: AssertionResultRecord[];
   assertionError: RunError | undefined;
   judgeCost: number;
   judgeUnpriced: boolean;
+  advice: AgentAdvice[];
 }> {
   // Row-local judge so judge-call cost is attributed to this row (ADR-OR02).
   let judgeCost = 0;
@@ -142,17 +156,29 @@ export async function assess(
   });
 
   const records: AssertionResultRecord[] = [];
+  const advice: AgentAdvice[] = [];
   let assertionError: RunError | undefined;
   for (const assertion of p.assertions) {
-    try {
-      const result = await getAssertion(assertion.type).run({
+    const run = () =>
+      getAssertion(assertion.type).run({
         output,
         vars: p.row.vars,
         row: p.row,
         params: assertion,
         embedder: p.embedder,
         judge,
+        ...(transcript !== undefined ? { transcript } : {}),
       });
+    if (ASSERTION_CLASSES[assertion.type] === 'heuristic') {
+      const found = await run().then(
+        (r) => (r.passed ? undefined : (r.reason ?? 'no reason given')),
+        (err: unknown) => toRunError(err).message,
+      );
+      if (found !== undefined) advice.push({ type: assertion.type, reason: found });
+      continue;
+    }
+    try {
+      const result = await run();
       records.push({
         type: assertion.type,
         passed: result.passed,
@@ -165,7 +191,7 @@ export async function assess(
       break;
     }
   }
-  return { records, assertionError, judgeCost, judgeUnpriced };
+  return { records, assertionError, judgeCost, judgeUnpriced, advice };
 }
 
 export async function runRow(p: RowParams): Promise<RowResult> {

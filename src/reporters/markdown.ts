@@ -3,7 +3,7 @@
 // fences don't break the document). Plain text — never colored.
 
 import type { RunResult, RowResult } from '../types/results.js';
-import { rowStatus } from '../types/results.js';
+import { adviceOf, rowStatus } from '../types/results.js';
 import { truncate } from './helpers.js';
 
 const DEFAULT_MAX_OUTPUT = 500;
@@ -57,6 +57,20 @@ export function renderMarkdown(result: RunResult, opts: MarkdownOptions = {}): s
       const passed = a.results.length === 0 ? `dry run × ${a.runs}` : `${a.passed}/${a.runs}`;
       out.push(`| ${id} | ${vars} | ${passed} | ${a.pass_threshold} | ${rowStatus(row)} |`);
     }
+    out.push('');
+  }
+
+  // Heuristic findings of agentic rows: advice, not failures. Only when there is some.
+  const advice = result.evals.flatMap((ev) =>
+    ev.rows.flatMap((row) => adviceOf(row).map((a) => ({ id: ev.id, row, a }))),
+  );
+  if (advice.length > 0) {
+    out.push('## Advice');
+    out.push('');
+    out.push('Heuristic findings: they do not change any status.');
+    out.push('');
+    for (const { id, row, a } of advice)
+      out.push(`- ${id} ${JSON.stringify(row.vars)}: ${a.type}: ${a.reason}`);
     out.push('');
   }
 

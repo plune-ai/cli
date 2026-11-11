@@ -14,6 +14,9 @@ import { ROW_INCONCLUSIVE } from './results.js';
  * Superset: an assertion record may carry an optional `binaryVerdicts[]` — the per-question breakdown
  * of an llm-judge verdict `{ question, passed }`. The runner does not emit the field; plain output
  * validates unchanged, and a consumer that enriches a result stays valid. Purely additive.
+ *
+ * Superset too: an agentic row's `agent` may carry `advice[]` `{ type, reason }`, the findings of the heuristic
+ * assertions (`AgentRecord`), which never change the row's status.
  */
 
 /**
@@ -132,6 +135,8 @@ const rowResultSchema = z.object({
           .optional(),
       }),
       collection: z.enum(['complete', 'partial']),
+      /** Heuristic findings, never a verdict. Optional and additive. */
+      advice: z.array(z.object({ type: z.string(), reason: z.string() })).optional(),
     })
     .optional(),
 });

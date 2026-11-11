@@ -1,0 +1,63 @@
+{
+  "server": "fx",
+  "tools": [
+    {
+      "name": "echo",
+      "offered": true,
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "files/read",
+      "offered": true,
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "fail",
+      "offered": true
+    },
+    {
+      "name": "big",
+      "offered": true
+    },
+    {
+      "name": "slow",
+      "offered": true
+    },
+    {
+      "name": "crash",
+      "offered": true
+    }
+  ],
+  "steps": [
+    {
+      "index": 1,
+      "text": "",
+      "finish_reason": "tool_calls",
+      "usage": {
+        "input_tokens": 10,
+        "output_tokens": 5,
+        "cost_usd": 0
+      },
+      "calls": [
+        {
+          "id": "call_0_0",
+          "name": "echo",
+          "args": {
+            "text": "hi"
+          },
+          "executed": false,
+          "is_error": false
+        }
+      ]
+    }
+  ],
+  "stop": {
+    "reason": "limit",
+    "limit": "max_steps"
+  },
+  "collection": "partial"
+}

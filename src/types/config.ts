@@ -23,7 +23,7 @@ export interface DatasetRow {
 
 export type DatasetRef = string | { examples: DatasetRow[] };
 
-// --- AssertionConfig discriminated union (10 kinds, AC-03) ---
+// --- AssertionConfig discriminated union (10 kinds on the output, AC-03; 14 on the tool calls below) ---
 
 export interface ExactMatchAssertion {
   type: 'exact-match';
@@ -89,6 +89,109 @@ export interface ContextPrecisionAssertion {
   threshold?: number;
 }
 
+// --- Tool-call assertions: they read the transcript of an eval with `mcp` ---
+
+export interface ToolCalledAssertion {
+  type: 'tool-called';
+  tool: string;
+  /** Default 1. */
+  min_count?: number;
+}
+
+export interface ToolNotCalledAssertion {
+  type: 'tool-not-called';
+  tool: string;
+}
+
+export interface ToolArgsAssertion {
+  type: 'tool-args';
+  tool: string;
+  args: Record<string, unknown>;
+  /** `partial` (default): every expected key, deeply; `exact`: the same arguments; `ignore`: any arguments. */
+  match?: 'partial' | 'exact' | 'ignore';
+  /** Default 1. */
+  min_count?: number;
+}
+
+export interface ToolOrderAssertion {
+  type: 'tool-order';
+  tools: string[];
+  /** Default false: other calls may come between. True: the calls are exactly `tools`. */
+  strict?: boolean;
+}
+
+export interface OnlyToolsAssertion {
+  type: 'only-tools';
+  /** Empty: no call at all. */
+  tools: string[];
+}
+
+export interface FirstToolAssertion {
+  type: 'first-tool';
+  tool: string;
+}
+
+export interface NoToolErrorsAssertion {
+  type: 'no-tool-errors';
+  tool?: string;
+}
+
+/** At least one of `min` and `max`; both inclusive. */
+export interface ToolCallCountAssertion {
+  type: 'tool-call-count';
+  tool?: string;
+  min?: number;
+  max?: number;
+}
+
+export interface NoRepeatedCallAssertion {
+  type: 'no-repeated-call';
+  tool?: string;
+}
+
+export interface TokenBudgetAssertion {
+  type: 'token-budget';
+  max: number;
+}
+
+export interface ToolLatencyAssertion {
+  type: 'tool-latency';
+  max_ms: number;
+  tool?: string;
+}
+
+export interface ToolResultSizeAssertion {
+  type: 'tool-result-size';
+  max_bytes: number;
+  tool?: string;
+}
+
+export interface ToolResultSchemaAssertion {
+  type: 'tool-result-schema';
+  schema: object;
+  tool?: string;
+}
+
+export interface NoDestructiveToolAssertion {
+  type: 'no-destructive-tool';
+}
+
+export type ToolCallAssertion =
+  | ToolCalledAssertion
+  | ToolNotCalledAssertion
+  | ToolArgsAssertion
+  | ToolOrderAssertion
+  | OnlyToolsAssertion
+  | FirstToolAssertion
+  | NoToolErrorsAssertion
+  | ToolCallCountAssertion
+  | NoRepeatedCallAssertion
+  | TokenBudgetAssertion
+  | ToolLatencyAssertion
+  | ToolResultSizeAssertion
+  | ToolResultSchemaAssertion
+  | NoDestructiveToolAssertion;
+
 export type AssertionConfig =
   | ExactMatchAssertion
   | ContainsAssertion
@@ -99,7 +202,8 @@ export type AssertionConfig =
   | SemanticSimilarityAssertion
   | FaithfulnessAssertion
   | AnswerRelevanceAssertion
-  | ContextPrecisionAssertion;
+  | ContextPrecisionAssertion
+  | ToolCallAssertion;
 
 export type AssertionKind = AssertionConfig['type'];
 
