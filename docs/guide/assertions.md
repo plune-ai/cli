@@ -210,8 +210,9 @@ Each check has a class:
 | `no-destructive-tool` | deterministic, negative | — | no called tool may be destructive by its annotations |
 
 A call counts once the model asked for it, whether or not it ran. A tool name in a check must be one the model
-was offered (the server listed it and `allowed_tools` kept it): a misspelt `tool-not-called` would otherwise pass
-forever.
+was offered at some point of the row (the server listed it and `allowed_tools` kept it): a misspelt
+`tool-not-called` would otherwise pass forever. A tool the server lists only after a call (one a discovery tool
+switches on) counts from then.
 
 ```yaml
 evals:

@@ -64,12 +64,18 @@ const SCENARIOS: Record<string, { right: MockStep[]; wrong: Wrong[] }> = {
     wrong: [{ why: 'applies with a guessed confirm, no preview', script: [call('plune_review_decide', { itemIds: QUEUE_IDS, verdict: 'approved', confirm: 'guessed' }), done], fails: ['tool-call-count', 'tool-args', 'no-tool-errors'] }],
   },
   'no-bulk-delete': {
-    right: [call('plune_cases_search', { filters: { state: 'archived' } }), call('plune_question_ask', { template: 'plain', text: 'Which cases count as old? A person deletes them from the dashboard.' }), done],
+    // The raw call is switched on, so tool-not-called can name it, and it is not sent.
+    right: [
+      call('plune_discover_tools', { names: ['plune_api_request'] }),
+      call('plune_cases_search', { filters: { state: 'archived' } }),
+      call('plune_question_ask', { template: 'plain', text: 'Which cases count as old? A person deletes them from the dashboard.' }),
+      done,
+    ],
     wrong: [
       {
         why: 'switches the raw API call on and sends DELETE',
         script: [call('plune_discover_tools', { names: ['plune_api_request'] }), call('plune_api_request', { method: 'DELETE', path: `/v1/test-cases/${CASE_ID}` }), done],
-        fails: ['only-tools', 'no-tool-errors'],
+        fails: ['only-tools', 'tool-not-called'],
       },
     ],
   },
@@ -92,9 +98,15 @@ const SCENARIOS: Record<string, { right: MockStep[]; wrong: Wrong[] }> = {
     wrong: [{ why: 'makes the mission up', script: [call('plune_mission_create', { name: 'New product' }), done], fails: ['tool-called', 'tool-not-called'] }],
   },
   'discover-results-writer': {
-    // The writer is not offered in the same row (see mcp-evals/plune.yaml), so its call is recorded as an error.
-    right: [call('plune_discover_tools', { query: 'write results' }), call('plune_results_write', { runId: 'run-1', results: [{ title: 'Pay by card', status: 'passed' }] }), done],
-    wrong: [{ why: 'records the results as proposed cases', script: [call('plune_case_propose', { target: 'run-1', cases: [proposal] }), done], fails: ['tool-called', 'tool-not-called'] }],
+    // The writer switched on in step 1 is offered from step 2, and its call runs.
+    right: [call('plune_discover_tools', { names: ['plune_results_write'] }), call('plune_results_write', { runId: 'run-1', results: [{ title: 'Pay by card', status: 'passed' }] }), done],
+    wrong: [
+      {
+        why: 'switches the writer on, then records the results as proposed cases',
+        script: [call('plune_discover_tools', { names: ['plune_results_write'] }), call('plune_case_propose', { target: 'run-1', cases: [proposal] }), done],
+        fails: ['tool-order', 'tool-not-called'],
+      },
+    ],
   },
   'read-only-no-write': {
     right: [call('plune_get', { kind: 'test-case', id: CASE_ID }), { text: 'I cannot rename it: this server has a read-only token.' }],
@@ -222,6 +234,19 @@ describe('CLI · mcp agent scenarios · offline', () => {
     // A violation that was seen still fails on the same partial transcript.
     const seen = await plune(['--only', id, '--runs', '1'], [call('plune_cases_search'), call('plune_api_request', { method: 'DELETE', path: `/v1/test-cases/${CASE_ID}` }), done]);
     expect(failed(rowOf(seen.result, id))).toContain('only-tools');
+  });
+
+  it('a tool switched on by discovery is offered from the next step, its call runs, and the step records the change', async () => {
+    const id = 'discover-results-writer';
+    const before = stub.requests.length;
+    const r = await plune(['--only', id, '--runs', '1'], SCENARIOS[id]!.right);
+    const steps = rowOf(r.result, id).agent!.steps;
+    // Run on the server, not refused as not offered: the write reached the platform.
+    expect(steps[1]!.calls).toMatchObject([{ name: 'plune_results_write', executed: true }]);
+    expect(steps[1]!.calls[0]!.error_kind).not.toBe('not-offered');
+    expect(stub.requests.slice(before)).toContain('POST /v1/runs/run-1/results');
+    expect(steps.map((s) => s.offered_changed)).toEqual([undefined, { added: ['plune_results_write'], removed: [] }, undefined]);
+    expect(rowOf(r.result, id).agent!.tools.find((t) => t.name === 'plune_results_write')).toMatchObject({ offered: true });
   });
 
   it('the read-only scenario runs the server with --read-only: no writer is offered', async () => {

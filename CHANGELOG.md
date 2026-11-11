@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Fixed
+
+- **The tool loop of an agentic eval offers a tool the server switches on during the row.** The loop read `tools/list` once, when a row started, so a tool a server lists only after a call (`plune mcp serve` in the 2025 protocol era shows a hidden tool once `plune_discover_tools` switches it on, and says so with `notifications/tools/list_changed`) was never offered: the model's call to it was recorded as `not-offered`, and a check that named it stopped the row with `ASSERTION_UNKNOWN_TOOL`. Now the list is read again after every step with a call that succeeded, and what it holds is offered from the next step, still within `allowed_tools`. The re-read does not wait for the notification, which over HTTP may arrive on another stream after the call's answer. `agent.tools` holds every tool listed at any point of the row, `offered` if it ever was, so a check may name a tool the list held only for a while; a name never listed is still `ASSERTION_UNKNOWN_TOOL`. The step whose request first offered a changed list carries the new optional `offered_changed` (`added`, `removed`). A server with a fixed list (the 2026-07-28 era) behaves as before. `schemaVersion` stays `1`.
+
 ## [0.36.0] - 2026-11-11
 
 ### Added

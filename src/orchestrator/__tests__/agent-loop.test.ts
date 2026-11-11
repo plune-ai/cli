@@ -698,6 +698,160 @@ describe('CLI · run · agent loop · run shape', () => {
   });
 });
 
+/**
+ * A server whose list grows as a 2025-era server's does: `discover` switches `names` on. With `fixed`, the list never
+ * changes, as in the 2026-07-28 era. The listings are counted, so a test sees when the loop read the list.
+ */
+function growingServer(fixed = false): Fake & { lists: number } {
+  const on = new Set<string>();
+  const tool = (name: string) => ({ name, inputSchema: { type: 'object' } });
+  const fake = fakeServer({
+    discover: (args) => {
+      if (!fixed) for (const n of (args.names as string[] | undefined) ?? []) on.add(n);
+      return ok('switched on');
+    },
+    writer: () => ok('written'),
+    raw: () => ok('sent'),
+    broken: () => ({ kind: 'result', result: { isError: true, content: [] } }),
+  });
+  const counted = Object.assign(fake, { lists: 0 });
+  counted.listTools = () => {
+    counted.lists++;
+    return Promise.resolve([tool('discover'), tool('broken'), ...[...on].map(tool)]);
+  };
+  return counted;
+}
+
+describe('CLI · run · agent loop · a list that changes during the row', () => {
+  it('CLI · run · agent loop · a tool switched on by a call is offered from the next step and runs', async () => {
+    const server = growingServer();
+    const model = scripted([
+      { tool_calls: [call('discover', { names: ['writer'] }, 'c1')] },
+      { tool_calls: [call('writer', {}, 'c2')] },
+      { text: 'done' },
+    ]);
+    const r = await row(config(), deps(model, server));
+    expect(model.requests.map((q) => q.tools.map((t) => t.name))).toEqual([
+      ['discover', 'broken'],
+      ['discover', 'broken', 'writer'],
+      ['discover', 'broken', 'writer'],
+    ]);
+    expect(r.agent!.steps[1]!.calls).toMatchObject([
+      { name: 'writer', executed: true, is_error: false },
+    ]);
+    expect(server.called.map((c) => c.name)).toEqual(['discover', 'writer']);
+    expect(r.agent!.tools).toEqual([
+      { name: 'discover', offered: true },
+      { name: 'broken', offered: true },
+      { name: 'writer', offered: true },
+    ]);
+    // The step whose request first carried the new set says so; the others carry no field.
+    expect(r.agent!.steps.map((s) => s.offered_changed)).toEqual([
+      undefined,
+      { added: ['writer'], removed: [] },
+      undefined,
+    ]);
+  });
+
+  it('CLI · run · agent loop · the list is read again only after a call that succeeded', async () => {
+    const server = growingServer();
+    const model = scripted([
+      { tool_calls: [call('broken', {}, 'c1'), call('nowhere', {}, 'c2')] },
+      { tool_calls: [call('discover', {}, 'c3')] },
+      { text: 'done' },
+    ]);
+    await row(config(), deps(model, server));
+    expect(server.lists).toBe(2);
+  });
+
+  it('CLI · run · agent loop · allowed_tools still bounds what a changed list offers', async () => {
+    const server = growingServer();
+    const model = scripted([
+      { tool_calls: [call('discover', { names: ['writer', 'raw'] }, 'c1')] },
+      { tool_calls: [call('raw', {}, 'c2')] },
+      { text: 'done' },
+    ]);
+    const r = await row(config({ allowed_tools: ['discover', 'writer'] }), deps(model, server));
+    expect(model.requests[1]!.tools.map((t) => t.name)).toEqual(['discover', 'writer']);
+    expect(r.agent!.steps[1]!.calls).toMatchObject([
+      { name: 'raw', executed: false, error_kind: 'not-offered' },
+    ]);
+    expect(r.agent!.tools).toEqual([
+      { name: 'discover', offered: true },
+      { name: 'broken', offered: false },
+      { name: 'writer', offered: true },
+      { name: 'raw', offered: false },
+    ]);
+    expect(r.agent!.steps[1]!.offered_changed).toEqual({ added: ['writer'], removed: [] });
+  });
+
+  it('CLI · run · agent loop · a fixed list behaves as before: same tools, no change recorded, a hidden tool is not offered', async () => {
+    const server = growingServer(true);
+    const model = scripted([
+      { tool_calls: [call('discover', { names: ['writer'] }, 'c1')] },
+      { tool_calls: [call('writer', {}, 'c2')] },
+      { text: 'done' },
+    ]);
+    const r = await row(config(), deps(model, server));
+    for (const q of model.requests)
+      expect(q.tools.map((t) => t.name)).toEqual(['discover', 'broken']);
+    expect(r.agent!.tools.map((t) => t.name)).toEqual(['discover', 'broken']);
+    expect(r.agent!.steps.every((s) => s.offered_changed === undefined)).toBe(true);
+    expect(r.agent!.steps[1]!.calls).toMatchObject([
+      { name: 'writer', executed: false, error_kind: 'not-offered' },
+    ]);
+  });
+
+  it('CLI · run · agent loop · a check on a tool listed only later in the row is evaluated, not ASSERTION_UNKNOWN_TOOL', async () => {
+    const assertions = [
+      { type: 'tool-not-called', tool: 'raw' },
+      { type: 'tool-order', tools: ['discover', 'writer'] },
+    ] as Config['evals'][number]['assertions'];
+    const r = await row(
+      config({}, 1, { assertions }),
+      deps(
+        scripted([
+          { tool_calls: [call('discover', { names: ['writer', 'raw'] }, 'c1')] },
+          { tool_calls: [call('writer', {}, 'c2')] },
+          { text: 'done' },
+        ]),
+        growingServer(),
+      ),
+    );
+    expect(r.error).toBeUndefined();
+    expect(r.assertions).toEqual([
+      { type: 'tool-not-called', passed: true },
+      { type: 'tool-order', passed: true },
+    ]);
+  });
+
+  it('CLI · run · agent loop · a tool gone from the list is no longer offered, and the step says so', async () => {
+    let listed = ['a', 'b'];
+    const server = fakeServer({
+      a: () => {
+        listed = ['a'];
+        return ok('b is gone');
+      },
+      b: () => ok('b'),
+    });
+    server.listTools = () => Promise.resolve(listed.map((name) => ({ name })));
+    const model = scripted([
+      { tool_calls: [call('a', {}, 'c1')] },
+      { tool_calls: [call('b', {}, 'c2')] },
+      { text: 'done' },
+    ]);
+    const r = await row(config(), deps(model, server));
+    expect(model.requests[1]!.tools.map((t) => t.name)).toEqual(['a']);
+    expect(r.agent!.steps[1]!.offered_changed).toEqual({ added: [], removed: ['b'] });
+    expect(r.agent!.steps[1]!.calls).toMatchObject([{ name: 'b', error_kind: 'not-offered' }]);
+    // Offered at some point in the row, so a check may still name it.
+    expect(r.agent!.tools).toEqual([
+      { name: 'a', offered: true },
+      { name: 'b', offered: true },
+    ]);
+  });
+});
+
 describe('CLI · run · agent loop · helpers', () => {
   it('CLI · run · agent loop · resultText reads text blocks, other blocks as JSON, structuredContent alone', () => {
     expect(
