@@ -37,6 +37,8 @@ export interface RunOptions {
   cacheStrict?: boolean;
   /** Milliseconds; parsed from `--cache-max-age` by the caller. */
   cacheMaxAgeMs?: number;
+  /** `--runs`: every row runs this many times (1–100), over `runs` in the config. */
+  runs?: number;
 }
 
 function resolveProviderFor(config: Config, dryRun: boolean): RunDeps['resolveProvider'] {
@@ -95,6 +97,7 @@ export async function handleRun(
         ...(options.bail !== undefined ? { bail: options.bail } : {}),
         ...(options.cacheStrict === true ? { cacheStrict: true } : {}),
         ...(options.cacheMaxAgeMs !== undefined ? { cacheMaxAgeMs: options.cacheMaxAgeMs } : {}),
+        ...(options.runs !== undefined ? { runs: options.runs } : {}),
       },
       deps,
     );

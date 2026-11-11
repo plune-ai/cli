@@ -138,6 +138,11 @@ export function createProgram(): Command {
     )
     .option('--cache-max-age <duration>', 'Treat cache entries older than this as a miss (e.g. 90s, 15m, 12h, 7d)')
     .option('--bail', 'Stop after the first failing eval', false)
+    .option(
+      '--runs <n>',
+      'Run every dataset row n times (1-100) for this run, over runs in plune.yaml',
+      (v: string) => Number(v),
+    )
     .option('--format <fmt>', 'console | json | markdown', 'console')
     .option('-o, --output <path>', 'Write the report to a file instead of stdout')
     .action(
@@ -147,6 +152,7 @@ export function createProgram(): Command {
           config?: string;
           only: string[];
           concurrency?: number;
+          runs?: number;
           cache: boolean;
           cacheStrict: boolean;
           cacheMaxAge?: string;
@@ -208,6 +214,7 @@ export function createProgram(): Command {
               : {}),
             noCache: options.cache === false,
             bail: options.bail,
+            ...(options.runs !== undefined ? { runs: options.runs } : {}),
             ...(options.cacheStrict ? { cacheStrict: true } : {}),
             ...(cacheMaxAgeMs !== undefined ? { cacheMaxAgeMs } : {}),
           });

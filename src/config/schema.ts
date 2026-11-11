@@ -70,7 +70,12 @@ const llmJudgeAssertionSchema = z.object({
   type: z.literal('llm-judge'),
   criteria: z.string().min(1),
   provider: providerConfigSchema.partial().optional(),
-  pass_threshold: z.number().min(0).max(1).optional(),
+  // The judge's score floor, not the eval's share of passing runs (that one is `evalRepeatsShape`).
+  pass_threshold: z
+    .number()
+    .min(0, 'pass_threshold (llm-judge: minimum judge score) must be between 0 and 1')
+    .max(1, 'pass_threshold (llm-judge: minimum judge score) must be between 0 and 1')
+    .optional(),
 });
 
 const semanticSimilarityAssertionSchema = z.object({
@@ -114,6 +119,20 @@ export const assertionConfigSchema = z.discriminatedUnion('type', [
   contextPrecisionAssertionSchema,
 ]);
 
+// --- Repeats: how many times each row runs, and the share of runs that must pass ---
+
+/** Upper bound for `runs`: one typo in a config must not cost hundreds of runs per row. */
+export const MAX_RUNS = 100;
+
+const SHARE_MESSAGE =
+  'pass_threshold (eval: share of runs that must pass) must be greater than 0 and at most 1';
+
+// Accepted at the root and on each eval (the eval wins). Not the llm-judge `pass_threshold`.
+const evalRepeatsShape = {
+  runs: z.number().int().min(1).max(MAX_RUNS).optional(),
+  pass_threshold: z.number().gt(0, SHARE_MESSAGE).max(1, SHARE_MESSAGE).optional(),
+};
+
 // --- EvalConfig ---
 
 const evalConfigSchema = z
@@ -126,6 +145,7 @@ const evalConfigSchema = z
     prompt_file: z.string().optional(),
     dataset: datasetRefSchema,
     assertions: z.array(assertionConfigSchema),
+    ...evalRepeatsShape,
   })
   .refine(
     (data) => !(data.prompt !== undefined && data.prompt_file !== undefined),
@@ -142,6 +162,7 @@ export const pluneConfigSchema = z
       .object({ assertions: z.array(assertionConfigSchema).optional() })
       .optional(),
     pricing: pricingSchema.optional(),
+    ...evalRepeatsShape,
     evals: z.array(evalConfigSchema).min(1),
   })
   .strict();

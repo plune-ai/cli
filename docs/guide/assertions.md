@@ -126,7 +126,7 @@ An LLM scores how well the output meets a free-text `criteria`.
 | Param | Required | Default | Meaning |
 |-------|----------|---------|---------|
 | `criteria` | yes | — | What "good" means, in plain language. |
-| `pass_threshold` | no | `0.5` | Minimum score (0–1) to pass. |
+| `pass_threshold` | no | `0.5` | Minimum score (0–1) to pass. Not the eval's `pass_threshold`, which is the share of [repeated runs](./configuration.md#repeats-runs-and-pass_threshold) that must pass. |
 | `provider` | no | (eval's provider) | Use a different model as the judge. |
 
 ```yaml

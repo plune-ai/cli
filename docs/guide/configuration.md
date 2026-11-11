@@ -49,6 +49,8 @@ evals:                           # required — one or more evals
 | `provider` | yes | Default model for all evals (see below). |
 | `defaults.assertions` | no | Assertions run on every eval (shared checks), ahead of the eval's own. A check listed both here and in an eval runs twice (an `llm-judge` one is also paid twice). An eval that relies on these alone still writes `assertions: []`. |
 | `pricing` | no | Per-model USD price overrides used for cost reporting. |
+| `runs` | no | How many times each dataset row runs, for every eval (default `1`). See [Repeats](#repeats-runs-and-pass_threshold). |
+| `pass_threshold` | no | Share of a row's runs that must pass, for every eval (default `1`). See [Repeats](#repeats-runs-and-pass_threshold). |
 | `evals` | yes | The list of evals to run (≥ 1). |
 
 ## `provider`
@@ -79,6 +81,8 @@ fields fall back to the top-level provider).
 | `prompt_file` | yes\* | Path to a file holding the prompt (alternative to `prompt`). |
 | `dataset` | yes | Where the rows come from — a JSONL path or inline `examples`. |
 | `assertions` | yes | The checks to run on each row's output, after `defaults.assertions`. `[]` is allowed when the shared checks cover the eval. |
+| `runs` | no | Overrides the top-level `runs` for this eval. |
+| `pass_threshold` | no | Overrides the top-level `pass_threshold` for this eval. |
 
 \* Provide **either** `prompt` **or** `prompt_file`.
 
@@ -92,6 +96,47 @@ prompt: "Translate to {{lang}}: {{text}}"
 
 If a prompt references a variable that a row doesn't have, that's a **configuration error** — Plune
 stops before calling the model and exits `2`. (This is different from assertion placeholders; see below.)
+
+## Repeats (`runs` and `pass_threshold`)
+
+A model is not deterministic: one run cannot tell a flaky case from a broken one. `runs` makes every
+row of an eval run that many times, and `pass_threshold` says what share of those runs must pass for
+the row to pass.
+
+```yaml
+runs: 1                 # top level: the default for every eval
+evals:
+  - id: support-tone
+    runs: 10            # each row runs 10 times, one run after another
+    pass_threshold: 0.8 # at least 8 of the 10 must pass
+    # ...
+```
+
+| Field | Values | Default | Meaning |
+|-------|--------|---------|---------|
+| `runs` | whole number, `1` to `100` | `1` | Runs per row. `--runs <n>` overrides it for one run. |
+| `pass_threshold` | above `0`, at most `1` | `1` | Share of a row's runs that must pass. `0` is rejected: it would pass with no passing run at all. |
+
+- An eval value wins over the top-level one.
+- The cap of `100` keeps one typo in a config from costing hundreds of model calls per row.
+- The runs of one row go **one after another**; rows still run in parallel, as before. A run does not
+  compete with its siblings for the provider's rate limit, or for the state of a server under test.
+  A run with repeats takes longer and costs `runs` times as much.
+- A row needs `ceil(pass_threshold × runs)` passing runs. The threshold is coarse on few runs:
+  `pass_threshold: 0.8` with `runs: 2` means both, and `runs: 1` with any threshold below `1` is
+  the same as `1`. For a threshold below `1`, use at least `runs: 5`.
+- Every run is played to the end, even once the verdict is settled: the count of passing runs is the
+  measure of how flaky the case is.
+- **The cache keeps every run apart.** Run 1 has the cache key a row always had, and each further run
+  has one of its own, so `runs: 10` calls the model ten times. The next run of the same config
+  replays the same ten answers from the cache. To measure flakiness afresh, pass `--no-cache`.
+
+Not the same as the `pass_threshold` of an [`llm-judge`](./assertions.md#llm-judge) assertion: that
+one is the lowest judge score (0–1) one answer needs, and it sits inside the assertion. The eval's
+`pass_threshold` sits beside `runs` and counts runs. A config error names which of the two it is about.
+
+How a row's runs become one verdict, and why a run that could not be measured does not count as a
+fail, is in [How it works](./concepts.md#repeats).
 
 ## Datasets
 

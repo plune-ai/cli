@@ -39,7 +39,9 @@ The expensive part of a run is the model call. Plune caches completions in a loc
 **`.plune/cache.db`**.
 
 - **The cache key** is a hash of exactly five things: provider, model, temperature, max_tokens, and
-  the *resolved* prompt. **Assertions are not part of the key.**
+  the *resolved* prompt. **Assertions are not part of the key.** With [repeats](#repeats), every run
+  of a row after the first adds its number to the key, so the runs are real calls, not one call
+  replayed; the first run keys as it always did.
 - **Why that matters:** changing an assertion (or adding one) does **not** invalidate the cached
   output — Plune re-runs the cheap assertions over the cached completion for free. Changing the
   prompt, model, or sampling settings *does* produce a new key, so you get a fresh call.
@@ -57,6 +59,8 @@ Plune reports an estimated USD cost from token usage:
 - **LLM-judged assertions** (`llm-judge`, `faithfulness`, …) make their own model calls; that cost is
   attributed to the row that triggered them, so the run total includes it.
 - **`--dry-run`** estimates cost from the prompt length and `max_tokens` without calling anything.
+  With `runs` above `1` the estimate is multiplied by `runs`, and the report shows the multiplier.
+- **With repeats** a row's `usage` is the sum over its runs, so the run total is what every run cost.
 
 ## errored vs failed
 
@@ -81,6 +85,35 @@ A row in a RunResult may also say it was never judged: `"inconclusive": "blocked
 That word comes first: such a row counts as `blocked` or `skipped` in the summary, whatever its
 assertions or its error say, and it moves no exit code. `plune run` always writes both counters, and
 `passed + failed + errored + blocked + skipped` is `total`.
+
+## Repeats
+
+With `runs` above `1` ([configuration](./configuration.md#repeats-runs-and-pass_threshold)) each row
+runs several times and still ends in one of the three states. Of its runs, `P` passed, `F` failed
+and `E` errored; the row needs `needed = ceil(pass_threshold × runs)` passes:
+
+| Condition | Row |
+|-----------|-----|
+| `P ≥ needed` | **passed** |
+| otherwise, `P + E ≥ needed` | **errored** |
+| otherwise | **failed** |
+
+**Why `errored` is not `failed`.** When the runs that could not be measured might still have
+reached the threshold, the verdict rests on what was never measured. With `runs: 10` and
+`pass_threshold: 0.8`, 6 passes, 1 fail and 3 provider errors could have been 9 passes: that row is
+`errored`, as an outage is. A run that was not measured is never a pass and never a quality fail.
+
+The row's `output`, `assertions` and `error` are those of its first run in the row's own state
+(the first passing run of a passed row, the first errored run of an errored one), so `plune diff`,
+the exit code and the summary read a repeated row as any other. Every run is in the row's
+`attempts`: `runs`, `pass_threshold`, the `passed`, `failed` and `errored` counts, and
+`results`, one entry per run (`output`, `cached`, `usage`, `latency_ms`, `error`,
+`assertions`). `usage`, `cache_saved` and `latency_ms` of the row are sums over its runs, and
+`cached` is true only when every run came from the cache. `summary.cache` still counts rows: a
+row with some runs from the cache counts as `from_model`. Under `--cache-strict` a row is listed as
+missed when any of its runs had no cache entry, whatever its verdict. On a dry run `results` is
+empty. Without `runs` a row has no `attempts`, and the reports read exactly as before; with them
+the console and Markdown reports show `7/10` and the row's state.
 
 ## Providers
 
@@ -137,6 +170,7 @@ Every run produces a `RunResult`, saved to `.plune/last-run.json`. Its shape:
             { "type": "llm-judge", "passed": false, "score": 0.4, "reason": "too terse" }
           ]
           // "error": { "code": "...", "message": "..." }  // present only when errored
+          // "attempts": { "runs": 10, "pass_threshold": 0.8, "passed": 7, ... }  // only with runs > 1, see Repeats
         }
       ]
     }

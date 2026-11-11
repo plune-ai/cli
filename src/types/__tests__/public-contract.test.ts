@@ -158,6 +158,23 @@ interface GoldenRowResult {
   cache_saved?: { input_tokens: number; output_tokens: number; cost_usd: number };
   /** ADR 0045 — optional, so the type is a union with `undefined` exactly as the field is. */
   inconclusive?: 'blocked' | 'skipped';
+  /** Repeats — optional; present only when an eval sets `runs` above 1. */
+  attempts?: {
+    runs: number;
+    pass_threshold: number;
+    passed: number;
+    failed: number;
+    errored: number;
+    results: {
+      output: string | null;
+      cached: boolean;
+      usage?: GoldenUsage;
+      latency_ms?: number;
+      error?: GoldenRunError;
+      assertions: GoldenAssertionResultRecord[];
+      cache_saved?: { input_tokens: number; output_tokens: number; cost_usd: number };
+    }[];
+  };
 }
 interface GoldenEvalResult {
   id: string;
