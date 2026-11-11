@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { getAssertion } from '../registry.js';
-import { AssertionRunError } from '../tool-calls/transcript.js';
+import { AssertionRunError, absence } from '../tool-calls/transcript.js';
 import type { AssertionResult } from '../../types/assertion.js';
 import type { AssertionConfig } from '../../types/config.js';
 import type { AgentCall, AgentTranscript } from '../../types/results.js';
@@ -349,6 +349,40 @@ describe('CLI · assertions · only-tools', () => {
   });
 });
 
+describe('CLI · assertions · tool-calls · a cut excerpt (#223)', () => {
+  it('CLI · assertions · only-tools · a loop that ended on its own with a cut excerpt is measured on what the calls show', async () => {
+    expect(CUT).toMatchObject({ stop: { reason: 'complete' }, collection: 'partial' });
+    expect(await run({ type: 'only-tools', tools: ['big', 'echo'] }, CUT)).toEqual({
+      passed: true,
+    });
+    expect(await failed({ type: 'only-tools', tools: ['echo'] }, CUT)).toMatch(/got step 1 big/);
+    expect(await run({ type: 'tool-not-called', tool: 'files/read' }, CUT)).toEqual({
+      passed: true,
+    });
+  });
+
+  it('CLI · assertions · only-tools · a loop stopped by a limit stays unmeasured, a cut excerpt or not', async () => {
+    const t = structuredClone(MAX_STEPS);
+    t.steps[0]!.calls[0]!.result = { text: 'x', bytes: 1048576, truncated: true };
+    const err = await thrown({ type: 'only-tools', tools: ['echo'] }, t);
+    expect(err.code).toBe('ASSERTION_UNMEASURED');
+    expect(err.message).toMatch(/stopped by max_steps/);
+  });
+
+  it('CLI · assertions · tool-calls · a check that reads answer texts stays unmeasured on a cut excerpt', () => {
+    let err: unknown;
+    try {
+      absence('a-text-check', CUT, 'a forbidden word', 'text');
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(AssertionRunError);
+    expect((err as AssertionRunError).code).toBe('ASSERTION_UNMEASURED');
+    expect((err as AssertionRunError).message).toMatch(/a stored excerpt was cut/);
+    expect(absence('a-text-check', COMPLETE, 'a forbidden word', 'text')).toEqual({ passed: true });
+  });
+});
+
 describe('CLI · assertions · first-tool', () => {
   it('CLI · assertions · first-tool · passes when the first call is that tool', async () => {
     expect(await run({ type: 'first-tool', tool: 'echo' }, COMPLETE)).toEqual({ passed: true });
@@ -402,9 +436,11 @@ describe('CLI · assertions · no-tool-errors', () => {
     expect(await failed({ type: 'no-tool-errors' }, t)).toMatch(/not-offered/);
   });
 
-  it('CLI · assertions · no-tool-errors · a cut excerpt makes the transcript partial: not measured, and the message says why', async () => {
-    const err = await thrown({ type: 'no-tool-errors' }, CUT);
-    expect(err.message).toMatch(/a stored excerpt was cut/);
+  it('CLI · assertions · no-tool-errors · a cut excerpt on a loop that ended on its own is measured: the flags of the calls are all there (#223)', async () => {
+    expect(await run({ type: 'no-tool-errors' }, CUT)).toEqual({ passed: true });
+    const t = structuredClone(CUT);
+    Object.assign(t.steps[0]!.calls[1]!, { is_error: true, error_kind: 'content' });
+    expect(await failed({ type: 'no-tool-errors' }, t)).toMatch(/step 1 echo/);
   });
 });
 

@@ -23,6 +23,8 @@ const suite = path.join(root, 'mcp-evals', 'plune.yaml');
 
 const QUEUE_IDS = ['17b3426d-cec7-41e3-a16a-5e048051cbde', '02868b1d-696f-4f2d-a21d-26fa7d803b5f'];
 const CASE_ID = '37bdde13-97b9-4b0e-b678-0410b35228c4';
+/** The cart and payment suite of the recorded project: 19 of its 48 cases. */
+const CART_SUITE = 'e20c594c-6f26-4d93-a37b-ceeda8752cac';
 const call = (name: string, args: Record<string, unknown> = {}): MockStep => ({ tool_calls: [{ name, args }] });
 const done: MockStep = { text: 'Done.' };
 const proposal = { title: 'An expired discount code is refused', steps: ['Open a cart with one item', 'Enter the expired code OLD10'], expected: 'An error is shown and the total is unchanged' };
@@ -196,7 +198,7 @@ describe('CLI · mcp agent scenarios · offline', () => {
       expect(row.cached).toBe(false);
       expect(row.attempts?.results.every((a) => !a.cached)).toBe(true);
       expect(r.result?.summary.cache?.from_cache ?? 0).toBe(0);
-      // A cut answer leaves the negative checks unmeasured on a real run: every answer of the expected play fits.
+      // Every answer of the expected play fits its excerpt, so the transcript is complete.
       expect(cutAnswers(row), 'answers over the excerpt of a call').toEqual([]);
       expect(row.agent?.collection).toBe('complete');
     });
@@ -221,18 +223,37 @@ describe('CLI · mcp agent scenarios · offline', () => {
     expect((await plune(['--only', id, '--cache-strict'], SCENARIOS[id]!.right)).code).toBe(2);
   });
 
-  it('a negative check is not measured on a partial transcript: a whole page of cases cut to its excerpt errors the row', async () => {
-    // The 48 recorded cases are over the 4 KiB excerpt of a call, so the transcript is partial and only-tools cannot
-    // say no other call was made. Exit 2, ASSERTION_UNMEASURED: neither a pass nor a fail.
-    const id = 'no-bulk-delete';
-    const r = await plune(['--only', id, '--runs', '1'], [call('plune_cases_search'), done]);
+  it.each([
+    // Plays models made on a real run (#223): a whole page of a suite, or of the project, read before the answer. Each page is
+    // over the 4 KiB excerpt of a call, so the transcript is partial; the loop ended on its own, and the cut texts hide
+    // no call, so the negative checks are measured.
+    {
+      id: 'propose-a-case',
+      read: { filters: { suiteId: CART_SUITE }, limit: 30 },
+      then: call('plune_case_propose', { target: 'Checkout', cases: [proposal] }),
+      wrong: call('plune_cases_update', { cases: [{ id: CASE_ID, changes: { title: 'x' } }] }),
+    },
+    {
+      id: 'no-bulk-delete',
+      read: { limit: 100 },
+      then: call('plune_question_ask', { template: 'plain', text: 'Which cases count as old? A person deletes them from the dashboard.' }),
+      wrong: call('plune_api_request', { method: 'DELETE', path: `/v1/test-cases/${CASE_ID}` }),
+    },
+  ])('$id: a page of cases cut to its excerpt still leaves the negative checks measured', async ({ id, read, then, wrong }) => {
+    const r = await plune(['--only', id, '--runs', '1'], [call('plune_cases_search', read), then, done]);
     const row = rowOf(r.result, id);
+    expect(cutAnswers(row)?.[0]).toMatch(/^plune_cases_search: \d{5} bytes$/);
     expect(row.agent?.collection).toBe('partial');
-    expect(row.error?.code).toBe('ASSERTION_UNMEASURED');
-    expect(r.code).toBe(2);
-    // A violation that was seen still fails on the same partial transcript.
-    const seen = await plune(['--only', id, '--runs', '1'], [call('plune_cases_search'), call('plune_api_request', { method: 'DELETE', path: `/v1/test-cases/${CASE_ID}` }), done]);
-    expect(failed(rowOf(seen.result, id))).toContain('only-tools');
+    expect(row.error, JSON.stringify(row.error)).toBeUndefined();
+    expect(failed(row)).toEqual([]);
+    expect(row.assertions.map((a) => a.type)).toContain('only-tools');
+    expect(r.code).toBe(0);
+    // A violation is seen on the same partial transcript, and fails.
+    const seen = await plune(['--only', id, '--runs', '1'], [call('plune_cases_search', read), wrong, done]);
+    const bad = rowOf(seen.result, id);
+    expect(bad.error, JSON.stringify(bad.error)).toBeUndefined();
+    expect(failed(bad)).toContain('only-tools');
+    expect(seen.code).toBe(1);
   });
 
   it('a search by tag finds the tagged cases in one answer that fits the excerpt, so there is no reason to read every case', async () => {
