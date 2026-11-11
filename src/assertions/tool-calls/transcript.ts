@@ -88,9 +88,20 @@ export function checkNames(type: string, t: AgentTranscript, names: (string | un
 /**
  * A negative check that found nothing passes on a complete transcript. On a partial one, what was not seen may hold
  * the violation, so it is not measured. (A finding fails whatever the collection: it is there.)
+ *
+ * `reads` says what the check looks at. `calls`: the names, arguments and flags of the calls, and the tool list. A cut
+ * excerpt shortens only texts and never drops a call (the loop records every call the model asked for), so on a loop
+ * that ended on its own the calls are all there, and the check is measured. `text`: the texts of answers or steps,
+ * which a cut excerpt hides, so it is not measured then. A loop stopped by a limit or an error is unmeasured for both.
  */
-export function absence(type: string, t: AgentTranscript, what: string): AssertionResult {
-  if (t.collection === 'complete') return pass;
+export function absence(
+  type: string,
+  t: AgentTranscript,
+  what: string,
+  reads: 'calls' | 'text',
+): AssertionResult {
+  if (t.collection === 'complete' || (reads === 'calls' && t.stop.reason === 'complete'))
+    return pass;
   const why =
     t.stop.reason === 'limit'
       ? `the loop was stopped by ${t.stop.limit ?? 'a limit'}`

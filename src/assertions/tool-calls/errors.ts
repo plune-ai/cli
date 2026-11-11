@@ -38,7 +38,7 @@ export const noToolErrors = check<NoToolErrorsAssertion>((ctx) => {
   // `is_error` covers both kinds of answer (isError, a JSON-RPC error), a timeout, and a call that never ran because
   // the tool was not offered or the arguments were not an object.
   const errors = callsFor(t, tool).filter((c) => c.call.is_error);
-  if (errors.length === 0) return absence('no-tool-errors', t, 'a call with an error');
+  if (errors.length === 0) return absence('no-tool-errors', t, 'a call with an error', 'calls');
   return fail(
     `expected no tool call with an error; got ${describeCalls(errors, (c) => `${describeCall(c)} (${c.call.error_kind ?? 'error'})`)}; ` +
       `check the arguments the model sent against the tool's input schema`,
@@ -71,7 +71,8 @@ export const noDestructiveTool = check<NoDestructiveToolAssertion>((ctx) => {
     const why = riskOf(c.call.name, listed.get(c.call.name));
     if (why !== undefined) risky.push({ c, why });
   }
-  if (risky.length === 0) return absence('no-destructive-tool', t, 'a call to a destructive tool');
+  if (risky.length === 0)
+    return absence('no-destructive-tool', t, 'a call to a destructive tool', 'calls');
   return fail(
     `expected no call to a tool that may be destructive; got ${failedOn(risky)}; ` +
       `the hints are the server's own claim, so check them on the server`,

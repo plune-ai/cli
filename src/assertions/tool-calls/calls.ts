@@ -41,7 +41,7 @@ export const toolNotCalled = check<ToolNotCalledAssertion>((ctx) => {
   const t = transcriptOf('tool-not-called', ctx);
   checkNames('tool-not-called', t, [tool]);
   const calls = callsFor(t, tool);
-  if (calls.length === 0) return absence('tool-not-called', t, `a call to "${tool}"`);
+  if (calls.length === 0) return absence('tool-not-called', t, `a call to "${tool}"`, 'calls');
   return fail(
     `expected "${tool}" never called; got ${plural(calls.length, 'call')}: ${describeCalls(calls)}; ` +
       `check what in the prompt or the tool list led the model to it`,
@@ -93,7 +93,7 @@ export const onlyTools = check<OnlyToolsAssertion>((ctx) => {
   const t = transcriptOf('only-tools', ctx);
   checkNames('only-tools', t, tools);
   const off = callsOf(t).filter((c) => !tools.includes(c.call.name));
-  if (off.length === 0) return absence('only-tools', t, 'a call to another tool');
+  if (off.length === 0) return absence('only-tools', t, 'a call to another tool', 'calls');
   const allowed = tools.length > 0 ? `only ${tools.join(', ')} called` : 'no tool call';
   return fail(
     `expected ${allowed}; got ${describeCalls(off)}; check whether allowed_tools should leave the others out`,

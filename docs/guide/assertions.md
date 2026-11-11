@@ -245,7 +245,7 @@ assertions after that one in the row are not run (the message says which check s
 
 | Code | When |
 |------|------|
-| `ASSERTION_UNMEASURED` | a negative check (`tool-not-called`, `only-tools`, `no-tool-errors`, `no-destructive-tool`) found nothing on a partial transcript: a limit stopped the loop, or a stored excerpt was cut, so the violation may be in what was not seen. A violation that **was** found still fails: it is there. Also: `token-budget` with no step, `tool-latency` or `tool-result-size` with no call that ran or a call without its time or size, `tool-result-schema` with no answer or an answer cut to its excerpt, `no-destructive-tool` without a tools list |
+| `ASSERTION_UNMEASURED` | a negative check (`tool-not-called`, `only-tools`, `no-tool-errors`, `no-destructive-tool`) found nothing on a loop that a limit stopped, so the violation may be in a call that was not made or not seen. These four read only the calls and the tool list, never an answer's text, so a stored excerpt that was cut leaves them measured when the loop ended on its own: every call is kept, only texts are cut. A violation that **was** found still fails: it is there. Also: `token-budget` with no step, `tool-latency` or `tool-result-size` with no call that ran or a call without its time or size, `tool-result-schema` with no answer or an answer cut to its excerpt, `no-destructive-tool` without a tools list |
 | `ASSERTION_UNKNOWN_TOOL` | the check names a tool the model was not offered; the message lists the ones it was |
 
 A run with an errored row and no failed one exits `2`, like any other errored row. When the model called nothing
