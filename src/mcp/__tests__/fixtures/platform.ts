@@ -43,7 +43,22 @@ export const REFUSAL = {
 } as const;
 
 type Item = Record<string, unknown>;
-const CASES = LIVE.answers['/v1/test-cases?limit=100&stability=0'] as { testCases: Item[] };
+const RECORDED = LIVE.answers['/v1/test-cases?limit=100&stability=0'] as { testCases: Item[]; total: number };
+/**
+ * The recorded cases carry no tags and none is deprecated. Three get the `smoke` tag and the withdrawn coupon case is
+ * deprecated, so a search by tag or by state finds a few cases, as it would on a project that uses them, and its answer
+ * fits the 4 KiB excerpt of a call (src/orchestrator/agent.ts) instead of sending the model on to read every case.
+ */
+const SMOKE = ['e43e1a95-e2a2-42a1-93b6-62b04756fba6', '3021acf3-2318-4c6a-9598-125c15f01600', 'c7665d5b-c571-431f-b05c-d92423ce954d'];
+const DEPRECATED = '6bfec5b1-3382-448a-ac78-01225c6a045e';
+const CASES = {
+  ...RECORDED,
+  testCases: RECORDED.testCases.map((c) => ({
+    ...c,
+    ...(SMOKE.includes(String(c['id'])) ? { tags: ['smoke'] } : {}),
+    ...(c['id'] === DEPRECATED ? { state: 'deprecated', status: 'deprecated' } : {}),
+  })),
+};
 const QUEUE = LIVE.answers['/v1/review-items?state=pending&limit=100'] as { items: Item[]; nextCursor: string | null };
 
 const ok = (body: unknown, status = 200): Answer => ({ status, body });
@@ -51,27 +66,50 @@ const notFound = (what: string): Answer => ({ status: 404, body: { error: `${wha
 const record = (v: unknown): Item => (v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as Item) : {});
 const count = (v: unknown) => (Array.isArray(v) ? v.length : 0);
 
-/** A filter of the case list: the field equals one of the values (a list field holds one); `tag` reads `tags`. */
+/** The texts `q` looks in, as the platform's case list does: title, description, precondition, steps, expected. */
+const textsOf = (c: Item): unknown[] => [
+  c['title'],
+  c['description'],
+  c['precondition'],
+  c['expected'],
+  ...(Array.isArray(c['steps']) ? (c['steps'] as Item[]).flatMap((s) => [s['action'], s['expected']]) : []),
+];
+
+/** A filter of the case list: the field equals one of the values (a list field holds one); `tag` reads `tags`; `q` is a case-insensitive part of a text. */
 function caseMatches(c: Item, key: string, values: string[]): boolean {
+  if (key === 'q') {
+    const needle = values.find((v) => v !== '')?.toLowerCase();
+    return needle === undefined || textsOf(c).some((t) => typeof t === 'string' && t.toLowerCase().includes(needle));
+  }
   const field = key === 'tag' ? c['tags'] : c[key];
   return Array.isArray(field) ? field.some((f) => values.includes(String(f))) : field !== undefined && values.includes(String(field));
 }
 
+/** One page, as the platform pages: `limit` clamped to 1..max (`fallback` when none is sent), `cursor` the offset the previous page gave. */
+function page<T>(items: T[], q: URLSearchParams, max: number, fallback: number): { page: T[]; nextCursor: string | null } {
+  const asked = Number.parseInt(q.get('limit') ?? '', 10);
+  const limit = Math.min(Math.max(Number.isNaN(asked) ? fallback : asked, 1), max);
+  const offset = Math.max(Number.parseInt(q.get('cursor') ?? '', 10) || 0, 0);
+  return { page: items.slice(offset, offset + limit), nextCursor: offset + limit < items.length ? String(offset + limit) : null };
+}
+
 function read(url: URL): Answer {
-  const exact = LIVE.answers[url.pathname + url.search];
-  if (exact !== undefined) return ok(exact);
   const q = url.searchParams;
   const p = url.pathname;
   if (p === '/v1/test-cases') {
     const keys = [...new Set(q.keys())].filter((k) => !['limit', 'cursor', 'stability'].includes(k));
     const found = CASES.testCases.filter((c) => keys.every((k) => caseMatches(c, k, q.getAll(k))));
-    return ok({ ...CASES, testCases: found.slice(0, Number(q.get('limit') ?? 100)), matching: found.length, nextCursor: null });
+    const { page: testCases, nextCursor } = page(found, q, 200, 200);
+    return ok({ testCases, stability: {}, total: CASES.total, matching: found.length, nextCursor });
   }
   if (p === '/v1/review-items') {
     // Questions are a kind of their own, and the recorded queue holds none; nor anything but pending entries.
     const none = q.get('kind') === 'question' || (q.get('state') ?? 'pending') !== 'pending';
-    return ok(none ? { items: [], nextCursor: null } : QUEUE);
+    const { page: items, nextCursor } = page(none ? [] : QUEUE.items, q, 200, 50);
+    return ok({ items, nextCursor });
   }
+  const exact = LIVE.answers[p + url.search];
+  if (exact !== undefined) return ok(exact);
   const one = (items: Item[], what: string) => {
     const id = decodeURIComponent(p.slice(p.lastIndexOf('/') + 1));
     const item = items.find((i) => i['id'] === id);
