@@ -34,6 +34,8 @@ import type { Provider } from '../types/provider.js';
 import type { Embedder } from '../types/embedder.js';
 import type { Cache } from '../cache/cache.js';
 import { MAX_RUNS } from '../config/schema.js';
+import { mcpLimits } from '../config/mcp.js';
+import { runAgentRow, type AgentConnect, type AgentRowParams } from './agent.js';
 
 const DEFAULT_MAX_TOKENS = 1024;
 const PLUNE_VERSION = '0.1.0';
@@ -95,14 +97,14 @@ export function resolvePrompt(
   });
 }
 
-function toRunError(err: unknown): RunError {
+export function toRunError(err: unknown): RunError {
   if (err instanceof ProviderError || err instanceof AuthError) {
     return { code: err.code, message: err.message };
   }
   return { code: 'ERROR', message: err instanceof Error ? err.message : String(err) };
 }
 
-function estimateUsage(
+export function estimateUsage(
   prompt: string,
   maxTokens: number,
 ): { input_tokens: number; output_tokens: number } {
@@ -113,11 +115,57 @@ function pricedField(priced: boolean | undefined): { priced?: boolean } {
   return priced === undefined ? {} : { priced };
 }
 
-function costFields(c: { cost_usd: number; priced?: boolean }): {
+export function costFields(c: { cost_usd: number; priced?: boolean }): {
   cost_usd: number;
   priced?: boolean;
 } {
   return { cost_usd: c.cost_usd, ...pricedField(c.priced) };
+}
+
+/** The row's assertions on an answer, with what the judge calls among them cost. Shared by plain and agentic rows. */
+export async function assess(
+  p: Pick<RowParams, 'assertions' | 'row' | 'provider' | 'providerConfig' | 'embedder'>,
+  output: string,
+): Promise<{
+  records: AssertionResultRecord[];
+  assertionError: RunError | undefined;
+  judgeCost: number;
+  judgeUnpriced: boolean;
+}> {
+  // Row-local judge so judge-call cost is attributed to this row (ADR-OR02).
+  let judgeCost = 0;
+  let judgeUnpriced = false;
+  const judge = buildJudge(p.provider, p.providerConfig, (u) => {
+    const c = p.provider.estimateCost(u);
+    judgeCost += c.cost_usd;
+    if (c.priced === false) judgeUnpriced = true;
+  });
+
+  const records: AssertionResultRecord[] = [];
+  let assertionError: RunError | undefined;
+  for (const assertion of p.assertions) {
+    try {
+      const result = await getAssertion(assertion.type).run({
+        output,
+        vars: p.row.vars,
+        row: p.row,
+        params: assertion,
+        embedder: p.embedder,
+        judge,
+      });
+      records.push({
+        type: assertion.type,
+        passed: result.passed,
+        ...(result.score !== undefined ? { score: result.score } : {}),
+        ...(result.reason !== undefined ? { reason: result.reason } : {}),
+      });
+    } catch (err) {
+      // A judge/embedder infra failure surfaces as an errored row (ADR-OR02).
+      assertionError = toRunError(err);
+      break;
+    }
+  }
+  return { records, assertionError, judgeCost, judgeUnpriced };
 }
 
 export async function runRow(p: RowParams): Promise<RowResult> {
@@ -225,39 +273,7 @@ export async function runRow(p: RowParams): Promise<RowResult> {
     }
   }
 
-  // Row-local judge so judge-call cost is attributed to this row (ADR-OR02).
-  let judgeCost = 0;
-  let judgeUnpriced = false;
-  const judge = buildJudge(p.provider, p.providerConfig, (u) => {
-    const c = p.provider.estimateCost(u);
-    judgeCost += c.cost_usd;
-    if (c.priced === false) judgeUnpriced = true;
-  });
-
-  const records: AssertionResultRecord[] = [];
-  let assertionError: RunError | undefined;
-  for (const assertion of p.assertions) {
-    try {
-      const result = await getAssertion(assertion.type).run({
-        output,
-        vars: p.row.vars,
-        row: p.row,
-        params: assertion,
-        embedder: p.embedder,
-        judge,
-      });
-      records.push({
-        type: assertion.type,
-        passed: result.passed,
-        ...(result.score !== undefined ? { score: result.score } : {}),
-        ...(result.reason !== undefined ? { reason: result.reason } : {}),
-      });
-    } catch (err) {
-      // A judge/embedder infra failure surfaces as an errored row (ADR-OR02).
-      assertionError = toRunError(err);
-      break;
-    }
-  }
+  const { records, assertionError, judgeCost, judgeUnpriced } = await assess(p, output);
 
   const finalUsage: Usage = {
     ...usage,
@@ -314,7 +330,7 @@ function sumTokens(parts: Tokens[]): Tokens {
 }
 
 /** Usage summed over attempts: unpriced if any attempt was, absent `priced` when none said. */
-function sumUsage(parts: Usage[]): Usage {
+export function sumUsage(parts: Usage[]): Usage {
   const priced = parts.some((u) => u.priced === false)
     ? false
     : parts.some((u) => u.priced === true)
@@ -328,19 +344,20 @@ function sumUsage(parts: Usage[]): Usage {
  * `passed` with at least `needed` passing attempts; else `errored` when the attempts that could not
  * run might still have reached it (a verdict that rests on what was not measured is not a fail);
  * else `failed`. Every attempt runs: stopping once the verdict is settled would lose the flakiness
- * picture. `runs: 1` is `runRow` itself, with no `attempts` on the row.
+ * picture. `runs: 1` is `run` itself, with no `attempts` on the row. `run` is `runRow`, or the agentic row.
  */
-export async function runRepeats(
-  p: RowParams,
+export async function runRepeats<P extends RowParams>(
+  p: P,
   runs: number,
   passThreshold: number,
+  run: (p: P) => Promise<RowResult> = runRow,
 ): Promise<RowResult> {
-  if (runs <= 1) return runRow(p);
+  if (runs <= 1) return run(p);
   const counts = { runs, pass_threshold: passThreshold, passed: 0, failed: 0, errored: 0 };
 
   if (p.dryRun) {
     // Nothing runs on a dry run: one estimate, priced for every repeat.
-    const one = await runRow(p);
+    const one = await run(p);
     const u = one.usage;
     const usage =
       u === undefined
@@ -360,7 +377,7 @@ export async function runRepeats(
 
   const rows: RowResult[] = [];
   for (let attempt = 0; attempt < runs; attempt += 1) {
-    rows.push(await runRow({ ...p, attempt }));
+    rows.push(await run({ ...p, attempt }));
   }
   const states = rows.map(rowStatus);
   const passed = states.filter((s) => s === 'passed').length;
@@ -384,6 +401,7 @@ export async function runRepeats(
     ...(shown.error !== undefined ? { error: shown.error } : {}),
     assertions: shown.assertions,
     attempts: { ...counts, passed, failed, errored, results: rows.map(toAttempt) },
+    ...(shown.agent !== undefined ? { agent: shown.agent } : {}),
   };
 }
 
@@ -410,6 +428,8 @@ export interface RunDeps {
   now: () => number;
   loadDataset(ref: DatasetRef, baseDir: string): DatasetRow[];
   baseDir: string;
+  /** Opens a session with an `mcp.servers` entry, one per agentic row. Needed only by an eval with `mcp`. */
+  connectMcp?: AgentConnect;
 }
 
 function selectEvals(evals: EvalConfig[], only: string[] | undefined): EvalConfig[] {
@@ -475,6 +495,31 @@ export function summarize(evals: EvalResult[], durationMs: number): Summary {
   return { ...summary, cache };
 }
 
+/** The provider of an agentic eval, once the run is known to be able to measure it; a config error otherwise. */
+function agenticProvider(
+  config: Config,
+  ev: EvalConfig,
+  deps: RunDeps,
+  cacheStrict: boolean,
+): Provider {
+  if (cacheStrict)
+    throw new RunConfigError(
+      `Eval "${ev.id}" uses MCP server "${ev.mcp!.server}": its tool loop is never cached, so --cache-strict cannot answer it`,
+    );
+  const providerConfig: ProviderConfig = { ...config.provider, ...ev.provider };
+  const provider = deps.resolveProvider(providerConfig);
+  if (provider.respond === undefined)
+    throw new RunConfigError(
+      `Eval "${ev.id}" uses MCP server "${ev.mcp!.server}", and this provider cannot call tools, so nothing would be measured` +
+        ' (under PLUNE_MOCK_PROVIDER=1, PLUNE_MOCK_SCRIPT names the scripted model steps)',
+    );
+  if (deps.connectMcp === undefined)
+    throw new RunConfigError(
+      `Eval "${ev.id}" uses MCP server "${ev.mcp!.server}", and this run cannot connect to one`,
+    );
+  return provider;
+}
+
 export async function runOrchestration(
   config: Config,
   options: RunOptions,
@@ -507,38 +552,50 @@ export async function runOrchestration(
     for (const row of rows) {
       resolvePrompt(template, row.vars);
     }
-    return { ev, template, rows };
+    // An agentic eval is checked here too, so a run that cannot measure it stops before the first model call: its
+    // provider must take tools, and it never comes from the cache, so --cache-strict cannot hold for it.
+    const agentic =
+      ev.mcp === undefined || dryRun ? undefined : agenticProvider(config, ev, deps, cacheStrict);
+    return { ev, template, rows, agentic };
   });
 
-  for (const { ev, template, rows } of prepared) {
+  for (const { ev, template, rows, agentic } of prepared) {
     const providerConfig: ProviderConfig = { ...config.provider, ...ev.provider };
-    const provider = deps.resolveProvider(providerConfig);
-    const limit = options.concurrency ?? providerConfig.concurrency ?? 4;
+    const provider = agentic ?? deps.resolveProvider(providerConfig);
+    // Agentic rows call one server whose state they may share: one at a time unless asked otherwise.
+    const limit =
+      options.concurrency ?? providerConfig.concurrency ?? (ev.mcp !== undefined ? 1 : 4);
 
     const runs = options.runs ?? ev.runs ?? config.runs ?? 1;
     const passThreshold = ev.pass_threshold ?? config.pass_threshold ?? 1;
 
-    const rowResults = await mapLimit(rows, limit, (row) =>
-      runRepeats(
-        {
-          template,
-          // `defaults.assertions` apply to every eval, ahead of its own (#2415).
-          assertions: [...(config.defaults?.assertions ?? []), ...ev.assertions],
-          row,
-          providerConfig,
-          provider,
-          embedder: deps.embedder,
-          cache: deps.cache,
-          now: deps.now,
-          dryRun,
-          noCache,
-          cacheStrict,
-          ...(options.cacheMaxAgeMs !== undefined ? { cacheMaxAgeMs: options.cacheMaxAgeMs } : {}),
-        },
-        runs,
-        passThreshold,
-      ),
-    );
+    const rowResults = await mapLimit(rows, limit, (row) => {
+      const params: RowParams = {
+        template,
+        // `defaults.assertions` apply to every eval, ahead of its own.
+        assertions: [...(config.defaults?.assertions ?? []), ...ev.assertions],
+        row,
+        providerConfig,
+        provider,
+        embedder: deps.embedder,
+        cache: deps.cache,
+        now: deps.now,
+        dryRun,
+        noCache,
+        cacheStrict,
+        ...(options.cacheMaxAgeMs !== undefined ? { cacheMaxAgeMs: options.cacheMaxAgeMs } : {}),
+      };
+      if (ev.mcp === undefined) return runRepeats(params, runs, passThreshold);
+      const agentParams: AgentRowParams = {
+        ...params,
+        server: ev.mcp.server,
+        ...(ev.mcp.allowed_tools !== undefined ? { allowedTools: ev.mcp.allowed_tools } : {}),
+        limits: mcpLimits(config, ev),
+        // A dry run connects nowhere; the loop never calls this then.
+        connect: deps.connectMcp ?? (() => Promise.reject(new Error('no MCP connection'))),
+      };
+      return runRepeats(agentParams, runs, passThreshold, runAgentRow);
+    });
 
     const passed = rowResults.every((r) => rowStatus(r) === 'passed');
     evalResults.push({ id: ev.id, tags: ev.tags ?? [], rows: rowResults, passed });

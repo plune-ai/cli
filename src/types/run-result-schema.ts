@@ -90,6 +90,50 @@ const rowResultSchema = z.object({
       ),
     })
     .optional(),
+  /** The tool loop of an eval with an `mcp` server. Optional and additive — a RunResult without it validates unchanged. */
+  agent: z
+    .object({
+      server: z.string(),
+      tools: z.array(
+        z.object({
+          name: z.string(),
+          offered: z.boolean(),
+          annotations: z.record(z.string(), z.unknown()).optional(),
+        }),
+      ),
+      steps: z.array(
+        z.object({
+          index: z.number(),
+          text: z.string(),
+          finish_reason: z.string().optional(),
+          usage: usageSchema,
+          calls: z.array(
+            z.object({
+              id: z.string(),
+              name: z.string(),
+              args: z.unknown(),
+              executed: z.boolean(),
+              is_error: z.boolean(),
+              error_kind: z
+                .enum(['content', 'protocol', 'timeout', 'not-offered', 'bad-arguments'])
+                .optional(),
+              duration_ms: z.number().optional(),
+              result: z
+                .object({ text: z.string(), bytes: z.number(), truncated: z.boolean() })
+                .optional(),
+            }),
+          ),
+        }),
+      ),
+      stop: z.object({
+        reason: z.enum(['complete', 'limit', 'error']),
+        limit: z
+          .enum(['max_steps', 'max_tool_calls', 'max_total_tokens', 'timeout_ms', 'tool_timeout_ms'])
+          .optional(),
+      }),
+      collection: z.enum(['complete', 'partial']),
+    })
+    .optional(),
 });
 
 const summarySchema = z.object({

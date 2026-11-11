@@ -175,6 +175,32 @@ interface GoldenRowResult {
       cache_saved?: { input_tokens: number; output_tokens: number; cost_usd: number };
     }[];
   };
+  /** The tool loop of an eval with an `mcp` server — optional; absent on a plain eval. */
+  agent?: {
+    server: string;
+    tools: { name: string; offered: boolean; annotations?: Record<string, unknown> }[];
+    steps: {
+      index: number;
+      text: string;
+      finish_reason?: string;
+      usage: GoldenUsage;
+      calls: {
+        id: string;
+        name: string;
+        args: unknown;
+        executed: boolean;
+        is_error: boolean;
+        error_kind?: 'content' | 'protocol' | 'timeout' | 'not-offered' | 'bad-arguments';
+        duration_ms?: number;
+        result?: { text: string; bytes: number; truncated: boolean };
+      }[];
+    }[];
+    stop: {
+      reason: 'complete' | 'limit' | 'error';
+      limit?: 'max_steps' | 'max_tool_calls' | 'max_total_tokens' | 'timeout_ms' | 'tool_timeout_ms';
+    };
+    collection: 'complete' | 'partial';
+  };
 }
 interface GoldenEvalResult {
   id: string;

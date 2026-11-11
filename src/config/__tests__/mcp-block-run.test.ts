@@ -121,7 +121,8 @@ afterEach(() => {
 describe('CLI · config · mcp block · plune run', () => {
   it('CLI · config · mcp block · run --dry-run checks the block and starts no process and opens no connection (AC-9)', async () => {
     const r = await plune('--dry-run', '--config', write(config(stdioServer())));
-    expect(r.stderr).toBe('');
+    // The one line a dry run of an agentic eval prints: what its estimate leaves out. No warning.
+    expect(r.stderr).toMatch(/^dry run: .*tool schemas and tool results are not counted\n$/);
     expect(r.code ?? 0).toBe(0);
     expect(spawnCalls).toEqual([]);
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -192,7 +193,7 @@ ${headers}`;
         config(remote('      headers:\n        Authorization: "Bearer literal-token-in-file"\n')),
       ),
     );
-    expect(quiet.stderr).toBe('');
+    expect(quiet.stderr).not.toMatch(/warning/);
     expect(loud.stderr).toMatch(/warning: .*mcp\.servers\.everything\.headers\.Authorization/);
     expect(loud.stderr).not.toContain('literal-token-in-file');
     expect(loud.code).toBe(quiet.code);

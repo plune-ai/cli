@@ -5,13 +5,19 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { loadConfig } from '../../config/loader.js';
-import { mcpSecretWarnings } from '../../config/mcp.js';
+import { mcpSecretWarnings, resolveMcpServer } from '../../config/mcp.js';
 import { getProvider } from '../../providers/index.js';
 import { makeEstimateProvider } from '../../providers/estimate.js';
-import { makeMockProvider } from '../../providers/mock.js';
+import { makeMockProvider, parseMockScript, type MockStep } from '../../providers/mock.js';
 import { getDefaultEmbedder } from '../../embeddings/index.js';
 import { openCache } from '../../cache/index.js';
-import { runOrchestration, loadDataset, type RunDeps } from '../../orchestrator/index.js';
+import {
+  runOrchestration,
+  loadDataset,
+  RunConfigError,
+  type AgentConnect,
+  type RunDeps,
+} from '../../orchestrator/index.js';
 import type { Cache } from '../../cache/index.js';
 import type { Config } from '../../types/config.js';
 import type { RunResult } from '../../types/results.js';
@@ -42,8 +48,52 @@ export interface RunOptions {
   runs?: number;
 }
 
+/** `PLUNE_MOCK_SCRIPT`: the scripted model steps of an agentic eval under the mock provider; a config error if unreadable. */
+function mockScript(env: NodeJS.ProcessEnv): MockStep[] | undefined {
+  const file = env['PLUNE_MOCK_SCRIPT'];
+  if (file === undefined || file === '') return undefined;
+  let text: string;
+  try {
+    text = fs.readFileSync(path.resolve(file), 'utf8');
+  } catch {
+    throw new RunConfigError(`PLUNE_MOCK_SCRIPT: cannot read ${file}`);
+  }
+  try {
+    return parseMockScript(text);
+  } catch (err) {
+    throw new RunConfigError(`PLUNE_MOCK_SCRIPT: ${file} ${(err as Error).message}`);
+  }
+}
+
+/**
+ * One session per agentic row with a server of `mcp.servers`, through the connection core of `plune mcp`. The core
+ * (and the MCP client) is loaded on the first row that needs it, so a run without `mcp` never loads it. The only
+ * network it opens is the server's: a stdio process, or the `url` the config names, which alone gets the headers.
+ */
+export function makeMcpConnect(config: Config, baseDir: string, env: NodeJS.ProcessEnv): AgentConnect {
+  return async (name, timeoutMs) => {
+    const server = config.mcp?.servers[name];
+    if (server === undefined) throw new Error(`mcp.servers has no "${name}"`);
+    const target = resolveMcpServer(server, env, baseDir);
+    const [{ openSession }, { listAll, callTool }] = await Promise.all([
+      import('../../mcp-testing/connect/session.js'),
+      import('../../mcp-testing/connect/tools.js'),
+    ]);
+    const session = await openSession({ target, timeoutMs });
+    return {
+      redact: session.redact,
+      listTools: async (ms) => (await listAll(session, 'tools/list', 'tools', { timeoutMs: ms })).items,
+      callTool: (tool, args, ms) => callTool(session, tool, ms, args),
+      close: () => session.close(),
+    };
+  };
+}
+
 function resolveProviderFor(config: Config, dryRun: boolean): RunDeps['resolveProvider'] {
-  if (isMockMode(process.env)) return () => makeMockProvider();
+  if (isMockMode(process.env)) {
+    const script = mockScript(process.env);
+    return () => makeMockProvider(script);
+  }
   // A dry run prices a call and never makes one (FR-8), so it has no use for a provider key (#49).
   if (dryRun) return (cfg) => makeEstimateProvider(cfg, config.pricing);
   return (cfg) => getProvider(cfg, process.env, config.pricing);
@@ -59,6 +109,7 @@ function buildRealDeps(config: Config, baseDir: string, dryRun: boolean): RunDep
     now: Date.now,
     loadDataset,
     baseDir,
+    connectMcp: makeMcpConnect(config, baseDir, process.env),
   };
 }
 
@@ -104,6 +155,13 @@ export async function handleRun(
       },
       deps,
     );
+    if (options.dryRun) {
+      const agentic = new Set(config.evals.filter((ev) => ev.mcp !== undefined).map((ev) => ev.id));
+      if (result.evals.some((ev) => agentic.has(ev.id)))
+        process.stderr.write(
+          'dry run: an eval with mcp is priced as max_steps model calls of its prompt; tool schemas and tool results are not counted\n',
+        );
+    }
     persist(result, baseDir);
     return result;
   } finally {
