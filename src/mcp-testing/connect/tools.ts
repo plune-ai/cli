@@ -114,14 +114,15 @@ export type CallAnswer =
   | { kind: 'timeout' }
   | { kind: 'lost'; message: string };
 
-/** `tools/call` with `{}` for arguments, always. */
+/** `tools/call`, with `{}` for arguments unless the caller has some (the model's, in an agentic eval). */
 export async function callTool(
   session: Pick<Session, 'request'>,
   name: string,
   timeoutMs: number,
+  args: Record<string, unknown> = {},
 ): Promise<CallAnswer> {
   try {
-    const result = await session.request('tools/call', { name, arguments: {} }, { timeoutMs });
+    const result = await session.request('tools/call', { name, arguments: args }, { timeoutMs });
     return { kind: 'result', result };
   } catch (err) {
     if (err instanceof ConnectError) {

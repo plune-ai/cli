@@ -149,10 +149,9 @@ use, and its own limits.
 > **Requires `@plune-ai/cli` 0.35.0 or newer.** 0.34.6 and older stop on the top-level key with
 > `Config validation failed in …` and `: Unrecognized key: "mcp"`, exit `2`, instead of ignoring it.
 >
-> **What this version does with the block:** it checks it. `plune run` and `plune run --dry-run`
-> refuse a wrong block with exit `2`, before any model call, without starting a server or opening a
-> connection. The loop in which the model calls the server's tools comes in a later release; until
-> then an eval with `mcp` runs as a plain prompt eval.
+> `plune run` and `plune run --dry-run` refuse a wrong block with exit `2`, before any model call.
+> A dry run starts no server and opens no connection. A real run gives the model the server's tools
+> and records the loop in the row's `agent` field: see [The tool loop](#the-tool-loop).
 
 ```yaml
 mcp:
@@ -230,6 +229,74 @@ Every limit has a default, so an agentic eval always ends. A limit is a whole nu
 | `tool_timeout_ms` | `30000` | Time for one tool call (30 seconds; at most `2147483647`). |
 
 An eval's `limits` win over `mcp.limits`, which win over the defaults.
+
+A limit is a safety brake, not a verdict: a row a limit stopped is judged by its assertions on the
+last text the model gave, and its transcript says which limit stopped it. `max_total_tokens` is
+checked after each step, so a row can pass it by one step at most. A tool that does not answer
+within `tool_timeout_ms` stops the loop.
+
+### The tool loop
+
+For each dataset row, `plune run`:
+
+1. starts or connects to the eval's server (one session per row, closed when the row ends) and reads
+   `tools/list` to its last page;
+2. offers the model the tools `allowed_tools` names (every tool when it is left out);
+3. runs each call the model asks for on the server, one after another in the order asked, and gives
+   the model every answer in its next step;
+4. repeats until the model answers without a call, or a limit stops it.
+
+The row's `output` is the model's last text, and the assertions judge it. Rows of an agentic eval
+run one at a time, since they may share the server's state; `--concurrency` or
+`provider.concurrency` changes that. The provider must be `anthropic`, `openai` or `openrouter`.
+
+**Tool names.** Providers accept only `a-z`, `A-Z`, `0-9`, `_` and `-`, at most 64 characters. A
+server name outside that (`files/read`) is offered as a safe one (`files_read`, with `_2`, `_3` when
+two names collide) and mapped back: the transcript always holds the server's name.
+
+**What the model gets wrong is recorded, not run.** A call to a tool the model was not offered, or
+with arguments that are not a JSON object, never reaches the server; the model gets an error back,
+and the call is recorded as not executed, with `is_error: true`.
+
+**The transcript** is the row's `agent` field in `last-run.json` and `--format json`:
+
+| Field | Meaning |
+|-------|---------|
+| `server` | The name in `mcp.servers`. |
+| `tools` | Every tool the server listed: `name`, `offered`, and `annotations` when it had them. |
+| `steps[]` | One per model turn: `index` (from 1), `text`, `finish_reason`, `usage` (tokens and cost), `calls`. |
+| `steps[].calls[]` | `id`, `name`, `args`, `executed`, `is_error`, `error_kind`, `duration_ms`, `result`. |
+| `stop` | `reason`: `complete`, `limit` (with `limit`: the one that stopped it) or `error`. |
+| `collection` | `partial` when a limit or an error stopped the loop, or an excerpt was cut; `complete` otherwise. |
+
+`error_kind` is `content` (the tool answered `isError: true`), `protocol` (a JSON-RPC error),
+`timeout`, `not-offered` or `bad-arguments`. A call's `result` holds `text`, an excerpt of at most
+4 KiB, and `bytes`, the size of the whole answer measured before the cut, and `truncated`. The
+excerpts of one row are at most 256 KiB together; past that an excerpt is empty and marked
+`truncated`. The model is always given the whole answer. Every value of the server's `env` and
+`headers` is masked as `***` in the transcript, in `output` and in error messages.
+
+**Cost** is the sum of the steps, and a row is `priced: false` when any step was. The loop is never
+cached: a stored answer about a call would not show that the server still answers so. An agentic
+row neither reads nor writes the cache, and `--cache-strict` with an agentic eval is exit `2` before
+any model call.
+
+**A row ends `errored`**, its transcript kept, when the server cannot be started or reached
+(`MCP_CONNECT`), `tools/list` fails (`MCP_LIST_TOOLS`), the server goes away during the loop
+(`MCP_SERVER_LOST`), the provider fails after its retries (the provider's code), or a reply hits
+`max_tokens` in the middle of a call (`AGENT_CUT_OFF`).
+
+**`--dry-run`** connects nowhere. It prices `max_steps` model calls of the prompt and says on stderr
+that tool schemas and tool results are not counted.
+
+**Without a model.** `PLUNE_MOCK_PROVIDER=1` with `PLUNE_MOCK_SCRIPT=<file.json>` plays a script:
+a list of steps, each `{ "tool_calls": [{ "name": "echo", "args": { "text": "hi" } }] }` (names as
+the model is offered them) or `{ "text": "final answer" }`; step n of each row plays entry n, and
+the last entry repeats. `PLUNE_MOCK_PROVIDER=1` without `PLUNE_MOCK_SCRIPT` is exit `2` for an
+agentic eval: a mock that calls no tools would measure nothing.
+
+**Network.** The loop opens no connection but the provider's API and the server the config names;
+`headers` go only to its `url`.
 
 ### `${VAR}` in a server's values
 

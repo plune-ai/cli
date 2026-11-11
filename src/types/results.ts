@@ -176,6 +176,55 @@ export interface RowResult {
       cache_saved?: { input_tokens: number; output_tokens: number; cost_usd: number };
     }[];
   };
+  /**
+   * The tool loop of an eval with an `mcp` server: what the server listed, every model step and every call. Optional
+   * and additive: absent on a plain eval, `schemaVersion` stays 1. With `runs` above 1, the loop of the attempt the
+   * row shows.
+   */
+  agent?: AgentTranscript;
+}
+
+/** One tool call the model asked for, under the name the server gave the tool. */
+export interface AgentCall {
+  id: string;
+  name: string;
+  args: unknown;
+  /** False when it never reached the server: a tool the model was not offered, arguments that are not an object, or the loop stopped first. */
+  executed: boolean;
+  is_error: boolean;
+  /**
+   * `content`: the tool answered `isError: true`; `protocol`: a JSON-RPC error; `timeout`: no answer within
+   * `tool_timeout_ms`; `not-offered`: a tool the model was not given; `bad-arguments`: not a JSON object.
+   */
+  error_kind?: 'content' | 'protocol' | 'timeout' | 'not-offered' | 'bad-arguments';
+  duration_ms?: number;
+  /** The answer as text: `bytes` is its size before `text` was cut to the stored excerpt. */
+  result?: { text: string; bytes: number; truncated: boolean };
+}
+
+export interface AgentStep {
+  /** From 1. A call's result reaches the model in the next step. */
+  index: number;
+  text: string;
+  finish_reason?: string;
+  usage: Usage;
+  /** In the order the model asked for them; they run one after another. */
+  calls: AgentCall[];
+}
+
+export interface AgentTranscript {
+  /** The name in `mcp.servers`. */
+  server: string;
+  /** Every tool the server listed, and whether the model was offered it (`allowed_tools`). */
+  tools: { name: string; offered: boolean; annotations?: Record<string, unknown> }[];
+  steps: AgentStep[];
+  /** `complete`: the model gave its final answer; `limit`: a limit stopped the loop (`limit` names it); `error`: see the row's `error`. */
+  stop: {
+    reason: 'complete' | 'limit' | 'error';
+    limit?: 'max_steps' | 'max_tool_calls' | 'max_total_tokens' | 'timeout_ms' | 'tool_timeout_ms';
+  };
+  /** `partial` when the loop did not end on its own or a stored excerpt was cut: what is missing was not seen. */
+  collection: 'complete' | 'partial';
 }
 
 export type RowStatus = 'passed' | 'failed' | 'errored' | RowInconclusive;
