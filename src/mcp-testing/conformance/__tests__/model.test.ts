@@ -12,7 +12,7 @@ import { BUCKETS, exitCodeOf, floorScore, summarize, summaryLine } from '../scor
 
 /** The digest each profile version was frozen with. A new list is a new version, and a new line here. */
 const FROZEN: Record<string, string> = {
-  '2026-11.1': '653c872487dc3462b1353d5e81686e12b7b4715ac5ad4f460fa803dcdcf52304',
+  '2026-11.1': '466f528105d991a6734e4d9b03572d3f4882e393a0623f06831be3acd7c2e200',
 };
 
 const PROFILE_SOURCE = fileURLToPath(new URL('../profile.ts', import.meta.url));

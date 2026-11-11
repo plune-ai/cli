@@ -34,8 +34,6 @@ export const PROFILE: Profile = {
     'resources-read-listed',
     'resources-templates-shape',
     'prompts-list-shape',
-    'logging-set-level',
-    'completion-complete',
     'stdio-stdout-clean',
   ],
 };

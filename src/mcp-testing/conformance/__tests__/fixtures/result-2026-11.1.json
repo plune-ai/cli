@@ -4,7 +4,7 @@
   "command": "conformance",
   "profileId": "plune-mcp-conformance",
   "profileVersion": "2026-11.1",
-  "manifestDigest": "653c872487dc3462b1353d5e81686e12b7b4715ac5ad4f460fa803dcdcf52304",
+  "manifestDigest": "466f528105d991a6734e4d9b03572d3f4882e393a0623f06831be3acd7c2e200",
   "checks": [
     { "id": "life-initialize-result", "state": "passed" },
     { "id": "life-version-negotiation", "state": "passed" },

@@ -23,6 +23,7 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 ## [0.34.6] - 2026-11-10
 
 ### Fixed
+- **`plune mcp conformance`: two levels follow the specification.** `logging-set-level` and `completion-complete` are `SHOULD`, not `MUST`: the specification requires declaring the capability, not handling the request. They leave the profile `2026-11.1` (now 17 checks, which has not been released). `base-jsonrpc-parse-error` and `base-unknown-method-error` are marked derived: MCP requires JSON-RPC 2.0, which names the codes.
 
 - **`--fail-on-failures` no longer passes a run that no result reached (plune-ai/plune#2575).** `plune run import` of a report
   whose cases the project does not have yet sends nothing to the run (`0 accepted · 28 with no matching test case`), and the gate
