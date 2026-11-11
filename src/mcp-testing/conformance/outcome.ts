@@ -6,9 +6,18 @@
 import type { CheckState } from '../result.js';
 import type { CatalogEntry, Era, Transport } from './catalog.js';
 
-export type NotApplicableReason = 'era' | 'capability-not-declared' | 'transport' | 'no-auth';
-/** `needs-input`: an input only the user can give is missing (a fixture); it keeps a check out of the score. */
-export type CouldNotRunReason = 'timeout' | 'prerequisite-failed' | 'needs-input' | 'transport-error';
+/** `not-offered`: the capability is declared, but the server offers nothing the check reads (no outputSchema, no resource). */
+export type NotApplicableReason = 'era' | 'capability-not-declared' | 'transport' | 'no-auth' | 'not-offered';
+/**
+ * `needs-input`: an input only the user can give is missing (a fixture); it keeps a check out of the score.
+ * `unsupported-dialect`: a schema names a JSON Schema dialect this checker cannot validate in.
+ */
+export type CouldNotRunReason =
+  | 'timeout'
+  | 'prerequisite-failed'
+  | 'needs-input'
+  | 'transport-error'
+  | 'unsupported-dialect';
 
 export type CheckOutcome =
   | { state: 'passed' | 'failed' | 'pending'; expected?: string; actual?: string; fix?: string }

@@ -73,7 +73,7 @@ describe('CLI · mcp conformance · the catalog without a server', () => {
   it('--explain prints the whole entry; an unknown id is exit 2', async () => {
     const human = await run({ explain: 'logging-set-level' });
     expect(human.code).toBe(0);
-    expect(human.out).toContain('level: MUST (derived: ');
+    expect(human.out).toContain('level: SHOULD (derived: ');
     expect(human.out).toContain('https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/logging');
     const asJson = await run({ explain: 'tools-name-format', format: 'json' });
     expect(JSON.parse(asJson.out)).toEqual(CATALOG.find((e) => e.id === 'tools-name-format'));
@@ -106,7 +106,8 @@ describe('CLI · mcp conformance · the catalog without a server', () => {
 
 describe('CLI · mcp conformance · a run', () => {
   it('records the profile, the checker and the protocol version; nothing measured is score null, incomplete, exit 3', async () => {
-    const { code, report: r } = await report({});
+    // A check of the other era and an advisory: nothing that counts is measured.
+    const { code, report: r } = await report({ check: ['tools-list-order-stable', 'tools-name-format'] });
     expect(code).toBe(3);
     expect(r).toMatchObject({
       kind: 'mcp-conformance-report',
@@ -139,7 +140,7 @@ describe('CLI · mcp conformance · a run', () => {
     expect(r.protocolVersion).toBe('2026-07-28');
     expect(r.checks.map((c) => [c.id, c.state, c.reason])).toEqual([
       ['life-ping-empty-result', 'not-applicable', 'era'],
-      ['tools-list-order-stable', 'pending', undefined],
+      ['tools-list-order-stable', 'passed', undefined],
     ]);
   });
 
@@ -166,9 +167,9 @@ describe('CLI · mcp conformance · a run', () => {
 
   it('the human report explains the score in one line per suite, and --out holds the same JSON', async () => {
     const out = join(mkdtempSync(join(tmpdir(), 'plune-conformance-')), 'r.json');
-    const r = await run({ out, suite: ['protocol', 'oauth'] }, STDIO);
+    const r = await run({ out, suite: ['protocol', 'oauth'], check: ['tools-list-order-stable', 'tools-name-format'] }, STDIO);
     expect(r.code).toBe(3);
-    expect(r.out).toMatch(/^protocol: Score none = 0 of 0 \| outside the score: pending \d+, advisories \d+$/m);
+    expect(r.out).toMatch(/^protocol: Score none = 0 of 0 \| outside the score: advisories 2$/m);
     expect(r.out).toMatch(/^oauth: Score none = 0 of 0$/m);
     expect(r.out).toMatch(/^all suites: Score none = 0 of 0/m);
     expect(r.out).toContain('Verdict: incomplete (exit 3): nothing was measured, so nothing is proven.');

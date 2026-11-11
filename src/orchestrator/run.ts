@@ -572,7 +572,7 @@ export async function runOrchestration(
     const rowResults = await mapLimit(rows, limit, (row) => {
       const params: RowParams = {
         template,
-        // `defaults.assertions` apply to every eval, ahead of its own (#2415).
+        // `defaults.assertions` apply to every eval, ahead of its own.
         assertions: [...(config.defaults?.assertions ?? []), ...ev.assertions],
         row,
         providerConfig,
