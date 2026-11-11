@@ -62,6 +62,7 @@ function step(server: string[], processEnv: Record<string, string>) {
     lint: read('lint.xml'),
     check: read('check.xml'),
     conformance: read('conformance.json'),
+    conformanceXml: read('conformance.xml'),
   };
 }
 
@@ -89,7 +90,9 @@ describe('CLI · mcp self-check step · lint, check and conformance against the 
     expect(r.lint).toContain('<testcase');
     expect(r.check).toContain('<testcase');
     expect(failedConformance(r.conformance)).toEqual([]);
-    for (const text of [r.stdout, r.stderr, r.lint, r.check, r.conformance]) expect(text ?? '').not.toContain(TOKEN);
+    expect(r.conformanceXml).toContain('<testcase');
+    expect(r.conformanceXml).not.toContain('<failure');
+    for (const text of [r.stdout, r.stderr, r.lint, r.check, r.conformance, r.conformanceXml]) expect(text ?? '').not.toContain(TOKEN);
   });
 
   it('CLI · mcp self-check step · a broken server is red in each command: a failed case in both JUnit files and a failed conformance check', () => {
@@ -100,6 +103,7 @@ describe('CLI · mcp self-check step · lint, check and conformance against the 
     expect(r.lint).toMatch(/<testcase[^>]*name="input-schema-not-object"[^>]*>\s*<failure/);
     expect(r.check).toMatch(/<testcase[^>]*name="ping"[^>]*>\s*<failure/);
     expect(failedConformance(r.conformance)).toContain('life-ping-empty-result');
+    expect(r.conformanceXml).toMatch(/<testcase[^>]*name="life-ping-empty-result"[^>]*>\s*<failure/);
   });
 
   it('CLI · mcp self-check step · a server that cannot start is exit 2, and the token it prints is masked', () => {

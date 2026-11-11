@@ -4,7 +4,8 @@
 //
 //   node scripts/mcp-self-check.mjs <report-dir> [connection flags] -- <server command>
 //
-// lint and check write JUnit (lint.xml, check.xml), conformance its JSON result (conformance.json). All three run even
+// lint and check write JUnit (lint.xml, check.xml), conformance its JSON result and JUnit (conformance.json,
+// conformance.xml), so the nightly import reads all three. All three run even
 // when one is red, so every report is written; the exit code is the first non-zero one, in that order (1 a finding or
 // a failed check, 2 the server did not start, 3 nothing measured, such as an empty tool list). No model is called: the
 // step refuses to run while a provider key is set.
@@ -31,7 +32,7 @@ mkdirSync(dir, { recursive: true });
 const commands = [
   ['lint', '--reporter', 'junit-xml', '--out', join(dir, 'lint.xml')],
   ['check', '--reporter', 'junit-xml', '--out', join(dir, 'check.xml')],
-  ['conformance', '--out', join(dir, 'conformance.json')],
+  ['conformance', '--out', join(dir, 'conformance.json'), '--out', `junit-xml=${join(dir, 'conformance.xml')}`],
 ];
 
 let status = 0;
