@@ -41,6 +41,25 @@ export function renderMarkdown(result: RunResult, opts: MarkdownOptions = {}): s
   out.push(`| Duration (ms) | ${summary.duration_ms} |`);
   out.push('');
 
+  // Only when some eval repeats its rows (`runs` above 1), so a report without repeats is unchanged.
+  const repeated = result.evals.flatMap((ev) =>
+    ev.rows.flatMap((row) =>
+      row.attempts !== undefined ? [{ id: ev.id, row, a: row.attempts }] : [],
+    ),
+  );
+  if (repeated.length > 0) {
+    out.push('## Repeats');
+    out.push('');
+    out.push('| Eval | Vars | Passed | pass_threshold | Status |');
+    out.push('| --- | --- | --- | --- | --- |');
+    for (const { id, row, a } of repeated) {
+      const vars = JSON.stringify(row.vars).replace(/\|/g, '\\|');
+      const passed = a.results.length === 0 ? `dry run × ${a.runs}` : `${a.passed}/${a.runs}`;
+      out.push(`| ${id} | ${vars} | ${passed} | ${a.pass_threshold} | ${rowStatus(row)} |`);
+    }
+    out.push('');
+  }
+
   // A blocked or skipped row is neither a failure nor a pass: the table counts it, this list does not.
   const failures: { id: string; row: RowResult; state: 'failed' | 'errored' }[] = [];
   let allPassed = true;

@@ -211,3 +211,25 @@ describe('cacheKey latency smoke (T9 — p95 ≤ 1 ms)', () => {
     expect(p95ms).toBeLessThan(1);
   });
 });
+
+describe('CLI · run · repeats · the cache key of an attempt', () => {
+  const inputs = {
+    provider: 'anthropic',
+    model: 'claude-3-5-sonnet-20241022',
+    temperature: 0,
+    max_tokens: 1024,
+    prompt_resolved: 'What is 2+2?',
+  };
+  // Computed by cacheKey() before attempts existed: entries written then must still answer.
+  const KEY_BEFORE_ATTEMPTS = '852cb2af95b7e060cc4e8edaf0d67bd955ea7610e743a70e4a6c1359b4c0e93f';
+
+  it('attempt 0 keys byte for byte as a key without attempts', () => {
+    expect(cacheKey(inputs)).toBe(KEY_BEFORE_ATTEMPTS);
+    expect(cacheKey({ ...inputs, attempt: 0 })).toBe(KEY_BEFORE_ATTEMPTS);
+  });
+
+  it('attempts 1 and 2 have keys of their own', () => {
+    const keys = new Set([0, 1, 2].map((attempt) => cacheKey({ ...inputs, attempt })));
+    expect(keys.size).toBe(3);
+  });
+});

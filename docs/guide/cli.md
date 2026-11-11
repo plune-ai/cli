@@ -43,6 +43,7 @@ plune run [options]
 | `--cache-strict` | Every row must come from the cache; no model call for completions. A miss ends the run with exit `5` and lists the rows with no entry. Cannot be combined with `--no-cache`. |
 | `--cache-max-age <duration>` | Treat cache entries older than this (`90s`, `15m`, `12h`, `7d`) as a miss. |
 | `--bail` | Stop after the first eval that fails. |
+| `--runs <n>` | Run every dataset row `n` times (`1` to `100`) for this run, over `runs` in the config; `pass_threshold` still comes from the config. A value outside the range exits `2`. See [Repeats](./configuration.md#repeats-runs-and-pass_threshold). |
 | `--format <fmt>` | Output format: `console` (default), `json`, or `markdown`. |
 | `-o, --output <path>` | Write the report to a file instead of stdout. |
 
@@ -56,6 +57,7 @@ plune run --only tag:smoke         # all evals tagged "smoke"
 plune run --dry-run                # how much would a full run cost?
 plune run --no-cache --concurrency 8
 plune run --bail                   # fail fast
+plune run --runs 5 --no-cache      # five fresh runs of every row: how flaky is it?
 ```
 
 ### Output

@@ -5,7 +5,7 @@
 import type { RunResult } from '../types/results.js';
 import { rowStatus } from '../types/results.js';
 import { createStyler } from './style.js';
-import { truncate } from './helpers.js';
+import { repeatsText, truncate } from './helpers.js';
 
 const DEFAULT_MAX_OUTPUT = 500;
 
@@ -50,11 +50,13 @@ export function renderConsole(result: RunResult, opts: ConsoleOptions = {}): str
     let passedCount = 0;
     for (const row of ev.rows) {
       const status = rowStatus(row);
-      if (status === 'passed') {
-        passedCount += 1;
-        continue;
-      }
+      // A repeated row is always named, a passing one too: its count of passed runs is the result.
+      const repeats = repeatsText(row);
+      if (status === 'passed') passedCount += 1;
+      if (status === 'passed' && repeats === undefined) continue;
       lines.push(`  ${s.dim('vars:')} ${JSON.stringify(row.vars)}`);
+      if (repeats !== undefined) lines.push(`  ${repeats}`);
+      if (status === 'passed') continue;
       if (status === 'blocked' || status === 'skipped') {
         lines.push(`  ${s.yellow(status)} (not judged)`);
         continue;

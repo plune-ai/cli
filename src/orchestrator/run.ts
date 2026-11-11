@@ -33,6 +33,7 @@ import type {
 import type { Provider } from '../types/provider.js';
 import type { Embedder } from '../types/embedder.js';
 import type { Cache } from '../cache/cache.js';
+import { MAX_RUNS } from '../config/schema.js';
 
 const DEFAULT_MAX_TOKENS = 1024;
 const PLUNE_VERSION = '0.1.0';
@@ -63,6 +64,8 @@ export interface RowParams {
   cacheMaxAgeMs?: number;
   /** Test seam: the policy version in the key (default CACHE_POLICY_VERSION). */
   policyVersion?: number;
+  /** Which repeat of the row this is, from 0 (`runs`); from 1 on it has a cache key of its own. */
+  attempt?: number;
 }
 
 /** The code on a row left unanswered by `--cache-strict`; the CLI turns these into its own exit code. */
@@ -141,6 +144,7 @@ export async function runRow(p: RowParams): Promise<RowResult> {
       temperature: temperature ?? 0,
       max_tokens: maxTokens,
       prompt_resolved: prompt,
+      ...(p.attempt !== undefined ? { attempt: p.attempt } : {}),
     },
     p.policyVersion,
   );
@@ -273,6 +277,116 @@ export async function runRow(p: RowParams): Promise<RowResult> {
   };
 }
 
+// --- Repeats: one row run `runs` times, one verdict by `pass_threshold` ---
+
+/**
+ * Passes a row needs: ceil(pass_threshold × runs), never fewer than one. The 1e-9 allowance absorbs
+ * binary rounding: 0.7 × 10 is 7.000000000000001 in floating point, and a bare ceil would ask for 8.
+ */
+export function neededPasses(passThreshold: number, runs: number): number {
+  return Math.max(1, Math.ceil(passThreshold * runs - 1e-9));
+}
+
+type Attempt = NonNullable<RowResult['attempts']>['results'][number];
+type Tokens = { input_tokens: number; output_tokens: number; cost_usd: number };
+
+function toAttempt(r: RowResult): Attempt {
+  return {
+    output: r.output,
+    cached: r.cached,
+    ...(r.usage !== undefined ? { usage: r.usage } : {}),
+    ...(r.latency_ms !== undefined ? { latency_ms: r.latency_ms } : {}),
+    ...(r.error !== undefined ? { error: r.error } : {}),
+    assertions: r.assertions,
+    ...(r.cache_saved !== undefined ? { cache_saved: r.cache_saved } : {}),
+  };
+}
+
+function sumTokens(parts: Tokens[]): Tokens {
+  return parts.reduce(
+    (a, u) => ({
+      input_tokens: a.input_tokens + u.input_tokens,
+      output_tokens: a.output_tokens + u.output_tokens,
+      cost_usd: a.cost_usd + u.cost_usd,
+    }),
+    { input_tokens: 0, output_tokens: 0, cost_usd: 0 },
+  );
+}
+
+/** Usage summed over attempts: unpriced if any attempt was, absent `priced` when none said. */
+function sumUsage(parts: Usage[]): Usage {
+  const priced = parts.some((u) => u.priced === false)
+    ? false
+    : parts.some((u) => u.priced === true)
+      ? true
+      : undefined;
+  return { ...sumTokens(parts), ...pricedField(priced) };
+}
+
+/**
+ * Run one row `runs` times, one attempt after another (rows stay parallel), and give it one verdict:
+ * `passed` with at least `needed` passing attempts; else `errored` when the attempts that could not
+ * run might still have reached it (a verdict that rests on what was not measured is not a fail);
+ * else `failed`. Every attempt runs: stopping once the verdict is settled would lose the flakiness
+ * picture. `runs: 1` is `runRow` itself, with no `attempts` on the row.
+ */
+export async function runRepeats(
+  p: RowParams,
+  runs: number,
+  passThreshold: number,
+): Promise<RowResult> {
+  if (runs <= 1) return runRow(p);
+  const counts = { runs, pass_threshold: passThreshold, passed: 0, failed: 0, errored: 0 };
+
+  if (p.dryRun) {
+    // Nothing runs on a dry run: one estimate, priced for every repeat.
+    const one = await runRow(p);
+    const u = one.usage;
+    const usage =
+      u === undefined
+        ? undefined
+        : {
+            ...u,
+            input_tokens: u.input_tokens * runs,
+            output_tokens: u.output_tokens * runs,
+            cost_usd: u.cost_usd * runs,
+          };
+    return {
+      ...one,
+      ...(usage !== undefined ? { usage } : {}),
+      attempts: { ...counts, results: [] },
+    };
+  }
+
+  const rows: RowResult[] = [];
+  for (let attempt = 0; attempt < runs; attempt += 1) {
+    rows.push(await runRow({ ...p, attempt }));
+  }
+  const states = rows.map(rowStatus);
+  const passed = states.filter((s) => s === 'passed').length;
+  const failed = states.filter((s) => s === 'failed').length;
+  const errored = runs - passed - failed;
+  const needed = neededPasses(passThreshold, runs);
+  const verdict = passed >= needed ? 'passed' : passed + errored >= needed ? 'errored' : 'failed';
+  // There is always one: a failed verdict needs a failed attempt, an errored one an errored attempt.
+  const shown = rows[states.indexOf(verdict)]!;
+
+  const usages = rows.flatMap((r) => (r.usage !== undefined ? [r.usage] : []));
+  const saved = rows.flatMap((r) => (r.cache_saved !== undefined ? [r.cache_saved] : []));
+  const latencies = rows.flatMap((r) => (r.latency_ms !== undefined ? [r.latency_ms] : []));
+  return {
+    vars: p.row.vars,
+    output: shown.output,
+    cached: rows.every((r) => r.cached),
+    ...(usages.length > 0 ? { usage: sumUsage(usages) } : {}),
+    ...(latencies.length > 0 ? { latency_ms: latencies.reduce((a, b) => a + b, 0) } : {}),
+    ...(saved.length > 0 ? { cache_saved: sumTokens(saved) } : {}),
+    ...(shown.error !== undefined ? { error: shown.error } : {}),
+    assertions: shown.assertions,
+    attempts: { ...counts, passed, failed, errored, results: rows.map(toAttempt) },
+  };
+}
+
 // --- runOrchestration: drive evals × rows → RunResult (ADR-OR01/OR02) ---
 
 export interface RunOptions {
@@ -285,6 +399,8 @@ export interface RunOptions {
   cacheStrict?: boolean;
   /** `--cache-max-age`, in ms. */
   cacheMaxAgeMs?: number;
+  /** `--runs`: repeats of every row for this run, over `runs` in the config. */
+  runs?: number;
 }
 
 export interface RunDeps {
@@ -345,12 +461,13 @@ export function summarize(evals: EvalResult[], durationMs: number): Summary {
       summary.total += 1;
       summary[rowStatus(row)] += 1;
       summary.cost_usd += row.usage?.cost_usd ?? 0;
-      if (row.cached) {
-        cache.from_cache += 1;
-        cache.saved.input_tokens += row.cache_saved?.input_tokens ?? 0;
-        cache.saved.output_tokens += row.cache_saved?.output_tokens ?? 0;
-        cache.saved.cost_usd += row.cache_saved?.cost_usd ?? 0;
-      } else if (row.error?.code === CACHE_MISS_CODE) cache.missed += 1;
+      // Only a cache hit carries `cache_saved`; a repeated row with some attempts from the cache
+      // counts as from the model and still saved what those attempts did not pay.
+      cache.saved.input_tokens += row.cache_saved?.input_tokens ?? 0;
+      cache.saved.output_tokens += row.cache_saved?.output_tokens ?? 0;
+      cache.saved.cost_usd += row.cache_saved?.cost_usd ?? 0;
+      if (row.cached) cache.from_cache += 1;
+      else if (row.error?.code === CACHE_MISS_CODE) cache.missed += 1;
       else if (row.output !== null) cache.from_model += 1;
       else if (row.error !== undefined) cache.errored += 1;
     }
@@ -370,6 +487,12 @@ export async function runOrchestration(
   }
   if (noCache && options.cacheMaxAgeMs !== undefined) {
     throw new RunConfigError('--no-cache and --cache-max-age cannot be used together');
+  }
+  if (
+    options.runs !== undefined &&
+    !(Number.isInteger(options.runs) && options.runs >= 1 && options.runs <= MAX_RUNS)
+  ) {
+    throw new RunConfigError(`--runs must be a whole number from 1 to ${MAX_RUNS}`);
   }
   const started = deps.now();
   const dryRun = options.dryRun ?? false;
@@ -392,22 +515,29 @@ export async function runOrchestration(
     const provider = deps.resolveProvider(providerConfig);
     const limit = options.concurrency ?? providerConfig.concurrency ?? 4;
 
+    const runs = options.runs ?? ev.runs ?? config.runs ?? 1;
+    const passThreshold = ev.pass_threshold ?? config.pass_threshold ?? 1;
+
     const rowResults = await mapLimit(rows, limit, (row) =>
-      runRow({
-        template,
-        // `defaults.assertions` apply to every eval, ahead of its own (#2415).
-        assertions: [...(config.defaults?.assertions ?? []), ...ev.assertions],
-        row,
-        providerConfig,
-        provider,
-        embedder: deps.embedder,
-        cache: deps.cache,
-        now: deps.now,
-        dryRun,
-        noCache,
-        cacheStrict,
-        ...(options.cacheMaxAgeMs !== undefined ? { cacheMaxAgeMs: options.cacheMaxAgeMs } : {}),
-      }),
+      runRepeats(
+        {
+          template,
+          // `defaults.assertions` apply to every eval, ahead of its own (#2415).
+          assertions: [...(config.defaults?.assertions ?? []), ...ev.assertions],
+          row,
+          providerConfig,
+          provider,
+          embedder: deps.embedder,
+          cache: deps.cache,
+          now: deps.now,
+          dryRun,
+          noCache,
+          cacheStrict,
+          ...(options.cacheMaxAgeMs !== undefined ? { cacheMaxAgeMs: options.cacheMaxAgeMs } : {}),
+        },
+        runs,
+        passThreshold,
+      ),
     );
 
     const passed = rowResults.every((r) => rowStatus(r) === 'passed');

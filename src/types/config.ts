@@ -60,6 +60,7 @@ export interface LlmJudgeAssertion {
   type: 'llm-judge';
   criteria: string;
   provider?: Partial<ProviderConfig>;
+  /** The minimum judge score (0–1). Not the eval's `pass_threshold`, which is a share of runs. */
   pass_threshold?: number;
 }
 
@@ -113,6 +114,10 @@ export interface EvalConfig {
   prompt_file?: string;
   dataset: DatasetRef;
   assertions: AssertionConfig[];
+  /** Times each row runs, one after another (1–100, default 1). Overrides the root `runs`. */
+  runs?: number;
+  /** Share of a row's runs that must pass, in (0, 1] (default 1). Overrides the root value. */
+  pass_threshold?: number;
 }
 
 // --- Config root ---
@@ -122,5 +127,9 @@ export interface Config {
   provider: ProviderConfig;
   defaults?: { assertions?: AssertionConfig[] };
   pricing?: PricingMap;
+  /** Default `runs` for every eval. */
+  runs?: number;
+  /** Default `pass_threshold` (share of runs) for every eval. */
+  pass_threshold?: number;
   evals: EvalConfig[];
 }
