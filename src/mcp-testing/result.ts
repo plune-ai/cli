@@ -154,3 +154,57 @@ export interface McpDiffReport {
   changes: import('./snapshot/diff.js').ContractChange[];
   exitCode: 0 | 1 | 3;
 }
+
+// `plune mcp conformance`: the server against the text of the specification, check by check, with a score.
+
+/** The level of a requirement of the specification; the `level` of a conformance check. */
+export type RequirementLevel = 'MUST' | 'SHOULD' | 'MAY';
+
+/** One check of a conformance run: the fields every check result has, and why it was not measured. */
+export interface ConformanceResult {
+  id: string;
+  suite: import('./conformance/catalog.js').Suite;
+  kind: import('./conformance/catalog.js').CheckKind;
+  /** `deterministic` for a check or a control, `heuristic` for advice. */
+  class: Extract<CheckClass, 'deterministic' | 'heuristic'>;
+  /** Null for a control or advice. */
+  level: RequirementLevel | null;
+  /** The true verdict, also for a check outside the profile (it is `pending` for the score only). */
+  state: CheckState;
+  /** For `not-applicable` and `could-not-run`. */
+  reason?: import('./conformance/outcome.js').NotApplicableReason | import('./conformance/outcome.js').CouldNotRunReason;
+  /** Which bucket of the summary holds it. */
+  bucket: keyof import('./conformance/score.js').Buckets;
+  expected: string;
+  actual: string;
+  fix: string;
+  /** The first reference of the catalog entry, as a link and its section. */
+  specRef: string;
+}
+
+export interface McpConformanceReport {
+  kind: 'mcp-conformance-report';
+  schemaVersion: 1;
+  command: 'conformance';
+  /** The version of `@plune-ai/cli` that ran the checks. */
+  checkerVersion: string;
+  profileId: string;
+  profileVersion: string;
+  /** SHA-256 of the sorted ids of the profile. */
+  manifestDigest: string;
+  /** The revision the checks ran for: `--protocol-version`, else the one the server answered with; null without either. */
+  protocolVersion: string | null;
+  /** `auto` or the revision `--protocol-version` named. */
+  protocolVersionRequested: string;
+  server: { name: string; version: string } | null;
+  transport: 'stdio' | 'http' | 'sse';
+  suites: import('./conformance/catalog.js').Suite[];
+  checks: ConformanceResult[];
+  /** The checks that count for nothing yet: not in the profile, or no result. */
+  pendingCheckIds: string[];
+  /** One summary per selected suite, each from its own counts. */
+  bySuite: Partial<Record<import('./conformance/catalog.js').Suite, import('./conformance/score.js').Summary>>;
+  /** Every selected check: the counts of all suites added up, not an average of their scores. */
+  summary: import('./conformance/score.js').Summary;
+  exitCode: 0 | 1 | 3;
+}

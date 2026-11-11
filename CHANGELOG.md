@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **`plune mcp conformance`: the model of conformance checks.** One catalog of checks (stable id, suite, kind, `MUST`/`SHOULD`/`MAY`, cited sections, eras, transports), five states with reasons, a score that counts only `MUST` checks of a frozen profile (`2026-11.1`, its SHA-256 digest in every result), and `--list-checks`, `--explain`, `--suite`, `--check`, `--protocol-version`, `--format human|json`, `--out`. Exit `0` passed, `1` a scored check failed, `2` the server did not start or a flag is wrong, `3` conformance not established. The protocol checks are catalogued and report `pending` until they land, so a run scores nothing yet and exits `3`.
+
 ## [0.34.6] - 2026-11-10
 
 ### Fixed

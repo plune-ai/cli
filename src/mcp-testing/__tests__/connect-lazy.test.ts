@@ -18,13 +18,17 @@ vi.mock('../../cli/commands/mcp-check.js', () => {
   loaded.check = true;
   return {};
 });
-const contract = vi.hoisted(() => ({ snapshot: false, diff: false }));
+const contract = vi.hoisted(() => ({ snapshot: false, diff: false, conformance: false }));
 vi.mock('../../cli/commands/mcp-snapshot.js', () => {
   contract.snapshot = true;
   return {};
 });
 vi.mock('../../cli/commands/mcp-diff.js', () => {
   contract.diff = true;
+  return {};
+});
+vi.mock('../../cli/commands/mcp-conformance.js', () => {
+  contract.conformance = true;
   return {};
 });
 
@@ -60,12 +64,14 @@ describe('CLI · mcp connect · cold start', () => {
   it('CLI · mcp snapshot · --help of snapshot and diff loads neither command nor the connection core', () => {
     run(['mcp', 'snapshot', '--help']);
     run(['mcp', 'diff', '--help']);
+    run(['mcp', 'conformance', '--help']);
     expect({ ...loaded, ...contract }).toEqual({
       session: false,
       lint: false,
       check: false,
       snapshot: false,
       diff: false,
+      conformance: false,
     });
   });
 
@@ -91,7 +97,7 @@ describe('CLI · mcp connect · cold start', () => {
   it('CLI · mcp connect · mcp is a group: serve and lint under it', () => {
     const mcp = createProgram().commands.find((c) => c.name() === 'mcp');
     expect(
-      mcp?.commands.map((c) => c.name()).filter((n) => n !== 'snapshot' && n !== 'diff'),
+      mcp?.commands.map((c) => c.name()).filter((n) => !['snapshot', 'diff', 'conformance'].includes(n)),
     ).toEqual(['serve', 'check', 'lint']);
   });
 
@@ -100,6 +106,6 @@ describe('CLI · mcp connect · cold start', () => {
       createProgram()
         .commands.find((c) => c.name() === 'mcp')
         ?.commands.map((c) => c.name()) ?? [];
-    expect(names).toEqual(['serve', 'check', 'lint', 'snapshot', 'diff']);
+    expect(names).toEqual(['serve', 'check', 'lint', 'snapshot', 'diff', 'conformance']);
   });
 });

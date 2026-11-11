@@ -841,6 +841,37 @@ export function createProgram(): Command {
       }
     });
 
+  const repeat = (value: string, previous: string[] | undefined) => [...(previous ?? []), value];
+  addConnectionOptions(
+    mcp
+      .command('conformance')
+      .description(
+        'Check any MCP server against the specification, check by check, with a score: exit 1 on a failed MUST, 3 when conformance is not established',
+      ),
+  )
+    .option('--suite <suite>', 'protocol (default), oauth, tasks or apps; repeatable', repeat)
+    .option('--check <id>', 'Run only this check; repeatable', repeat)
+    .option('--protocol-version <revision>', 'The revision to check against, or auto (the one the server answers with)', 'auto')
+    .option('--format <format>', 'What to print: human or json', 'human')
+    .option('--out <path>', 'Also write the JSON result to this file')
+    .option('--list-checks', 'Print the check catalog and exit, without connecting to a server', false)
+    .option('--explain <id>', 'Print the full catalog entry of one check and exit')
+    .action(async (server: string[], options: import('./cli/commands/mcp-conformance.js').McpConformanceFlags, command: Command) => {
+      const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
+      const { handleMcpConformance } = await import('./cli/commands/mcp-conformance.js');
+      try {
+        process.exitCode = await handleMcpConformance(options, server, {
+          out: (s) => process.stdout.write(s),
+          err: (s) => process.stderr.write(s),
+          env: process.env,
+          cwd: process.cwd(),
+          clientVersion: pkg.version,
+        });
+      } catch (err) {
+        failUnexpected(err, verbose);
+      }
+    });
+
   program
     .command('sync')
     .description('Upload your latest local run to the Plune platform (POST /v1/runs)')

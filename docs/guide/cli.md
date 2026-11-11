@@ -480,6 +480,87 @@ does not change the class or the exit code.
 | `2` | A snapshot file cannot be read, is not JSON, is nested deeper than 256 levels, or has a `schemaVersion` this version does not read (the message names both); the server did not start or a declared list could not be read; or a flag is wrong. |
 | `3` | Nothing to compare: neither snapshot holds a tool, resource, resource template or prompt. |
 
+## `plune mcp conformance`
+
+Checks any MCP server against the text of the specification, check by check, and scores the run. It needs no
+Plune account. This release has the model, the catalog and the command; the checks themselves are catalogued but
+report `pending` until they land, so a run today scores nothing and exits `3`.
+
+```bash
+plune mcp conformance --list-checks                       # the catalog, no server
+plune mcp conformance --explain tools-list-shape          # one entry in full
+plune mcp conformance --format json --out r.json -- node dist/server.js
+```
+
+### Options
+
+The connection flags are those of every `plune mcp` command that tests a server. The command's own:
+
+| Option | Meaning |
+|--------|---------|
+| `--suite <suite>` | `protocol` (default), `oauth`, `tasks` or `apps`; repeatable. |
+| `--check <id>` | Run only this check; repeatable. An id the catalog does not have, or one outside the selected suites, is exit `2`. |
+| `--protocol-version <revision>` | The revision to check against, or `auto` (default): the one the server answered the handshake with. A check for the other era (`legacy`: up to 2025-11-25, `modern`: 2026-07-28 on) is `not-applicable` (`era`). |
+| `--format <fmt>` | `human` (default) or `json`. |
+| `--out <path>` | Also write the JSON result to this file, whole or not at all. |
+| `--list-checks` | Print the catalog (table, or JSON with `--format json`) and exit `0` without connecting. |
+| `--explain <id>` | Print one catalog entry in full and exit `0` without connecting. |
+
+### The catalog
+
+Every check has a stable kebab-case id that is never renamed, a suite, a title, a description, a kind (`check`: a
+requirement of the specification; `control`: a probe other checks rest on; `advice`: outside the specification),
+a level for a check (`MUST`, `SHOULD`, `MAY`), `derived` (the level is read from neighbouring provisions; the entry
+says which), the specification sections it cites (revision, page, section), the eras and transports it applies to,
+and whether it needs an input you give (`needsFixture`). `MUST` is used only where the cited section says MUST,
+MUST NOT or REQUIRED about that behaviour of the server; without a keyword the level is `SHOULD` at most.
+
+### States and the score
+
+Each check is `passed`, `failed`, `not-applicable` (with a reason: `era`, `capability-not-declared`, `transport`,
+`no-auth`), `could-not-run` (with a reason: `timeout`, `prerequisite-failed`, `needs-input`, `transport-error`) or
+`pending`. Each also lands in one bucket of the summary, so the buckets add up to the checks:
+
+| Bucket | Holds |
+|--------|-------|
+| `passed`, `failed` | `MUST` checks of the profile with that state. |
+| `couldNotRun` | `MUST` checks of the profile that could not run, but not for `needs-input`. |
+| `needsInput` | `MUST` checks of the profile that need an input you did not give. |
+| `notApplicable` | `MUST` checks of the profile that do not apply to this server. |
+| `pending` | `MUST` checks outside the profile (their verdict is shown, not scored), or with no result yet. |
+| `advisories` | `SHOULD`, `MAY` and advice: printed, never scored. |
+| `controls` | Controls: printed, never scored. |
+
+`score = floor(1000 × passed / applicable) / 10`, where `applicable = passed + failed + couldNotRun`, so 1999 of 2000
+is `99.9`, never `100`. With `applicable = 0` the score is `null`: an empty run proves nothing. Each suite has its
+own score; the summary of all suites adds their counts, it does not average their scores. The human report explains
+every number in one line, for example:
+
+```
+protocol: Score 91.6 = 22 of 24 | failed: life-ping-empty-result | could-not-run: base-jsonrpc-parse-error (timeout) | outside the score: not-applicable 12, pending 6, needs-input 3
+```
+
+The verdict is `failed` when a scored check failed; else `incomplete` when one could not run or nothing was
+measured; else `passed`.
+
+### The profile
+
+The score reads only the ids of a frozen profile, written out in the source and named in every result:
+`profileId`, `profileVersion` (`2026-11.1`), `manifestDigest` (SHA-256 of the sorted ids, one per line). A check
+added to the catalog later runs and shows its verdict, but stays in `pending` (and `pendingCheckIds`) until a new
+profile version lists it, so it never changes the score or the exit code of a server measured before. The result
+also records `checkerVersion` (this CLI's version), `protocolVersion`, `protocolVersionRequested`, `schemaVersion: 1`
+and, per check, `class`, `level`, `state`, `reason`, `expected`, `actual`, `fix` and `specRef`.
+
+### Exit codes
+
+| Exit | Meaning |
+|------|---------|
+| `0` | Every scored check that applies passed. |
+| `1` | A scored check failed. `SHOULD`, `MAY`, advice and checks outside the profile never give `1`. |
+| `2` | The server did not start or could not be reached, or a flag is wrong. |
+| `3` | Nothing failed, but conformance is not established: a scored check could not run, or nothing was measured. |
+
 ## Report formats of `plune mcp lint`, `check` and `diff`
 
 The three commands that test a server share one set of report flags and five formats, built from one
