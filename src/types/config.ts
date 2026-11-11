@@ -118,6 +118,44 @@ export interface EvalConfig {
   runs?: number;
   /** Share of a row's runs that must pass, in (0, 1] (default 1). Overrides the root value. */
   pass_threshold?: number;
+  /** The MCP server this eval's model may use, from the root `mcp.servers`. */
+  mcp?: EvalMcpConfig;
+}
+
+// --- MCP (agentic evals) ---
+
+/** Every limit is a whole number above 0; one left out takes its default (`MCP_LIMIT_DEFAULTS`). */
+export interface McpLimits {
+  max_steps?: number;
+  max_tool_calls?: number;
+  max_total_tokens?: number;
+  /** For one dataset row. */
+  timeout_ms?: number;
+  /** For one tool call. */
+  tool_timeout_ms?: number;
+}
+
+/** Exactly one of `command` (stdio, with `args`, `env`, `cwd`) or `url` (HTTP, with `headers`). Values may hold `${VAR}`. */
+export interface McpServerConfig {
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  cwd?: string;
+  url?: string;
+  headers?: Record<string, string>;
+}
+
+export interface McpConfig {
+  servers: Record<string, McpServerConfig>;
+  /** Defaults for every eval's `mcp.limits`. */
+  limits?: McpLimits;
+}
+
+export interface EvalMcpConfig {
+  server: string;
+  /** At least one name; left out, every tool the server lists. */
+  allowed_tools?: string[];
+  limits?: McpLimits;
 }
 
 // --- Config root ---
@@ -131,5 +169,7 @@ export interface Config {
   runs?: number;
   /** Default `pass_threshold` (share of runs) for every eval. */
   pass_threshold?: number;
+  /** MCP servers for agentic evals, and their default limits. */
+  mcp?: McpConfig;
   evals: EvalConfig[];
 }
