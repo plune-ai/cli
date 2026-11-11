@@ -74,23 +74,29 @@ pnpm build && pnpm exec vitest run -c vitest.e2e.config.ts src/mcp/__tests__/ser
 `pnpm test:e2e` runs it with the rest of the end-to-end suite.
 
 **CI checks the server with our own MCP commands.** Right after `Build`, the step «MCP — self-checks
-against the built server» runs `plune mcp lint` and `plune mcp check` (static: no tool is called) against
-the built `plune mcp serve`, with a made-up `PLUNE_TOKEN` and a platform address that leads nowhere, so it
-needs no secret and no network; both JUnit files are kept as the `mcp-self-check-junit` artifact. The
-same commands run nightly in `mcp-self-check-report.yml`, which imports the JUnit into Plune. Run them
-locally after `pnpm build` (Git Bash on Windows):
+against the built server» runs `scripts/mcp-self-check.mjs`: `plune mcp lint`, `plune mcp check` (static:
+no tool is called) and `plune mcp conformance` against the built `plune mcp serve`, with a made-up
+`PLUNE_TOKEN` and a platform address that leads nowhere, so it needs no secret and no network. The two
+JUnit files and the conformance JSON are kept as the `mcp-self-check-junit` artifact. The same script runs
+nightly in `mcp-self-check-report.yml`, which imports the JUnit into Plune. The script stops at once when a
+`*_API_KEY` variable is set, because no model may be reached; unset it for the local run. After `pnpm build`
+(Git Bash on Windows):
 
 ```bash
-export PLUNE_TOKEN=local-placeholder PLUNE_API_URL=http://127.0.0.1:9
-node dist/cli.cjs mcp lint --env PLUNE_TOKEN --env PLUNE_API_URL -- node dist/cli.cjs mcp serve
-node dist/cli.cjs mcp check --env PLUNE_TOKEN --env PLUNE_API_URL -- node dist/cli.cjs mcp serve
+PLUNE_TOKEN=local-placeholder PLUNE_API_URL=http://127.0.0.1:9 node scripts/mcp-self-check.mjs .plune/mcp-reports \
+  --env PLUNE_TOKEN --env PLUNE_API_URL -- node dist/cli.cjs mcp serve
 ```
 
-When the step is red, read the exit code first. `1`: a finding at the error level (the lint prints the
-rule, the tool and the fix) or a failed health check; fix the tool in `src/mcp-tools/contract.ts`, the
-same change the lint test above asks for. `2`: the server did not start or answer; its stderr tail is in
-the step log. `3`: nothing was measured, for example an empty tool list; that is never a pass. Do not
-add an exception to make the step green unless the finding is wrong, and then with its reason.
+`src/mcp/__tests__/self-check.e2e.test.ts` (part of `pnpm test:e2e`) runs the same script against a
+broken server, one that cannot start and one with no tools, and expects it red each time.
+
+When the step is red, read the exit code first: the script ends with the first non-zero one and prints
+each command's code. `1`: a finding at the error level (the lint prints the rule, the tool and the fix),
+a failed health check or a failed `MUST` conformance check; fix the tool in `src/mcp-tools/contract.ts`,
+the same change the lint test above asks for, or the server in `src/mcp/`. `2`: the server did not start
+or answer; its stderr tail is in the step log. `3`: nothing was measured, for example an empty tool list;
+that is never a pass. Do not add an exception to make the step green unless the finding is wrong, and
+then with its reason.
 
 **The budget test is red.** Its message names the list and its biggest tools. Make the tool smaller
 first: a description that repeats its schema, a nested schema that could be flatter. Raise a limit only
