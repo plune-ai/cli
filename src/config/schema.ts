@@ -103,6 +103,63 @@ const contextPrecisionAssertionSchema = z.object({
   threshold: z.number().min(0).max(1).optional(),
 });
 
+// --- Tool-call assertions: they read the transcript of an eval with `mcp` ---
+
+const toolName = z.string().min(1);
+const count = z.number().int().min(1);
+
+const toolCallAssertionSchemas = [
+  z.object({ type: z.literal('tool-called'), tool: toolName, min_count: count.optional() }),
+  z.object({ type: z.literal('tool-not-called'), tool: toolName }),
+  z.object({
+    type: z.literal('tool-args'),
+    tool: toolName,
+    args: z.record(z.string(), z.unknown()),
+    match: z.enum(['partial', 'exact', 'ignore']).optional(),
+    min_count: count.optional(),
+  }),
+  z.object({
+    type: z.literal('tool-order'),
+    tools: z.array(toolName).min(1),
+    strict: z.boolean().optional(),
+  }),
+  z.object({ type: z.literal('only-tools'), tools: z.array(toolName) }),
+  z.object({ type: z.literal('first-tool'), tool: toolName }),
+  z.object({ type: z.literal('no-tool-errors'), tool: toolName.optional() }),
+  z
+    .object({
+      type: z.literal('tool-call-count'),
+      tool: toolName.optional(),
+      min: z.number().int().min(0).optional(),
+      max: z.number().int().min(0).optional(),
+    })
+    .refine((a) => a.min !== undefined || a.max !== undefined, {
+      message: 'tool-call-count needs min, max or both',
+    })
+    .refine((a) => a.min === undefined || a.max === undefined || a.min <= a.max, {
+      message: 'tool-call-count: min is above max',
+    }),
+  z.object({ type: z.literal('no-repeated-call'), tool: toolName.optional() }),
+  z.object({ type: z.literal('token-budget'), max: count }),
+  z.object({ type: z.literal('tool-latency'), max_ms: z.number().positive(), tool: toolName.optional() }),
+  z.object({
+    type: z.literal('tool-result-size'),
+    max_bytes: z.number().int().min(0),
+    tool: toolName.optional(),
+  }),
+  z.object({
+    type: z.literal('tool-result-schema'),
+    schema: z.record(z.string(), z.unknown()),
+    tool: toolName.optional(),
+  }),
+  z.object({ type: z.literal('no-destructive-tool') }),
+] as const;
+
+/** The types that need an eval with `mcp`: everywhere else there is no transcript for them to read. */
+const TOOL_CALL_TYPES: ReadonlySet<string> = new Set(
+  toolCallAssertionSchemas.map((s) => s.shape.type.value),
+);
+
 // Exported: part of the public API (see src/index.ts). The Plune platform validates the
 // `assertions` array of a stored TestCase against this exact schema, so it must be the same
 // object the runner uses — not a copy that can drift.
@@ -117,6 +174,7 @@ export const assertionConfigSchema = z.discriminatedUnion('type', [
   faithfulnessAssertionSchema,
   answerRelevanceAssertionSchema,
   contextPrecisionAssertionSchema,
+  ...toolCallAssertionSchemas,
 ]);
 
 // --- Repeats: how many times each row runs, and the share of runs that must pass ---
@@ -233,7 +291,22 @@ export const pluneConfigSchema = z
   .superRefine((config, ctx) => {
     config.evals.forEach((evalConfig, i) => {
       const server = evalConfig.mcp?.server;
-      if (server === undefined || config.mcp?.servers[server] !== undefined) return;
+      if (server === undefined) {
+        // Refused here, before any model call: without `mcp` a tool-call assertion has nothing to measure.
+        const misplaced = (assertions: { type: string }[], path: (string | number)[]) =>
+          assertions.forEach((a, j) => {
+            if (TOOL_CALL_TYPES.has(a.type))
+              ctx.addIssue({
+                code: 'custom',
+                path: [...path, j, 'type'],
+                message: `"${a.type}" reads the tool calls of an eval with mcp, and eval "${evalConfig.id}" has no mcp block`,
+              });
+          });
+        misplaced(config.defaults?.assertions ?? [], ['defaults', 'assertions']);
+        misplaced(evalConfig.assertions, ['evals', i, 'assertions']);
+        return;
+      }
+      if (config.mcp?.servers[server] !== undefined) return;
       ctx.addIssue({
         code: 'custom',
         path: ['evals', i, 'mcp', 'server'],

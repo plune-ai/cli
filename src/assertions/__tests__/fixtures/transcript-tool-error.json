@@ -1,0 +1,78 @@
+{
+  "server": "fx",
+  "tools": [
+    {
+      "name": "echo",
+      "offered": true,
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "files/read",
+      "offered": true,
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "fail",
+      "offered": true
+    },
+    {
+      "name": "big",
+      "offered": true
+    },
+    {
+      "name": "slow",
+      "offered": true
+    },
+    {
+      "name": "crash",
+      "offered": true
+    }
+  ],
+  "steps": [
+    {
+      "index": 1,
+      "text": "",
+      "finish_reason": "tool_calls",
+      "usage": {
+        "input_tokens": 10,
+        "output_tokens": 5,
+        "cost_usd": 0
+      },
+      "calls": [
+        {
+          "id": "call_0_0",
+          "name": "fail",
+          "args": {},
+          "executed": true,
+          "is_error": true,
+          "duration_ms": 2,
+          "error_kind": "content",
+          "result": {
+            "text": "the tool failed",
+            "bytes": 15,
+            "truncated": false
+          }
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "text": "done, the tool failed",
+      "finish_reason": "stop",
+      "usage": {
+        "input_tokens": 10,
+        "output_tokens": 5,
+        "cost_usd": 0
+      },
+      "calls": []
+    }
+  ],
+  "stop": {
+    "reason": "complete"
+  },
+  "collection": "complete"
+}

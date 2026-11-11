@@ -12,11 +12,17 @@ import { llmJudge } from './llm-judge.js';
 import { faithfulness } from './faithfulness.js';
 import { answerRelevance } from './answer-relevance.js';
 import { contextPrecision } from './context-precision.js';
+import { onlyTools, toolArgs, toolCalled, toolNotCalled } from './tool-calls/calls.js';
+import { firstTool, noRepeatedCall, toolOrder } from './tool-calls/order.js';
+import { noDestructiveTool, noToolErrors, toolResultSchema } from './tool-calls/errors.js';
+import { tokenBudget, toolCallCount, toolLatency, toolResultSize } from './tool-calls/measures.js';
 
 export interface AssertionRegistry {
   register(type: string, impl: Assertion): void;
   resolve(type: string): Assertion;
   has(type: string): boolean;
+  /** Every registered type, in registration order. */
+  types(): string[];
 }
 
 export function createAssertionRegistry(): AssertionRegistry {
@@ -40,12 +46,15 @@ export function createAssertionRegistry(): AssertionRegistry {
     has(type) {
       return impls.has(type);
     },
+    types() {
+      return [...impls.keys()];
+    },
   };
 }
 
 // Each impl is typed to its own params (Assertion<KindParams>); the registry erases that to
 // Assertion<unknown>. The cast is sound because the config schema guarantees the params handed
-// to run(ctx) match the resolved kind. All 10 documented kinds are registered.
+// to run(ctx) match the resolved kind. All 24 documented kinds are registered.
 export function createDefaultRegistry(): AssertionRegistry {
   const registry = createAssertionRegistry();
   registry.register('exact-match', exactMatch as Assertion);
@@ -58,6 +67,20 @@ export function createDefaultRegistry(): AssertionRegistry {
   registry.register('faithfulness', faithfulness as Assertion);
   registry.register('answer-relevance', answerRelevance as Assertion);
   registry.register('context-precision', contextPrecision as Assertion);
+  registry.register('tool-called', toolCalled as Assertion);
+  registry.register('tool-not-called', toolNotCalled as Assertion);
+  registry.register('tool-args', toolArgs as Assertion);
+  registry.register('tool-order', toolOrder as Assertion);
+  registry.register('only-tools', onlyTools as Assertion);
+  registry.register('first-tool', firstTool as Assertion);
+  registry.register('no-tool-errors', noToolErrors as Assertion);
+  registry.register('tool-call-count', toolCallCount as Assertion);
+  registry.register('no-repeated-call', noRepeatedCall as Assertion);
+  registry.register('token-budget', tokenBudget as Assertion);
+  registry.register('tool-latency', toolLatency as Assertion);
+  registry.register('tool-result-size', toolResultSize as Assertion);
+  registry.register('tool-result-schema', toolResultSchema as Assertion);
+  registry.register('no-destructive-tool', noDestructiveTool as Assertion);
   return registry;
 }
 

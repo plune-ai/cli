@@ -5,6 +5,7 @@
 
 import type {
   AgentCall,
+  AgentRecord,
   AgentStep,
   AgentTranscript,
   RowResult,
@@ -330,7 +331,13 @@ export async function runAgentRow(p: AgentRowParams): Promise<RowResult> {
     };
   }
 
-  const { records, assertionError, judgeCost, judgeUnpriced } = await assess(p, output);
+  // The tool-call assertions read the masked transcript, so their reasons carry no server value either.
+  const { records, assertionError, judgeCost, judgeUnpriced, advice } = await assess(
+    p,
+    output,
+    agent,
+  );
+  if (advice.length > 0) (agent as AgentRecord).advice = advice;
   const usage = sumUsage(usages);
   return {
     vars: p.row.vars,

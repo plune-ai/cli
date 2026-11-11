@@ -227,6 +227,24 @@ export interface AgentTranscript {
   collection: 'complete' | 'partial';
 }
 
+/** What a heuristic assertion (`no-repeated-call`) found: advice, never a verdict. */
+export interface AgentAdvice {
+  type: string;
+  reason: string;
+}
+
+/**
+ * `RowResult.agent` as the runner writes it: with `advice` when a heuristic found something. The advice is not in the
+ * row's `assertions` and does not change its status. It is kept beside the golden-pinned `AgentTranscript` rather
+ * than in it, so the frozen type is unchanged; the RunResult schema validates it as an optional field.
+ */
+export type AgentRecord = AgentTranscript & { advice?: AgentAdvice[] };
+
+/** The advice on a row, empty when there is none. */
+export function adviceOf(row: RowResult): AgentAdvice[] {
+  return (row.agent as AgentRecord | undefined)?.advice ?? [];
+}
+
 export type RowStatus = 'passed' | 'failed' | 'errored' | RowInconclusive;
 
 /**

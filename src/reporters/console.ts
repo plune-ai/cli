@@ -3,7 +3,7 @@
 // Color is gated by the injected styler.
 
 import type { RunResult } from '../types/results.js';
-import { rowStatus } from '../types/results.js';
+import { adviceOf, rowStatus } from '../types/results.js';
 import { createStyler } from './style.js';
 import { repeatsText, truncate } from './helpers.js';
 
@@ -52,10 +52,13 @@ export function renderConsole(result: RunResult, opts: ConsoleOptions = {}): str
       const status = rowStatus(row);
       // A repeated row is always named, a passing one too: its count of passed runs is the result.
       const repeats = repeatsText(row);
+      // Heuristic findings: shown on any row, a passing one too, and never a failure.
+      const advice = adviceOf(row);
       if (status === 'passed') passedCount += 1;
-      if (status === 'passed' && repeats === undefined) continue;
+      if (status === 'passed' && repeats === undefined && advice.length === 0) continue;
       lines.push(`  ${s.dim('vars:')} ${JSON.stringify(row.vars)}`);
       if (repeats !== undefined) lines.push(`  ${repeats}`);
+      for (const a of advice) lines.push(`  ${s.yellow('advice')} ${a.type}: ${a.reason}`);
       if (status === 'passed') continue;
       if (status === 'blocked' || status === 'skipped') {
         lines.push(`  ${s.yellow(status)} (not judged)`);
