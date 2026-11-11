@@ -1,9 +1,9 @@
 # JUnit reports of `plune mcp`
 
-Each `.xml` here is what `plune mcp lint`, `check` or `diff` wrote with `--reporter junit-xml --out <file>`, run
-through the real command line (`src/cli.ts`) against the fixture servers of the folder above (`lint-server.mjs`,
-`check-server.mjs`, `snapshot-server.mjs`). None is written by hand. `generate.ts` lists every file, what it shows and
-the arguments that write it.
+Each `.xml` here is what `plune mcp lint`, `check`, `diff` or `conformance` wrote with `--reporter junit-xml --out
+<file>`, run through the real command line (`src/cli.ts`) against the fixture servers of the folder above
+(`lint-server.mjs`, `check-server.mjs`, `snapshot-server.mjs`, `conformance-server.mjs`). None is written by hand.
+`generate.ts` lists every file, what it shows and the arguments that write it.
 
 Write them again after a change to the report formats, the lint rules or the checks:
 
@@ -19,6 +19,7 @@ What keeps them stable:
 
 - `classname` is `mcp.<command>` and `name` the id of the check (a rule id for `lint`, a check id for `check`, one of
   `breaking-changes`, `contract-changes`, `unclassified-changes`, `security-signals` for `diff`): no count, server name, version or time;
+  for `conformance` `classname` is `mcp.conformance.<suite>` and `name` the id of the check in the catalog;
 - the suite has no `timestamp`;
 - `time` (how long a check of `check` took) is the one field two runs differ in, and the script removes the attribute
   from every case. Nothing else is changed.

@@ -494,6 +494,7 @@ writes to stdout and whether it exits when stdin closes.
 plune mcp conformance --list-checks                       # the catalog, no server
 plune mcp conformance --explain tools-list-shape          # one entry in full
 plune mcp conformance --format json --out r.json -- node dist/server.js
+plune mcp conformance --out json=conformance.json --out junit-xml=conformance.xml -- node dist/server.js
 plune mcp conformance --fixture calls.json --url http://127.0.0.1:3000/mcp
 ```
 
@@ -528,7 +529,8 @@ The connection flags are those of every `plune mcp` command that tests a server.
 | `--check <id>` | Run only this check; repeatable. An id the catalog does not have, or one outside the selected suites, is exit `2`. |
 | `--protocol-version <revision>` | The revision to check against, or `auto` (default): the one the server answered the handshake with. A check for the other era (`legacy`: up to 2025-11-25, `modern`: 2026-07-28 on) is `not-applicable` (`era`). |
 | `--format <fmt>` | `human` (default) or `json`. |
-| `--out <path>` | Also write the JSON result to this file, whole or not at all. |
+| `--reporter junit-xml` | A bare `--out <path>` is written as JUnit XML instead of JSON. It needs an `--out`. |
+| `--out [<format>=]<path>` | Also write the result to a file, whole or not at all; repeatable. Without a format the file is JSON (JUnit with `--reporter junit-xml`); with one, `json` or `junit-xml`. As for the other commands (see [Report formats](#report-formats-of-plune-mcp-lint-check-and-diff)), the files come from one run and are written before anything is printed. |
 | `--list-checks` | Print the catalog (table, or JSON with `--format json`) and exit `0` without connecting. |
 | `--explain <id>` | Print one catalog entry in full and exit `0` without connecting. |
 | `--fixture <file>` | A JSON list of `{ "tool", "arguments" }`: the only tools the run calls, for the checks of tool results. |
@@ -588,6 +590,26 @@ and, per check, `class`, `level`, `state`, `reason`, `expected`, `actual`, `fix`
 | `1` | A scored check failed. `SHOULD`, `MAY`, advice and checks outside the profile never give `1`. |
 | `2` | The server did not start or could not be reached, or a flag is wrong. |
 | `3` | Nothing failed, but conformance is not established: a scored check could not run, or nothing was measured. |
+
+### JUnit XML
+
+`--reporter junit-xml` (or `--out junit-xml=<path>`) writes one `<testcase>` per selected check: `classname`
+`mcp.conformance.<suite>` (`mcp.conformance.protocol`), `name` the check id, so `classname#name` is the same on
+every run. The text of a case gives the reason of its state, `expected`, `actual`, `fix` and `spec` (the
+`specRef`), with secrets masked as in the JSON result.
+
+| State | In JUnit |
+|-------|----------|
+| `passed` | `<testcase>` with nothing inside |
+| `failed`, a `MUST` check of the profile | `<failure>` |
+| `failed`, anything else (`SHOULD`, `MAY`, advice, a control) | `<skipped type="advisory">` |
+| `could-not-run` | `<error type="could-not-run">`, the reason first (`could-not-run: timeout: …`) |
+| `not-applicable` | `<skipped type="not-applicable">`, the reason first |
+| `pending` | `<skipped type="pending">` |
+
+So a `<failure>` is there exactly when the exit code is `1`. `could-not-run` is never a pass: it is an `<error>`
+even when it leaves the exit code alone (`needs-input`, or a check that is not scored). A run with no check
+selected is one case `run` that could not run.
 
 ## Report formats of `plune mcp lint`, `check` and `diff`
 
@@ -652,7 +674,9 @@ so `classname#name`, the key `plune run import` matches a case by, is the same o
 - `check`: one case per check, and `smoke` (`not-applicable` without `--smoke`), with each call in
   its text;
 - `diff`: `breaking-changes`, `contract-changes` (every change), `unclassified-changes` and
-  `security-signals`.
+  `security-signals`;
+- `plune mcp conformance` writes the same file, one case per check under `mcp.conformance.<suite>`
+  (see [its JUnit XML](#junit-xml)).
 
 A case's text spells out at most 200 findings, then one line with how many more the JSON holds.
 

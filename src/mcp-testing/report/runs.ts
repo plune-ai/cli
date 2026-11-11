@@ -5,9 +5,16 @@
  */
 
 import { printable } from '../../reporter-core/failure-detail.js';
+import { catalogEntry } from '../conformance/catalog.js';
 import { MCP_EXIT } from '../exit-codes.js';
 import { CALL_RULES, compareLevels, LINT_RULES } from '../lint/index.js';
-import type { HealthCheckId, McpCheckReport, McpDiffReport, McpReport } from '../result.js';
+import type {
+  HealthCheckId,
+  McpCheckReport,
+  McpConformanceReport,
+  McpDiffReport,
+  McpReport,
+} from '../result.js';
 import type { ContractChange } from '../snapshot/index.js';
 import type { McpRun, ReportCheck } from './model.js';
 
@@ -303,5 +310,41 @@ export function diffRun(report: McpDiffReport): McpRun {
     cases: DIFF_CASES.map((c) => ({ id: c.id, title: c.title })),
     checks: checks.map(clean),
     nothing: '',
+  };
+}
+
+const LEVEL = { MUST: 'error', SHOULD: 'warn', MAY: 'info' } as const;
+
+/**
+ * One case per selected check, `classname` `mcp.conformance.<suite>`. A failed check is a `<failure>` only when the
+ * score counts it (a `MUST` of the profile, the `failed` bucket): that is what gives exit 1. A failed `SHOULD`, `MAY`,
+ * advice or control is advice, as a finding below `--fail-on` is for lint. The reason of `could-not-run` and
+ * `not-applicable` leads the message.
+ */
+export function conformanceRun(report: McpConformanceReport): McpRun {
+  const checks = report.checks.map(
+    (r): ReportCheck => ({
+      id: r.id,
+      title: catalogEntry(r.id)?.title ?? r.id,
+      target: '',
+      state: r.state,
+      class: r.class,
+      level: r.level === null ? 'info' : LEVEL[r.level],
+      message: [r.reason, r.actual].filter((s) => s !== undefined && s !== '').join(': ') || r.expected,
+      expected: r.expected,
+      actual: r.actual,
+      fix: r.fix,
+      specRef: r.specRef,
+      durationMs: null,
+      ...(r.state === 'failed' && r.bucket !== 'failed' ? { advisory: true as const } : {}),
+    }),
+  );
+  return {
+    command: 'conformance',
+    document: report,
+    cases: report.checks.map((r) => ({ id: r.id, title: catalogEntry(r.id)?.title ?? r.id, suite: r.suite })),
+    checks: checks.map(clean),
+    nothing: 'no check of the catalog is in the selected suites',
+    showInfo: false,
   };
 }

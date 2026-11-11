@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="plune mcp conformance" tests="5" failures="0" errors="3" skipped="1">
+  <testsuite name="plune mcp conformance" tests="5" failures="0" errors="3" skipped="1">
+    <testcase classname="mcp.conformance.protocol" name="life-initialize-result"/>
+    <testcase classname="mcp.conformance.protocol" name="life-ping-empty-result">
+      <error type="could-not-run" message="could-not-run: timeout: The server did not answer within --timeout.">timeout: The server did not answer within --timeout.
+expected: ping is answered promptly with result: {}.
+actual: The server did not answer within --timeout.
+fix: 
+spec: https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping (Behavior Requirements)</error>
+    </testcase>
+    <testcase classname="mcp.conformance.protocol" name="tools-structured-conformant">
+      <error type="could-not-run" message="could-not-run: needs-input: No --fixture: no tool is called without one. Name a safe tool and its arguments in a fixture file to run this check.">needs-input: No --fixture: no tool is called without one. Name a safe tool and its arguments in a fixture file to run this check.
+expected: The structuredContent of a call (from the fixture) conforms to the tool's outputSchema.
+actual: No --fixture: no tool is called without one. Name a safe tool and its arguments in a fixture file to run this check.
+fix: 
+spec: https://modelcontextprotocol.io/specification/2025-11-25/server/tools (Output Schema)</error>
+    </testcase>
+    <testcase classname="mcp.conformance.protocol" name="tools-name-format">
+      <error type="could-not-run" message="could-not-run: timeout: The server did not answer within --timeout.">timeout: The server did not answer within --timeout.
+expected: Each tool name is 1 to 128 characters of A-Z, a-z, 0-9, _, - and ., without spaces or commas.
+actual: The server did not answer within --timeout.
+fix: 
+spec: https://modelcontextprotocol.io/specification/2025-11-25/server/tools (Tool Names)</error>
+    </testcase>
+    <testcase classname="mcp.conformance.protocol" name="tools-list-order-stable">
+      <skipped type="not-applicable" message="not-applicable: era">era
+expected: Two calls of tools/list give the tools in the same order.
+actual: 
+fix: 
+spec: https://modelcontextprotocol.io/specification/2026-07-28/server/tools (Capabilities)</skipped>
+    </testcase>
+  </testsuite>
+</testsuites>

@@ -8,10 +8,11 @@
 import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { UsageError } from '../connect/options.js';
-import type { McpCheckReport, McpDiffReport, McpReport } from '../result.js';
+import type { McpCheckReport, McpConformanceReport, McpDiffReport, McpReport } from '../result.js';
 import { markdownCell } from '../snapshot/index.js';
 import {
   checkHuman,
+  conformanceHuman,
   diffHuman,
   diffMarkdown,
   lintHuman,
@@ -23,7 +24,7 @@ import type { ReportFormat, ReportOutputs } from './options.js';
 
 export * from './model.js';
 export * from './options.js';
-export { checkRun, diffRun, lintRun } from './runs.js';
+export { checkRun, conformanceRun, diffRun, lintRun } from './runs.js';
 
 const firstLine = (text: string) => text.split(/\r?\n/)[0] ?? '';
 
@@ -113,7 +114,9 @@ export function render(run: McpRun, format: ReportFormat): string {
           ? lintHuman(run.document as McpReport, { showInfo: run.showInfo })
           : run.command === 'check'
             ? checkHuman(run.document as McpCheckReport)
-            : diffHuman(run.document as McpDiffReport),
+            : run.command === 'conformance'
+              ? conformanceHuman(run.document as McpConformanceReport)
+              : diffHuman(run.document as McpDiffReport),
       );
     case 'markdown':
       return noCommands(
@@ -176,6 +179,7 @@ function outcomeOf(checks: ReportCheck[]): CaseOutcome {
 interface Case {
   id: string;
   title: string;
+  suite?: string;
   outcome: CaseOutcome;
   durationMs: number | null;
 }
@@ -199,12 +203,13 @@ function casesOf(run: McpRun): Case[] {
     };
     return [{ id: 'run', title: check.title, outcome: outcomeOf([check]), durationMs: null }];
   }
-  return run.cases.map(({ id, title }) => {
+  return run.cases.map(({ id, title, suite }) => {
     const mine = run.checks.filter((c) => c.id === id);
     const timed = mine.filter((c) => c.durationMs !== null);
     return {
       id,
       title,
+      ...(suite === undefined ? {} : { suite }),
       outcome: outcomeOf(mine),
       durationMs:
         timed.length === 0 ? null : timed.reduce((sum, c) => sum + (c.durationMs ?? 0), 0),
@@ -359,9 +364,9 @@ const xmlAttr = (s: string) =>
     .replace(/\r/g, '&#13;');
 
 /**
- * One `<testsuite>` of the fixed cases, `classname` `mcp.<command>` and `name` the case id: no count, version or time
- * in either, so `classname#name` (the key `plune run import` matches on) is the same on every run. `time` is the
- * only field that differs between two runs of one server; there is no `timestamp`.
+ * One `<testsuite>` of the fixed cases, `classname` `mcp.<command>` (`mcp.conformance.<suite>`) and `name` the case
+ * id: no count, version or time in either, so `classname#name` (the key `plune run import` matches on) is the same on
+ * every run. `time` is the only field that differs between two runs of one server; there is no `timestamp`.
  */
 function junitXml(run: McpRun): string {
   const cases = casesOf(run);
@@ -374,7 +379,8 @@ function junitXml(run: McpRun): string {
   ];
   for (const c of cases) {
     const time = c.durationMs === null ? '' : ` time="${(c.durationMs / 1000).toFixed(3)}"`;
-    const head = `    <testcase classname="mcp.${run.command}" name="${xmlAttr(c.id)}"${time}`;
+    const classname = c.suite === undefined ? `mcp.${run.command}` : `mcp.${run.command}.${c.suite}`;
+    const head = `    <testcase classname="${xmlAttr(classname)}" name="${xmlAttr(c.id)}"${time}`;
     if (c.outcome.kind === 'pass') {
       lines.push(`${head}/>`);
       continue;
