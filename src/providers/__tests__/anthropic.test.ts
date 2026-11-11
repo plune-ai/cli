@@ -84,6 +84,27 @@ describe('AnthropicProvider (ADR-PRV01)', () => {
     }
   });
 
+  it('never sends reasoning_effort, and says so once per model', async () => {
+    mockCreate.mockResolvedValue({ content: [{ type: 'text', text: 'x' }], usage: { input_tokens: 1, output_tokens: 1 } });
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      const model = 'claude-haiku-4-5-20251001';
+      const cfg: ProviderConfig = { type: 'anthropic', model, reasoning_effort: 'none' };
+      const provider = makeAnthropicProvider(cfg, { ANTHROPIC_API_KEY: 'sk-test' });
+      makeAnthropicProvider(cfg, { ANTHROPIC_API_KEY: 'sk-test' });
+      await provider.complete({ ...req, model });
+      await provider.respond!({ provider: 'anthropic', model, max_tokens: 100, messages: [], tools: [] });
+      expect(mockCreate).toHaveBeenCalledTimes(2);
+      for (const call of mockCreate.mock.calls) expect(call[0]).not.toHaveProperty('reasoning_effort');
+      expect(stderr).toHaveBeenCalledTimes(1);
+      expect(stderr.mock.calls[0]?.[0]).toBe(
+        `warning: ${model} does not take reasoning_effort; the configured value none is not sent\n`,
+      );
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+
   it('still sends the temperature to claude-haiku-4-5, in both request paths', async () => {
     mockCreate.mockResolvedValue({ content: [{ type: 'text', text: 'x' }], usage: { input_tokens: 1, output_tokens: 1 } });
     const model = 'claude-haiku-4-5';

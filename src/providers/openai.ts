@@ -83,11 +83,20 @@ export interface OpenAiCompatibleOptions {
    * `max_tokens`). Off, it goes as `max_tokens`, which OpenAI-compatible endpoints such as OpenRouter take.
    */
   maxCompletionTokens?: boolean;
+  /**
+   * Send the configured `reasoning_effort` as is (the direct OpenAI provider). Off, it is never sent: OpenRouter's
+   * reasoning parameter has another shape.
+   */
+  sendsReasoningEffort?: boolean;
 }
 
 /** Build a Provider backed by the OpenAI SDK against any OpenAI-compatible endpoint. */
 export function makeOpenAiCompatibleProvider(opts: OpenAiCompatibleOptions): Provider {
-  const { config, env, pricing, apiKeyEnv, baseURL, reportsCost, maxCompletionTokens } = opts;
+  const { config, env, pricing, apiKeyEnv, baseURL, reportsCost, maxCompletionTokens, sendsReasoningEffort } = opts;
+  const reasoning =
+    sendsReasoningEffort && config.reasoning_effort !== undefined
+      ? { reasoning_effort: config.reasoning_effort }
+      : {};
 
   const apiKey = env[apiKeyEnv];
   if (apiKey === undefined || apiKey.trim() === '') {
@@ -116,6 +125,7 @@ export function makeOpenAiCompatibleProvider(opts: OpenAiCompatibleOptions): Pro
               ...(maxCompletionTokens
                 ? { max_completion_tokens: req.max_tokens }
                 : { max_tokens: req.max_tokens }),
+              ...reasoning,
               messages: [{ role: 'user', content: req.prompt_resolved }],
               // OpenRouter extension: ask it to include the call's actual cost in `usage` (ADR-PRC02).
               ...(reportsCost ? { usage: { include: true } } : {}),
@@ -155,6 +165,7 @@ export function makeOpenAiCompatibleProvider(opts: OpenAiCompatibleOptions): Pro
               ...(maxCompletionTokens
                 ? { max_completion_tokens: req.max_tokens }
                 : { max_tokens: req.max_tokens }),
+              ...reasoning,
               messages: toOpenAiMessages(req.messages),
               tools: req.tools.map((t) => ({
                 type: 'function' as const,
@@ -208,5 +219,6 @@ export function makeOpenAiProvider(
     pricing,
     apiKeyEnv: 'OPENAI_API_KEY',
     maxCompletionTokens: true,
+    sendsReasoningEffort: true,
   });
 }

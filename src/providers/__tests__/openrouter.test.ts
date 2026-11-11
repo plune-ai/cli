@@ -38,6 +38,18 @@ describe('OpenRouterProvider (ADR-PRV01)', () => {
     );
   });
 
+  it('never sends reasoning_effort, in either request path: its reasoning parameter has another shape', async () => {
+    mockCreate.mockResolvedValue({
+      choices: [{ message: { content: 'x' } }],
+      usage: { prompt_tokens: 1, completion_tokens: 1 },
+    });
+    const provider = makeOpenRouterProvider({ ...config, reasoning_effort: 'none' }, { OPENROUTER_API_KEY: 'sk-or-test' });
+    await provider.complete(req);
+    await provider.respond!({ provider: 'openrouter', model: config.model, max_tokens: 100, messages: [], tools: [] });
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+    for (const call of mockCreate.mock.calls) expect(call[0]).not.toHaveProperty('reasoning_effort');
+  });
+
   it('reports finish_reason, and an error inside the choice as error', async () => {
     const provider = makeOpenRouterProvider(config, { OPENROUTER_API_KEY: 'sk-or-test' });
     mockCreate.mockResolvedValue({

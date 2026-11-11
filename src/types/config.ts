@@ -6,6 +6,8 @@ export interface ProviderConfig {
   concurrency?: number;
   timeout?: number;
   max_retries?: number;
+  /** Sent as is by `openai` only (Chat Completions `reasoning_effort`); `anthropic` warns and drops it, `openrouter` drops it. */
+  reasoning_effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 }
 
 // Per-model price override (ADR-PRV04). Keyed by model id; values are USD per 1K tokens.

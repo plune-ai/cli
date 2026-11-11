@@ -38,6 +38,8 @@ provider:
   model: gpt-6-luna
   temperature: 0
   max_tokens: 1024
+  # For gpt-6-luna: its Chat Completions refuse function tools with reasoning on. The anthropic row ignores it, with a warning.
+  reasoning_effort: none
 
 # Provisional: 3 runs a row, 2 of 3 must pass. Set from the spread the first real run measures, not before.
 runs: 3
