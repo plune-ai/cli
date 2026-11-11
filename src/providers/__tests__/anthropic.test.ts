@@ -65,6 +65,35 @@ describe('AnthropicProvider (ADR-PRV01)', () => {
     expect(mockCreate.mock.calls[1]?.[0]).toMatchObject({ temperature: 0 });
   });
 
+  it('sends no temperature to a model that refuses sampling parameters, and says so once', async () => {
+    mockCreate.mockResolvedValue({ content: [{ type: 'text', text: 'x' }], usage: { input_tokens: 1, output_tokens: 1 } });
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      const model = 'claude-sonnet-5-5';
+      const provider = makeAnthropicProvider({ type: 'anthropic', model }, { ANTHROPIC_API_KEY: 'sk-test' });
+      await provider.complete({ ...req, model });
+      await provider.complete({ ...req, model });
+      await provider.respond!({ provider: 'anthropic', model, temperature: 0, max_tokens: 100, messages: [], tools: [] });
+      for (const call of mockCreate.mock.calls) expect(call[0]).not.toHaveProperty('temperature');
+      expect(stderr).toHaveBeenCalledTimes(1);
+      expect(stderr.mock.calls[0]?.[0]).toBe(
+        'warning: claude-sonnet-5-5 does not take a temperature; the configured temperature 0 is not sent\n',
+      );
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+
+  it('still sends the temperature to claude-haiku-4-5, in both request paths', async () => {
+    mockCreate.mockResolvedValue({ content: [{ type: 'text', text: 'x' }], usage: { input_tokens: 1, output_tokens: 1 } });
+    const model = 'claude-haiku-4-5';
+    const provider = makeAnthropicProvider({ type: 'anthropic', model }, { ANTHROPIC_API_KEY: 'sk-test' });
+    await provider.complete({ ...req, model, temperature: 0.3 });
+    await provider.respond!({ provider: 'anthropic', model, temperature: 0.3, max_tokens: 100, messages: [], tools: [] });
+    expect(mockCreate.mock.calls[0]?.[0]).toMatchObject({ temperature: 0.3 });
+    expect(mockCreate.mock.calls[1]?.[0]).toMatchObject({ temperature: 0.3 });
+  });
+
   it('constructs the SDK client with maxRetries: 0 (own retry owns it)', () => {
     makeAnthropicProvider(config, { ANTHROPIC_API_KEY: 'sk-test' });
     expect(AnthropicMock).toHaveBeenCalledWith(expect.objectContaining({ maxRetries: 0 }));
