@@ -1183,6 +1183,50 @@ export function createProgram(): Command {
     );
 
   program
+    .command('automate')
+    .argument('<caseId>', 'The case to automate: its id in Plune')
+    .argument('[cairnArgs...]', 'Passed to `cairn automate`, after `--` (for example -- --validate --session myapp)')
+    .description(
+      "Run Cairn's `automate` on a case from Plune and print the code it wrote as a diff — the repo is not touched",
+    )
+    .option('--repo <dir>', 'Where Cairn runs (its .env, knowledge/ and .auth/); default: the current directory')
+    .option('--cairn <path>', "Cairn's executable, or its .js entry point (default: cairn on PATH)")
+    .option('--url <url>', "The app's address, which the case does not carry")
+    .action(
+      async (
+        caseId: string,
+        cairnArgs: string[],
+        options: { repo?: string; cairn?: string; url?: string },
+        command: Command,
+      ) => {
+        const verbose = verboseOf(command);
+        const { handleAutomate, reportAutomateFailure } = await import('./cli/commands/automate.js');
+        try {
+          const out = await handleAutomate({
+            caseId,
+            cairnArgs,
+            ...(options.repo === undefined ? {} : { repo: options.repo }),
+            ...(options.cairn === undefined ? {} : { cairn: options.cairn }),
+            ...(options.url === undefined ? {} : { url: options.url }),
+          });
+          // The diff alone on stdout, so `plune automate <id> > case.diff` and `git apply` take it as it is.
+          process.stdout.write(out.diff);
+          process.stderr.write(
+            `${out.files.length} file(s) from Cairn for '${out.case.title}'. Not queued: the platform has no route for an automation proposal yet, so nothing was sent.\n`,
+          );
+        } catch (err) {
+          const code = reportAutomateFailure(err, (s) => process.stderr.write(s));
+          if (code !== null) {
+            maybeStack(err, verbose);
+            process.exitCode = code;
+            return;
+          }
+          failUnexpected(err, verbose);
+        }
+      },
+    );
+
+  program
     .command('ids')
     .description(
       'Write the Plune case id of each Playwright test that names none into plune/ids.json (dry run unless --write); test sources are not touched',

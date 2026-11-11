@@ -234,6 +234,62 @@ plune report --format json -o run.json
 | `0` | Rendered the saved run. |
 | `2` | No saved run yet (run `plune run` first), or the saved file is unreadable/malformed. |
 
+## `plune automate`
+
+Turns **one case from Plune** into Playwright code with [Cairn](https://github.com/plune-ai/cairn), and
+prints that code as a diff of new files.
+
+1. Reads the case with your token (`GET /v1/test-cases/:id`). It needs steps: an automated or eval case
+   is refused.
+2. Writes it in Cairn's ATC format into a temporary run folder (`report.json` and
+   `testcases/ATC-PLUNE-001.md`) and runs `cairn automate --run <that folder>` in `--repo`.
+3. Reads every file Cairn wrote under the run's `tests/`, prints them as a diff on stdout, and deletes the
+   temporary folder.
+
+Plune knows about Cairn; Cairn does not know about Plune. Cairn starts with **no `PLUNE_*` variable
+and no variable whose value holds your token**. It loads `.env` from its working directory, so it is
+pointed (`DOTENV_PATH`, `DOTENV_CONFIG_PATH`) at a copy of the repo's `.env` without those lines. Your
+provider keys go through as they are.
+
+The command writes nothing into your repo. The main copy of the code is the repo's: apply the diff, open
+the branch or the PR yourself or in CI. The platform has no route for an automation proposal with code
+yet, so **nothing is sent to the review queue**. The command says so on stderr.
+
+```bash
+plune automate 0b6c…e1 --url https://staging.example.com > cart.diff
+git apply cart.diff
+plune automate 0b6c…e1 --repo ../shop -- --validate --session shop   # arguments after -- go to Cairn
+```
+
+The diff on stdout:
+
+```diff
+diff --git a/tests/cart.spec.ts b/tests/cart.spec.ts
+new file mode 100644
+--- /dev/null
++++ b/tests/cart.spec.ts
+@@ -0,0 +1,12 @@
++import { test, expect } from '@playwright/test';
+…
+```
+
+### Options
+
+| Option | Meaning |
+|--------|---------|
+| `--repo <dir>` | Where Cairn runs: its `.env`, `knowledge/` and `.auth/` come from here. Default: the current directory. |
+| `--cairn <path>` | Cairn's executable, or its `.js` entry point (run with this Node). Default: `cairn` on `PATH`. |
+| `--url <url>` | The app's address, for Cairn. A case in Plune does not carry one. |
+| `-- <args>` | Passed to `cairn automate`. `--run` and `--into-project` are refused: the command owns the run folder and does not write into the repo. |
+
+### Exit codes
+
+| Exit | Meaning |
+|------|---------|
+| `0` | Cairn wrote code; the diff is on stdout. |
+| `1` | Cairn exited with an error, or finished without writing a file; or the platform could not be reached. |
+| `2` | Not logged in, or the token was refused; Cairn not found; the case not found; a case with no steps; a bad `--repo` or a refused Cairn argument. |
+
 ## `plune mcp check`
 
 Checks that any MCP server starts and answers the basic requests, before you lint it, snapshot it or
