@@ -99,4 +99,4 @@ jobs:
           fi
           node dist/cli.cjs run import "$out" --name "MCP self-checks" \
             --key "mcp-self-check-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
-            --fail-on-failures
+            --create --fail-on-failures
