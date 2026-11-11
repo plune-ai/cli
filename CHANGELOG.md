@@ -11,6 +11,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-11-11
+
 ### Added
 
 - **`plune mcp conformance` writes JUnit XML: `--reporter junit-xml` and `--out junit-xml=<path>`, as `lint`, `check` and `diff` do.** `--out` is now repeatable and takes `json` or `junit-xml` before `=`, parsed by the same code as the other commands, so one run writes `conformance.json` and `conformance.xml` together. One `<testcase>` per selected check, `classname` `mcp.conformance.<suite>` and `name` the check id: a failed `MUST` of the profile is a `<failure>`, a failed `SHOULD`, `MAY` or advice is `<skipped type="advisory">`, `could-not-run` is an `<error>` with its reason (never a pass), `not-applicable` and `pending` are `<skipped>` with theirs; the reason, `expected`, `actual`, `fix` and the `specRef` are in the case's text, secrets masked as in the JSON result. A `<failure>` is there exactly when the exit code is `1`; the exit code does not depend on the formats asked for. `--format human|json` and a bare `--out <path>` (JSON) work as before.
