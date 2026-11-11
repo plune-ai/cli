@@ -92,6 +92,9 @@ describe('CLI · mcp self-check step · lint, check and conformance against the 
     expect(failedConformance(r.conformance)).toEqual([]);
     expect(r.conformanceXml).toContain('<testcase');
     expect(r.conformanceXml).not.toContain('<failure');
+    // The fixture call runs the checks of a tool's result: nothing could-not-run, so no <error> in the JUnit file.
+    expect(r.conformanceXml).not.toContain('<error');
+    expect(r.conformanceXml).toMatch(/<testcase[^>]*name="tools-structured-conformant"[^>]*\/>/);
     for (const text of [r.stdout, r.stderr, r.lint, r.check, r.conformance, r.conformanceXml]) expect(text ?? '').not.toContain(TOKEN);
   });
 

@@ -16,6 +16,9 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const cli = fileURLToPath(new URL('../dist/cli.cjs', import.meta.url));
+// The one tool conformance calls, for the checks of a tool's result: plune_discover_tools answers locally, with no
+// platform and no write. A server that does not list it (the test fixtures) is simply not called.
+const fixture = fileURLToPath(new URL('./mcp-self-check.fixture.json', import.meta.url));
 const [dir, ...server] = process.argv.slice(2);
 if (!dir || server.length === 0) {
   console.error('usage: node scripts/mcp-self-check.mjs <report-dir> [connection flags] -- <server command>');
@@ -32,7 +35,7 @@ mkdirSync(dir, { recursive: true });
 const commands = [
   ['lint', '--reporter', 'junit-xml', '--out', join(dir, 'lint.xml')],
   ['check', '--reporter', 'junit-xml', '--out', join(dir, 'check.xml')],
-  ['conformance', '--out', join(dir, 'conformance.json'), '--out', `junit-xml=${join(dir, 'conformance.xml')}`],
+  ['conformance', '--fixture', fixture, '--out', join(dir, 'conformance.json'), '--out', `junit-xml=${join(dir, 'conformance.xml')}`],
 ];
 
 let status = 0;
