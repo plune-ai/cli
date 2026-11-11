@@ -41,6 +41,21 @@ describe('pluneConfigSchema', () => {
       expect(result.success).toBe(true);
     });
 
+    it('accepts every reasoning_effort the OpenAI SDK takes, and rejects a made-up one', () => {
+      for (const reasoning_effort of ['none', 'minimal', 'low', 'medium', 'high', 'xhigh']) {
+        const result = pluneConfigSchema.safeParse({
+          ...validBase,
+          provider: { type: 'openai', model: 'gpt-6-luna', reasoning_effort },
+        });
+        expect(result.success, reasoning_effort).toBe(true);
+      }
+      const result = pluneConfigSchema.safeParse({
+        ...validBase,
+        provider: { type: 'openai', model: 'gpt-6-luna', reasoning_effort: 'extreme' },
+      });
+      expect(result.success).toBe(false);
+    });
+
     it('rejects unknown provider.type', () => {
       const result = pluneConfigSchema.safeParse({
         ...validBase,

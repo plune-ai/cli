@@ -56,6 +56,25 @@ describe('OpenAIProvider (ADR-PRV01)', () => {
     expect(mockCreate.mock.calls[1]?.[0]).toMatchObject({ temperature: 0 });
   });
 
+  it('sends reasoning_effort as configured in both request paths, and no key when it is unset', async () => {
+    mockCreate.mockResolvedValue({
+      choices: [{ message: { content: 'x' } }],
+      usage: { prompt_tokens: 1, completion_tokens: 1 },
+    });
+    const step = { provider: 'openai', model: 'gpt-6-luna', max_tokens: 100, messages: [], tools: [] };
+    const set = makeOpenAiProvider({ ...config, reasoning_effort: 'none' }, { OPENAI_API_KEY: 'sk-test' });
+    await set.complete(req);
+    await set.respond!(step);
+    expect(mockCreate.mock.calls[0]?.[0]).toMatchObject({ reasoning_effort: 'none' });
+    expect(mockCreate.mock.calls[1]?.[0]).toMatchObject({ reasoning_effort: 'none' });
+
+    const unset = makeOpenAiProvider(config, { OPENAI_API_KEY: 'sk-test' });
+    await unset.complete(req);
+    await unset.respond!(step);
+    expect(mockCreate.mock.calls[2]?.[0]).not.toHaveProperty('reasoning_effort');
+    expect(mockCreate.mock.calls[3]?.[0]).not.toHaveProperty('reasoning_effort');
+  });
+
   it('sends the limit as max_completion_tokens and no max_tokens, in both request paths', async () => {
     mockCreate.mockResolvedValue({
       choices: [{ message: { content: 'x' } }],

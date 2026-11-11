@@ -10,6 +10,8 @@ const providerConfigSchema = z.object({
   concurrency: z.number().int().positive().optional(),
   timeout: z.number().int().positive().optional(),
   max_retries: z.number().int().min(0).optional(),
+  // The values the OpenAI SDK's Chat Completions `reasoning_effort` accepts; only `openai` sends it.
+  reasoning_effort: z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
 });
 
 // --- Pricing override (ADR-PRV04) ---

@@ -60,6 +60,17 @@ export function temperatureFor(model: string, temperature: number | undefined): 
   return {};
 }
 
+const warnedNoReasoningEffort = new Set<string>();
+
+/** The Messages API has no `reasoning_effort`: a configured one is never sent, and that is said once per model. */
+function warnReasoningEffortNotSent(model: string, effort: string | undefined): void {
+  if (effort === undefined || warnedNoReasoningEffort.has(model)) return;
+  warnedNoReasoningEffort.add(model);
+  process.stderr.write(
+    `warning: ${model} does not take reasoning_effort; the configured value ${effort} is not sent\n`,
+  );
+}
+
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -112,6 +123,7 @@ export function makeAnthropicProvider(
     ...(config.timeout !== undefined ? { timeout: config.timeout } : {}),
   });
   const maxRetries = config.max_retries ?? DEFAULT_MAX_RETRIES;
+  warnReasoningEffortNotSent(config.model, config.reasoning_effort);
 
   return {
     async complete(req: CompletionRequest): Promise<CompletionResponse> {

@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **`provider.reasoning_effort`: `none`, `minimal`, `low`, `medium`, `high` or `xhigh`, sent as is by `openai` on plain and agentic rows (#220).** Unset, nothing is sent and requests are unchanged. `gpt-6-luna` refuses function tools on Chat Completions while it reasons, so the agent scenarios in `mcp-evals/plune.yaml` set `none`. `anthropic` does not send it and says so once per model on stderr; `openrouter` does not send it, its reasoning parameter has another shape. The cache key is unchanged and does not hold it.
+
 ### Fixed
 
 - **`anthropic` and `openai` no longer send request parameters that current models refuse with a 400.** `anthropic` sends the configured `temperature` only to the models that still take one (Claude Opus 4.6 and Sonnet 4.6, the 4.5, 4.1 and 4 generations, Haiku 4.5 and the 3.x models); every other model, such as `claude-sonnet-5-5`, gets none, and the run says once per model on stderr that the configured value was not sent. `openai` sends the output limit as `max_completion_tokens` instead of the deprecated `max_tokens`, which newer models such as `gpt-6-luna` refuse. `openrouter` still sends `max_tokens`. Both apply to plain and agentic rows. The cache key is unchanged: it still holds the configured temperature.
