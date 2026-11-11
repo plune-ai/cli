@@ -1,12 +1,12 @@
 // `plune mcp conformance`: the server against the text of the specification. Connect, run each selected check of
 // the catalog (or say why it does not apply), score the run against the frozen profile, print one report, write it
-// to --out, and say by the exit code whether every counted check passed (0), one failed (1), or the run did not
+// to each --out (JSON or JUnit XML), and say by the exit code whether every counted check passed (0), one failed (1), or the run did not
 // establish conformance (3). Exit 2: the server did not start or a flag is wrong. `--list-checks` and `--explain`
 // print the catalog without connecting. The model (catalog, states, score, profile) is in
 // src/mcp-testing/conformance/; nothing here judges an answer.
 
-import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   connectionConfig,
   UsageError,
@@ -28,17 +28,12 @@ import {
   type FixtureCall,
 } from '../../mcp-testing/conformance/checks/index.js';
 import { initializeProblems } from '../../mcp-testing/conformance/checks/lifecycle.js';
-import { applicability, eraOf, type CheckOutcome } from '../../mcp-testing/conformance/outcome.js';import { manifestDigest, PROFILE } from '../../mcp-testing/conformance/profile.js';
-import {
-  BUCKETS,
-  exitCodeOf,
-  summarize,
-  summaryLine,
-  type Summary,
-} from '../../mcp-testing/conformance/score.js';
+import { applicability, eraOf, type CheckOutcome } from '../../mcp-testing/conformance/outcome.js';
+import { manifestDigest, PROFILE } from '../../mcp-testing/conformance/profile.js';
+import { BUCKETS, exitCodeOf, summarize } from '../../mcp-testing/conformance/score.js';
 import { MCP_EXIT } from '../../mcp-testing/exit-codes.js';
 import { noCommands, noCommandsJson } from '../../mcp-testing/report/human.js';
-import { reportOutputs } from '../../mcp-testing/report/options.js';
+import { conformanceRun, reportOutputs, writeReport } from '../../mcp-testing/report/index.js';
 import type { ConformanceResult, McpConformanceReport } from '../../mcp-testing/result.js';
 import { printable } from '../../reporter-core/failure-detail.js';
 
@@ -47,7 +42,9 @@ export interface McpConformanceFlags extends ConnectionFlags {
   check?: string[];
   protocolVersion?: string;
   format?: string;
-  out?: string;
+  reporter?: string;
+  /** Repeatable; a string from a caller that passes one. */
+  out?: string | string[];
   listChecks?: boolean;
   explain?: string;
   fixture?: string;
@@ -182,7 +179,8 @@ async function conformance(
 ): Promise<number> {
   const format = oneOf('--format', flags.format ?? 'human', FORMATS);
   if (flags.listChecks === true || flags.explain !== undefined) {
-    if (flags.out !== undefined) throw new UsageError('--list-checks and --explain print the catalog: --out is for a run.');
+    if (flags.out !== undefined || flags.reporter !== undefined)
+      throw new UsageError('--list-checks and --explain print the catalog: --out is for a run.');
     if (flags.explain !== undefined) {
       const entry = catalogEntry(flags.explain);
       if (entry === undefined) throw new UsageError(`--explain ${flags.explain}: no such check.`);
@@ -208,9 +206,17 @@ async function conformance(
   if (requested !== 'auto' && !REVISION.test(requested))
     throw new UsageError(`--protocol-version must be auto or a revision such as 2025-11-25 (got "${requested}").`);
   const cwd = io.cwd ?? process.cwd();
-  // The same refusals as every report file (a folder, a missing folder), before the server is started.
-  const outPath =
-    flags.out === undefined ? undefined : reportOutputs({ out: `json=${flags.out}` }, cwd).files[0]?.path;
+  // The report flags of every command that tests a server, refused before the server is started; no markdown here.
+  const markdown = [flags.out ?? []].flat().find((raw) => raw.startsWith('markdown='));
+  if (markdown !== undefined)
+    throw new UsageError(`--out ${markdown}: plune mcp conformance writes json or junit-xml.`);
+  const { files } = reportOutputs(
+    {
+      ...(flags.reporter === undefined ? {} : { reporter: flags.reporter }),
+      ...(flags.out === undefined ? {} : { out: flags.out }),
+    },
+    cwd,
+  );
   const config = connectionConfig(flags, server, io.env);
   if (io.clientVersion !== undefined) config.clientVersion = io.clientVersion;
 
@@ -313,10 +319,7 @@ async function conformance(
     summary,
     exitCode: exitCodeOf(summary.verdict),
   };
-  const document = json(report);
-  if (outPath !== undefined) writeWhole(resolve(cwd, outPath), document);
-  if (format === 'json') rawOut(document);
-  else io.out(humanText(report));
+  writeReport(conformanceRun(report), { format, files }, { out: rawOut, err: io.err, cwd });
   return report.exitCode;
 }
 
@@ -340,51 +343,4 @@ function result(
     fix: 'fix' in outcome && outcome.fix !== undefined ? clean(outcome.fix) : '',
     specRef: first === undefined ? '' : `${specUrl(first)} (${first.section})`,
   };
-}
-
-/** Whole or not at all: a temporary file beside the target, renamed over it. */
-function writeWhole(path: string, text: string): void {
-  const temp = join(dirname(path), `.${basename(path)}.${process.pid}.tmp`);
-  try {
-    writeFileSync(temp, text);
-    renameSync(temp, path);
-  } catch (err) {
-    rmSync(temp, { force: true });
-    throw new UsageError(`--out: could not write ${path} (${(err as NodeJS.ErrnoException).code ?? 'error'}).`);
-  }
-}
-
-const WHY: Record<Summary['verdict'], (s: Summary) => string> = {
-  passed: () => 'every scored check that applies passed',
-  failed: (s) => `${s.failed.length} scored check${s.failed.length === 1 ? '' : 's'} failed`,
-  incomplete: (s) =>
-    s.applicable === 0 ? 'nothing was measured, so nothing is proven' : 'a scored check could not run',
-};
-
-function humanText(r: McpConformanceReport): string {
-  const server = r.server === null ? 'a server without serverInfo' : `${r.server.name} ${r.server.version}`;
-  const version =
-    r.protocolVersion === null
-      ? 'protocol version unknown'
-      : `protocol ${r.protocolVersion} (${r.protocolVersionRequested === 'auto' ? 'from the handshake' : 'from --protocol-version'})`;
-  const lines = [
-    `plune mcp conformance · ${server} · ${r.transport} · ${version}`,
-    `Profile ${r.profileId} ${r.profileVersion} · sha256 ${r.manifestDigest.slice(0, 12)}`,
-    '',
-  ];
-  for (const c of r.checks) {
-    const level = c.level ?? c.kind;
-    const why = c.reason === undefined ? '' : ` (${c.reason})`;
-    const unscored = c.bucket === 'pending' && c.state !== 'pending' ? ' · not in the profile, not scored' : '';
-    lines.push(`  ${c.state.padEnd(15)} ${level.padEnd(7)} ${c.id}${why}${unscored}`);
-  }
-  lines.push('');
-  const reasons = new Map(r.checks.filter((c) => c.reason !== undefined).map((c) => [c.id, c.reason as string]));
-  for (const s of r.suites) {
-    const summary = r.bySuite[s];
-    if (summary !== undefined) lines.push(`${s}: ${summaryLine(summary, reasons)}`);
-  }
-  if (r.suites.length > 1) lines.push(`all suites: ${summaryLine(r.summary, reasons)}`);
-  lines.push(`Verdict: ${r.summary.verdict} (exit ${r.exitCode}): ${WHY[r.summary.verdict](r.summary)}.`);
-  return `${lines.join('\n')}\n`;
 }

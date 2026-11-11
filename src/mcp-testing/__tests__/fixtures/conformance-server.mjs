@@ -28,10 +28,11 @@ const ECHO = {
   outputSchema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
 };
 const ADD = { name: 'add', inputSchema: { $schema: 'http://json-schema.org/draft-07/schema#', type: 'object' } };
-// bad: an invalid inputSchema, a root that is not an object, a null inputSchema, a name with spaces and a comma.
+// bad: an invalid inputSchema, a root that is not an object, a null inputSchema, a name with spaces and a comma. With
+// API_TOKEN set, the name repeats it: a secret the server prints, for the masking of a report.
 const BAD_TOOLS = [
   { name: 'dup', inputSchema: { type: 'object', properties: 5 }, outputSchema: { type: 'array' } },
-  { name: 'bad name, spaced', inputSchema: null },
+  { name: `bad name, spaced${process.env.API_TOKEN ? ` ${process.env.API_TOKEN}` : ''}`, inputSchema: null },
 ];
 
 function capabilities() {

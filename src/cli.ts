@@ -860,7 +860,12 @@ export function createProgram(): Command {
     .option('--check <id>', 'Run only this check; repeatable', repeat)
     .option('--protocol-version <revision>', 'The revision to check against, or auto (the one the server answers with)', 'auto')
     .option('--format <format>', 'What to print: human or json', 'human')
-    .option('--out <path>', 'Also write the JSON result to this file')
+    .option('--reporter <reporter>', 'junit-xml: a bare --out <path> is written as JUnit XML instead of JSON')
+    .option(
+      '--out <[format=]path>',
+      'Also write the result to this file, as json or junit-xml (default json); repeatable, one run for every file, secrets masked',
+      repeat,
+    )
     .option('--list-checks', 'Print the check catalog and exit, without connecting to a server', false)
     .option('--explain <id>', 'Print the full catalog entry of one check and exit')
     .option('--fixture <file>', 'A JSON list of { tool, arguments }: the only tools the run calls, for the checks of tool results')

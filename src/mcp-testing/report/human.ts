@@ -1,9 +1,11 @@
 import { printable } from '../../reporter-core/failure-detail.js';
+import { summaryLine, type Summary } from '../conformance/score.js';
 import { MCP_EXIT } from '../exit-codes.js';
 import type {
   CheckClass,
   CheckLevel,
   McpCheckReport,
+  McpConformanceReport,
   McpDiffReport,
   McpReport,
 } from '../result.js';
@@ -249,4 +251,40 @@ export function diffMarkdown(report: McpDiffReport): string {
   const nothing = nothingToCompare(report);
   const diff = { changes: report.changes, summary: report.summary };
   return `${[MCP_DIFF_MARKER, '### MCP contract', '', flat(renderDiffMarkdown(diff)).trimEnd(), ...(nothing === '' ? [] : ['', nothing])].join('\n')}\n`;
+}
+
+const WHY: Record<Summary['verdict'], (s: Summary) => string> = {
+  passed: () => 'every scored check that applies passed',
+  failed: (s) => `${s.failed.length} scored check${s.failed.length === 1 ? '' : 's'} failed`,
+  incomplete: (s) =>
+    s.applicable === 0 ? 'nothing was measured, so nothing is proven' : 'a scored check could not run',
+};
+
+/** `plune mcp conformance`: a line per check, a score line per suite, and the verdict with its exit code. */
+export function conformanceHuman(r: McpConformanceReport): string {
+  const server = r.server === null ? 'a server without serverInfo' : `${r.server.name} ${r.server.version}`;
+  const version =
+    r.protocolVersion === null
+      ? 'protocol version unknown'
+      : `protocol ${r.protocolVersion} (${r.protocolVersionRequested === 'auto' ? 'from the handshake' : 'from --protocol-version'})`;
+  const lines = [
+    `plune mcp conformance · ${server} · ${r.transport} · ${version}`,
+    `Profile ${r.profileId} ${r.profileVersion} · sha256 ${r.manifestDigest.slice(0, 12)}`,
+    '',
+  ];
+  for (const c of r.checks) {
+    const level = c.level ?? c.kind;
+    const why = c.reason === undefined ? '' : ` (${c.reason})`;
+    const unscored = c.bucket === 'pending' && c.state !== 'pending' ? ' · not in the profile, not scored' : '';
+    lines.push(`  ${c.state.padEnd(15)} ${level.padEnd(7)} ${c.id}${why}${unscored}`);
+  }
+  lines.push('');
+  const reasons = new Map(r.checks.filter((c) => c.reason !== undefined).map((c) => [c.id, c.reason as string]));
+  for (const s of r.suites) {
+    const summary = r.bySuite[s];
+    if (summary !== undefined) lines.push(`${s}: ${summaryLine(summary, reasons)}`);
+  }
+  if (r.suites.length > 1) lines.push(`all suites: ${summaryLine(r.summary, reasons)}`);
+  lines.push(`Verdict: ${r.summary.verdict} (exit ${r.exitCode}): ${WHY[r.summary.verdict](r.summary)}.`);
+  return `${lines.join('\n')}\n`;
 }

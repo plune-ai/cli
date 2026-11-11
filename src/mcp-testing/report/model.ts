@@ -1,12 +1,12 @@
 /**
- * The one input of every report format: a run of `plune mcp lint`, `check` or `diff` as the checks it made, each in
- * the same shape, beside the command's own JSON document. The adapters of ./runs.ts build it from a command's report;
- * the renderers of ./index.ts turn it into text. A new command (or a new format) adds an adapter (or a renderer) and
- * leaves this shape as it is.
+ * The one input of every report format: a run of `plune mcp lint`, `check`, `diff` or `conformance` as the checks it
+ * made, each in the same shape, beside the command's own JSON document. The adapters of ./runs.ts build it from a
+ * command's report; the renderers of ./index.ts turn it into text. A new command (or a new format) adds an adapter
+ * (or a renderer) and leaves this shape as it is.
  */
 
 import type { CheckClass, CheckLevel, CheckState } from '../result.js';
-import type { McpCheckReport, McpDiffReport, McpReport } from '../result.js';
+import type { McpCheckReport, McpConformanceReport, McpDiffReport, McpReport } from '../result.js';
 
 /** One check of one target, as every format reads it. */
 export interface ReportCheck {
@@ -33,17 +33,18 @@ export interface ReportCheck {
   advisory?: true;
 }
 
-export type McpCommand = 'lint' | 'check' | 'diff';
+export type McpCommand = 'lint' | 'check' | 'diff' | 'conformance';
 
 export interface McpRun {
   command: McpCommand;
   /** The command's own document: what `json` prints. */
-  document: McpReport | McpCheckReport | McpDiffReport;
+  document: McpReport | McpCheckReport | McpDiffReport | McpConformanceReport;
   /**
    * The fixed set of JUnit cases, the same on every run of the command with the same flags, whatever the server says.
-   * Empty when nothing was measured: the report then holds one `run` case that could not run.
+   * Empty when nothing was measured: the report then holds one `run` case that could not run. `suite` (conformance)
+   * goes into the case's `classname`: `mcp.<command>.<suite>`.
    */
-  cases: { id: string; title: string }[];
+  cases: { id: string; title: string; suite?: string }[];
   /** Every check made, each under one of `cases`; a case with none passed. */
   checks: ReportCheck[];
   /** Why nothing was measured, when `cases` is empty. */
@@ -56,4 +57,5 @@ export const KIND = {
   lint: 'mcp-lint-report',
   check: 'mcp-check-report',
   diff: 'mcp-diff-report',
+  conformance: 'mcp-conformance-report',
 } as const;

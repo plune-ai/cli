@@ -13,8 +13,10 @@ import {
 } from '../../cli/commands/mcp-conformance.js';
 import { CATALOG } from '../conformance/catalog.js';
 import { manifestDigest, PROFILE } from '../conformance/profile.js';
-import { BUCKETS } from '../conformance/score.js';
-import type { McpConformanceReport } from '../result.js';
+import { BUCKETS, exitCodeOf, summarize } from '../conformance/score.js';
+import { readJUnit } from '../../importers/junit.js';
+import { conformanceRun, render } from '../report/index.js';
+import type { ConformanceResult, McpConformanceReport } from '../result.js';
 import { streamableServer, type Fixture } from './fixtures/http-servers.js';
 
 const FIXTURE = fileURLToPath(new URL('./fixtures/stdio-server.mjs', import.meta.url));
@@ -176,5 +178,179 @@ describe('CLI · mcp conformance · a run', () => {
     const saved = JSON.parse(readFileSync(out, 'utf8')) as McpConformanceReport;
     expect(saved.exitCode).toBe(3);
     expect(saved.suites).toEqual(['protocol', 'oauth']);
+  });
+});
+
+const CONFORMANCE = fileURLToPath(new URL('./fixtures/conformance-server.mjs', import.meta.url));
+const conformanceServer = (mode: string) => [process.execPath, CONFORMANCE, mode];
+const statuses = (xml: string) =>
+  Object.fromEntries(readJUnit(xml, 'r.xml').map((r) => [r.keys[0]?.value, r.rawStatus]));
+const caseOf = (xml: string, id: string) =>
+  readJUnit(xml, 'r.xml').find((r) => r.keys[0]?.value === `mcp.conformance.protocol#${id}`);
+/** The counts the suite claims, and the counts of its cases: the same, or a reader is misled. */
+function totals(xml: string) {
+  const suite = /<testsuite name="plune mcp conformance" tests="(\d+)" failures="(\d+)" errors="(\d+)" skipped="(\d+)">/.exec(xml);
+  const s = Object.values(statuses(xml));
+  return {
+    claimed: suite?.slice(1).map(Number),
+    counted: [s.length, ...['failure', 'error', 'skipped'].map((k) => s.filter((x) => x === k).length)],
+  };
+}
+
+/** A report as a run would make it, from verdicts alone: what no fixture server can send (`pending`). */
+function handMade(verdicts: [string, ConformanceResult['state'], ConformanceResult['reason']?][]): McpConformanceReport {
+  const checks = verdicts.map(([id, state, reason]): ConformanceResult => {
+    const e = CATALOG.find((c) => c.id === id)!;
+    return {
+      id,
+      suite: e.suite,
+      kind: e.kind,
+      class: 'deterministic',
+      level: e.level,
+      state,
+      ...(reason === undefined ? {} : { reason }),
+      bucket: 'pending',
+      expected: e.description,
+      actual: `what ${id} saw`,
+      fix: `fix ${id}`,
+      specRef: `https://modelcontextprotocol.io/specification/2025-11-25/x (${id})`,
+    };
+  });
+  const summary = summarize(checks);
+  for (const c of checks) c.bucket = BUCKETS.find((k) => summary[k].includes(c.id))!;
+  return {
+    kind: 'mcp-conformance-report',
+    schemaVersion: 1,
+    command: 'conformance',
+    checkerVersion: '9.9.9',
+    profileId: PROFILE.id,
+    profileVersion: PROFILE.version,
+    manifestDigest: manifestDigest(PROFILE.checks),
+    protocolVersion: '2025-11-25',
+    protocolVersionRequested: 'auto',
+    server: { name: 'fixture', version: '1.0.0' },
+    transport: 'stdio',
+    suites: ['protocol'],
+    checks,
+    pendingCheckIds: summary.pending,
+    bySuite: { protocol: summary },
+    summary,
+    exitCode: exitCodeOf(summary.verdict),
+  };
+}
+
+describe('CLI · mcp conformance · junit-xml', () => {
+  it('one case per check: a failed MUST is a failure, could-not-run an error, not-applicable and pending skipped, a failed SHOULD advice', () => {
+    const xml = render(
+      conformanceRun(
+        handMade([
+          ['life-initialize-result', 'passed'],
+          ['life-ping-empty-result', 'failed'],
+          ['tools-name-format', 'failed'],
+          ['base-jsonrpc-parse-error', 'could-not-run', 'timeout'],
+          ['tools-structured-conformant', 'could-not-run', 'needs-input'],
+          ['tools-list-order-stable', 'not-applicable', 'era'],
+          ['resources-read-listed', 'pending'],
+        ]),
+      ),
+      'junit-xml',
+    );
+    const p = 'mcp.conformance.protocol#';
+    expect(statuses(xml)).toEqual({
+      [`${p}life-initialize-result`]: 'pass',
+      [`${p}life-ping-empty-result`]: 'failure',
+      [`${p}tools-name-format`]: 'skipped',
+      [`${p}base-jsonrpc-parse-error`]: 'error',
+      [`${p}tools-structured-conformant`]: 'error',
+      [`${p}tools-list-order-stable`]: 'skipped',
+      [`${p}resources-read-listed`]: 'skipped',
+    });
+    const t = totals(xml);
+    expect(t.claimed).toEqual([7, 1, 2, 3]);
+    expect(t.counted).toEqual(t.claimed);
+    // The reason and the specRef are in the case's text.
+    expect(caseOf(xml, 'base-jsonrpc-parse-error')?.errorContext).toContain(
+      'could-not-run: timeout: what base-jsonrpc-parse-error saw',
+    );
+    expect(caseOf(xml, 'tools-list-order-stable')?.errorContext).toContain('not-applicable: era');
+    expect(caseOf(xml, 'tools-name-format')?.errorContext).toContain('advisory');
+    expect(caseOf(xml, 'life-ping-empty-result')?.errorContext).toContain(
+      'spec: https://modelcontextprotocol.io/specification/2025-11-25/x (life-ping-empty-result)',
+    );
+    expect(xml).toContain('<skipped type="pending"');
+  });
+
+  it('nothing selected is one case "run" that could not run, never an empty suite', () => {
+    const xml = render(conformanceRun({ ...handMade([]), suites: ['oauth'] }), 'junit-xml');
+    expect(readJUnit(xml, 'r.xml').map((r) => [r.keys[0]?.value, r.rawStatus])).toEqual([
+      ['mcp.conformance#run', 'error'],
+    ]);
+  });
+
+  it('--reporter junit-xml and --out json=: both files from one run, the exit code of a run without them', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'plune-conformance-junit-'));
+    const xmlPath = join(dir, 'conformance.xml');
+    const jsonPath = join(dir, 'conformance.json');
+    const plain = await run({ format: 'json' }, conformanceServer('bad'));
+    const r = await run(
+      { format: 'json', reporter: 'junit-xml', out: [xmlPath, `json=${jsonPath}`] },
+      conformanceServer('bad'),
+    );
+    expect(r.code).toBe(1);
+    expect(r.code).toBe(plain.code);
+    expect(readFileSync(jsonPath, 'utf8')).toBe(r.out);
+    const xml = readFileSync(xmlPath, 'utf8');
+    expect(statuses(xml)).toMatchObject({
+      'mcp.conformance.protocol#life-ping-empty-result': 'failure',
+      'mcp.conformance.protocol#tools-name-format': 'skipped',
+      'mcp.conformance.protocol#tools-list-order-stable': 'skipped',
+      'mcp.conformance.protocol#tools-structured-conformant': 'error',
+    });
+    const report = JSON.parse(r.out) as McpConformanceReport;
+    expect(Object.keys(statuses(xml))).toEqual(report.checks.map((c) => `mcp.conformance.protocol#${c.id}`));
+    const t = totals(xml);
+    expect(t.counted).toEqual(t.claimed);
+    expect(t.claimed?.[1]).toBe(report.summary.failed.length);
+  }, 60_000);
+
+  it('could-not-run is an error with its reason, never a pass: a server that stops answering, exit 3', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'plune-conformance-junit-'));
+    const xmlPath = join(dir, 'c.xml');
+    const r = await run({ timeout: '300ms', reporter: 'junit-xml', out: xmlPath }, conformanceServer('silent'));
+    expect(r.code).toBe(3);
+    const xml = readFileSync(xmlPath, 'utf8');
+    const asJson = await run({ timeout: '300ms', format: 'json' }, conformanceServer('silent'));
+    const cnr = (JSON.parse(asJson.out) as McpConformanceReport).checks.filter((c) => c.state === 'could-not-run');
+    expect(cnr.length).toBeGreaterThan(2);
+    for (const c of cnr) {
+      expect(caseOf(xml, c.id)?.rawStatus, c.id).toBe('error');
+      expect(caseOf(xml, c.id)?.errorContext, c.id).toContain(`could-not-run: ${c.reason}`);
+    }
+  }, 60_000);
+
+  it('a secret the server repeats is in no file and nothing printed', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'plune-conformance-junit-'));
+    const marker = 'conformance-secret-4242';
+    const r = await run(
+      { env: [`API_TOKEN=${marker}`], reporter: 'junit-xml', out: [join(dir, 'c.xml'), `json=${join(dir, 'c.json')}`] },
+      conformanceServer('bad'),
+    );
+    expect(r.code).toBe(1);
+    const xml = readFileSync(join(dir, 'c.xml'), 'utf8');
+    expect(caseOf(xml, 'tools-name-format')?.errorContext).toContain('bad name, spaced ***');
+    for (const text of [xml, readFileSync(join(dir, 'c.json'), 'utf8'), r.out, r.err]) expect(text).not.toContain(marker);
+  }, 60_000);
+
+  it('a wrong report flag is exit 2 before any server starts', async () => {
+    for (const [flags, says] of [
+      [{ reporter: 'junit-xml' }, '--reporter junit-xml writes a file: give it --out <path>.'],
+      [{ reporter: 'xunit', out: 'r.xml' }, '--reporter must be one of junit-xml'],
+      [{ out: 'markdown=r.md' }, '--out markdown=r.md: plune mcp conformance writes json or junit-xml.'],
+      [{ listChecks: true, reporter: 'junit-xml', out: 'r.xml' }, '--out is for a run'],
+    ] as [McpConformanceFlags, string][]) {
+      const r = await run(flags, ['this-command-does-not-exist']);
+      expect(r.code, JSON.stringify(flags)).toBe(2);
+      expect(r.err, JSON.stringify(flags)).toContain(says);
+    }
   });
 });

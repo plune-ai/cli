@@ -434,6 +434,17 @@ describe('CLI · mcp report · junit-xml', () => {
       'mcp.diff#security-signals': 'pass',
     });
     expect(Object.values(read('diff-same.xml'))).toEqual(['pass', 'pass', 'pass', 'pass']);
+    expect(read('conformance-bad.xml')).toMatchObject({
+      'mcp.conformance.protocol#life-ping-empty-result': 'failure',
+      // A failed SHOULD is advice; a check for the other era does not apply; no --fixture is an input not given.
+      'mcp.conformance.protocol#tools-name-format': 'skipped',
+      'mcp.conformance.protocol#tools-list-order-stable': 'skipped',
+      'mcp.conformance.protocol#tools-structured-conformant': 'error',
+    });
+    expect(read('conformance-silent.xml')).toMatchObject({
+      'mcp.conformance.protocol#life-initialize-result': 'pass',
+      'mcp.conformance.protocol#life-ping-empty-result': 'error',
+    });
   }, 120_000);
 
   it('CLI · mcp report · the set of classname#name is the same whatever the server found, its name or its times (AC-5)', async () => {
@@ -444,6 +455,7 @@ describe('CLI · mcp report · junit-xml', () => {
       ['lint-clean.xml', 'lint-mixed.xml', 'lint-heuristic.xml', 'lint-hang.xml'],
       ['check-healthy.xml', 'check-broken.xml', 'check-hang.xml', 'check-smoke.xml'],
       ['diff-breaking.xml', 'diff-same.xml'],
+      ['conformance-bad.xml', 'conformance-silent.xml'],
     ]) {
       const first = keys(group[0] ?? '');
       expect(first.length).toBeGreaterThan(2);
@@ -489,6 +501,8 @@ describe('CLI · mcp report · junit-xml', () => {
       'lint-empty.xml': 3,
       'check-hang.xml': 3,
       'diff-breaking.xml': 1,
+      'conformance-bad.xml': 1,
+      'conformance-silent.xml': 3,
     });
     for (const f of REPORT_FIXTURES)
       expect(readFileSync(join(dir, f.file), 'utf8'), f.file).toBe(

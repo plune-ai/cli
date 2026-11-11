@@ -1,5 +1,6 @@
-// The JUnit files of this folder, written by the real `plune mcp lint`, `check` and `diff` (the command line of
-// src/cli.ts, flags parsed by commander) against the fixture servers of the folder above. Nothing is written by hand.
+// The JUnit files of this folder, written by the real `plune mcp lint`, `check`, `diff` and `conformance` (the command
+// line of src/cli.ts, flags parsed by commander) against the fixture servers of the folder above. Nothing is written
+// by hand.
 // Run it again after a change to the report formats or the rules (README.md); with no change it writes the same bytes.
 //
 //   node node_modules/tsx/dist/cli.mjs src/mcp-testing/__tests__/fixtures/reports/generate.ts
@@ -15,6 +16,18 @@ const node = process.execPath;
 const LINT = [node, fixture('lint-server.mjs')];
 const CHECK = [node, fixture('check-server.mjs')];
 const SNAPSHOT = [node, fixture('snapshot-server.mjs')];
+const CONFORMANCE = [node, fixture('conformance-server.mjs')];
+/**
+ * One check of each JUnit state on the server that breaks every requirement. Not the whole suite: the request id a
+ * check makes up is in the text of `base-response-id-matches`, and differs on every run.
+ */
+const CONFORMANCE_CHECKS = [
+  'life-initialize-result',
+  'life-ping-empty-result',
+  'tools-name-format',
+  'tools-list-order-stable',
+  'tools-structured-conformant',
+].flatMap((id) => ['--check', id]);
 
 /** What each file is, and the arguments after `plune` that write it; `{baseline}` is a snapshot taken first. */
 export const REPORT_FIXTURES: { file: string; what: string; args: string[] }[] = [
@@ -72,6 +85,16 @@ export const REPORT_FIXTURES: { file: string; what: string; args: string[] }[] =
     file: 'diff-same.xml',
     what: 'the server against its own snapshot',
     args: ['mcp', 'diff', '{baseline}', '--', ...SNAPSHOT, 'full'],
+  },
+  {
+    file: 'conformance-bad.xml',
+    what: 'a passed check, a failed MUST, a failed SHOULD, one of the other era, one without --fixture',
+    args: ['mcp', 'conformance', ...CONFORMANCE_CHECKS, '--', ...CONFORMANCE, 'bad'],
+  },
+  {
+    file: 'conformance-silent.xml',
+    what: 'the same checks on a server that answers the handshake, then nothing',
+    args: ['mcp', 'conformance', ...CONFORMANCE_CHECKS, '--timeout', '300ms', '--', ...CONFORMANCE, 'silent'],
   },
 ];
 
