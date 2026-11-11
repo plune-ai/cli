@@ -1,6 +1,7 @@
+import type { ChildProcess } from 'node:child_process';
 import { homedir } from 'node:os';
 import { createInterface } from 'node:readline';
-import type { Readable } from 'node:stream';
+import type { Readable, Writable } from 'node:stream';
 // A static import on purpose, as in src/mcp/server.ts: the CLI bundle is CommonJS, and a dynamic import() of the
 // package there would load its other build. This module is itself loaded lazily, only by a `plune mcp` action.
 import {
@@ -78,6 +79,55 @@ export interface Session {
   fetchForOrigin(origin: string): (input: string | URL, init?: RequestInit) => Promise<Response>;
   /** Ends the connection and every process it started. A second call returns the first one's promise. */
   close(): Promise<void>;
+  /**
+   * The thin JSON-RPC layer under `plune mcp conformance`: `body` goes to the server as written, beside the SDK (one
+   * line on stdin, or one POST to the Streamable HTTP endpoint with this session's headers), and the first answer whose
+   * `id` is `id` comes back parsed, with no schema between, so a malformed answer is seen as sent. `id: null` waits for
+   * an error with no id or a null one (the answer to a message whose id could not be read). Rejects with a
+   * `ConnectError`: `timeout` when no such answer came. Not for HTTP+SSE.
+   */
+  raw(body: string, id: string | number | null, options?: { timeoutMs?: number }): Promise<RawReply>;
+  /** How many lines a stdio server wrote on stdout that are not JSON-RPC messages, and the first few, masked. */
+  stdoutNoise(): { count: number; first: string[] };
+  /** Closes a stdio server's stdin and says whether the process exited within `waitMs` (true over HTTP). */
+  endInput(waitMs: number): Promise<boolean>;
+}
+
+export interface RawReply {
+  /** The answer, parsed; undefined when the server answered with no JSON-RPC message (an HTTP error page). */
+  frame: Record<string, unknown> | undefined;
+  /** The HTTP status (HTTP only). */
+  status?: number;
+  /** What came back, masked and cut to RAW_TEXT characters. */
+  text: string;
+}
+
+const RAW_TEXT = 2000;
+
+/** Whether `frame` answers the message `id` (for null: an error with no id, or a null one). */
+function answers(frame: unknown, id: string | number | null): frame is Record<string, unknown> {
+  if (frame === null || typeof frame !== 'object' || Array.isArray(frame)) return false;
+  const f = frame as Record<string, unknown>;
+  if (!('result' in f) && !('error' in f)) return false;
+  return id === null ? 'error' in f && (f['id'] === null || f['id'] === undefined) : f['id'] === id;
+}
+
+const parsed = (text: string): unknown => {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+};
+
+/** The first `data:` line of an SSE body that answers `id`. One line per event: a JSON-RPC message holds no newline. */
+function fromEventStream(text: string, id: string | number | null): Record<string, unknown> | undefined {
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.startsWith('data:')) continue;
+    const frame = parsed(line.slice(5).trim());
+    if (answers(frame, id)) return frame;
+  }
+  return undefined;
 }
 
 const TAIL_LINES = 20;
@@ -174,9 +224,14 @@ function intercept(
 /**
  * Journals the lines on a stdio server's stdout that are not JSON-RPC messages. The SDK drops such a line with a
  * parse error that does not carry it, so the stream is read here as well, beside the SDK's own reader. The transport
- * keeps the process to itself; it is reached after start, before any output can have arrived.
+ * keeps the process to itself; it is reached after start, before any output can have arrived. Every line also goes to
+ * `seen`: the noise count and the raw layer read stdout here.
  */
-function watchStdout(transport: StdioClientTransport, journal: Journal): void {
+function watchStdout(
+  transport: StdioClientTransport,
+  journal: Journal,
+  seen: (line: string, isMessage: boolean) => void,
+): void {
   const start = transport.start.bind(transport);
   transport.start = async () => {
     await start();
@@ -184,7 +239,9 @@ function watchStdout(transport: StdioClientTransport, journal: Journal): void {
       ?.stdout;
     if (stdout === null || stdout === undefined) return;
     createInterface({ input: stdout, crlfDelay: Infinity }).on('line', (line) => {
-      if (!isJsonRpc(line)) journal.write('noise', { line });
+      const isMessage = isJsonRpc(line);
+      if (!isMessage) journal.write('noise', { line });
+      seen(line, isMessage);
     });
   };
 }
@@ -310,6 +367,16 @@ export async function openSession(config: ConnectConfig): Promise<Session> {
   let tooLarge = false;
 
   const tail: string[] = [];
+  const noise = { count: 0, first: [] as string[] };
+  // The raw layer's waiters on stdout: each sees every line until it settles.
+  const listeners = new Set<(line: string) => void>();
+  const seen = (line: string, isMessage: boolean) => {
+    if (!isMessage) {
+      noise.count++;
+      if (noise.first.length < 3) noise.first.push(clean(line).slice(0, 200));
+    }
+    for (const listener of [...listeners]) listener(line);
+  };
   let stderrDone: Promise<void> = Promise.resolve();
   if (transport instanceof StdioClientTransport && transport.stderr !== null) {
     const lines = createInterface({ input: transport.stderr as Readable, crlfDelay: Infinity });
@@ -319,7 +386,7 @@ export async function openSession(config: ConnectConfig): Promise<Session> {
       if (tail.length > TAIL_LINES) tail.shift();
     });
     stderrDone = new Promise((resolve) => lines.once('close', resolve));
-    watchStdout(transport, journal);
+    watchStdout(transport, journal, seen);
     watchOverflow(transport, () => {
       if (tooLarge) return;
       tooLarge = true;
@@ -424,6 +491,94 @@ export async function openSession(config: ConnectConfig): Promise<Session> {
             if (!headers.has(name)) headers.set(name, value);
         return fetch(url, { ...init, headers, redirect: 'manual' });
       };
+    },
+    async raw(body, id, options) {
+      const ms = options?.timeoutMs ?? config.timeoutMs;
+      if (target.kind === 'sse')
+        throw new ConnectError('protocol', 'Messages of its own go over stdio and Streamable HTTP only, not HTTP+SSE.', []);
+      journal.write('out', { raw: body });
+      const noAnswer = () => new ConnectError('timeout', `${LEAD.timeout[0]}.`, [...tail]);
+
+      if (target.kind === 'stdio') {
+        const stdin = (transport as unknown as { _process?: { stdin?: Writable | null } })._process?.stdin;
+        if (stdin === null || stdin === undefined || stdin.writableEnded)
+          throw new ConnectError('exited-early', `${LEAD['exited-early'][0]}.`, [...tail]);
+        return new Promise<RawReply>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            listeners.delete(listener);
+            reject(noAnswer());
+          }, ms);
+          const listener = (line: string) => {
+            const frame = parsed(line);
+            if (!answers(frame, id)) return;
+            clearTimeout(timer);
+            listeners.delete(listener);
+            resolve({ frame, text: clean(line).slice(0, RAW_TEXT) });
+          };
+          listeners.add(listener);
+          stdin.write(`${body}\n`);
+        });
+      }
+
+      // The headers the transport sends: --header, and the session and protocol version the handshake gave.
+      const state = transport as unknown as { sessionId?: string; _protocolVersion?: string };
+      const headers = new Headers(target.headers);
+      headers.set('content-type', 'application/json');
+      headers.set('accept', 'application/json, text/event-stream');
+      if (state.sessionId !== undefined) headers.set('mcp-session-id', state.sessionId);
+      if (state._protocolVersion !== undefined) headers.set('mcp-protocol-version', state._protocolVersion);
+      const lost = async (err: unknown) =>
+        (err as Error | undefined)?.name === 'TimeoutError' ? noAnswer() : toConnectError(err);
+      let text = '';
+      let frame: Record<string, unknown> | undefined;
+      let status: number;
+      try {
+        const res = await fetch(target.url, {
+          method: 'POST',
+          headers,
+          body,
+          redirect: 'manual',
+          signal: AbortSignal.timeout(ms),
+        });
+        status = res.status;
+        const sse = (res.headers.get('content-type') ?? '').includes('text/event-stream');
+        if (res.body !== null) {
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          // An SSE answer is read up to the event that answers; a stream the server keeps open is not waited out.
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            text += decoder.decode(value, { stream: true });
+            if (sse && (frame = fromEventStream(text, id)) !== undefined) break;
+            if (text.length > STDIO_MESSAGE_LIMIT) break;
+          }
+          await reader.cancel().catch(() => {});
+        }
+        if (!sse) {
+          const whole = parsed(text);
+          // One POST, one answer: kept whatever its id, so an answer under the wrong id is seen, not waited for.
+          if (whole !== null && typeof whole === 'object' && !Array.isArray(whole))
+            frame = whole as Record<string, unknown>;
+        }
+      } catch (err) {
+        throw await lost(err);
+      }
+      journal.write('in', frame !== undefined ? { frame } : { status, raw: text.slice(0, RAW_TEXT) });
+      return { frame, status, text: clean(text).slice(0, RAW_TEXT) };
+    },
+    stdoutNoise: () => ({ count: noise.count, first: [...noise.first] }),
+    async endInput(waitMs) {
+      const proc = (transport as unknown as { _process?: ChildProcess })._process;
+      if (proc === undefined) return true;
+      if (proc.exitCode !== null || proc.signalCode !== null) return true;
+      const exited = new Promise<boolean>((resolve) => proc.once('exit', () => resolve(true)));
+      proc.stdin?.end();
+      let timer: NodeJS.Timeout | undefined;
+      const late = new Promise<boolean>((resolve) => (timer = setTimeout(() => resolve(false), waitMs)));
+      const result = await Promise.race([exited, late]);
+      clearTimeout(timer);
+      return result;
     },
     close: closable.close,
   };

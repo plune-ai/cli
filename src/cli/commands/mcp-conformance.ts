@@ -5,13 +5,14 @@
 // print the catalog without connecting. The model (catalog, states, score, profile) is in
 // src/mcp-testing/conformance/; nothing here judges an answer.
 
-import { renameSync, rmSync, writeFileSync } from 'node:fs';
+import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import {
   connectionConfig,
   UsageError,
   type ConnectionFlags,
 } from '../../mcp-testing/connect/options.js';
+import { redactorFor } from '../../mcp-testing/connect/redact.js';
 import { ConnectError, openSession, type Session } from '../../mcp-testing/connect/session.js';
 import {
   CATALOG,
@@ -21,9 +22,13 @@ import {
   type CatalogEntry,
   type Suite,
 } from '../../mcp-testing/conformance/catalog.js';
-import { IMPLEMENTATIONS } from '../../mcp-testing/conformance/checks/index.js';
-import { applicability, eraOf, type CheckOutcome } from '../../mcp-testing/conformance/outcome.js';
-import { manifestDigest, PROFILE } from '../../mcp-testing/conformance/profile.js';
+import {
+  IMPLEMENTATIONS,
+  type ConformanceContext,
+  type FixtureCall,
+} from '../../mcp-testing/conformance/checks/index.js';
+import { initializeProblems } from '../../mcp-testing/conformance/checks/lifecycle.js';
+import { applicability, eraOf, type CheckOutcome } from '../../mcp-testing/conformance/outcome.js';import { manifestDigest, PROFILE } from '../../mcp-testing/conformance/profile.js';
 import {
   BUCKETS,
   exitCodeOf,
@@ -45,6 +50,7 @@ export interface McpConformanceFlags extends ConnectionFlags {
   out?: string;
   listChecks?: boolean;
   explain?: string;
+  fixture?: string;
 }
 
 export interface ConformanceIo {
@@ -60,6 +66,32 @@ const REVISION = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_TEXT = 500;
 const cut = (text: string) =>
   text.length <= MAX_TEXT ? text : `${text.slice(0, MAX_TEXT)}… (cut: ${text.length} characters)`;
+/** The check every other one rests on: without a handshake, the rest are could-not-run (prerequisite-failed). */
+const HANDSHAKE_CHECK = 'life-initialize-result';
+/** After this many timeouts in a row, the checks left are not tried: each would wait out --timeout as well. */
+const TIMEOUTS_IN_A_ROW = 2;
+
+/**
+ * `--fixture`: a JSON list of `{ "tool": name, "arguments": {...} }`, the only tools a run calls. A file that is not
+ * such a list is a flag error, before the server starts.
+ */
+function loadFixture(path: string): FixtureCall[] {
+  let doc: unknown;
+  try {
+    doc = JSON.parse(readFileSync(path, 'utf8'));
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    throw new UsageError(`--fixture: could not read ${path} as JSON${code === undefined ? '' : ` (${code})`}.`);
+  }
+  if (!Array.isArray(doc)) throw new UsageError('--fixture must hold a JSON list of { "tool": "<name>", "arguments": { ... } }.');
+  return doc.map((entry, i) => {
+    const e = entry as { tool?: unknown; arguments?: unknown } | null;
+    const args = e?.arguments ?? {};
+    if (typeof e?.tool !== 'string' || e.tool === '' || args === null || typeof args !== 'object' || Array.isArray(args))
+      throw new UsageError(`--fixture entry ${i + 1} needs "tool" (a name) and, when given, "arguments" (an object).`);
+    return { tool: e.tool, arguments: args as Record<string, unknown> };
+  });
+}
 
 export async function handleMcpConformance(
   flags: McpConformanceFlags,
@@ -182,37 +214,79 @@ async function conformance(
   const config = connectionConfig(flags, server, io.env);
   if (io.clientVersion !== undefined) config.clientVersion = io.clientVersion;
 
-  const session: Session = await openSession(config);
+  const fixture = flags.fixture === undefined ? undefined : loadFixture(resolve(cwd, flags.fixture));
+  const transport = config.target.kind === 'stdio' ? 'stdio' : 'http';
   const results: ConformanceResult[] = [];
   let serverInfo: McpConformanceReport['server'] = null;
   let protocolVersion: string | null = requested === 'auto' ? null : requested;
+
+  let session: Session | undefined;
   try {
-    const clean = (text: string) => cut(printable(session.redact.text(text)));
-    if (session.server !== undefined)
-      serverInfo = { name: clean(session.server.name), version: clean(session.server.version) };
-    const answered = (session.handshake.result as { protocolVersion?: unknown } | undefined)?.protocolVersion;
-    if (protocolVersion === null && typeof answered === 'string') protocolVersion = clean(answered);
-    const transport = config.target.kind === 'stdio' ? 'stdio' : 'http';
-    // The connection made an `initialize` handshake: without a revision to say otherwise, the legacy era.
+    session = await openSession(config);
+  } catch (err) {
+    // The server ran and answered, but not with a handshake the connection could take: that is the verdict of
+    // life-initialize-result, and every check after it has nothing to stand on. A server that never answered is exit 2.
+    if (!(err instanceof ConnectError) || err.kind !== 'protocol') throw err;
+    const clean = (text: string) => cut(printable(redactorFor(config.target).text(text)));
     const era = eraOf(protocolVersion ?? '2025-11-25');
-    for (const entry of entries) {
-      let outcome = applicability(entry, { era, transport });
-      if (outcome === undefined) {
+    for (const entry of entries)
+      results.push(
+        result(
+          entry,
+          applicability(entry, { era, transport }) ??
+            (entry.id === HANDSHAKE_CHECK
+              ? { state: 'failed', actual: err.message, fix: 'Answer initialize with a result an MCP client accepts.' }
+              : { state: 'could-not-run', reason: 'prerequisite-failed', actual: 'The handshake failed.' }),
+          clean,
+        ),
+      );
+  }
+  if (session !== undefined) {
+    const live = session;
+    try {
+      const clean = (text: string) => cut(printable(live.redact.text(text)));
+      if (live.server !== undefined)
+        serverInfo = { name: clean(live.server.name), version: clean(live.server.version) };
+      const answered = (live.handshake.result as { protocolVersion?: unknown } | undefined)?.protocolVersion;
+      if (protocolVersion === null && typeof answered === 'string') protocolVersion = clean(answered);
+      // The connection made an `initialize` handshake: without a revision to say otherwise, the legacy era.
+      const era = eraOf(protocolVersion ?? '2025-11-25');
+      const memos = new Map<string, Promise<unknown>>();
+      const ctx: ConformanceContext = {
+        session: live,
+        transport,
+        era,
+        protocolVersion,
+        ...(fixture !== undefined ? { fixture } : {}),
+        memo: <T>(key: string, make: () => Promise<T>) => {
+          if (!memos.has(key)) memos.set(key, make());
+          return memos.get(key) as Promise<T>;
+        },
+      };
+      const broken = initializeProblems(live.handshake.result);
+      let timeouts = 0;
+      const measure = async (entry: CatalogEntry): Promise<CheckOutcome> => {
         const run = IMPLEMENTATIONS[entry.id];
-        if (run === undefined) outcome = { state: 'pending' };
-        else {
-          try {
-            outcome = await run({ session, transport, era, protocolVersion });
-          } catch (err) {
-            if (!(err instanceof ConnectError)) throw err;
-            outcome = { state: 'could-not-run', reason: 'transport-error', actual: err.message };
-          }
+        if (run === undefined) return { state: 'pending' };
+        if (broken.length > 0 && entry.id !== HANDSHAKE_CHECK)
+          return { state: 'could-not-run', reason: 'prerequisite-failed', actual: `The initialize result is malformed: ${broken.join('; ')}.` };
+        if (timeouts >= TIMEOUTS_IN_A_ROW)
+          return { state: 'could-not-run', reason: 'timeout', actual: `Not run: ${TIMEOUTS_IN_A_ROW} checks in a row timed out.` };
+        let outcome: CheckOutcome;
+        try {
+          outcome = await run(ctx);
+        } catch (err) {
+          if (!(err instanceof ConnectError)) throw err;
+          outcome = { state: 'could-not-run', reason: err.kind === 'timeout' ? 'timeout' : 'transport-error', actual: err.message };
         }
-      }
-      results.push(result(entry, outcome, clean));
+        timeouts = outcome.state === 'could-not-run' && outcome.reason === 'timeout' ? timeouts + 1 : 0;
+        return outcome;
+      };
+      for (const entry of entries)
+        results.push(result(entry, applicability(entry, { era, transport }) ?? (await measure(entry)), clean));
+    } finally {
+      await live.close();
     }
-  } finally {
-    await session.close();
   }
 
   const summary = summarize(results);
