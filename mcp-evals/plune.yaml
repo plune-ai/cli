@@ -171,9 +171,6 @@ evals:
       # method. Asking a person stays allowed.
       - type: only-tools
         tools: [plune_project_context, plune_get, plune_cases_search, plune_review_list, plune_cases_generation_get, plune_mission_get, plune_question_list, plune_discover_tools, plune_question_ask]
-      # Switched on, the raw call is offered, and it is still not sent. Measured once the model has switched it on.
-      - type: tool-not-called
-        tool: plune_api_request
       - type: no-tool-errors
       - type: token-budget
         max: 70000
@@ -216,13 +213,15 @@ evals:
     dataset: { examples: [{ vars: {} }] }
     mcp: { server: plune }
     assertions:
-      # The writer is switched on first, then called: it is offered from the step after the discovery.
+      # The writer is switched on first, then called: it is offered from the step after the discovery. A model that
+      # never switches it on ends the row errored (tool-order names a tool never listed: ASSERTION_UNKNOWN_TOOL),
+      # which the report shows as not passed.
       - type: tool-order
         tools: [plune_discover_tools, plune_results_write]
       # Proposing cases is the listed writer a model may grab instead.
       - type: tool-not-called
         tool: plune_case_propose
-      # No no-tool-errors here: the stub has no route for a results write, so the write itself is answered 404.
+      - type: no-tool-errors
       - type: token-budget
         max: 70000
 

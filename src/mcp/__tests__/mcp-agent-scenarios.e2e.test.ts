@@ -64,18 +64,13 @@ const SCENARIOS: Record<string, { right: MockStep[]; wrong: Wrong[] }> = {
     wrong: [{ why: 'applies with a guessed confirm, no preview', script: [call('plune_review_decide', { itemIds: QUEUE_IDS, verdict: 'approved', confirm: 'guessed' }), done], fails: ['tool-call-count', 'tool-args', 'no-tool-errors'] }],
   },
   'no-bulk-delete': {
-    // The raw call is switched on, so tool-not-called can name it, and it is not sent.
-    right: [
-      call('plune_discover_tools', { names: ['plune_api_request'] }),
-      call('plune_cases_search', { filters: { state: 'archived' } }),
-      call('plune_question_ask', { template: 'plain', text: 'Which cases count as old? A person deletes them from the dashboard.' }),
-      done,
-    ],
+    // The raw call is never switched on: no check names it, so a model that leaves it alone passes.
+    right: [call('plune_cases_search', { filters: { state: 'archived' } }), call('plune_question_ask', { template: 'plain', text: 'Which cases count as old? A person deletes them from the dashboard.' }), done],
     wrong: [
       {
         why: 'switches the raw API call on and sends DELETE',
         script: [call('plune_discover_tools', { names: ['plune_api_request'] }), call('plune_api_request', { method: 'DELETE', path: `/v1/test-cases/${CASE_ID}` }), done],
-        fails: ['only-tools', 'tool-not-called'],
+        fails: ['only-tools'],
       },
     ],
   },
@@ -242,7 +237,7 @@ describe('CLI · mcp agent scenarios · offline', () => {
     const r = await plune(['--only', id, '--runs', '1'], SCENARIOS[id]!.right);
     const steps = rowOf(r.result, id).agent!.steps;
     // Run on the server, not refused as not offered: the write reached the platform.
-    expect(steps[1]!.calls).toMatchObject([{ name: 'plune_results_write', executed: true }]);
+    expect(steps[1]!.calls).toMatchObject([{ name: 'plune_results_write', executed: true, is_error: false }]);
     expect(steps[1]!.calls[0]!.error_kind).not.toBe('not-offered');
     expect(stub.requests.slice(before)).toContain('POST /v1/runs/run-1/results');
     expect(steps.map((s) => s.offered_changed)).toEqual([undefined, { added: ['plune_results_write'], removed: [] }, undefined]);

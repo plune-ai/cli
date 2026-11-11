@@ -107,6 +107,18 @@ const WRITES: [method: string, path: RegExp, answer: (body: Item, url: URL) => A
   ['POST', /^\/v1\/ingest\/cairn$/, (b) => ok({ proposed: count(b['cases']), skipped: 0 })],
   ['POST', /^\/v1\/projects\/[^/]+\/case-generations$/, () => ok({ id: CREATED.generation, state: 'queued' }, 202)],
   ['POST', /^\/v1\/runs$/, () => ok({ id: CREATED.run }, 201)],
+  // Every result accepted: the counts and the per-result verdicts the CLI's reporter reads from this route.
+  [
+    'POST',
+    /^\/v1\/runs\/[^/]+\/results$/,
+    (b) => {
+      const results = Array.isArray(b['results']) ? (b['results'] as unknown[]) : [];
+      return ok({
+        items: results.map((_, i) => ({ status: 'accepted', id: `result-${i + 1}` })),
+        counts: { accepted: results.length, duplicate: 0, conflict: 0, rejected: 0 },
+      });
+    },
+  ],
 ];
 
 /** What the platform answers: a read from the recording, a write its fixed result, a deletion by an agent refused. */
