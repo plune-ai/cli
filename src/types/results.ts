@@ -152,6 +152,30 @@ export interface RowResult {
    * which is why `schemaVersion` stays 1.
    */
   inconclusive?: RowInconclusive;
+  /**
+   * Every repeat of the row when its eval sets `runs` above 1. The row's own `output`,
+   * `assertions` and `error` are those of the first attempt whose state matches the row's verdict;
+   * its `usage`, `cache_saved` and `latency_ms` are sums over the attempts, and `cached` is true
+   * only when every attempt came from the cache. `pass_threshold` here is the eval's share of runs,
+   * not the llm-judge score floor. On a dry run `results` is empty: nothing ran, the cost is the
+   * estimate times `runs`. Optional and additive: absent without repeats, `schemaVersion` stays 1.
+   */
+  attempts?: {
+    runs: number;
+    pass_threshold: number;
+    passed: number;
+    failed: number;
+    errored: number;
+    results: {
+      output: string | null;
+      cached: boolean;
+      usage?: Usage;
+      latency_ms?: number;
+      error?: RunError;
+      assertions: AssertionResultRecord[];
+      cache_saved?: { input_tokens: number; output_tokens: number; cost_usd: number };
+    }[];
+  };
 }
 
 export type RowStatus = 'passed' | 'failed' | 'errored' | RowInconclusive;

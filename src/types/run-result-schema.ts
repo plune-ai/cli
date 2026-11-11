@@ -52,6 +52,12 @@ const runErrorSchema = z.object({
   message: z.string(),
 });
 
+const savedSchema = z.object({
+  input_tokens: z.number(),
+  output_tokens: z.number(),
+  cost_usd: z.number(),
+});
+
 const rowResultSchema = z.object({
   vars: z.record(z.string(), z.unknown()),
   output: z.string().nullable(),
@@ -60,11 +66,30 @@ const rowResultSchema = z.object({
   latency_ms: z.number().optional(),
   error: runErrorSchema.optional(),
   assertions: z.array(assertionResultRecordSchema),
-  cache_saved: z
-    .object({ input_tokens: z.number(), output_tokens: z.number(), cost_usd: z.number() })
-    .optional(),
+  cache_saved: savedSchema.optional(),
   /** ADR 0045. Optional and additive — the same enum the platform validates on `POST /v1/runs`. */
   inconclusive: z.enum(ROW_INCONCLUSIVE).optional(),
+  /** Repeats (`runs` above 1). Optional and additive — a RunResult without it validates unchanged. */
+  attempts: z
+    .object({
+      runs: z.number(),
+      pass_threshold: z.number(),
+      passed: z.number(),
+      failed: z.number(),
+      errored: z.number(),
+      results: z.array(
+        z.object({
+          output: z.string().nullable(),
+          cached: z.boolean(),
+          usage: usageSchema.optional(),
+          latency_ms: z.number().optional(),
+          error: runErrorSchema.optional(),
+          assertions: z.array(assertionResultRecordSchema),
+          cache_saved: savedSchema.optional(),
+        }),
+      ),
+    })
+    .optional(),
 });
 
 const summarySchema = z.object({

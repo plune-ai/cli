@@ -11,7 +11,12 @@ export const CACHE_STRICT_EXIT = 5;
 export function cacheMissRows(result: RunResult): string[] {
   return result.evals.flatMap((ev) =>
     ev.rows
-      .filter((r) => r.error?.code === CACHE_MISS_CODE)
+      // A repeated row is unanswered when any of its attempts is, whatever its verdict.
+      .filter(
+        (r) =>
+          r.error?.code === CACHE_MISS_CODE ||
+          (r.attempts?.results ?? []).some((a) => a.error?.code === CACHE_MISS_CODE),
+      )
       .map((r) => `${ev.id} ${JSON.stringify(r.vars)}`),
   );
 }
