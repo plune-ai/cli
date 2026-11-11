@@ -9,6 +9,7 @@ the first time, or jump to what you need.
 4. **[Assertions](./assertions.md)** — all ten check types, what each is for.
 5. **[CLI reference](./cli.md)** — commands, flags, and what the exit codes mean.
 6. **[How it works](./concepts.md)** — caching, cost, errored-vs-failed, providers, the run pipeline.
+7. **[The `qa-mission` skill](./qa-mission.md)** — your agent reads the docs, asks, writes a test strategy and proposes cases to Plune.
 
 Reporting an existing test suite to the Plune platform is a different job with a different
 audience, and it has its own package: **[@plune-ai/playwright](../../packages/playwright/README.md)**
