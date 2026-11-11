@@ -1,6 +1,6 @@
 {
   "name": "@plune-ai/cli",
-  "version": "0.34.6",
+  "version": "0.35.0",
   "description": "AI-powered assertion testing for LLM apps — write assertions, run them against any provider, get a pass/fail report (local, CI, or diff).",
   "keywords": [
     "ai",
