@@ -71,7 +71,8 @@ describe('CLI · run · agent loop · anthropic respond', () => {
       usage: { input_tokens: 7, output_tokens: 3 },
       stop_reason: 'tool_use',
     });
-    const res = await provider().respond!({ ...req(), temperature: 0.2 });
+    // A model that still takes a temperature (current ones get none; see anthropic.test.ts).
+    const res = await provider().respond!({ ...req(), model: 'claude-haiku-4-5', temperature: 0.2 });
     const sent = anthropicCreate.mock.calls[0]![0];
     expect(sent.temperature).toBe(0.2);
     expect(sent.tools).toEqual([

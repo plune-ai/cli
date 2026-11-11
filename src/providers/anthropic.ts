@@ -24,6 +24,42 @@ const STOP: Record<string, string> = {
   max_tokens: 'length',
 };
 
+/**
+ * Model ids (by prefix) that still take `temperature` under the API version the SDK sends. Every
+ * other model, current or new, rejects sampling parameters or takes only their default, so it gets
+ * none and a new model needs no change here. Limit: the list holds the ids Anthropic's docs name as
+ * accepting it; a new model that still takes it would need adding.
+ */
+const TAKES_TEMPERATURE = [
+  'claude-opus-4-6',
+  'claude-sonnet-4-6',
+  'claude-opus-4-5',
+  'claude-sonnet-4-5',
+  'claude-haiku-4-5',
+  'claude-opus-4-1',
+  'claude-opus-4-0',
+  'claude-sonnet-4-0',
+  'claude-opus-4-2025',
+  'claude-sonnet-4-2025',
+  'claude-3',
+];
+
+// Models already warned about in this run (the process), so the warning shows once, not per row or eval.
+const warnedNoTemperature = new Set<string>();
+
+/** The request's `temperature` if the model takes one; a configured value it would refuse is dropped, and said once. */
+export function temperatureFor(model: string, temperature: number | undefined): { temperature?: number } {
+  if (temperature === undefined) return {};
+  if (TAKES_TEMPERATURE.some((prefix) => model.startsWith(prefix))) return { temperature };
+  if (!warnedNoTemperature.has(model)) {
+    warnedNoTemperature.add(model);
+    process.stderr.write(
+      `warning: ${model} does not take a temperature; the configured temperature ${temperature} is not sent\n`,
+    );
+  }
+  return {};
+}
+
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -85,7 +121,7 @@ export function makeAnthropicProvider(
             client.messages.create({
               model: req.model,
               max_tokens: req.max_tokens,
-              ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
+              ...temperatureFor(req.model, req.temperature),
               messages: [{ role: 'user', content: req.prompt_resolved }],
             }),
           { max_retries: maxRetries },
@@ -118,7 +154,7 @@ export function makeAnthropicProvider(
             client.messages.create({
               model: req.model,
               max_tokens: req.max_tokens,
-              ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
+              ...temperatureFor(req.model, req.temperature),
               messages: toAnthropicMessages(req.messages),
               tools: req.tools.map((t) => ({
                 name: t.name,

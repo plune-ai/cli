@@ -78,11 +78,16 @@ export interface OpenAiCompatibleOptions {
    * direct OpenAI provider leaves it off so it never sends a non-standard `usage` body.
    */
   reportsCost?: boolean;
+  /**
+   * Send the output limit as `max_completion_tokens` (the direct OpenAI provider: newer OpenAI models refuse
+   * `max_tokens`). Off, it goes as `max_tokens`, which OpenAI-compatible endpoints such as OpenRouter take.
+   */
+  maxCompletionTokens?: boolean;
 }
 
 /** Build a Provider backed by the OpenAI SDK against any OpenAI-compatible endpoint. */
 export function makeOpenAiCompatibleProvider(opts: OpenAiCompatibleOptions): Provider {
-  const { config, env, pricing, apiKeyEnv, baseURL, reportsCost } = opts;
+  const { config, env, pricing, apiKeyEnv, baseURL, reportsCost, maxCompletionTokens } = opts;
 
   const apiKey = env[apiKeyEnv];
   if (apiKey === undefined || apiKey.trim() === '') {
@@ -108,7 +113,9 @@ export function makeOpenAiCompatibleProvider(opts: OpenAiCompatibleOptions): Pro
             client.chat.completions.create({
               model: req.model,
               ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
-              max_tokens: req.max_tokens,
+              ...(maxCompletionTokens
+                ? { max_completion_tokens: req.max_tokens }
+                : { max_tokens: req.max_tokens }),
               messages: [{ role: 'user', content: req.prompt_resolved }],
               // OpenRouter extension: ask it to include the call's actual cost in `usage` (ADR-PRC02).
               ...(reportsCost ? { usage: { include: true } } : {}),
@@ -145,7 +152,9 @@ export function makeOpenAiCompatibleProvider(opts: OpenAiCompatibleOptions): Pro
             client.chat.completions.create({
               model: req.model,
               ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
-              max_tokens: req.max_tokens,
+              ...(maxCompletionTokens
+                ? { max_completion_tokens: req.max_tokens }
+                : { max_tokens: req.max_tokens }),
               messages: toOpenAiMessages(req.messages),
               tools: req.tools.map((t) => ({
                 type: 'function' as const,
@@ -193,5 +202,11 @@ export function makeOpenAiProvider(
   env: NodeJS.ProcessEnv,
   pricing?: PricingMap,
 ): Provider {
-  return makeOpenAiCompatibleProvider({ config, env, pricing, apiKeyEnv: 'OPENAI_API_KEY' });
+  return makeOpenAiCompatibleProvider({
+    config,
+    env,
+    pricing,
+    apiKeyEnv: 'OPENAI_API_KEY',
+    maxCompletionTokens: true,
+  });
 }
