@@ -1,0 +1,142 @@
+name: MCP agent scenarios
+
+# A model works through the scenarios of mcp-evals/plune.yaml against the built `plune mcp serve`, the platform a stub
+# on localhost: does it use our tools the way their descriptions mean? The verdict is statistical and every run costs
+# money, so this never runs on a push or a pull request, and never on a fork. One model after another; the model ×
+# scenario summary goes to the job summary, every result to an artifact, and the cells to Plune.
+#
+# ANTHROPIC_API_KEY and OPENAI_API_KEY (repository secrets) reach only the run step, never the MCP server process (the
+# runner gives it only the variables its `env` names). A model whose key is not set is skipped and said so.
+# Reporting reuses mcp-self-check-report.yml: PLUNE_DOGFOOD_TOKEN (secret), PLUNE_DOGFOOD_API_URL (variable). Without
+# the token nothing is imported.
+
+on:
+  workflow_dispatch:
+  # Nightly: switched on only after the operator confirms the cost of one real run (see mcp-evals/plune.yaml).
+  # schedule:
+  #   - cron: '23 3 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mcp-agent-scenarios
+  cancel-in-progress: false
+
+jobs:
+  scenarios:
+    name: Agent scenarios on each model, summary, import into Plune
+    if: github.repository == 'plune-ai/cli'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      # provider/model, the cheaper first, as mcp-evals/plune.yaml names them; the operator confirms both before the
+      # first paid run.
+      MODELS: openai/gpt-6-luna anthropic/claude-sonnet-5-5
+      PLUNE_STUB_URL: http://127.0.0.1:4010
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          ONNXRUNTIME_NODE_INSTALL: skip
+
+      - name: Build
+        run: pnpm build
+
+      - name: Platform stub on localhost
+        run: |
+          nohup pnpm exec tsx src/mcp/__tests__/fixtures/platform.ts 4010 > "$RUNNER_TEMP/platform-stub.log" 2>&1 &
+          for _ in $(seq 1 30); do
+            if curl -sf -o /dev/null "$PLUNE_STUB_URL/v1/projects"; then exit 0; fi
+            sleep 1
+          done
+          echo "The platform stub did not start:" >&2
+          cat "$RUNNER_TEMP/platform-stub.log" >&2
+          exit 1
+
+      # Exit 1 is a scenario under its threshold: a result, recorded below. Anything above 1 is a broken run.
+      - name: Run the scenarios, one model after another
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          out="$RUNNER_TEMP/scenarios"
+          mkdir -p "$out"
+          worst=0
+          for m in $MODELS; do
+            provider="${m%%/*}"
+            model="${m#*/}"
+            key="$(echo "$provider" | tr '[:lower:]' '[:upper:]')_API_KEY"
+            if [ -z "${!key:-}" ]; then
+              echo "No $key: $model was not run." >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+            set +e
+            PLUNE_PROVIDER="$provider" PLUNE_MODEL="$model" node dist/cli.cjs run \
+              --config mcp-evals/plune.yaml --no-cache --format json -o "$out/$model.json"
+            code=$?
+            set -e
+            echo "$model: plune run exited $code"
+            if [ "$code" -gt "$worst" ]; then worst=$code; fi
+          done
+          [ "$worst" -le 1 ]
+
+      - name: Model × scenario summary
+        if: ${{ !cancelled() }}
+        run: >-
+          node scripts/mcp-agent-scenarios-report.mjs "$RUNNER_TEMP/scenarios"
+          "$RUNNER_TEMP/scenarios-junit/mcp-agent-scenarios.xml" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Scenario results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: mcp-agent-scenarios
+          path: |
+            ${{ runner.temp }}/scenarios/
+            ${{ runner.temp }}/scenarios-junit/
+          if-no-files-found: warn
+
+      - name: Reporting token
+        id: token
+        if: ${{ !cancelled() }}
+        env:
+          PLUNE_DOGFOOD_TOKEN: ${{ secrets.PLUNE_DOGFOOD_TOKEN }}
+        run: |
+          if [ -z "$PLUNE_DOGFOOD_TOKEN" ]; then
+            echo "no PLUNE_DOGFOOD_TOKEN, nothing reported" >> "$GITHUB_STEP_SUMMARY"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # As mcp-self-check-report.yml imports: a scenario under its threshold is a failed case in the run, and its message
+      # says how many runs passed.
+      - name: Import into Plune
+        if: ${{ !cancelled() && steps.token.outputs.present == 'true' }}
+        env:
+          PLUNE_TOKEN: ${{ secrets.PLUNE_DOGFOOD_TOKEN }}
+          PLUNE_API_URL: ${{ vars.PLUNE_DOGFOOD_API_URL || 'https://beta-api.plune.ai' }}
+        run: |
+          junit="$RUNNER_TEMP/scenarios-junit"
+          if ! ls "$junit"/*.xml > /dev/null 2>&1; then
+            echo "No JUnit report was written, so nothing was imported: see the steps above." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          node dist/cli.cjs run import "$junit" --name "MCP agent scenarios" \
+            --key "mcp-agent-scenarios-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            --create --fail-on-failures
