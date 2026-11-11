@@ -1,7 +1,7 @@
 name: MCP self-checks — report
 
 # The record of the MCP self-checks that CI runs as a gate (ci.yml, "MCP — self-checks against the built server"):
-# the same two commands, nightly and by hand, their JUnit imported into Plune. Never on a push or a pull request: the
+# the same commands, nightly and by hand, their JUnit imported into Plune. Never on a push or a pull request: the
 # gate does not need the platform, and a fork has no secret.
 #
 # PLUNE_DOGFOOD_TOKEN (a repository secret) is a token of the project the results go to; the project is the token's,
@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   report:
-    name: Lint and check the built server, import the JUnit into Plune
+    name: Self-check the built server, import the JUnit into Plune
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -65,25 +65,15 @@ jobs:
         if: steps.token.outputs.present == 'true'
         run: pnpm build
 
-      # The same commands as the CI step; the token here is made up too, the real one is only in the import step.
+      # The same script as the CI step; the token here is made up too, the real one is only in the import step.
       - name: MCP — self-checks against the built server
         if: steps.token.outputs.present == 'true'
         env:
           PLUNE_TOKEN: ci-placeholder-not-a-token
           PLUNE_API_URL: http://127.0.0.1:9
-        run: |
-          if env | grep -qE '^[A-Z0-9_]*_API_KEY='; then
-            echo "A model provider key is set in this step: these checks must not reach a model." >&2
-            env | grep -oE '^[A-Z0-9_]*_API_KEY' >&2
-            exit 1
-          fi
-          out="$RUNNER_TEMP/mcp-reports"
-          mkdir -p "$out"
-          server=(--env PLUNE_TOKEN --env PLUNE_API_URL -- node dist/cli.cjs mcp serve)
-          status=0
-          node dist/cli.cjs mcp lint --reporter junit-xml --out "$out/lint.xml" "${server[@]}" || status=1
-          node dist/cli.cjs mcp check --reporter junit-xml --out "$out/check.xml" "${server[@]}" || status=1
-          exit $status
+        run: >-
+          node scripts/mcp-self-check.mjs "$RUNNER_TEMP/mcp-reports"
+          --env PLUNE_TOKEN --env PLUNE_API_URL -- node dist/cli.cjs mcp serve
 
       - name: MCP — self-check reports
         if: ${{ !cancelled() && steps.token.outputs.present == 'true' }}
@@ -94,7 +84,8 @@ jobs:
           if-no-files-found: warn
 
       # Red checks are reported too: that is what the record is for. Without --create: a check the project has no case
-      # for is not offered to the review queue on every night.
+      # for is not offered to the review queue on every night. The folder import reads the JUnit files (lint, check);
+      # conformance writes JSON only, so its result is in the artifact above, not in the run.
       - name: Import into Plune
         if: ${{ !cancelled() && steps.token.outputs.present == 'true' }}
         env:

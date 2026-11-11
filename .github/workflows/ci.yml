@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   ci:
     name: Install → Lint → Typecheck → Test → Build
@@ -74,29 +77,20 @@ jobs:
       - name: Build
         run: pnpm build
 
-      # Our own MCP server, checked by our own commands: `plune mcp lint` and `plune mcp check` (static, no tool is
-      # called) against the built `plune mcp serve` as a real process. The token is made up and the platform address
-      # leads nowhere: listing the tools needs neither, so this needs no secret and no network. Both commands run even
-      # when the first is red, so both reports are written; the step fails when either exits non-zero (1 a finding,
-      # 2 the server did not start, 3 nothing measured, such as an empty tool list). A protocol conformance command
-      # joins this step when the CLI has one. No model is called: the step refuses to run with a provider key set.
+      # Our own MCP server, checked by our own commands: `plune mcp lint`, `plune mcp check` (static, no tool is
+      # called) and `plune mcp conformance` against the built `plune mcp serve` as a real process, all three from
+      # scripts/mcp-self-check.mjs (src/mcp/__tests__/self-check.e2e.test.ts proves it red on a broken server). The
+      # token is made up and the platform address leads nowhere: listing the tools needs neither, so this needs no
+      # secret and no network. Every command runs even when one is red, so every report is written; the step fails on
+      # the first non-zero exit (1 a finding, 2 the server did not start, 3 nothing measured, such as an empty tool
+      # list). No model is called: the script refuses to run with a provider key set.
       - name: MCP — self-checks against the built server
         env:
           PLUNE_TOKEN: ci-placeholder-not-a-token
           PLUNE_API_URL: http://127.0.0.1:9
-        run: |
-          if env | grep -qE '^[A-Z0-9_]*_API_KEY='; then
-            echo "A model provider key is set in this step: these checks must not reach a model." >&2
-            env | grep -oE '^[A-Z0-9_]*_API_KEY' >&2
-            exit 1
-          fi
-          out="$RUNNER_TEMP/mcp-reports"
-          mkdir -p "$out"
-          server=(--env PLUNE_TOKEN --env PLUNE_API_URL -- node dist/cli.cjs mcp serve)
-          status=0
-          node dist/cli.cjs mcp lint --reporter junit-xml --out "$out/lint.xml" "${server[@]}" || status=1
-          node dist/cli.cjs mcp check --reporter junit-xml --out "$out/check.xml" "${server[@]}" || status=1
-          exit $status
+        run: >-
+          node scripts/mcp-self-check.mjs "$RUNNER_TEMP/mcp-reports"
+          --env PLUNE_TOKEN --env PLUNE_API_URL -- node dist/cli.cjs mcp serve
 
       - name: MCP — self-check reports
         if: ${{ !cancelled() }}
