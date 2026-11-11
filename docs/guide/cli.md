@@ -252,14 +252,36 @@ pointed (`DOTENV_PATH`, `DOTENV_CONFIG_PATH`) at a copy of the repo's `.env` wit
 provider keys go through as they are.
 
 The command writes nothing into your repo. The main copy of the code is the repo's: apply the diff, open
-the branch or the PR yourself or in CI. The platform has no route for an automation proposal with code
-yet, so **nothing is sent to the review queue**. The command says so on stderr.
+the branch or the PR yourself or in CI. Without `--send`, **nothing is sent to the review queue**, and the
+command says so on stderr.
 
 ```bash
 plune automate 0b6c…e1 --url https://staging.example.com > cart.diff
 git apply cart.diff
 plune automate 0b6c…e1 --repo ../shop -- --validate --session shop   # arguments after -- go to Cairn
+plune automate 0b6c…e1 --send > cart.diff                            # and put it in the review queue
 ```
+
+### `--send`: the code as a proposal in the review queue
+
+With `--send`, the diff is still printed, and then the same files go to the platform as an **automation
+proposal** (`POST /v1/review-items/automations`). A person reviews it in the queue; approving it writes the
+case's code snapshot (for a manual case, it makes a new automated case beside it). Nothing is written to git.
+
+- **What is sent:** every file of the diff, whole, at the same `tests/…` path; the first `test()` call of
+  the first spec file (`*.spec.ts`, `*.test.ts`) as the case's code, with its `path:line`; the case's
+  current code hash, when it has code, so approval can tell whether the case changed since; and which
+  Cairn version (from `cairn --version`, started with the same clean environment) and which CLI wrote it.
+- **Bounds, checked before anything is sent:** at most 10 files, each at most 16 384 bytes, 65 536 bytes
+  in all, paths at most 400 characters. Over a bound, nothing is sent and each bound that failed is
+  named; the diff above is complete.
+- **The answer:** `Queued a new proposal for '<case>': review item <id>.`, or, when a proposal for the
+  case was already waiting, `Replaced the proposal waiting for '<case>': review item <id>, now revision
+  <n>.` Files the server did not keep are listed under it with their size and reason.
+- **A refusal** prints the server's status, code and words, for example
+  `The platform refused the proposal — HTTP 400: validation failed — …`.
+
+It needs a `write` token and a Plune that serves `POST /v1/review-items/automations`.
 
 The diff on stdout:
 
@@ -280,15 +302,16 @@ new file mode 100644
 | `--repo <dir>` | Where Cairn runs: its `.env`, `knowledge/` and `.auth/` come from here. Default: the current directory. |
 | `--cairn <path>` | Cairn's executable, or its `.js` entry point (run with this Node). Default: `cairn` on `PATH`. |
 | `--url <url>` | The app's address, for Cairn. A case in Plune does not carry one. |
+| `--send` | Also put the code in the review queue as an automation proposal (see above). |
 | `-- <args>` | Passed to `cairn automate`. `--run` and `--into-project` are refused: the command owns the run folder and does not write into the repo. |
 
 ### Exit codes
 
 | Exit | Meaning |
 |------|---------|
-| `0` | Cairn wrote code; the diff is on stdout. |
-| `1` | Cairn exited with an error, or finished without writing a file; or the platform could not be reached. |
-| `2` | Not logged in, or the token was refused; Cairn not found; the case not found; a case with no steps; a bad `--repo` or a refused Cairn argument. |
+| `0` | Cairn wrote code; the diff is on stdout (and, with `--send`, the proposal is in the queue). |
+| `1` | Cairn exited with an error, or finished without writing a file; the platform could not be reached; with `--send`, no file has a `test()` call, or the platform refused the proposal. |
+| `2` | Not logged in, or the token was refused; Cairn not found; the case not found; a case with no steps; a bad `--repo` or a refused Cairn argument; with `--send`, the proposal is over a bound. |
 
 ## `plune mcp check`
 
