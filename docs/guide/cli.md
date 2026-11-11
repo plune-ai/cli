@@ -485,14 +485,38 @@ does not change the class or the exit code.
 ## `plune mcp conformance`
 
 Checks any MCP server against the text of the specification, check by check, and scores the run. It needs no
-Plune account. This release has the model, the catalog and the command; the checks themselves are catalogued but
-report `pending` until they land, so a run today scores nothing and exits `3`.
+Plune account. The protocol suite checks the handshake, the declared capabilities against the methods served,
+ping, the JSON-RPC answers to invalid JSON, an unknown method and wrong parameters, the entries and schemas of the
+tools, resources, templates and prompts lists, pagination, logging, completions, and on stdio what the server
+writes to stdout and whether it exits when stdin closes.
 
 ```bash
 plune mcp conformance --list-checks                       # the catalog, no server
 plune mcp conformance --explain tools-list-shape          # one entry in full
 plune mcp conformance --format json --out r.json -- node dist/server.js
+plune mcp conformance --fixture calls.json --url http://127.0.0.1:3000/mcp
 ```
+
+The checks send their requests as plain JSON-RPC beside the connection (one line on stdio, one POST on Streamable
+HTTP), not through an MCP client library, so an answer is judged as the server sent it. Lists are followed for at
+most 64 pages. A check that times out is `could-not-run` (`timeout`); after two in a row the checks left are not
+tried. When the handshake fails, every check that rests on it is `could-not-run` (`prerequisite-failed`), not
+`failed`. Over HTTP+SSE (`--sse`) the checks that send their own requests are `could-not-run`
+(`transport-error`).
+
+No tool is called unless `--fixture` names it. The file is a JSON list:
+
+```json
+[{ "tool": "get_time", "arguments": {} }]
+```
+
+Name only tools that are safe to call: `readOnlyHint` is what the server says about a tool, not a guarantee. Without
+`--fixture`, `tools-structured-conformant` and `tools-structured-has-text` are `could-not-run` (`needs-input`), which
+keeps them out of the score. Besides the fixture, the only `tools/call` requests are two that cannot run a tool: one
+without a name and one for a name no server has.
+
+Schemas are judged in the dialect their `$schema` names, or 2020-12 without one; 2020-12, 2019-09 and draft-07 are
+supported, another dialect is `could-not-run` (`unsupported-dialect`). No `$ref` is fetched.
 
 ### Options
 
@@ -507,6 +531,7 @@ The connection flags are those of every `plune mcp` command that tests a server.
 | `--out <path>` | Also write the JSON result to this file, whole or not at all. |
 | `--list-checks` | Print the catalog (table, or JSON with `--format json`) and exit `0` without connecting. |
 | `--explain <id>` | Print one catalog entry in full and exit `0` without connecting. |
+| `--fixture <file>` | A JSON list of `{ "tool", "arguments" }`: the only tools the run calls, for the checks of tool results. |
 
 ### The catalog
 
@@ -520,8 +545,9 @@ MUST NOT or REQUIRED about that behaviour of the server; without a keyword the l
 ### States and the score
 
 Each check is `passed`, `failed`, `not-applicable` (with a reason: `era`, `capability-not-declared`, `transport`,
-`no-auth`), `could-not-run` (with a reason: `timeout`, `prerequisite-failed`, `needs-input`, `transport-error`) or
-`pending`. Each also lands in one bucket of the summary, so the buckets add up to the checks:
+`no-auth`, `not-offered`: the capability is declared but the server offers nothing the check reads, such as no
+`outputSchema`), `could-not-run` (with a reason: `timeout`, `prerequisite-failed`, `needs-input`, `transport-error`,
+`unsupported-dialect`) or `pending`. Each also lands in one bucket of the summary, so the buckets add up to the checks:
 
 | Bucket | Holds |
 |--------|-------|

@@ -1,3 +1,5 @@
+import { Transform } from 'node:stream';
+import { StringDecoder } from 'node:string_decoder';
 import { McpServer, type CallToolResult, type ProtocolEra, type RegisteredTool, type Tool } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 // A static import on purpose: the CLI bundle is CommonJS, where a dynamic import() of the package loads its ESM build, and
@@ -111,12 +113,51 @@ export function createPluneMcpServer(opts: PluneMcpServerOptions, era: ProtocolE
   return server;
 }
 
+/** The answer to a line that is not JSON: its id cannot be read, so it is null (JSON-RPC 2.0, section 5). */
+export const PARSE_ERROR_LINE = '{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Parse error"}}\n';
+
+/**
+ * stdin as the transport reads it, less the lines that are not JSON: each of those is answered with PARSE_ERROR_LINE
+ * through `answer`. The SDK's reader drops such a line without a word, and every MCP message "MUST follow the JSON-RPC
+ * 2.0 specification" (https://modelcontextprotocol.io/specification/2025-11-25/basic/index), which answers invalid JSON
+ * with -32700. Blank lines pass as they are.
+ */
+export function answeringParseErrors(answer: (line: string) => void): Transform {
+  const decoder = new StringDecoder('utf8');
+  let rest = '';
+  const pass = (stream: Transform, line: string) => {
+    const text = line.replace(/\r$/, '');
+    if (text.trim() === '') return void stream.push(`${line}\n`);
+    try {
+      JSON.parse(text);
+    } catch {
+      return answer(PARSE_ERROR_LINE);
+    }
+    stream.push(`${line}\n`);
+  };
+  return new Transform({
+    transform(chunk: Buffer, _encoding, done) {
+      // A line is held whole until its newline, as the SDK's reader holds it; that reader's size cap applies after this.
+      const lines = (rest + decoder.write(chunk)).split('\n');
+      rest = lines.pop() ?? '';
+      for (const line of lines) pass(this, line);
+      done();
+    },
+    flush(done) {
+      rest += decoder.end();
+      if (rest !== '') this.push(rest);
+      done();
+    },
+  });
+}
+
 /**
  * Serve over stdio, both eras, until the client closes stdin. Nothing but protocol goes to stdout. The transport calls the
  * factory once per connection, and once more for a `server/discover` probe it drops if the client then sends `initialize`.
  */
 export async function serveMcpStdio(opts: PluneMcpServerOptions): Promise<void> {
-  const transport = new StdioServerTransport();
+  const input = process.stdin.pipe(answeringParseErrors((line) => process.stdout.write(line)));
+  const transport = new StdioServerTransport(input, process.stdout);
   await new Promise<void>((resolve) => {
     // Out-of-band errors (a line that is not JSON-RPC, a failed write) have no request to answer, so stderr is the only
     // place to say so. One short line from the message only, never the payload: it may carry tool arguments. A schema

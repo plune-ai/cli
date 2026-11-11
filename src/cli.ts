@@ -863,6 +863,7 @@ export function createProgram(): Command {
     .option('--out <path>', 'Also write the JSON result to this file')
     .option('--list-checks', 'Print the check catalog and exit, without connecting to a server', false)
     .option('--explain <id>', 'Print the full catalog entry of one check and exit')
+    .option('--fixture <file>', 'A JSON list of { tool, arguments }: the only tools the run calls, for the checks of tool results')
     .action(async (server: string[], options: import('./cli/commands/mcp-conformance.js').McpConformanceFlags, command: Command) => {
       const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
       const { handleMcpConformance } = await import('./cli/commands/mcp-conformance.js');
