@@ -51,6 +51,7 @@ evals:                           # required — one or more evals
 | `pricing` | no | Per-model USD price overrides used for cost reporting. |
 | `runs` | no | How many times each dataset row runs, for every eval (default `1`). See [Repeats](#repeats-runs-and-pass_threshold). |
 | `pass_threshold` | no | Share of a row's runs that must pass, for every eval (default `1`). See [Repeats](#repeats-runs-and-pass_threshold). |
+| `mcp` | no | MCP servers for agentic evals and their default limits. See [MCP servers](#mcp-servers-mcp). |
 | `evals` | yes | The list of evals to run (≥ 1). |
 
 ## `provider`
@@ -83,6 +84,7 @@ fields fall back to the top-level provider).
 | `assertions` | yes | The checks to run on each row's output, after `defaults.assertions`. `[]` is allowed when the shared checks cover the eval. |
 | `runs` | no | Overrides the top-level `runs` for this eval. |
 | `pass_threshold` | no | Overrides the top-level `pass_threshold` for this eval. |
+| `mcp` | no | The MCP server this eval's model may use. See [An eval's `mcp`](#an-evals-mcp). |
 
 \* Provide **either** `prompt` **or** `prompt_file`.
 
@@ -137,6 +139,123 @@ one is the lowest judge score (0–1) one answer needs, and it sits inside the a
 
 How a row's runs become one verdict, and why a run that could not be measured does not count as a
 fail, is in [How it works](./concepts.md#repeats).
+
+## MCP servers (`mcp`)
+
+An agentic eval gives the model the tools of an MCP server. The top-level `mcp` block names the
+servers and the default limits; an eval's own `mcp` block picks one server, the tools the model may
+use, and its own limits.
+
+> **Requires `@plune-ai/cli` 0.35.0 or newer.** 0.34.6 and older stop on the top-level key with
+> `Config validation failed in …` and `: Unrecognized key: "mcp"`, exit `2`, instead of ignoring it.
+>
+> **What this version does with the block:** it checks it. `plune run` and `plune run --dry-run`
+> refuse a wrong block with exit `2`, before any model call, without starting a server or opening a
+> connection. The loop in which the model calls the server's tools comes in a later release; until
+> then an eval with `mcp` runs as a plain prompt eval.
+
+```yaml
+mcp:
+  servers:
+    everything:                          # a stdio server: plune starts this command
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-everything"]
+      env:
+        API_TOKEN: "${EVERYTHING_TOKEN}" # from the environment, never written here
+        LOG_LEVEL: "${LOG_LEVEL:-info}"  # with a default
+      cwd: ./servers                     # relative to the folder of plune.yaml
+    tracker:                             # an HTTP server (Streamable HTTP)
+      url: "https://${TRACKER_HOST}/mcp"
+      headers:
+        Authorization: "Bearer ${TRACKER_TOKEN}"
+  limits:                                # defaults for every agentic eval
+    max_steps: 8
+
+evals:
+  - id: find-the-issue
+    prompt: "Find the open issue about {{topic}}"
+    dataset:
+      examples:
+        - vars: { topic: login }
+    assertions: []
+    mcp:
+      server: tracker                    # a name from mcp.servers
+      allowed_tools: [search_issues, get_issue]
+      limits:
+        max_tool_calls: 5                # wins over mcp.limits and the default
+```
+
+### A server: `mcp.servers.<name>`
+
+Exactly one of `command` and `url`. Both, or neither, is a config error that names the server.
+
+| Field | For | Meaning |
+|-------|-----|---------|
+| `command` | stdio | The program that starts the server. |
+| `args` | stdio | Its arguments, a list of strings. |
+| `env` | stdio | Variables for the server process (strings: quote `"1"`). |
+| `cwd` | stdio | Working directory of the server, relative to the folder of `plune.yaml`. |
+| `url` | HTTP | The Streamable HTTP endpoint, `http://` or `https://`. |
+| `headers` | HTTP | Headers sent with every request to `url`. |
+
+`headers` on a `command` server, or `args`, `env`, `cwd` on a `url` server, is a config error. So is
+a field this table does not name: a misspelt field is refused, not dropped.
+
+**What the server process gets.** Only the variables named in `env`, plus a short list of safe ones
+such as `PATH` and `HOME`. Nothing else of the environment `plune` runs in reaches the server, and
+the model provider's API key never does. If the server needs a variable, name it in `env`
+(`API_TOKEN: "${API_TOKEN}"` passes it on).
+
+### An eval's `mcp`
+
+| Field | Required | Meaning |
+|-------|----------|---------|
+| `server` | yes | A name from `mcp.servers`. A name that is not there is a config error that names the eval and the server. |
+| `allowed_tools` | no | The tools the model may call, by name. Left out: every tool the server lists in `tools/list`. An empty list `[]` is a config error, not "every tool". |
+| `limits` | no | Overrides `mcp.limits` and the defaults, limit by limit. |
+
+`prompt` and `prompt_file` stay mutually exclusive, as on every eval.
+
+### Limits
+
+Every limit has a default, so an agentic eval always ends. A limit is a whole number above `0`;
+`0`, a negative number, a fraction or `.inf` is a config error. There is no "no limit".
+
+| Limit | Default | What it bounds |
+|-------|---------|----------------|
+| `max_steps` | `10` | Model turns for one dataset row. |
+| `max_tool_calls` | `20` | Tool calls for one dataset row. |
+| `max_total_tokens` | `100000` | Input plus output tokens for one dataset row. |
+| `timeout_ms` | `120000` | Time for one dataset row (2 minutes; at most `2147483647`). |
+| `tool_timeout_ms` | `30000` | Time for one tool call (30 seconds; at most `2147483647`). |
+
+An eval's `limits` win over `mcp.limits`, which win over the defaults.
+
+### `${VAR}` in a server's values
+
+`command`, `args`, `env`, `cwd`, `url` and `headers` values may hold:
+
+- `${VAR}`: the value of the environment variable `VAR`;
+- `${VAR:-default}`: the value of `VAR`, or `default` when it is unset or empty.
+
+Nothing else is filled and no shell runs: `$VAR`, `$(...)`, backticks and `~` stay as written, and
+keys (the names in `env` and `headers`) are never filled. Variables come from the environment, or
+from a `.env` next to `plune.yaml` or in the current folder, as for every command; a variable already
+set in the environment wins.
+
+- An unset or empty `${VAR}` without a default is a config error, exit `2`, that names the field and
+  the variable, never a value. An empty value is refused, so an empty credential never goes out.
+- A `${` that is neither form (`${TOKEN`, `${1X}`) is a config error too.
+- Every server is checked, also one that no eval selected with `--only` uses.
+- `plune.yaml` is kept as written: `config_hash` in the run result covers `${VAR}`, not its value,
+  so two machines with different tokens get the same hash, and the value is not in `last-run.json`
+  or in `--format json`.
+
+**A secret written into the file** is a warning, not an error. When a key in `env` or `headers`
+contains `authorization`, `token`, `key`, `secret` or `password` (any case) and its value has no
+`${`, `plune run` prints `warning: mcp.servers.<name>.headers.Authorization looks like a secret
+written into plune.yaml; …` on stderr, naming the key and never the value. The exit code is the one
+the run would have without it.
 
 ## Datasets
 

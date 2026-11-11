@@ -5,6 +5,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { loadConfig } from '../../config/loader.js';
+import { mcpSecretWarnings } from '../../config/mcp.js';
 import { getProvider } from '../../providers/index.js';
 import { makeEstimateProvider } from '../../providers/estimate.js';
 import { makeMockProvider } from '../../providers/mock.js';
@@ -78,6 +79,8 @@ export async function handleRun(
     options.configPath !== undefined
       ? path.dirname(path.resolve(options.configPath))
       : process.cwd();
+  // Advice, never a gate: it does not change the exit code.
+  for (const warning of mcpSecretWarnings(config)) process.stderr.write(`warning: ${warning}\n`);
 
   const factory = depsFactory ?? ((c, d) => buildRealDeps(c, d, options.dryRun));
   const deps = factory(config, baseDir);
