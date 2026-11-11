@@ -73,7 +73,7 @@ describe('CLI · mcp conformance · the catalog without a server', () => {
   it('--explain prints the whole entry; an unknown id is exit 2', async () => {
     const human = await run({ explain: 'logging-set-level' });
     expect(human.code).toBe(0);
-    expect(human.out).toContain('level: MUST (derived: ');
+    expect(human.out).toContain('level: SHOULD (derived: ');
     expect(human.out).toContain('https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/logging');
     const asJson = await run({ explain: 'tools-name-format', format: 'json' });
     expect(JSON.parse(asJson.out)).toEqual(CATALOG.find((e) => e.id === 'tools-name-format'));
