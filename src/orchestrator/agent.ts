@@ -187,31 +187,56 @@ export async function runAgentRow(p: AgentRowParams): Promise<RowResult> {
       throw new AgentError('MCP_CONNECT', (err as Error).message);
     }
 
-    let listed: Record<string, unknown>[];
-    try {
-      listed = listedTools(await bounded(session.listTools(limits.tool_timeout_ms)));
-    } catch (err) {
-      if (err instanceof LimitStop) throw err;
-      throw new AgentError('MCP_LIST_TOOLS', `tools/list failed: ${(err as Error).message}`);
-    }
-    const offered = listed.filter(
-      (t) => p.allowedTools === undefined || p.allowedTools.includes(t.name as string),
-    );
-    transcript.tools = listed.map((t) => ({
-      name: t.name as string,
-      offered: offered.includes(t),
-      ...(isRecord(t.annotations) ? { annotations: t.annotations } : {}),
-    }));
-    const names = wireNames(offered.map((t) => t.name as string));
-    const tools: ToolSpec[] = offered.map((t) => ({
-      name: names.toWire.get(t.name as string)!,
-      ...(typeof t.description === 'string' ? { description: t.description } : {}),
-      input_schema: isRecord(t.inputSchema) ? t.inputSchema : { type: 'object' },
-    }));
+    const open = session;
+    let names = wireNames([]);
+    let tools: ToolSpec[] = [];
+    let offeredNames: string[] = [];
+    /**
+     * Reads `tools/list` and offers what it holds, within `allowed_tools`. `transcript.tools` keeps every tool listed
+     * at any point of the row, offered if it ever was, so a check may name a tool the list held only for a while.
+     * Returns what was added and removed, or undefined when the offered set did not change.
+     */
+    const list = async (): Promise<AgentStep['offered_changed']> => {
+      let listed: Record<string, unknown>[];
+      try {
+        listed = listedTools(await bounded(open.listTools(limits.tool_timeout_ms)));
+      } catch (err) {
+        if (err instanceof LimitStop) throw err;
+        throw new AgentError('MCP_LIST_TOOLS', `tools/list failed: ${(err as Error).message}`);
+      }
+      const offered = listed.filter(
+        (t) => p.allowedTools === undefined || p.allowedTools.includes(t.name as string),
+      );
+      for (const t of listed) {
+        const isOffered = offered.includes(t);
+        const known = transcript.tools.find((k) => k.name === t.name);
+        if (known !== undefined) known.offered ||= isOffered;
+        else
+          transcript.tools.push({
+            name: t.name as string,
+            offered: isOffered,
+            ...(isRecord(t.annotations) ? { annotations: t.annotations } : {}),
+          });
+      }
+      const now = offered.map((t) => t.name as string);
+      const added = now.filter((n) => !offeredNames.includes(n));
+      const removed = offeredNames.filter((n) => !now.includes(n));
+      offeredNames = now;
+      names = wireNames(now);
+      tools = offered.map((t) => ({
+        name: names.toWire.get(t.name as string)!,
+        ...(typeof t.description === 'string' ? { description: t.description } : {}),
+        input_schema: isRecord(t.inputSchema) ? t.inputSchema : { type: 'object' },
+      }));
+      return added.length + removed.length > 0 ? { added, removed } : undefined;
+    };
+    await list();
 
     const messages: AgentMessage[] = [{ role: 'user', content: prompt }];
     let calls = 0;
     let tokens = 0;
+    // The change a re-read list made, recorded on the step whose request first carried it.
+    let changed: AgentStep['offered_changed'];
     for (let index = 1; ; index++) {
       const res = await bounded(
         respond({
@@ -243,7 +268,9 @@ export async function runAgentRow(p: AgentRowParams): Promise<RowResult> {
         ...(res.finish_reason !== undefined ? { finish_reason: res.finish_reason } : {}),
         usage,
         calls: records,
+        ...(changed !== undefined ? { offered_changed: changed } : {}),
       };
+      changed = undefined;
       transcript.steps.push(step);
 
       if (res.finish_reason === 'error')
@@ -266,6 +293,7 @@ export async function runAgentRow(p: AgentRowParams): Promise<RowResult> {
       const results: { id: string; content: string; is_error: boolean }[] = [];
       const answer = (rec: AgentCall, c: ToolCall, content: string) =>
         results.push({ id: c.id, content, is_error: rec.is_error });
+      let succeeded = false;
       for (const [i, c] of res.tool_calls.entries()) {
         const rec = records[i]!;
         if (calls >= limits.max_tool_calls) throw new LimitStop('max_tool_calls');
@@ -294,6 +322,7 @@ export async function runAgentRow(p: AgentRowParams): Promise<RowResult> {
         if (got.kind === 'error') Object.assign(rec, { is_error: true, error_kind: 'protocol' });
         else if (isRecord(got.result) && got.result.isError === true)
           Object.assign(rec, { is_error: true, error_kind: 'content' });
+        succeeded ||= !rec.is_error;
         rec.result = kept.cut(text);
         // The model gets the whole answer; only the transcript keeps an excerpt.
         answer(rec, c, text);
@@ -302,6 +331,11 @@ export async function runAgentRow(p: AgentRowParams): Promise<RowResult> {
         { role: 'assistant', text: res.text, tool_calls: res.tool_calls },
         { role: 'tool', results },
       );
+      // A server may change its list as a side effect of a call (MCP 2025: discovery switches tools on, and it says
+      // so with notifications/tools/list_changed). The list is read again after a step with a call that succeeded,
+      // rather than on that notification: over HTTP it may come on another stream, after the call's answer, and a
+      // re-read cannot miss it. A fixed list (2026-07-28) reads the same, so nothing changes there.
+      if (succeeded) changed = await list();
     }
   } catch (err) {
     if (err instanceof LimitStop) transcript.stop = { reason: 'limit', limit: err.limit };

@@ -244,7 +244,10 @@ For each dataset row, `plune run`:
 2. offers the model the tools `allowed_tools` names (every tool when it is left out);
 3. runs each call the model asks for on the server, one after another in the order asked, and gives
    the model every answer in its next step;
-4. repeats until the model answers without a call, or a limit stops it.
+4. after a step with a call that succeeded, reads `tools/list` again and offers what it holds from
+   the next step, still within `allowed_tools`: a server may switch tools on or off as a side effect
+   of a call (and announce it with `notifications/tools/list_changed`); a fixed list reads the same;
+5. repeats until the model answers without a call, or a limit stops it.
 
 The row's `output` is the model's last text, and the assertions judge it. Rows of an agentic eval
 run one at a time, since they may share the server's state; `--concurrency` or
@@ -263,8 +266,8 @@ and the call is recorded as not executed, with `is_error: true`.
 | Field | Meaning |
 |-------|---------|
 | `server` | The name in `mcp.servers`. |
-| `tools` | Every tool the server listed: `name`, `offered`, and `annotations` when it had them. |
-| `steps[]` | One per model turn: `index` (from 1), `text`, `finish_reason`, `usage` (tokens and cost), `calls`. |
+| `tools` | Every tool the server listed at any point of the row: `name`, `offered` (offered at any point), and `annotations` when it had them. |
+| `steps[]` | One per model turn: `index` (from 1), `text`, `finish_reason`, `usage` (tokens and cost), `calls`, and `offered_changed` (`added`, `removed`) on the step whose request first offered a changed list. |
 | `steps[].calls[]` | `id`, `name`, `args`, `executed`, `is_error`, `error_kind`, `duration_ms`, `result`. |
 | `stop` | `reason`: `complete`, `limit` (with `limit`: the one that stopped it) or `error`. |
 | `collection` | `partial` when a limit or an error stopped the loop, or an excerpt was cut; `complete` otherwise. |

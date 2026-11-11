@@ -194,6 +194,7 @@ interface GoldenRowResult {
         duration_ms?: number;
         result?: { text: string; bytes: number; truncated: boolean };
       }[];
+      offered_changed?: { added: string[]; removed: string[] };
     }[];
     stop: {
       reason: 'complete' | 'limit' | 'error';

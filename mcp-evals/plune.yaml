@@ -22,10 +22,10 @@
 # Offline: src/mcp/__tests__/mcp-agent-scenarios.e2e.test.ts plays every scenario with PLUNE_MOCK_PROVIDER=1 and a
 # scripted model, once with the expected calls (it must pass) and once with a wrong one (it must fail).
 #
-# Known limit: the tool loop reads tools/list once, when a row starts. A tool switched on by the discovery tool is
-# not offered to the model in the same row, so no check here names a hidden tool (a check on a tool the model was
-# not offered stops the row as ASSERTION_UNKNOWN_TOOL). A call to a hidden tool is still recorded, under its name,
-# as an error, and `only-tools` and `no-tool-errors` see it.
+# Hidden tools: the tool loop reads tools/list again after a step with a call that succeeded, so a tool the discovery
+# tool switches on is offered from the next step. A check may name a tool only if the list held it at some point of
+# the row; one never listed stops the row as ASSERTION_UNKNOWN_TOOL. So a check that names a hidden tool is measured
+# only on a row where the model switched it on.
 #
 # A tool answer over the 4 KiB excerpt of a call (a page of all 48 recorded cases is) makes the transcript partial,
 # and then a negative check that found nothing is not measured: the row ends errored, ASSERTION_UNMEASURED, neither a
@@ -213,13 +213,15 @@ evals:
     dataset: { examples: [{ vars: {} }] }
     mcp: { server: plune }
     assertions:
-      - type: tool-called
-        tool: plune_discover_tools
+      # The writer is switched on first, then called: it is offered from the step after the discovery. A model that
+      # never switches it on ends the row errored (tool-order names a tool never listed: ASSERTION_UNKNOWN_TOOL),
+      # which the report shows as not passed.
+      - type: tool-order
+        tools: [plune_discover_tools, plune_results_write]
       # Proposing cases is the listed writer a model may grab instead.
       - type: tool-not-called
         tool: plune_case_propose
-      # No no-tool-errors here: the tool loop does not offer the writer the discovery switched on (see the top), so
-      # the model's next call, the right one, is recorded as an error.
+      - type: no-tool-errors
       - type: token-budget
         max: 70000
 

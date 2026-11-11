@@ -210,12 +210,17 @@ export interface AgentStep {
   usage: Usage;
   /** In the order the model asked for them; they run one after another. */
   calls: AgentCall[];
+  /**
+   * Present on the step whose request first offered a changed set of tools: the server's list changed after a call of
+   * the step before, by these names (within `allowed_tools`). Optional and additive.
+   */
+  offered_changed?: { added: string[]; removed: string[] };
 }
 
 export interface AgentTranscript {
   /** The name in `mcp.servers`. */
   server: string;
-  /** Every tool the server listed, and whether the model was offered it (`allowed_tools`). */
+  /** Every tool the server listed at any point of the row, and whether the model was ever offered it (`allowed_tools`). */
   tools: { name: string; offered: boolean; annotations?: Record<string, unknown> }[];
   steps: AgentStep[];
   /** `complete`: the model gave its final answer; `limit`: a limit stopped the loop (`limit` names it); `error`: see the row's `error`. */

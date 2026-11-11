@@ -126,6 +126,8 @@ const rowResultSchema = z.object({
                 .optional(),
             }),
           ),
+          /** Optional and additive: the step whose request first offered a changed list. */
+          offered_changed: z.object({ added: z.array(z.string()), removed: z.array(z.string()) }).optional(),
         }),
       ),
       stop: z.object({
