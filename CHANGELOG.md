@@ -13,6 +13,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ### Added
 
+- **The `qa-mission` skill, in the Agent Skills format, under `skills/qa-mission` and in the npm package.** With the Plune MCP tools, an agent reads the product's README and docs, asks 3 to 5 questions (`plune_question_ask`, or the chat when not connected), writes a test strategy as a Markdown file in the repository and proposes it with `plune_strategy_propose`, and proposes 20 or more cases to the review queue with `plune_case_propose`, each write tried with `dry_run` first. It keeps a stage log with the tokens the host reports, never an estimate. A unit test checks every tool name, call argument and example input of the skill against the tool contract. See [the guide](docs/guide/qa-mission.md).
+
 - **`provider.reasoning_effort`: `none`, `minimal`, `low`, `medium`, `high` or `xhigh`, sent as is by `openai` on plain and agentic rows (#220).** Unset, nothing is sent and requests are unchanged. `gpt-6-luna` refuses function tools on Chat Completions while it reasons, so the agent scenarios in `mcp-evals/plune.yaml` set `none`. `anthropic` does not send it and says so once per model on stderr; `openrouter` does not send it, its reasoning parameter has another shape. The cache key is unchanged and does not hold it.
 
 ### Fixed
