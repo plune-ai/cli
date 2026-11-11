@@ -309,7 +309,7 @@ export const PLUNE_TOOLS = [
     name: 'plune_discover_tools',
     title: 'Find more tools',
     description:
-      'Look for a capability that is not in your tool list — editing cases, writing results, starting runs, cataloguing API endpoints, a raw API call — and switch the ones you need on for this session.',
+      'Search for a capability that is not in your tool list — editing cases, writing results, starting runs, cataloguing API endpoints, a raw API call — and switch the ones you need on for this session.',
     input: z.strictObject({
       query: z.string().trim().min(1).max(200).optional().describe('Words of the task, e.g. "write results"'),
       names: z.array(z.string().min(1)).min(1).max(MAX_VISIBLE_TOOLS).optional().describe('Tools to switch on'),

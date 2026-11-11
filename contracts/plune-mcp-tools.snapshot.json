@@ -757,7 +757,7 @@
         "readOnlyHint": true,
         "title": "Find more tools"
       },
-      "description": "Look for a capability that is not in your tool list — editing cases, writing results, starting runs, cataloguing API endpoints, a raw API call — and switch the ones you need on for this session.",
+      "description": "Search for a capability that is not in your tool list — editing cases, writing results, starting runs, cataloguing API endpoints, a raw API call — and switch the ones you need on for this session.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
