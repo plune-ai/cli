@@ -234,6 +234,37 @@ describe('CLI · config · mcp block · ${VAR}', () => {
     });
   });
 
+  it('CLI · config · mcp block · a server with only command or only url resolves with empty args, env and headers and no cwd', () => {
+    expect(resolveMcpServer({ command: 'node' }, {})).toEqual({
+      kind: 'stdio',
+      command: 'node',
+      args: [],
+      env: {},
+    });
+    expect(resolveMcpServer({ url: 'http://127.0.0.1:3000/mcp' }, {})).toEqual({
+      kind: 'http',
+      url: 'http://127.0.0.1:3000/mcp',
+      headers: {},
+    });
+  });
+
+  it('CLI · config · mcp block · an unset ${VAR} in command, args or cwd is an issue on that field', () => {
+    const config = parsed(
+      base({
+        mcp: {
+          servers: {
+            local: { command: '${MISSING_BIN}', args: ['${MISSING_ARG}'], cwd: '${MISSING_DIR}' },
+          },
+        },
+      }),
+    );
+    const out = mcpVariableIssues(config, {});
+    expect(out).toHaveLength(3);
+    expect(out[0]).toMatch(/^mcp\.servers\.local\.command: .*MISSING_BIN/);
+    expect(out[1]).toMatch(/^mcp\.servers\.local\.args\.0: .*MISSING_ARG/);
+    expect(out[2]).toMatch(/^mcp\.servers\.local\.cwd: .*MISSING_DIR/);
+  });
+
   it('CLI · config · mcp block · every unset variable is one issue with its field and name, and never a value that is set (AC-6)', () => {
     const secret = 'sk-live-0123456789abcdef';
     const env = { PRESENT_TOKEN: secret };
