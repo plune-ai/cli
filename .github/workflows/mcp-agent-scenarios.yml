@@ -12,6 +12,11 @@ name: MCP agent scenarios
 
 on:
   workflow_dispatch:
+    inputs:
+      probe:
+        description: One scenario, one repeat per model, to check that each provider takes the requests before a full run
+        type: boolean
+        default: false
   # Nightly: switched on only after the operator confirms the cost of one real run (see mcp-evals/plune.yaml).
   # schedule:
   #   - cron: '23 3 * * *'
@@ -72,6 +77,7 @@ jobs:
       - name: Run the scenarios, one model after another
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PROBE: ${{ inputs.probe }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           out="$RUNNER_TEMP/scenarios"
@@ -86,8 +92,10 @@ jobs:
               continue
             fi
             set +e
+            subset=()
+            if [ "${PROBE:-false}" = true ]; then subset=(--only find-smoke-cases --runs 1); fi
             PLUNE_PROVIDER="$provider" PLUNE_MODEL="$model" node dist/cli.cjs run \
-              --config mcp-evals/plune.yaml --no-cache --format json -o "$out/$model.json"
+              --config mcp-evals/plune.yaml --no-cache "${subset[@]}" --format json -o "$out/$model.json"
             code=$?
             set -e
             echo "$model: plune run exited $code"
