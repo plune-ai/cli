@@ -2967,8 +2967,15 @@
       "outputSchema": {
         "additionalProperties": false,
         "properties": {
+          "checked": {
+            "type": "boolean"
+          },
           "dryRun": {
             "type": "boolean"
+          },
+          "findings": {
+            "items": {},
+            "type": "array"
           },
           "request": {
             "additionalProperties": false,

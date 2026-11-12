@@ -280,10 +280,10 @@ export const writeOutput = z.object({
   dryRun: z.boolean(),
   request: plannedRequest.optional(),
   result: entity.optional(),
-  /** A dry run the platform checked (true) or only planned (false). */
-  checked: z.boolean().optional(),
-  findings: z.array(z.unknown()).optional(),
 });
+
+/** A strategy proposal: a dry run says whether the platform checked it (true) or it was only planned (false), and the findings. */
+export const strategyOutput = writeOutput.extend({ checked: z.boolean().optional(), findings: z.array(z.unknown()).optional() });
 
 /** A batch: how many were asked for, how many the platform applied, and each one's answer. */
 export const batchOutput = z.object({

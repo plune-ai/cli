@@ -17,6 +17,7 @@ import {
   proposedEndpoint,
   questionInput,
   strategyContent,
+  strategyOutput,
   writeOutput,
 } from './schemas.js';
 
@@ -294,7 +295,7 @@ export const PLUNE_TOOLS = [
     description:
       'Propose a test strategy for a mission in ISTQB sections — objectives, scope in and out, approach, levels and techniques, risks, entry and exit criteria — for a person to accept.',
     input: z.strictObject({ missionId, content: strategyContent, dry_run: dryRun }),
-    output: writeOutput,
+    output: strategyOutput,
     write: true,
     visibility: 'core',
     endpoints: ['POST /v1/missions/:id/strategy'],
