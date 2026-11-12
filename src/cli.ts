@@ -1192,15 +1192,18 @@ export function createProgram(): Command {
     .option('--repo <dir>', 'Where Cairn runs (its .env, knowledge/ and .auth/); default: the current directory')
     .option('--cairn <path>', "Cairn's executable, or its .js entry point (default: cairn on PATH)")
     .option('--url <url>', "The app's address, which the case does not carry")
+    .option('--send', 'Also put the code in the review queue as an automation proposal (POST /v1/review-items/automations)', false)
     .action(
       async (
         caseId: string,
         cairnArgs: string[],
-        options: { repo?: string; cairn?: string; url?: string },
+        options: { repo?: string; cairn?: string; url?: string; send: boolean },
         command: Command,
       ) => {
         const verbose = verboseOf(command);
-        const { handleAutomate, reportAutomateFailure } = await import('./cli/commands/automate.js');
+        const { handleAutomate, reportAutomateFailure, automationProposal, sendAutomation, formatSent } = await import(
+          './cli/commands/automate.js'
+        );
         try {
           const out = await handleAutomate({
             caseId,
@@ -1208,12 +1211,18 @@ export function createProgram(): Command {
             ...(options.repo === undefined ? {} : { repo: options.repo }),
             ...(options.cairn === undefined ? {} : { cairn: options.cairn }),
             ...(options.url === undefined ? {} : { url: options.url }),
+            withCairnVersion: options.send,
           });
           // The diff alone on stdout, so `plune automate <id> > case.diff` and `git apply` take it as it is.
           process.stdout.write(out.diff);
-          process.stderr.write(
-            `${out.files.length} file(s) from Cairn for '${out.case.title}'. Not queued: the platform has no route for an automation proposal yet, so nothing was sent.\n`,
-          );
+          process.stderr.write(`${out.files.length} file(s) from Cairn for '${out.case.title}'.\n`);
+          if (!options.send) {
+            process.stderr.write('Not queued: pass --send to put it in the review queue.\n');
+            return;
+          }
+          // The same files the diff shows; the bounds are checked before anything is sent.
+          const sent = await sendAutomation(automationProposal(out, pkg.version));
+          process.stderr.write(formatSent(sent, out.case.title));
         } catch (err) {
           const code = reportAutomateFailure(err, (s) => process.stderr.write(s));
           if (code !== null) {
