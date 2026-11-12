@@ -115,7 +115,7 @@ export const PLUNE_TOOLS = [
     name: 'plune_review_list',
     title: 'Read the review queue',
     description:
-      'See what waits for a decision in the review queue — proposed cases, discovered tests, endpoints, strategies, reports — narrowed by state and kind, newest first, one page at a time.',
+      'See what waits for a decision in the review queue — proposed cases, discovered tests, endpoints, strategies, reports — narrowed by state, kind and mission, newest first, one page at a time. The mission filter needs a platform that supports it; an older one returns the whole queue.',
     input: z.strictObject({
       state: z.enum(REVIEW_STATES).optional(),
       kinds: z.array(z.enum(REVIEW_KINDS)).min(1).optional().describe('Questions are read with the question tool'),

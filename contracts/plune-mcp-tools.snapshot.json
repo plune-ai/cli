@@ -241,6 +241,11 @@
             "description": "true: answer what would be sent, and send nothing",
             "type": "boolean"
           },
+          "missionId": {
+            "description": "The mission these cases are for: the review queue can then be read by it",
+            "minLength": 1,
+            "type": "string"
+          },
           "target": {
             "description": "What the cases test: the product address, or the mission name",
             "maxLength": 2048,
@@ -265,6 +270,13 @@
           },
           "dryRun": {
             "type": "boolean"
+          },
+          "itemIds": {
+            "description": "The ids of the review-queue entries created, when the platform names them",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "report": {
             "additionalProperties": {},
@@ -2044,7 +2056,7 @@
         "readOnlyHint": true,
         "title": "Read the review queue"
       },
-      "description": "See what waits for a decision in the review queue — proposed cases, discovered tests, endpoints, strategies, reports — narrowed by state and kind, newest first, one page at a time.",
+      "description": "See what waits for a decision in the review queue — proposed cases, discovered tests, endpoints, strategies, reports — narrowed by state, kind and mission, newest first, one page at a time. The mission filter needs a platform that supports it; an older one returns the whole queue.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2074,6 +2086,11 @@
             "maximum": 100,
             "minimum": 1,
             "type": "integer"
+          },
+          "missionId": {
+            "description": "Only the entries of this mission",
+            "minLength": 1,
+            "type": "string"
           },
           "state": {
             "enum": [
