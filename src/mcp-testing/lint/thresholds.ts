@@ -11,25 +11,25 @@ const PLUNE_BUDGET = {
   tooLooseShare: 0.8,
   /** Whole tool lists, outputSchema and annotations included. */
   lists: {
-    /** 2025 era, write scope, as listed first: 17 tools, measured 8327. */
-    writeFirst: 9160,
-    /** 2025 era, write scope, after plune_discover_tools: 22 tools, measured 10739. */
-    writeAll: 11813,
-    /** Read scope, either era: 8 tools, measured 2380. */
-    read: 2618,
-    /** 2026-07-28 era, write scope: 17 tools, the list does not change after discover; measured 8327. */
-    modernWrite: 9160,
+    /** 2025 era, write scope, as listed first: 17 tools, measured 8429 (8327 before the memory rules of plune_project_context). */
+    writeFirst: 9272,
+    /** 2025 era, write scope, after plune_discover_tools: 22 tools, measured 10841 (10739 before the memory rules). */
+    writeAll: 11926,
+    /** Read scope, either era: 8 tools, measured 2482 (2380 before the memory rules). */
+    read: 2731,
+    /** 2026-07-28 era, write scope: 17 tools, the list does not change after discover; measured 8429 (8327 before the memory rules). */
+    modernWrite: 9272,
   },
   /** The biggest single tool, plune_strategy_propose, measured 2177. */
   largestTool: 2395,
   /**
    * The text content of an answer, measured 2026-11-10 on live answers of the beta demo project recorded in
-   * plune-budget.fixtures.ts (cases in Ukrainian): plune_project_context with 3 projects, 3 suites, no missions 543;
+   * plune-budget.fixtures.ts (cases in Ukrainian): plune_project_context with 3 projects, 3 suites, no missions 548 (543 before its empty memoryRules);
    * plune_cases_search 10521 for the whole project of 48 cases (a page of 100 is not reached, ~219 per case);
    * plune_review_list of 7 pending entries 895. The demo has no missions, so plune_mission_get with 5 sources, 476, is
    * measured on a synthetic mission.
    */
-  answers: { plune_project_context: 598, plune_cases_search: 11574, plune_review_list: 985, plune_mission_get: 524 },
+  answers: { plune_project_context: 603, plune_cases_search: 11574, plune_review_list: 985, plune_mission_get: 524 },
 } as const;
 
 /**

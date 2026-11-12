@@ -10,6 +10,12 @@ mission with your own agent and the Plune MCP tools. The agent:
 4. proposes 20 or more test cases to the review queue with `plune_case_propose`. They become cases only
    when a person approves them.
 
+Before it plans, it reads the project's memory: the rules a person accepted in the review queue, which
+`plune_project_context` returns as `memoryRules`. The agent follows them for the whole mission and does
+not ask again what a rule answers. An answer that should hold for the next missions it may propose as a
+new rule, through the review queue (`POST /v1/memory/candidates` with `plune_api_request`); it becomes
+a rule only when a person accepts it there, and only then does the next mission read it.
+
 It keeps a stage log, one row per stage with the tokens your agent's host reports, and puts it at the
 end of the strategy file. When the host shows no usage, the row says `not reported`; the skill never
 estimates a number.
@@ -60,7 +66,7 @@ with `plune_mission_create` and asks you first.
 ## What it costs
 
 - **Your agent's tokens.** Your agent does the reading and the writing, on your own plan or key. The
-  skill text is about 10 KB, read once when the skill starts; the product docs it reads and the
+  skill text is about 12 KB, read once when the skill starts; the product docs it reads and the
   cases it writes are most of the rest. The stage log shows what your host reported for each stage.
 - **No Plune AI budget.** The tools the skill calls only read and write records; none of them runs the
   project's AI. (`plune_cases_generate` does, and the skill does not call it.)

@@ -86,3 +86,23 @@ when you assumed it. The split adds up to 100.
   ]
 }
 ```
+
+## A memory rule
+
+`plune_api_request`, a `POST` to `/v1/memory/candidates`. `source.kind` is `answer` and
+`source.id` the id of the answered question (from `plune_question_list`). `text` is the rule in
+your words, up to 2000 characters; left out, the platform takes the answer's own words (an answer to an access question is never
+copied, so it needs `text`). The call
+lands a `memory_rule` entry in the review queue; it is a rule only once a person accepts it.
+
+<!-- input: plune_api_request -->
+```json
+{
+  "method": "POST",
+  "path": "/v1/memory/candidates",
+  "body": {
+    "source": { "kind": "answer", "id": "ri_123" },
+    "text": "Tests run against staging only; production is never touched."
+  }
+}
+```

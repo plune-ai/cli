@@ -20,7 +20,11 @@ Keep a stage log as you go (see "Stage log" below). Do not skip it.
 ## 1. Context
 
 1. Call `plune_project_context()`. It names the project, its suites, how many cases it has, its
-   missions and how much waits in the review queue.
+   missions, how much waits in the review queue, and `memoryRules`: the rules of the project's
+   memory that a person accepted. Follow every rule for the whole mission, as if the user had just
+   told you: do not ask a question a rule already answers, and let the rules shape the strategy and
+   the cases. Cite a rule you relied on by its id (`memory rule <id>`) as the source. A rule you
+   think is wrong or out of date is still a rule: say so in your final message, and keep to it.
 2. Find the mission:
    - the user named a mission id: `plune_mission_get(missionId)`;
    - one mission in the project matches the product: read it with `plune_mission_get(missionId)`;
@@ -101,6 +105,22 @@ Prefer a technique the profile names, and write it in the case.
 
 Do not approve your own proposals and do not call any tool that decides queue entries.
 
+## Proposing a memory rule
+
+An answer that will hold for the next missions too (who uses the product, what is out of scope,
+which environment the tests may touch) can become a rule of the project's memory, so the next
+mission does not ask it again. A rule comes only through the review queue: propose it, and it is
+a rule once a person accepts it there. Never write a rule into a file or the strategy as if it
+were accepted, and never treat a proposed rule as one.
+
+- Connected, with a write token: propose it with `plune_api_request(method, path, body)`, a `POST`
+  to `/v1/memory/candidates` whose `body` names the answered question as its source. If
+  `plune_api_request` is not in your tool list, switch it on with `plune_discover_tools(names)`.
+  The shape is in [references/tool-calls.md](references/tool-calls.md). Propose only what a
+  person actually said, at most one rule per answer, and say in your final message which you
+  proposed.
+- Not connected: list the rules you would propose in your final message, for the user to add.
+
 ## Stage log
 
 Keep one row per stage you ran, and put the table at the end of the strategy file and in your
@@ -121,4 +141,5 @@ number. A stage you skipped gets a row with `skipped` and the reason.
 ## Finish
 
 End with a short message: the strategy file path, whether the strategy was proposed, how many
-cases were proposed and applied, the questions still open, and the stage log table.
+cases were proposed and applied, the memory rules you followed and the ones you proposed, the
+questions still open, and the stage log table.

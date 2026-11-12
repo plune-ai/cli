@@ -1383,7 +1383,7 @@
         "readOnlyHint": true,
         "title": "Project context"
       },
-      "description": "Start here: learn the project you are working in with one call — its projects, the suite tree, how many test cases it has, its testing missions, and how much waits in the review queue.",
+      "description": "Start here: learn the project you are working in with one call — its projects, the suite tree, how many test cases it has, its testing missions, how much waits in the review queue, and the rules of its memory: what a person accepted for this project, to follow without asking again.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {},
@@ -1406,6 +1406,26 @@
               "total"
             ],
             "type": "object"
+          },
+          "memoryRules": {
+            "description": "Rules a person accepted in the review queue and has not retired; a proposed or rejected rule is never here",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "text"
+              ],
+              "type": "object"
+            },
+            "type": "array"
           },
           "missions": {
             "items": {
@@ -1470,6 +1490,7 @@
         },
         "required": [
           "cases",
+          "memoryRules",
           "missions",
           "projectId",
           "projects",

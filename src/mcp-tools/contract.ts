@@ -61,7 +61,7 @@ export const PLUNE_TOOLS = [
     name: 'plune_project_context',
     title: 'Project context',
     description:
-      'Start here: learn the project you are working in with one call — its projects, the suite tree, how many test cases it has, its testing missions, and how much waits in the review queue.',
+      'Start here: learn the project you are working in with one call — its projects, the suite tree, how many test cases it has, its testing missions, how much waits in the review queue, and the rules of its memory: what a person accepted for this project, to follow without asking again.',
     input: z.strictObject({}),
     output: z.object({
       projectId: z.string().nullable(),
@@ -70,10 +70,13 @@ export const PLUNE_TOOLS = [
       cases: z.object({ total: z.number().int() }),
       missions: z.array(entity),
       reviewQueue: z.object({ pending: z.number().int(), more: z.boolean() }),
+      memoryRules: z
+        .array(z.object({ id: z.string(), text: z.string() }))
+        .describe('Rules a person accepted in the review queue and has not retired; a proposed or rejected rule is never here'),
     }),
     write: false,
     visibility: 'core',
-    endpoints: ['GET /v1/projects', 'GET /v1/suites', 'GET /v1/test-cases', 'GET /v1/missions', 'GET /v1/review-items'],
+    endpoints: ['GET /v1/projects', 'GET /v1/suites', 'GET /v1/test-cases', 'GET /v1/missions', 'GET /v1/review-items', 'GET /v1/memory/rules'],
   }),
   define({
     name: 'plune_get',
