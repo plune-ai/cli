@@ -672,6 +672,12 @@ The server reads the token the way every platform command does: `PLUNE_TOKEN` fr
 (set it in the client's `env` block), else the login `plune login` saved. A read token, or
 `--read-only`, offers only the read tools.
 
+`plune_project_context`, the call an agent starts with, also answers `memoryRules`: the rules of the
+project's memory that a person accepted in the review queue and has not retired, each as its `id` and
+`text`, for the agent to follow without asking again. A rule that is only proposed, or was rejected, is
+never among them. A platform that keeps no project memory answers no rules, and the rest of the
+context stands.
+
 To run a whole testing mission with these tools, give the agent the [`qa-mission` skill](docs/guide/qa-mission.md)
 (it ships in the package under `skills/qa-mission`): it reads the product's docs, asks 3 to 5 questions,
 writes a test strategy file and proposes 20 or more cases to the review queue.

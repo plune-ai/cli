@@ -59,6 +59,7 @@ describe('the qa-mission skill', () => {
       ...all.matchAll(/<!-- input: (plune_[a-z_]+) -->\r?\n```json\r?\n([\s\S]*?)\r?\n```/g),
     ];
     expect(examples.map((m) => m[1]).sort()).toEqual([
+      'plune_api_request',
       'plune_case_propose',
       'plune_question_ask',
       'plune_strategy_propose',
@@ -67,6 +68,21 @@ describe('the qa-mission skill', () => {
       const parsed = pluneTool(name!).input.safeParse(JSON.parse(json!));
       expect(parsed.error?.issues, name).toBeUndefined();
     }
+  });
+
+  it('reads the accepted memory rules at the start and proposes a new one only to the review queue', () => {
+    const skill = texts.get('SKILL.md')!;
+    const context = skill.indexOf('`plune_project_context()`');
+    expect(context).toBeGreaterThan(-1);
+    expect(skill.indexOf('memoryRules', context)).toBeGreaterThan(context);
+    expect(pluneTool('plune_project_context').output.shape).toHaveProperty('memoryRules');
+
+    const example = /<!-- input: plune_api_request -->\r?\n```json\r?\n([\s\S]*?)\r?\n```/.exec(all)![1]!;
+    // The route and source kinds of the platform's memory candidates (POST /v1/memory/candidates).
+    const call = JSON.parse(example) as { method: string; path: string; body: { source: { kind: string; id: string } } };
+    expect([call.method, call.path]).toEqual(['POST', '/v1/memory/candidates']);
+    expect(['answer', 'decline', 'failure_choice', 'report_lesson']).toContain(call.body.source.kind);
+    expect(all).toContain('review queue');
   });
 
   it('ships in the npm package', () => {

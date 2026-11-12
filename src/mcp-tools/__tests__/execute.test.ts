@@ -483,5 +483,39 @@ describe('plune_project_context', () => {
     const data = await ok(exec, 'plune_project_context', {});
     expect(data).toMatchObject({ projectId: 'proj-1', cases: { total: 41 }, reviewQueue: { pending: 2, more: true } });
     expect((data['missions'] as unknown[]).length).toBe(1);
+    expect(data['memoryRules']).toEqual([]);
+  });
+
+  const rule = (id: string, inForce: boolean) => ({
+    id,
+    text: `rule ${id}`,
+    source: { kind: 'answer', id: `ri-${id}` },
+    reviewItemId: `ri-${id}`,
+    acceptedBy: 'u1',
+    acceptedAt: '2026-11-10T09:00:00.000Z',
+    inForce,
+    ...(inForce ? {} : { retiredBy: 'u1', retiredAt: '2026-11-11T09:00:00.000Z' }),
+  });
+
+  it('hands the agent only the memory rules in force, read in the project of the server', async () => {
+    const { exec, seen } = executor((r) =>
+      r.url.pathname === '/v1/memory/rules' ? { status: 200, body: { rules: [rule('r1', true), rule('r2', false), { id: 'r3' }] } } : undefined,
+    );
+    const data = await ok(exec, 'plune_project_context', {});
+    expect(data['memoryRules']).toEqual([{ id: 'r1', text: 'rule r1' }]);
+    const asked = seen.find((s) => s.url.pathname === '/v1/memory/rules')!;
+    expect(asked.url.searchParams.get('state')).toBe('in_force');
+    expect(asked.headers['x-plune-project']).toBe('proj-1');
+    expect(asked.headers['authorization']).toBe('Bearer plt_test');
+  });
+
+  it('reads no rules from a platform without project memory, and any other refusal of the rules fails the call', async () => {
+    const missing = executor((r) => (r.url.pathname === '/v1/memory/rules' ? { status: 404, body: { error: 'not found' } } : undefined));
+    expect((await ok(missing.exec, 'plune_project_context', {}))['memoryRules']).toEqual([]);
+
+    const broken = executor((r) => (r.url.pathname === '/v1/memory/rules' ? { status: 500, body: { error: 'boom' } } : undefined));
+    const out = await broken.exec.execute('plune_project_context', {});
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.error.status).toBe(500);
   });
 });

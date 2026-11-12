@@ -167,13 +167,23 @@ export function createPluneToolExecutor(opts: PluneToolExecutorOptions): PluneTo
 
   const handlers: Record<PluneToolName, Handler> = {
     async plune_project_context() {
-      const [projects, suites, cases, missions, queue] = await Promise.all([
+      const [projects, suites, cases, missions, queue, memory] = await Promise.all([
         call({ method: 'GET', path: '/v1/projects' }),
         call({ method: 'GET', path: '/v1/suites' }),
         call({ method: 'GET', path: '/v1/test-cases', query: { limit: '1', stability: '0' } }),
         call({ method: 'GET', path: '/v1/missions' }),
         call({ method: 'GET', path: '/v1/review-items', query: { state: 'pending', limit: '100' } }),
+        // A platform that keeps no project memory yet answers 404: no rules, and the rest of the context still stands.
+        call({ method: 'GET', path: '/v1/memory/rules', query: { state: 'in_force' } }).catch((err: unknown) => {
+          if (err instanceof PluneApiError && err.status === 404) return { status: 404, body: { rules: [] } };
+          throw err;
+        }),
       ]);
+      // Only a rule in force: accepted by a person and not retired. Candidates wait in the queue and never come from this route.
+      const memoryRules = asArray(asRecord(memory.body)['rules'])
+        .map(asRecord)
+        .filter((r) => r['inForce'] === true && typeof r['id'] === 'string' && typeof r['text'] === 'string')
+        .map((r) => ({ id: str(r['id']), text: str(r['text']) }));
       const projectList = asArray(asRecord(projects.body)['projects']);
       const only = projectList.length === 1 ? asRecord(projectList[0])['id'] : undefined;
       const projectId = opts.projectId ?? (typeof only === 'string' ? only : null);
@@ -185,6 +195,7 @@ export function createPluneToolExecutor(opts: PluneToolExecutorOptions): PluneTo
         cases: { total: typeof total === 'number' ? total : 0 },
         missions: asArray(asRecord(missions.body)['missions']),
         reviewQueue: { pending: asArray(asRecord(queue.body)['items']).length, more: cursorOf(asRecord(queue.body)['nextCursor']) !== null },
+        memoryRules,
       };
     },
 
