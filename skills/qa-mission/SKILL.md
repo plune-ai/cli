@@ -61,15 +61,15 @@ Ask 3 at least and 5 at most.
   in Plune.
 - Not connected: ask them in the chat, numbered.
 
-Then wait for the answers. If the user says they answered in Plune, read them with
+Then wait for the answers. Headless run (no person is there to answer, or the task says so): do
+not wait for answers; record each open question as an assumption with `waitingOn` set to the id of
+the question you asked, and go on. If the user says they answered in Plune, read them with
 `plune_question_list(missionId)`. Never answer a question yourself. An answer you still do not
 have becomes an assumption, marked as one.
 
-## 4. Write the strategy file
+## 4. Propose the strategy, then write the file
 
-Write `docs/testing/test-strategy.md` in the user's repository, unless the user names another
-path or a strategy file already exists (then update that one and say so). Use these sections,
-which are the sections Plune keeps a strategy in:
+Build the strategy content with these sections, which are the sections Plune keeps a strategy in:
 
 1. **Objectives** - what this testing must show.
 2. **Scope** - in scope, and out of scope with the reason for each.
@@ -78,16 +78,31 @@ which are the sections Plune keeps a strategy in:
    cases between API, UI and manual testing in percent (the three add up to 100).
 5. **Risks** - each with its likelihood and impact (`low`, `medium`, `high`).
 6. **Entry criteria** and **Exit criteria**.
-7. **Open questions and assumptions** - each assumption marked as such.
+7. **Open questions and assumptions**.
 8. **Mission log** - the stage log table (see below).
 
-Every item that comes from a source says where it was read. The allowed values of the profile
-and of the risk scale are in [references/tool-calls.md](references/tool-calls.md).
+Every item rests on exactly one of `source`, `assumption` or `waitingOn`, never two and never
+none; the platform refuses the strategy otherwise (`strategy_lint`).
 
-Connected, and with a mission: also propose the strategy for a person to accept with
-`plune_strategy_propose(missionId, content, dry_run)`. Call it first with `dry_run` `true`; if
-the answer is an error, fix the content and repeat; then call it once without `dry_run`. The
-shape of `content` is in [references/tool-calls.md](references/tool-calls.md).
+- It was read in a source: `source` says where (file and section).
+- You assumed it: `assumption: true`, and nothing else.
+- It waits for an answer: `waitingOn` is the id of the open question, and nothing else.
+
+An item you read in a source that you also doubt is a `source` item; put the doubt in its text.
+The allowed values of the profile and of the risk scale, and one item of each kind, are in
+[references/tool-calls.md](references/tool-calls.md).
+
+Connected, and with a mission: propose first, with `plune_strategy_propose(missionId, content, dry_run)`.
+Call it with `dry_run` `true`; the platform runs its checks and the answer lists the findings. After
+a refusal, fix what the findings name (each says the rule and the path of the item), and try once
+more. If the second try is refused too, then stop and report the findings to the user; do not vary
+the content blindly. When the dry run passes, call it once without `dry_run`. The shape of `content`
+is in [references/tool-calls.md](references/tool-calls.md).
+
+Then write `docs/testing/test-strategy.md` in the user's repository from the accepted content,
+exactly as proposed (the counts too), unless the user names another path or a strategy file already
+exists (then update that one and say so). Put the proposal id in the mission log. Not connected:
+write the file from the content you built, and say it was not proposed.
 
 ## 5. Propose 20 or more cases
 

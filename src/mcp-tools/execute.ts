@@ -63,6 +63,22 @@ const fail = (code: string, message: string, extra: Omit<ToolError, 'code' | 'me
   error: { code, message, ...extra },
 });
 
+/**
+ * The platform's structured details of a 4xx answer (`findings` of a refused strategy, `details` of other routes), one line each,
+ * so the agent reads them in the message itself and not only in `details`.
+ */
+function detailLines(body: unknown): string {
+  const b = asRecord(body);
+  const lines = [...asArray(b['findings']), ...asArray(b['details'])].map((d) => {
+    if (typeof d === 'string') return `- ${d}`;
+    const f = asRecord(d);
+    const where = [f['rule'], f['path']].filter((x) => typeof x === 'string').join(' at ');
+    const said = typeof f['message'] === 'string' ? f['message'] : where === '' ? JSON.stringify(d) : '';
+    return `- ${[where, said].filter(Boolean).join(': ')}`;
+  });
+  return lines.length === 0 ? '' : '\n' + lines.join('\n');
+}
+
 function errorOf(err: unknown): ToolError {
   if (err instanceof PluneApiError) {
     if (err.status === 401)
@@ -70,7 +86,7 @@ function errorOf(err: unknown): ToolError {
     if (err.status === 403 && err.message === READ_ONLY_REFUSAL)
       return { status: 403, code: 'read_only_token', message: `Plune refused (403): ${readScopeMessage('it cannot write')}` };
     const code = err.code ?? `http_${err.status}`;
-    return { status: err.status, code, message: `Plune refused (${err.status} ${code}): ${err.message}`, details: err.body };
+    return { status: err.status, code, message: `Plune refused (${err.status} ${code}): ${err.message}${detailLines(err.body)}`, details: err.body };
   }
   if (err instanceof PluneNetworkError) return { code: 'network', message: `${err.message}. Check PLUNE_API_URL and the network.` };
   throw err;
@@ -333,6 +349,17 @@ export function createPluneToolExecutor(opts: PluneToolExecutorOptions): PluneTo
     },
 
     async plune_strategy_propose(i) {
+      const req: ApiRequest = { method: 'POST', path: path('/v1/missions/:id/strategy', str(i['missionId'])), body: i['content'] };
+      if (i['dry_run'] === true) {
+        // The platform's own checks, writing nothing. A platform without the route answers 404, and a read token is refused: the planned request is all there is.
+        try {
+          const res = await call({ ...req, path: `${req.path}/check` });
+          return { dryRun: true, checked: true, findings: asArray(asRecord(res.body)['findings']), request: planned(req) };
+        } catch (err) {
+          if (!(err instanceof PluneApiError && (err.status === 404 || (err.status === 403 && err.message === READ_ONLY_REFUSAL)))) throw err;
+          return { dryRun: true, checked: false, request: planned(req) };
+        }
+      }
       return write({ method: 'POST', path: path('/v1/missions/:id/strategy', str(i['missionId'])), body: i['content'] }, i['dry_run'] as boolean | undefined);
     },
 

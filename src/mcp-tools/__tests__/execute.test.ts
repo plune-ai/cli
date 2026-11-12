@@ -207,6 +207,66 @@ describe('mission tools', () => {
   });
 });
 
+describe('a strategy that does not pass its checks', () => {
+  const twoBases = { text: 'Checkout works', assumption: true as const, waitingOn: 'q1' };
+  const content = {
+    objectives: [twoBases],
+    scope: { in: [{ text: 'Cart', assumption: true as const }], out: [{ text: 'Admin', assumption: true as const }] },
+    approach: [{ text: 'Risk-based', assumption: true as const }],
+    profile: { levels: ['system'], characteristics: ['security'], techniques: ['boundary-value'], split: { api: 50, ui: 30, manual: 20 }, notes: [{ text: 'Web shop', assumption: true as const }] },
+    risks: [{ text: 'Payment fails', assumption: true as const, likelihood: 'medium', impact: 'high' }],
+    entryCriteria: [{ text: 'Staging is up', assumption: true as const }],
+    exitCriteria: [{ text: 'No open high risk', assumption: true as const }],
+  };
+  const finding = { rule: 'one-basis', path: 'objectives[0]', message: 'has two bases: assumption and waitingOn' };
+  const lint = { error: 'the strategy does not pass its checks', code: 'strategy_lint', findings: [finding] };
+  const platform: Responder = (r) => (r.url.pathname.endsWith('/strategy') || r.url.pathname.endsWith('/strategy/check') ? { status: 400, body: lint } : undefined);
+
+  it('the refusal names each finding in its message and keeps them in details', async () => {
+    const { exec } = executor(platform);
+    const out = await exec.execute('plune_strategy_propose', { missionId: 'm1', content });
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.error.code).toBe('strategy_lint');
+    expect(out.error.message).toContain('one-basis');
+    expect(out.error.message).toContain('objectives[0]');
+    expect(out.error.message).toContain('has two bases');
+    expect((out.error.details as { findings: unknown[] }).findings).toEqual([finding]);
+  });
+
+  it('any tool keeps the structured details of its 4xx answer in the message', async () => {
+    const { exec } = executor(() => ({ status: 400, body: { error: 'nope', code: 'bad', details: ['first problem', { path: 'a.b', message: 'second' }] } }));
+    const out = await exec.execute('plune_mission_create', { name: 'x', summary: 'y' });
+    expect(out.ok).toBe(false);
+    if (!out.ok) {
+      expect(out.error.message).toContain('first problem');
+      expect(out.error.message).toContain('a.b');
+    }
+  });
+
+  it('a dry run asks the platform to check and returns the same finding, writing nothing', async () => {
+    const { exec, seen } = executor(platform);
+    const out = await exec.execute('plune_strategy_propose', { missionId: 'm1', content, dry_run: true });
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.error.message).toContain('one-basis');
+    expect(seen.map((r) => `${r.method} ${r.url.pathname}`)).toEqual(['POST /v1/missions/m1/strategy/check']);
+  });
+
+  it('a dry run that passes says it was checked', async () => {
+    const { exec, seen } = executor((r) => (r.url.pathname.endsWith('/check') ? { status: 200, body: { findings: [] } } : undefined));
+    const data = await ok(exec, 'plune_strategy_propose', { missionId: 'm1', content, dry_run: true });
+    expect(data).toMatchObject({ dryRun: true, checked: true, findings: [] });
+    expect(seen).toHaveLength(1);
+  });
+
+  it('a dry run against a platform without the check falls back to the planned request', async () => {
+    const { exec } = executor((r) => (r.url.pathname.endsWith('/check') ? { status: 404, body: { error: 'not found' } } : undefined));
+    const data = await ok(exec, 'plune_strategy_propose', { missionId: 'm1', content, dry_run: true });
+    expect(data).toMatchObject({ dryRun: true, checked: false });
+    expect(data['request']).toMatchObject({ method: 'POST', path: '/v1/missions/m1/strategy' });
+  });
+});
+
 describe('plune_case_propose', () => {
   const one = { title: 'Cart keeps items', steps: ['Add an item', 'Reload'], expected: 'The item is still there' };
 
