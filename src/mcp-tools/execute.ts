@@ -226,6 +226,7 @@ export function createPluneToolExecutor(opts: PluneToolExecutorOptions): PluneTo
       const query = withoutUndefined({
         state: i['state'] as string | undefined,
         kind: kinds?.join(','),
+        missionId: i['missionId'] as string | undefined,
         limit: i['limit'] === undefined ? undefined : String(i['limit']),
         cursor: i['cursor'] as string | undefined,
       }) as Record<string, string>;
@@ -257,12 +258,18 @@ export function createPluneToolExecutor(opts: PluneToolExecutorOptions): PluneTo
       const req: ApiRequest = {
         method: 'POST',
         path: '/v1/ingest/cairn',
-        body: { schemaVersion: 1, run: { runId: `mcp-${sessionId}-${proposals}`, mode: 'design', target: str(i['target']) }, cases },
+        body: {
+          schemaVersion: 1,
+          run: withoutUndefined({ runId: `mcp-${sessionId}-${proposals}`, mode: 'design', target: str(i['target']), missionId: i['missionId'] as string | undefined }),
+          cases,
+        },
       };
       if (i['dry_run'] === true) return { dryRun: true, requested: cases.length, applied: 0, requests: [planned(req)] };
       const summary = asRecord((await call(req)).body);
       const proposed = summary['proposed'];
-      return { dryRun: false, requested: cases.length, applied: typeof proposed === 'number' ? proposed : 0, report: summary };
+      // An older platform names no entries (and ignores the mission): then there is nothing to return.
+      const ids = asArray(summary['itemIds']).filter((x): x is string => typeof x === 'string');
+      return { dryRun: false, requested: cases.length, applied: typeof proposed === 'number' ? proposed : 0, ...(ids.length > 0 ? { itemIds: ids } : {}), report: summary };
     },
 
     async plune_cases_generate(i) {

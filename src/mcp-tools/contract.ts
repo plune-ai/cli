@@ -115,10 +115,11 @@ export const PLUNE_TOOLS = [
     name: 'plune_review_list',
     title: 'Read the review queue',
     description:
-      'See what waits for a decision in the review queue — proposed cases, discovered tests, endpoints, strategies, reports — narrowed by state and kind, newest first, one page at a time.',
+      'See what waits for a decision in the review queue — proposed cases, discovered tests, endpoints, strategies, reports — narrowed by state, kind and mission, newest first, one page at a time. The mission filter needs a platform that supports it; an older one returns the whole queue.',
     input: z.strictObject({
       state: z.enum(REVIEW_STATES).optional(),
       kinds: z.array(z.enum(REVIEW_KINDS)).min(1).optional().describe('Questions are read with the question tool'),
+      missionId: z.string().min(1).optional().describe('Only the entries of this mission'),
       ...listPage,
     }),
     output: z.object({ items: z.array(entity), nextCursor: z.string().nullable() }),
@@ -159,10 +160,11 @@ export const PLUNE_TOOLS = [
       'Propose up to 100 new test cases for a person to review: they land in the review queue as proposals and become cases only when someone approves them. Nothing is created silently.',
     input: z.strictObject({
       target: z.string().trim().min(1).max(2_048).describe('What the cases test: the product address, or the mission name'),
+      missionId: z.string().min(1).optional().describe('The mission these cases are for: the review queue can then be read by it'),
       cases: z.array(proposedCase).min(1).max(BATCH_MAX),
       dry_run: dryRun,
     }),
-    output: batchOutput,
+    output: batchOutput.extend({ itemIds: z.array(z.string()).optional().describe('The ids of the review-queue entries created, when the platform names them') }),
     write: true,
     visibility: 'core',
     endpoints: ['POST /v1/ingest/cairn'],
