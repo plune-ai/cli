@@ -36,6 +36,15 @@ that is wrong, so a `dry_run` call first is the cheap way to find a mistake.
 is `text` (Markdown, up to 1000 characters), with an optional `source`, and `assumption: true`
 when you assumed it. The split adds up to 100.
 
+Every item has exactly one of `source`, `assumption` or `waitingOn`: none, or two, and the platform
+refuses the strategy with `strategy_lint` and a finding (rule and path) for each item. One of each:
+
+```json
+{ "text": "Passwords need at least 8 characters", "source": { "kind": "doc-section", "ref": "README.md#passwords" } }
+{ "text": "Staging is the only environment", "assumption": true }
+{ "text": "Which payment provider is live?", "waitingOn": "q_123" }
+```
+
 <!-- input: plune_strategy_propose -->
 ```json
 {

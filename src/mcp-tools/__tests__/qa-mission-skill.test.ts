@@ -92,6 +92,30 @@ describe('the qa-mission skill', () => {
     expect(pkg.files).toContain('skills');
   });
 
+  it('states the one-of-three rule with an example each, and the order, refusal and headless rules', () => {
+    const skill = texts.get('SKILL.md')!;
+    const refs = texts.get('references/tool-calls.md')!;
+    for (const text of [skill, refs]) {
+      expect(text).toMatch(/exactly one of `source`, `assumption` or `waitingOn`/);
+    }
+    for (const basis of ['"source":', '"assumption": true', '"waitingOn":']) expect(refs).toContain(basis);
+    // Propose first, then write the file from what was accepted, with the proposal id in the log.
+    const propose = skill.indexOf('plune_strategy_propose(missionId, content, dry_run)');
+    const write = skill.indexOf("write `docs/testing/test-strategy.md`");
+    expect(propose).toBeGreaterThan(-1);
+    expect(write).toBeGreaterThan(propose);
+    expect(skill).toMatch(/proposal id/i);
+    // A refusal: fix what the findings name, try once more, then stop and report.
+    const flat = skill.replace(/\s+/g, ' ');
+    expect(flat).toMatch(/fix what the findings name/i);
+    expect(flat).toMatch(/once more/i);
+    expect(flat).toMatch(/then stop and report/i);
+    // Headless runs do not wait.
+    expect(flat).toMatch(/do not wait for answers/i);
+    expect(skill).toContain('waitingOn');
+    expect(skill).not.toMatch(/Every item that comes from a source says where it was read/);
+  });
+
   it('never asks the agent to decide its own proposals', () => {
     expect(all).not.toContain('plune_review_decide');
   });
