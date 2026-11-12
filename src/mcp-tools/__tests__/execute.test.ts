@@ -224,6 +224,34 @@ describe('plune_case_propose', () => {
     expect(body.cases[0]?.stableId).toMatch(/^[0-9a-f]{16,}$/);
     expect(data).toMatchObject({ dryRun: false, requested: 2, applied: 2 });
   });
+
+  it('ties the proposals to a mission and returns the ids of the queue entries', async () => {
+    const { exec, seen } = executor((r) =>
+      r.url.pathname === '/v1/ingest/cairn'
+        ? { status: 201, body: { runId: 'run-x', linked: 0, proposed: 2, skipped: 0, itemIds: ['q1', 'q2'] } }
+        : { status: 200, body: { items: [{ id: 'q1' }, { id: 'q2' }], nextCursor: null } },
+    );
+    const data = await ok(exec, 'plune_case_propose', { target: 'Checkout', missionId: 'm1', cases: [one, { ...one, title: 'Other' }] });
+    expect((seen[0]?.body as { run: { missionId: string } }).run.missionId).toBe('m1');
+    expect(data['itemIds']).toEqual(['q1', 'q2']);
+    const listed = await ok(exec, 'plune_review_list', { missionId: 'm1' });
+    expect(seen[1]?.url.searchParams.get('missionId')).toBe('m1');
+    expect((listed['items'] as { id: string }[]).map((i) => i.id)).toEqual(data['itemIds']);
+  });
+
+  it('works against a platform that ignores the mission and answers no ids', async () => {
+    const { exec, seen } = executor(() => ({ status: 201, body: { runId: 'run-x', linked: 0, proposed: 1, skipped: 0 } }));
+    const data = await ok(exec, 'plune_case_propose', { target: 'Checkout', missionId: 'm1', cases: [one] });
+    expect(data).toMatchObject({ applied: 1 });
+    expect(data['itemIds']).toBeUndefined();
+    expect(seen).toHaveLength(1);
+  });
+
+  it('sends no missionId when none is given', async () => {
+    const { exec, seen } = executor(() => ({ status: 201, body: { proposed: 1 } }));
+    await ok(exec, 'plune_case_propose', { target: 'Checkout', cases: [one] });
+    expect((seen[0]?.body as { run: object }).run).not.toHaveProperty('missionId');
+  });
 });
 
 describe('plune_cases_generate — cases from pasted text (plune-ai/plune#1876)', () => {
