@@ -351,12 +351,12 @@ export function createPluneToolExecutor(opts: PluneToolExecutorOptions): PluneTo
     async plune_strategy_propose(i) {
       const req: ApiRequest = { method: 'POST', path: path('/v1/missions/:id/strategy', str(i['missionId'])), body: i['content'] };
       if (i['dry_run'] === true) {
-        // The platform's own checks, writing nothing. A platform without the route answers 404, and a read token is refused: the planned request is all there is.
+        // The platform's own checks, writing nothing. A platform without the route answers a bare 404 (a mission that is not there says `mission_not_found`), and a read token is refused: the planned request is all there is.
         try {
           const res = await call({ ...req, path: `${req.path}/check` });
           return { dryRun: true, checked: true, findings: asArray(asRecord(res.body)['findings']), request: planned(req) };
         } catch (err) {
-          if (!(err instanceof PluneApiError && (err.status === 404 || (err.status === 403 && err.message === READ_ONLY_REFUSAL)))) throw err;
+          if (!(err instanceof PluneApiError && ((err.status === 404 && err.code !== 'mission_not_found') || (err.status === 403 && err.message === READ_ONLY_REFUSAL)))) throw err;
           return { dryRun: true, checked: false, request: planned(req) };
         }
       }

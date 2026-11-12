@@ -260,10 +260,25 @@ describe('a strategy that does not pass its checks', () => {
   });
 
   it('a dry run against a platform without the check falls back to the planned request', async () => {
-    const { exec } = executor((r) => (r.url.pathname.endsWith('/check') ? { status: 404, body: { error: 'not found' } } : undefined));
+    // An old platform has no such route: its answer is the bare 404 of an unknown path, with no code.
+    const { exec } = executor((r) => (r.url.pathname.endsWith('/check') ? { status: 404 } : undefined));
     const data = await ok(exec, 'plune_strategy_propose', { missionId: 'm1', content, dry_run: true });
     expect(data).toMatchObject({ dryRun: true, checked: false });
     expect(data['request']).toMatchObject({ method: 'POST', path: '/v1/missions/m1/strategy' });
+  });
+
+  it('a mission that is not there is the answer, not a reason to fall back', async () => {
+    const { exec } = executor((r) => (r.url.pathname.endsWith('/check') ? { status: 404, body: { error: "mission 'm1' not found", code: 'mission_not_found' } } : undefined));
+    const out = await exec.execute('plune_strategy_propose', { missionId: 'm1', content, dry_run: true });
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.error).toMatchObject({ status: 404, code: 'mission_not_found' });
+  });
+
+  it('a 403 that is not the read-only refusal is the answer, not a reason to fall back', async () => {
+    const { exec } = executor((r) => (r.url.pathname.endsWith('/check') ? { status: 403, body: { error: 'session_required', code: 'session_required' } } : undefined));
+    const out = await exec.execute('plune_strategy_propose', { missionId: 'm1', content, dry_run: true });
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.error).toMatchObject({ status: 403, code: 'session_required' });
   });
 });
 

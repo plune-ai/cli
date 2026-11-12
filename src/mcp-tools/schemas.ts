@@ -20,12 +20,7 @@ const isHttp = (s: string): boolean => {
 };
 
 const httpLink = (what: string, max: number) =>
-  z
-    .string()
-    .trim()
-    .min(1, `${what} is empty`)
-    .max(max)
-    .refine(isHttp, `${what} must be an http or https address`);
+  z.string().trim().min(1, `${what} is empty`).max(max).refine(isHttp, `${what} must be an http or https address`);
 
 export const id = (what: string) => z.string().min(1).describe(what);
 
@@ -41,14 +36,8 @@ export const MISSION_DOCUMENTATION = ['unknown', 'provided', 'none'] as const;
 export const MISSION_LINK_KINDS = ['url', 'openapi', 'repo', 'ticket'] as const;
 
 const missionName = z.string().trim().min(1, 'a mission needs a name').max(200);
-const missionSummary = z
-  .string()
-  .trim()
-  .max(2_000)
-  .describe('What the product is, in 3-5 sentences');
-const missionUrl = httpLink('url', 2_048)
-  .nullable()
-  .describe('Where the product runs; null takes it off');
+const missionSummary = z.string().trim().max(2_000).describe('What the product is, in 3-5 sentences');
+const missionUrl = httpLink('url', 2_048).nullable().describe('Where the product runs; null takes it off');
 
 export const missionFields = {
   name: missionName,
@@ -62,12 +51,7 @@ export const missionFields = {
 };
 
 const sourceTitle = z.string().trim().min(1).max(200);
-const sourceVersion = z
-  .string()
-  .trim()
-  .min(1)
-  .max(200)
-  .describe('A commit, a tag, a revision, an ETag');
+const sourceVersion = z.string().trim().min(1).max(200).describe('A commit, a tag, a revision, an ETag');
 
 export const linkSource = z.strictObject({
   missionId: id('The mission'),
@@ -102,9 +86,7 @@ const questionText = z.string().trim().min(1).max(2_000);
 export const questionInput = z.strictObject({
   template: z
     .enum(['plain', 'access'])
-    .describe(
-      'plain: a question with up to three options; access: ask for an API description, the code, a staging host or a HAR file',
-    ),
+    .describe('plain: a question with up to three options; access: ask for an API description, the code, a staging host or a HAR file'),
   text: questionText,
   missionId: z.string().min(1).optional(),
   options: z
@@ -126,21 +108,8 @@ export const questionInput = z.strictObject({
 
 // --- Strategy (#2190) ---------------------------------------------------------------------------
 
-export const STRATEGY_SOURCE_KINDS = [
-  'mission-source',
-  'doc-section',
-  'screen',
-  'endpoint',
-  'requirement',
-  'url',
-] as const;
-export const TEST_LEVELS = [
-  'component',
-  'component-integration',
-  'system',
-  'system-integration',
-  'acceptance',
-] as const;
+export const STRATEGY_SOURCE_KINDS = ['mission-source', 'doc-section', 'screen', 'endpoint', 'requirement', 'url'] as const;
+export const TEST_LEVELS = ['component', 'component-integration', 'system', 'system-integration', 'acceptance'] as const;
 export const QUALITY_CHARACTERISTICS = [
   'functional-suitability',
   'performance-efficiency',
@@ -172,11 +141,7 @@ const itemFields = {
     .optional()
     .describe('Where it was read'),
   assumption: z.literal(true).optional().describe('You assumed it: a person confirms'),
-  waitingOn: z
-    .string()
-    .min(1)
-    .optional()
-    .describe('The id of an open question of this mission it waits for'),
+  waitingOn: z.string().min(1).optional().describe('The id of an open question of this mission it waits for'),
 };
 const strategyItem = z.strictObject(itemFields);
 const items = z.array(strategyItem).min(1).max(25);
@@ -193,10 +158,7 @@ const share = z.number().int().min(0).max(100);
 
 export const strategyContent = z.strictObject({
   objectives: items,
-  scope: z.strictObject({
-    in: items,
-    out: items.describe('What is deliberately not tested, and why'),
-  }),
+  scope: z.strictObject({ in: items, out: items.describe('What is deliberately not tested, and why') }),
   approach: items,
   profile: z.strictObject({
     levels: unique(TEST_LEVELS),
@@ -204,9 +166,7 @@ export const strategyContent = z.strictObject({
     techniques: unique(TEST_TECHNIQUES),
     split: z
       .strictObject({ api: share, ui: share, manual: share })
-      .refine((s) => s.api + s.ui + s.manual === 100, {
-        message: 'the split of api, ui and manual adds up to 100',
-      }),
+      .refine((s) => s.api + s.ui + s.manual === 100, { message: 'the split of api, ui and manual adds up to 100' }),
     notes: items,
   }),
   risks: z
@@ -233,10 +193,7 @@ export const proposedCase = z.strictObject({
   title: z.string().trim().min(1).max(300),
   steps: z.array(z.string().trim().min(1).max(400)).min(1).max(20),
   expected: z.string().trim().min(1).max(2_000),
-  execution: z
-    .enum(['auto', 'manual'])
-    .optional()
-    .describe('auto: can be automated; manual (default): stays with a person'),
+  execution: z.enum(['auto', 'manual']).optional().describe('auto: can be automated; manual (default): stays with a person'),
   technique: z.string().min(1).max(32).optional(),
   priority: z.string().min(1).optional(),
   source: z
@@ -262,9 +219,7 @@ export const caseGenerationBody = {
     kind: z.literal('pasted-text'),
     text: z
       .string()
-      .describe(
-        `The requirement, story or ticket text, at least ${CASE_GENERATION_MIN_WORDS} words and at most ${CASE_GENERATION_TEXT_MAX} characters`,
-      ),
+      .describe(`The requirement, story or ticket text, at least ${CASE_GENERATION_MIN_WORDS} words and at most ${CASE_GENERATION_TEXT_MAX} characters`),
     title: z.string().trim().max(CASE_GENERATION_TITLE_MAX).optional(),
   }),
   maxCases: z
@@ -274,33 +229,16 @@ export const caseGenerationBody = {
     .max(CASE_GENERATION_MAX_CASES)
     .optional()
     .describe(`How many proposals at most; ${CASE_GENERATION_DEFAULT_CASES} when left out`),
-  language: z
-    .string()
-    .trim()
-    .min(2)
-    .max(35)
-    .optional()
-    .describe("The cases' language; the project's AI language when left out"),
+  language: z.string().trim().min(2).max(35).optional().describe("The cases' language; the project's AI language when left out"),
   confirmDuplicates: z
     .boolean()
     .optional()
-    .describe(
-      'true: go ahead although cases or proposals from this text exist (the platform answers 409 duplicate_source first)',
-    ),
+    .describe('true: go ahead although cases or proposals from this text exist (the platform answers 409 duplicate_source first)'),
 };
 
 // --- API catalog proposals (#2192) --------------------------------------------------------------
 
-export const API_METHODS = [
-  'GET',
-  'PUT',
-  'POST',
-  'DELETE',
-  'OPTIONS',
-  'HEAD',
-  'PATCH',
-  'TRACE',
-] as const;
+export const API_METHODS = ['GET', 'PUT', 'POST', 'DELETE', 'OPTIONS', 'HEAD', 'PATCH', 'TRACE'] as const;
 
 export const proposedEndpoint = z.strictObject({
   method: z.enum(API_METHODS),
@@ -322,23 +260,8 @@ export const proposedEndpoint = z.strictObject({
 
 export const REVIEW_STATES = ['pending', 'changes_requested', 'approved', 'rejected'] as const;
 /** Every kind of the queue except `question`, which has a tool of its own. */
-export const REVIEW_KINDS = [
-  'result',
-  'proposal',
-  'discovered',
-  'endpoint',
-  'strategy',
-  'report',
-  'memory_rule',
-] as const;
-export const REJECTION_CATEGORIES = [
-  'duplicate',
-  'incorrect',
-  'out-of-scope',
-  'low-value',
-  'not-testable',
-  'other',
-] as const;
+export const REVIEW_KINDS = ['result', 'proposal', 'discovered', 'endpoint', 'strategy', 'report', 'memory_rule'] as const;
+export const REJECTION_CATEGORIES = ['duplicate', 'incorrect', 'out-of-scope', 'low-value', 'not-testable', 'other'] as const;
 
 // --- Outputs --------------------------------------------------------------------------------------
 
