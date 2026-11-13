@@ -1,0 +1,444 @@
+{
+  "schemaVersion": 1,
+  "runId": "f6",
+  "url": "node",
+  "mode": "mcp",
+  "mcp": {
+    "passed": 3,
+    "total": 12,
+    "toolCount": 6
+  },
+  "states": {
+    "passed": 3,
+    "failed": 0,
+    "not-sent": 3,
+    "could-not-run": 9,
+    "needs-review": 0
+  },
+  "guardrails": {
+    "policy": {
+      "allowTools": [
+        "echo",
+        "hang"
+      ],
+      "allowReadOnlyHints": false,
+      "allowMutations": false,
+      "maxCalls": 100,
+      "rps": 2
+    },
+    "restsOnServerClaims": false,
+    "tools": [
+      {
+        "name": "crash",
+        "class": "unknown",
+        "readOnlyHint": true,
+        "destructiveName": false,
+        "unsafeName": false,
+        "ambiguous": false,
+        "claimClean": true,
+        "proposed": false,
+        "claimNote": "claims read-only; name does not start with a read verb"
+      },
+      {
+        "name": "echo",
+        "class": "unknown",
+        "readOnlyHint": true,
+        "destructiveName": false,
+        "unsafeName": false,
+        "ambiguous": false,
+        "claimClean": true,
+        "proposed": false,
+        "claimNote": "claims read-only; name does not start with a read verb"
+      },
+      {
+        "name": "hang",
+        "class": "unknown",
+        "readOnlyHint": true,
+        "destructiveName": false,
+        "unsafeName": false,
+        "ambiguous": false,
+        "claimClean": true,
+        "proposed": false,
+        "claimNote": "claims read-only; name does not start with a read verb"
+      },
+      {
+        "name": "plain",
+        "class": "unknown",
+        "readOnlyHint": true,
+        "destructiveName": false,
+        "unsafeName": false,
+        "ambiguous": false,
+        "claimClean": true,
+        "proposed": false,
+        "claimNote": "claims read-only; name does not start with a read verb"
+      },
+      {
+        "name": "shifty",
+        "class": "unknown",
+        "readOnlyHint": true,
+        "destructiveName": false,
+        "unsafeName": false,
+        "ambiguous": false,
+        "claimClean": true,
+        "proposed": false,
+        "claimNote": "claims read-only; name does not start with a read verb"
+      },
+      {
+        "name": "typed",
+        "class": "unknown",
+        "readOnlyHint": true,
+        "destructiveName": false,
+        "unsafeName": false,
+        "ambiguous": false,
+        "claimClean": true,
+        "proposed": false,
+        "claimNote": "claims read-only; name does not start with a read verb"
+      }
+    ],
+    "proposed": [],
+    "mismatches": [],
+    "changed": [
+      "shifty"
+    ],
+    "decisions": [
+      {
+        "tool": "crash",
+        "allowed": false,
+        "reason": "not allowed"
+      },
+      {
+        "tool": "crash",
+        "allowed": false,
+        "reason": "not allowed"
+      },
+      {
+        "tool": "crash",
+        "allowed": false,
+        "reason": "not allowed"
+      },
+      {
+        "tool": "echo",
+        "allowed": true,
+        "reason": "named in --allow-tools",
+        "basis": "named"
+      },
+      {
+        "tool": "echo",
+        "allowed": true,
+        "reason": "named in --allow-tools",
+        "basis": "named"
+      },
+      {
+        "tool": "echo",
+        "allowed": true,
+        "reason": "named in --allow-tools",
+        "basis": "named"
+      },
+      {
+        "tool": "hang",
+        "allowed": true,
+        "reason": "named in --allow-tools",
+        "basis": "named"
+      },
+      {
+        "tool": "hang",
+        "allowed": true,
+        "reason": "named in --allow-tools",
+        "basis": "named"
+      },
+      {
+        "tool": "hang",
+        "allowed": true,
+        "reason": "named in --allow-tools",
+        "basis": "named"
+      }
+    ],
+    "sent": 6,
+    "denied": 3,
+    "budgetExhausted": false,
+    "notes": [
+      "The server changed some tools after they were shown; calls to them are refused."
+    ]
+  },
+  "cases": [
+    {
+      "name": "crash · valid · required",
+      "stableId": "f106cbd33445",
+      "tool": "crash",
+      "kind": "valid",
+      "type": "Positive",
+      "technique": "equivalence-partitioning",
+      "rationale": "Only the required arguments, with the simplest values the schema allows.",
+      "state": "not-sent"
+    },
+    {
+      "name": "crash · missing-required · q",
+      "stableId": "329bdf5622e8",
+      "tool": "crash",
+      "kind": "missing-required",
+      "type": "Negative",
+      "technique": "error-guessing",
+      "rationale": "A required argument is left out; the schema forbids it.",
+      "state": "not-sent"
+    },
+    {
+      "name": "crash · wrong-type · q",
+      "stableId": "cfe07c201ab3",
+      "tool": "crash",
+      "kind": "wrong-type",
+      "type": "Negative",
+      "technique": "error-guessing",
+      "rationale": "An argument has a value of a type the schema does not allow.",
+      "state": "not-sent"
+    },
+    {
+      "name": "echo · valid · required",
+      "stableId": "373475b991dd",
+      "tool": "echo",
+      "kind": "valid",
+      "type": "Positive",
+      "technique": "equivalence-partitioning",
+      "rationale": "Only the required arguments, with the simplest values the schema allows.",
+      "state": "passed"
+    },
+    {
+      "name": "echo · missing-required · q",
+      "stableId": "40ca7413d6ac",
+      "tool": "echo",
+      "kind": "missing-required",
+      "type": "Negative",
+      "technique": "error-guessing",
+      "rationale": "A required argument is left out; the schema forbids it.",
+      "state": "passed"
+    },
+    {
+      "name": "echo · wrong-type · q",
+      "stableId": "99db32296eee",
+      "tool": "echo",
+      "kind": "wrong-type",
+      "type": "Negative",
+      "technique": "error-guessing",
+      "rationale": "An argument has a value of a type the schema does not allow.",
+      "state": "passed"
+    },
+    {
+      "name": "hang · valid · required",
+      "stableId": "0d33cd2f442f",
+      "tool": "hang",
+      "kind": "valid",
+      "type": "Positive",
+      "technique": "equivalence-partitioning",
+      "rationale": "Only the required arguments, with the simplest values the schema allows.",
+      "state": "could-not-run"
+    },
+    {
+      "name": "hang · missing-required · q",
+      "stableId": "fbbd22248901",
+      "tool": "hang",
+      "kind": "missing-required",
+      "type": "Negative",
+      "technique": "error-guessing",
+      "rationale": "A required argument is left out; the schema forbids it.",
+      "state": "could-not-run"
+    },
+    {
+      "name": "hang · wrong-type · q",
+      "stableId": "dc2d8f052792",
+      "tool": "hang",
+      "kind": "wrong-type",
+      "type": "Negative",
+      "technique": "error-guessing",
+      "rationale": "An argument has a value of a type the schema does not allow.",
+      "state": "could-not-run"
+    },
+    {
+      "name": "shifty · valid · required",
+      "stableId": "6363703e7d7a",
+      "tool": "shifty",
+      "kind": "valid",
+      "type": "Positive",
+      "technique": "equivalence-partitioning",
+      "rationale": "Only the required arguments, with the simplest values the schema allows.",
+      "state": "could-not-run"
+    },
+    {
+      "name": "shifty · missing-required · q",
+      "stableId": "7986a4864ad9",
+      "tool": "shifty",
+      "kind": "missing-required",
+      "type": "Negative",
+      "technique": "error-guessing",
+      "rationale": "A required argument is left out; the schema forbids it.",
+      "state": "could-not-run"
+    },
+    {
+      "name": "shifty · wrong-type · q",
+      "stableId": "586cbc7738c1",
+      "tool": "shifty",
+      "kind": "wrong-type",
+      "type": "Negative",
+      "technique": "error-guessing",
+      "rationale": "An argument has a value of a type the schema does not allow.",
+      "state": "could-not-run"
+    },
+    {
+      "name": "typed · valid · required",
+      "stableId": "f5d9dcca4c8b",
+      "tool": "typed",
+      "kind": "valid",
+      "type": "Positive",
+      "technique": "equivalence-partitioning",
+      "rationale": "Only the required arguments, with the simplest values the schema allows.",
+      "state": "could-not-run"
+    },
+    {
+      "name": "typed · missing-required · n",
+      "stableId": "fa66654ec9a5",
+      "tool": "typed",
+      "kind": "missing-required",
+      "type": "Negative",
+      "technique": "error-guessing",
+      "rationale": "A required argument is left out; the schema forbids it.",
+      "state": "could-not-run"
+    },
+    {
+      "name": "typed · wrong-type · n",
+      "stableId": "0bba083e2f5e",
+      "tool": "typed",
+      "kind": "wrong-type",
+      "type": "Negative",
+      "technique": "error-guessing",
+      "rationale": "An argument has a value of a type the schema does not allow.",
+      "state": "could-not-run"
+    }
+  ],
+  "coverage": {
+    "toolCount": 6,
+    "coveredCount": 1,
+    "partialCount": 0,
+    "uncoveredCount": 5,
+    "ratio": 0.16666666666666666,
+    "tools": [
+      {
+        "tool": "crash",
+        "status": "uncovered",
+        "judged": 0,
+        "params": {
+          "sent": 0,
+          "total": 1
+        },
+        "enumValues": {
+          "sent": 0,
+          "total": 0
+        },
+        "branches": {
+          "sent": 0,
+          "total": 0
+        }
+      },
+      {
+        "tool": "echo",
+        "status": "covered",
+        "judged": 3,
+        "params": {
+          "sent": 1,
+          "total": 1
+        },
+        "enumValues": {
+          "sent": 0,
+          "total": 0
+        },
+        "branches": {
+          "sent": 0,
+          "total": 0
+        }
+      },
+      {
+        "tool": "hang",
+        "status": "uncovered",
+        "judged": 0,
+        "params": {
+          "sent": 0,
+          "total": 1
+        },
+        "enumValues": {
+          "sent": 0,
+          "total": 0
+        },
+        "branches": {
+          "sent": 0,
+          "total": 0
+        }
+      },
+      {
+        "tool": "plain",
+        "status": "uncovered",
+        "judged": 0,
+        "params": {
+          "sent": 0,
+          "total": 0
+        },
+        "enumValues": {
+          "sent": 0,
+          "total": 0
+        },
+        "branches": {
+          "sent": 0,
+          "total": 0
+        }
+      },
+      {
+        "tool": "shifty",
+        "status": "uncovered",
+        "judged": 0,
+        "params": {
+          "sent": 0,
+          "total": 1
+        },
+        "enumValues": {
+          "sent": 0,
+          "total": 0
+        },
+        "branches": {
+          "sent": 0,
+          "total": 0
+        }
+      },
+      {
+        "tool": "typed",
+        "status": "uncovered",
+        "judged": 0,
+        "params": {
+          "sent": 0,
+          "total": 1
+        },
+        "enumValues": {
+          "sent": 0,
+          "total": 0
+        },
+        "branches": {
+          "sent": 0,
+          "total": 0
+        }
+      }
+    ],
+    "notMeasured": [
+      "crash",
+      "hang",
+      "plain",
+      "shifty",
+      "typed"
+    ]
+  },
+  "stdioSizeCounter": "active",
+  "advice": {
+    "internalErrorsOnHostileInput": 0
+  },
+  "findings": [],
+  "stopped": "3 cases in a row got no answer; the run was stopped",
+  "cost": {
+    "usd": 0,
+    "tokens": 0,
+    "model": false
+  }
+}

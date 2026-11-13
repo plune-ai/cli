@@ -18,6 +18,7 @@ import { loadToken } from '../credentials.js';
 import {
   findLatestCairnRun,
   readCairnRun,
+  CairnArtifactShapeError,
   CairnEvidenceAmbiguousError,
   CairnRunNotFoundError,
   CairnRunPartialError,
@@ -170,7 +171,8 @@ export function reportIngestFailure(err: unknown, write: (s: string) => void): n
     err instanceof NoCairnRunsError ||
     err instanceof CairnRunVersionError ||
     err instanceof CairnRunPartialError ||
-    err instanceof CairnEvidenceAmbiguousError
+    err instanceof CairnEvidenceAmbiguousError ||
+    err instanceof CairnArtifactShapeError
   ) {
     write(`${err.message}\n`);
     return 2;
