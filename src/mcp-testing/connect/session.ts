@@ -666,7 +666,7 @@ export async function openSession(config: ConnectConfig, options: SessionOptions
       } catch (err) {
         throw await lost(err);
       }
-      journal.write('in', frame !== undefined ? { frame } : { status, raw: text.slice(0, RAW_TEXT) });
+      journal.write('in', frame !== undefined ? { frame } : { status, raw: clean(text).slice(0, RAW_TEXT) });
       return { frame, status, text: clean(text).slice(0, RAW_TEXT) };
     },
     traffic: () => traffic,

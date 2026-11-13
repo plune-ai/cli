@@ -423,6 +423,35 @@ describe('CLI · mcp connect · secrets do not reach any output (AC-3)', () => {
     for (const secret of SECRETS) expect(bytes).not.toContain(secret);
   }
 
+  it('CLI · mcp connect · a secret that starts shortly before the cut of a raw answer is masked whole in the journal', async () => {
+    const f = await serve(streamableServer({ token: SECRETS[0] }));
+    const out = join(tmp(), 'frames.jsonl');
+    const config = fromFlags(
+      [
+        '--url',
+        `${f.origin}/mcp`,
+        '--header',
+        `Authorization: Bearer ${SECRETS[0]}`,
+        '--header-env',
+        'X-Api-Key=FIXTURE_KEY',
+        '--debug-out',
+        out,
+      ],
+      { FIXTURE_KEY: SECRETS[1] },
+    );
+    const s = await open(config);
+    // The server answers 401 with text that repeats this Authorization after 17 characters of its own, so the secret
+    // starts at the 1985th character of the answer: fifteen characters of it come before the cut at 2000.
+    const reply = await s.raw(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping' }), 1, {
+      headers: [['Authorization', `${'p'.repeat(1968)}${SECRETS[1]}`]],
+    });
+    await s.close();
+    expect(reply.status).toBe(401);
+    const bytes = readFileSync(out, 'utf8');
+    for (let i = 0; i + 8 <= SECRETS[1].length; i++)
+      expect(bytes).not.toContain(SECRETS[1].slice(i, i + 8));
+  });
+
   it('CLI · mcp connect · a server repeating the token in its error leaks nothing into --debug-out, stderr or stdout', async () => {
     const f = await serve(streamableServer({ token: SECRETS[0] }));
     const out = join(tmp(), 'frames.jsonl');
