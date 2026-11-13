@@ -16,7 +16,10 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+// A stdio test starts a node process or two; the first start on a cold machine takes seconds.
+vi.setConfig({ testTimeout: 60_000 });
 import { handleMcpScan, type McpScanFlags } from '../../cli/commands/mcp-scan.js';
 import { ProbeGuard, canonical, type Frame, type Reply } from '../scan/probes/guard.js';
 import { MAX_PROBE_FILE_BYTES, parseProbeFile } from '../scan/probes/file.js';
@@ -1106,7 +1109,7 @@ describe('CLI · mcp scan probes · the stdio command is announced without secre
     expect(lines.join('\n')).toContain('node');
     expect(lines.join('\n')).not.toContain(secret);
     expect(lines.join('\n')).not.toContain('Qw3rtYQw3rtY');
-    expect(section.rows[0]!.reason).toBe('stdio');
+    expect(section.rows[0]!.reason).toBe('no-yes');
   });
 });
 

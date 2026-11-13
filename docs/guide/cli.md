@@ -1224,7 +1224,8 @@ plune mcp scan --active --url http://127.0.0.1:3000/mcp --probes probes.json --t
 | `--confirm-host <host>` | For a `--url` that is not on this machine: the host of the URL exactly as written (with the port, if the URL has one). Without it nothing is sent, and the probes are "not run: no consent". The line `probes will go to <url>` is printed to stderr before the first probe frame. |
 | `--max-calls <n>`, `--max-requests <n>` | At most `n` `tools/call` (default 8) and `n` requests of any kind (default 40). A frame over a budget is refused before it is sent. |
 | `--journal <file>` | Writes one JSON line for every frame a probe sends, every answer and every frame the wrapper refuses, as it happens (so the file is there after a crash or a budget stop). The file is created `0600` and replaces an older one of the same name, like `--debug-out`. A file that cannot be opened is exit `2` before the first frame; a line that cannot be written stops the probes (the rest are "not run: journal"), because no frame is sent unrecorded. The path must not be a file the scan reads (`--probes`, `--snapshot`, `--config`, `--pin-file`, `--ignore-file`) or writes elsewhere (`--out`, `--save-snapshot`, `--debug-out`): that is exit `2`, compared by file identity (device and inode, so a relative spelling, a link, a hard link and a Windows 8.3 short name are the same file) and by real path, case-folded on Windows. A line that cannot be written, on any kind of line, makes the scan exit `3` ("the journal is incomplete"). See [the journal](#the-journal). |
-| `--yes` | Accepts the command printed for a stdio server. No probe of this version runs on stdio (the authentication probes are "not applicable (stdio)"). |
+| `--yes` | Lets a probe start the command of a stdio server (the command is printed to stderr first, with secrets masked). Without it nothing is started and the probes are "not run: no --yes". On stdio the authentication probes are "not applicable (stdio)": there is no token at transport level. `malformed` and `fetches` probes run. The child is stopped on every way out of the run; a child that exits, closes its pipe or says nothing is a transport failure ("not run"), bounded by `--timeout`. Its stderr is never printed. |
+| `--import-conformance <file>` | Shows the rows of a report of `plune mcp conformance` (one report or a set; read from `--format json`, up to 2 MiB) in the summary as imported, with their own states: a `could-not-run` row is shown as "not run". They are not findings of this scan, the scan repeats none of those checks and sends nothing for them, and they never change its exit code (the conformance command has its own). Only the check id, suite, state, reason and level are kept; the free text of a check is dropped. A file that is not that report is exit `2`. The path is an input: a `--journal` or `--out` of the same file is exit `2`. |
 
 Every probe goes through one wrapper. It refuses a `tools/call` for a tool and arguments that are not an entry of the
 probe file, counts both budgets, stops after two transport failures in a row (a timeout, a connection that fails, 429 or
@@ -1275,6 +1276,18 @@ not closed by the scan; the server drops them on its own timeout.
 Findings and the table hold the probe id, the rule, the tool name and the category: no response body, no error text and no
 argument value. The frames are kept only with `--journal`. Probes are for your own server only, and no finding
 does not mean the server is protected.
+
+#### A page that comes from outside
+
+An entry with `"fetches": true`, `"urlArgument": "<name>"` and `"as": "account-a"` declares a tool that returns data from
+outside. The scan starts a listener on `127.0.0.1`, serves one harmless line to any request (`PLUNE-CANARY-` and 16 random
+hex digits, new for each run), calls the tool with the address of that page in the argument you named (the name is never
+guessed from the schema), and looks at the first 64 KiB of the answer. If the marker is in it and no sign of a boundary is
+(a wrapper tag, the word untrusted, a code fence, a separator line, or `annotations` on the content item), the advice
+finding `scan/probe/untrusted-content-verbatim` says the server hands outside text to the model unmarked. It is a
+heuristic, never gates without `--gate-heuristics`, and is not "the server is unsafe". The answer is never printed or
+journaled. The listener is closed on every way out of the run. A server that is not on this machine cannot reach it: that
+probe is "not run: remote server". A stdio server and a server on `localhost` or `127.0.0.1` can.
 
 #### The journal
 

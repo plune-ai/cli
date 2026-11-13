@@ -391,25 +391,26 @@ ${canonical(e.arguments)}`;
       }
     }
     if (stdio) credential = { kind: 'none' };
-    else switch (entry.as) {
-      case 'none':
-        credential = { kind: 'none' };
-        break;
-      case 'garbage':
-        credential = { kind: 'bearer', token: garbage };
-        break;
-      case 'account-a':
-        if (opts.tokens.accountA === undefined) missing = 'no-credential';
-        else credential = { kind: 'bearer', token: opts.tokens.accountA };
-        break;
-      case 'account-b':
-        if (opts.tokens.accountB === undefined) missing = 'no-account-b';
-        else credential = { kind: 'bearer', token: opts.tokens.accountB };
-        break;
-      case 'wrong-audience':
-        missing = 'wrong-audience';
-        break;
-    }
+    else
+      switch (entry.as) {
+        case 'none':
+          credential = { kind: 'none' };
+          break;
+        case 'garbage':
+          credential = { kind: 'bearer', token: garbage };
+          break;
+        case 'account-a':
+          if (opts.tokens.accountA === undefined) missing = 'no-credential';
+          else credential = { kind: 'bearer', token: opts.tokens.accountA };
+          break;
+        case 'account-b':
+          if (opts.tokens.accountB === undefined) missing = 'no-account-b';
+          else credential = { kind: 'bearer', token: opts.tokens.accountB };
+          break;
+        case 'wrong-audience':
+          missing = 'wrong-audience';
+          break;
+      }
     if (credential === undefined) {
       section.rows.push(notRun(entry, missing!));
       continue;
@@ -422,7 +423,12 @@ ${canonical(e.arguments)}`;
     if (entry.fetches === true) {
       const base = { id: entry.id, tool: entry.tool, as: entry.as, expect: 'none' } as const;
       if (got.kind === 'http-refused') {
-        section.rows.push({ ...base, answer: 'refused', refusedAt: got.step, outcome: 'as-expected' });
+        section.rows.push({
+          ...base,
+          answer: 'refused',
+          refusedAt: got.step,
+          outcome: 'as-expected',
+        });
         continue;
       }
       const verdict = got.kind === 'allowed' ? markerVerdict(got.result, page!.marker) : undefined;

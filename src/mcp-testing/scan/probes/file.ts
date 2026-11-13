@@ -13,7 +13,17 @@ export const MAX_PROBE_FILE_BYTES = 256 * 1024;
 export const MAX_PROBES = 64;
 const MAX_ARGUMENT_BYTES = 16 * 1024;
 const ID = /^[A-Za-z0-9._-]{1,64}$/;
-const KEYS = new Set(['id', 'tool', 'arguments', 'as', 'expect', 'allowDestructive', 'malformed', 'fetches', 'urlArgument']);
+const KEYS = new Set([
+  'id',
+  'tool',
+  'arguments',
+  'as',
+  'expect',
+  'allowDestructive',
+  'malformed',
+  'fetches',
+  'urlArgument',
+]);
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -80,7 +90,9 @@ export function parseProbeFile(text: string, name: string): ProbeEntry[] {
     const urlArgument = raw['urlArgument'];
     if (fetches === true) {
       if (typeof urlArgument !== 'string' || !/^[A-Za-z0-9_.-]{1,64}$/.test(urlArgument))
-        return bad(`${at} (${id}): a fetches probe names the argument that takes the address: urlArgument.`);
+        return bad(
+          `${at} (${id}): a fetches probe names the argument that takes the address: urlArgument.`,
+        );
       if (as !== 'account-a' || expect !== undefined || malformed === true)
         return bad(
           `${at} (${id}): a fetches probe is sent as account-a, takes no expect and is not malformed.`,

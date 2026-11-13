@@ -25,7 +25,10 @@ export interface Page {
 export async function startPage(): Promise<Page> {
   const marker = `PLUNE-CANARY-${randomBytes(8).toString('hex')}`;
   const server = createServer((_req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.writeHead(200, {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Cache-Control': 'no-store',
+    });
     res.end(marker);
   });
   await new Promise<void>((resolve, reject) => {
