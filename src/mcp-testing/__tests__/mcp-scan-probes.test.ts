@@ -2371,6 +2371,8 @@ describe('CLI · mcp scan · --import-conformance: the rows of another report, a
       out: ['conf.json'],
     });
     expect(r2.code).toBe(2);
+  });
+});
 
 // ---- step 2, second review ---------------------------------------------------------------------------------------------------
 
