@@ -10,6 +10,7 @@ import type { Era, Transport } from '../catalog.js';
 import type { CheckOutcome } from '../outcome.js';
 import type { HttpTarget } from '../raw-http.js';
 import type { Answer } from './wire.js';
+import { AUTH, type OauthContext } from './auth.js';
 import { BASE } from './base.js';
 import { LIFECYCLE } from './lifecycle.js';
 import { MODERN } from './modern/index.js';
@@ -41,6 +42,8 @@ export interface ConformanceContext {
   fixture?: readonly FixtureCall[];
   /** The Streamable HTTP target, for the checks that send raw HTTP (undefined over stdio and HTTP+SSE). */
   http?: HttpTarget;
+  /** The oauth suite's own context: it asks the server as a client with no session (auth.ts). */
+  oauth?: OauthContext;
   /** One value per key for the whole run: a list is walked once for every check that reads it. */
   memo<T>(key: string, make: () => Promise<T>): Promise<T>;
 }
@@ -58,4 +61,5 @@ export const IMPLEMENTATIONS: Readonly<Record<string, ConformanceCheck>> = {
   ...SECURITY,
   ...STDIO,
   ...MODERN,
+  ...AUTH,
 };

@@ -22,6 +22,6 @@ rather than summarised here, so there is one description of it rather than two.
 
 > **Status (v0.1):** `plune init`, `plune run`, and `plune report` all work. `plune run` prints a
 > console report and supports `--format console|json|markdown` and `-o`; the full result is saved to
-> `.plune/last-run.json`.
+> `.plune/last-run.json` (a dry run is not saved).
 
 *(This folder is ready to become a Docusaurus site later — each page is a standalone Markdown doc.)*

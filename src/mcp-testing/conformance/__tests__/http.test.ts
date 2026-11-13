@@ -9,7 +9,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { handleMcpConformance, type McpConformanceFlags } from '../../../cli/commands/mcp-conformance.js';
-import { recorder, type Fixture } from '../../__tests__/fixtures/http-servers.js';
+import { closeServed, serve } from '../../__tests__/fixtures/conformance-http-servers.js';
+import { recorder } from '../../__tests__/fixtures/http-servers.js';
 import { ConnectError } from '../../connect/session.js';
 import { createRedactor } from '../../connect/redact.js';
 import type { McpConformanceReport } from '../../result.js';
@@ -18,155 +19,11 @@ import type { ConformanceContext } from '../checks/index.js';
 import { outsideAddresses, SECURITY } from '../checks/security.js';
 import { exchange, isLocal, rawRequest, type HttpTarget } from '../raw-http.js';
 
-interface Opts {
-  /** Session ids by number, or none at all. */
-  sessions?: false | ((n: number) => string);
-  notification?: 'ok' | 'body' | 'body202' | 'refuse';
-  answer?: 'json' | 'text' | 'sse';
-  badUtf8?: boolean;
-  keepOpen?: boolean;
-  eventIds?: 'unique' | 'repeat' | 'none';
-  accel?: boolean;
-  serverRequest?: boolean;
-  wrongId?: boolean;
-  /** No session required, no version checked, a DELETE that ends nothing. */
-  lax?: boolean;
-  get?: 'sse' | 'json' | '405';
-  del?: 'ends' | '405';
-  origin?: 'check' | 'ignore' | 'any403';
-  host?: 'check' | 'ignore';
-  broadcast?: boolean;
-  /** Every POST but the handshake answered with a 307 to this origin. */
-  redirect?: string;
-  bind?: string;
-  /** server/discover answered with a DiscoverResult that names 2025-11-25 as well: the dual-era server of a modern run. */
-  discover?: boolean;
-}
-
-interface Served extends Fixture {
-  url: string;
-  bodies: { headers: IncomingMessage['headers']; body: string }[];
-}
-
 const servers: { close(): Promise<void> }[] = [];
+afterEach(closeServed);
 afterEach(async () => {
   for (const s of servers.splice(0)) await s.close();
 });
-
-async function serve(o: Opts = {}): Promise<Served> {
-  const sessions = new Map<string, { alive: boolean; streams: ServerResponse[] }>();
-  const sessionIds = o.sessions === undefined ? (n: number) => `s-${n}` : o.sessions;
-  let count = 0;
-  let eventId = 0;
-  const requests: Served['requests'] = [];
-  const bodies: Served['bodies'] = [];
-  const server = createServer((req, res) => {
-    requests.push({ method: req.method ?? '', path: req.url ?? '', headers: req.headers });
-    const host = req.headers.host ?? '';
-    if (o.host === 'check' && !/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host)) return res.writeHead(403).end();
-    const origin = req.headers.origin;
-    if (origin !== undefined) {
-      if (o.origin === 'any403') return res.writeHead(403).end();
-      if (o.origin !== 'ignore' && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return res.writeHead(403).end();
-    }
-    const sid = req.headers['mcp-session-id'] as string | undefined;
-    const state = sid === undefined ? undefined : sessions.get(sid);
-    if (req.method === 'GET') {
-      const get = o.get ?? '405';
-      if (get === '405') return res.writeHead(405).end();
-      if (get === 'json') return res.writeHead(200, { 'content-type': 'application/json' }).end('{}');
-      res.writeHead(200, { 'content-type': 'text/event-stream' });
-      res.flushHeaders();
-      state?.streams.push(res);
-      return;
-    }
-    if (req.method === 'DELETE') {
-      if ((o.del ?? 'ends') === '405') return res.writeHead(405).end();
-      if (state !== undefined && o.lax !== true) state.alive = false;
-      return res.writeHead(200).end();
-    }
-    let body = '';
-    req.on('data', (c: Buffer) => (body += String(c)));
-    req.on('end', () => {
-      bodies.push({ headers: req.headers, body });
-      let msg: { id?: string | number; method: string; params?: Record<string, unknown> };
-      try {
-        msg = JSON.parse(body) as typeof msg;
-      } catch {
-        return res.writeHead(400).end();
-      }
-      if (msg.method === 'initialize') {
-        const id = sessionIds === false ? undefined : sessionIds(++count);
-        if (id !== undefined) sessions.set(id, { alive: true, streams: [] });
-        res.writeHead(200, { 'content-type': 'application/json', ...(id === undefined ? {} : { 'mcp-session-id': id }) });
-        return res.end(
-          JSON.stringify({
-            jsonrpc: '2.0',
-            id: msg.id,
-            result: { protocolVersion: msg.params?.['protocolVersion'], capabilities: { tools: {} }, serverInfo: { name: 'raw', version: '1' } },
-          }),
-        );
-      }
-      if (o.redirect !== undefined && msg.id !== undefined)
-        return res.writeHead(307, { location: `${o.redirect}${req.url ?? '/'}` }).end();
-      if (sessionIds !== false && o.lax !== true) {
-        if (sid === undefined) return res.writeHead(400).end();
-        if (state?.alive !== true) return res.writeHead(404).end();
-      }
-      const version = req.headers['mcp-protocol-version'] as string | undefined;
-      if (o.lax !== true && version !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(version)) return res.writeHead(400).end();
-      if (msg.id === undefined) {
-        const n = o.notification ?? 'ok';
-        if (n === 'ok') return res.writeHead(202).end();
-        // The modern notification (it carries Mcp-Method) is refused; the SDK client's own handshake is not.
-        if (n === 'refuse' && req.headers['mcp-method'] !== undefined) return res.writeHead(400).end();
-        if (n === 'refuse') return res.writeHead(202).end();
-        if (n === 'body202') return res.writeHead(202, { 'content-type': 'application/json' }).end('{"accepted":true}');
-        return res.writeHead(200, { 'content-type': 'application/json' }).end('{"accepted":true}');
-      }
-      if (msg.method === 'tools/call' && state !== undefined) {
-        const note = `data: ${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/message', params: { level: 'info', data: 'hi' } })}\n\n`;
-        for (const s of o.broadcast === true ? state.streams : state.streams.slice(0, 1)) s.write(note);
-      }
-      const result =
-        msg.method === 'tools/list'
-          ? { tools: [] }
-          : msg.method === 'tools/call'
-            ? { content: [] }
-            : msg.method === 'server/discover' && o.discover === true
-              ? { resultType: 'complete', supportedVersions: ['2026-07-28', '2025-11-25'], capabilities: { tools: {} }, ttlMs: 0, cacheScope: 'public' }
-              : {};
-      const frame = JSON.stringify({ jsonrpc: '2.0', id: o.wrongId === true ? 'not-yours' : msg.id, result });
-      const answer = o.answer ?? 'json';
-      if (answer === 'json') return res.writeHead(200, { 'content-type': 'application/json' }).end(frame);
-      if (answer === 'text') {
-        res.writeHead(200, { 'content-type': 'text/plain' });
-        return res.end(o.badUtf8 === true ? Buffer.concat([Buffer.from(frame), Buffer.from([0xff, 0xfe])]) : frame);
-      }
-      res.writeHead(200, { 'content-type': 'text/event-stream', ...(o.accel === true ? { 'x-accel-buffering': 'no' } : {}) });
-      const id = () => (o.eventIds === 'none' ? '' : `id: ${o.eventIds === 'repeat' ? 1 : ++eventId}\n`);
-      if (o.serverRequest === true)
-        res.write(`${id()}data: ${JSON.stringify({ jsonrpc: '2.0', id: 'srv-1', method: 'sampling/createMessage', params: {} })}\n\n`);
-      res.write(`${id()}data: ${frame}\n\n`);
-      if (o.keepOpen !== true) res.end();
-    });
-  });
-  await new Promise<void>((resolve) => server.listen(0, o.bind ?? '127.0.0.1', resolve));
-  const { port } = server.address() as AddressInfo;
-  const fixture: Served = {
-    origin: `http://127.0.0.1:${port}`,
-    url: `http://127.0.0.1:${port}/mcp`,
-    requests,
-    bodies,
-    close: () =>
-      new Promise<void>((resolve) => {
-        server.closeAllConnections();
-        server.close(() => resolve());
-      }),
-  };
-  servers.push(fixture);
-  return fixture;
-}
 
 const HTTP_IDS = CATALOG.filter((e) => e.id.startsWith('http-')).map((e) => e.id);
 

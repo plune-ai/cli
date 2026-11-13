@@ -40,7 +40,7 @@ plune run [options]
 |--------|---------|
 | `--config <path>` | Use a specific config file (default: `plune.yaml` in the current directory). |
 | `--only <selector>` | Run a subset. `<selector>` is an eval `id` or `tag:<name>`. **Repeatable**: `--only a --only tag:rag`. |
-| `--dry-run` | Estimate cost/tokens without calling the model or touching the cache — so it needs no provider key. Always exits `0`. It prints how many rows were priced and the estimated cost, and no verdict: no row counts as passed, failed or errored (in `--format json`: `"dry_run": true`, and every row has `"inconclusive": "skipped"`). It is not saved to `.plune/last-run.json`. |
+| `--dry-run` | Estimate cost/tokens without calling the model or touching the cache — so it needs no provider key. Exits `0` when the suite was priced; an error before that keeps its own exit code, as for any run (a config error is `2`). It prints how many rows were priced and the estimated cost, and no verdict: no row counts as passed, failed or errored (in `--format json`: `"dry_run": true`, and every row has `"inconclusive": "skipped"`). It is not saved to `.plune/last-run.json`. |
 | `--concurrency <n>` | Override how many rows run in parallel (default: the config's `provider.concurrency`, or 4). |
 | `--no-cache` | Ignore the cache for this run — always call the model, don't read or write cached completions. |
 | `--cache-strict` | Every row must come from the cache; no model call for completions. A miss ends the run with exit `5` and lists the rows with no entry. Cannot be combined with `--no-cache`. |
@@ -117,7 +117,7 @@ is given; with none of them the exit is always `0`.
 | Flag | Gate | Fails when |
 |------|------|------------|
 | `--fail-on-regression` | `regression` | an eval went from passed to failed. Not measured when an eval of the current run was not measured, or the current run has no evals. |
-| `--max-pass-rate-drop-percent <n>` | `pass-rate` | the overall pass rate (passed attempts of all attempts, every repeat counted) dropped by more than `n` percentage points. Measured only when both runs measured the same population and each side has at least 10 attempts. |
+| `--max-pass-rate-drop-percent <n>` | `pass-rate` | the overall pass rate (passed attempts of all attempts, every repeat counted) dropped by more than `n` percentage points. Measured only when both runs measured the same population, each side has at least 10 attempts and neither is a dry run. |
 | `--max-cost-usd <n>` | `cost` | the current run cost more than `n` USD. |
 | `--max-cost-increase-percent <n>` | `cost-increase` | the current run cost more than `n` percent over the baseline. Not measured when the baseline cost is `0`. |
 | `--max-tokens <n>` | `tokens` | the current run used more than `n` tokens, input plus output. |
@@ -1002,6 +1002,47 @@ also records `checkerVersion` (this CLI's version), `protocolVersion`, `protocol
 and, per check, `class`, `level`, `state`, `reason`, `expected`, `actual`, `fix`, `specRef` and, for the HTTP
 checks, `details` (each request with its method, URL and headers, and the status, headers, body, number of SSE events
 and time of its answer, secrets masked).
+
+### The oauth suite
+
+`--suite oauth --url <endpoint>` asks an HTTP server the way a client with no credentials would: it needs no handshake,
+so a server that answers every request with 401 is the normal case. It runs once for each revision it covers (2025-11-25
+and 2026-07-28, or the one `--protocol-version` names) and prints one report each. A server that answers a request without
+a token with 2xx is public: every check is `not-applicable` (`no-auth`). The suite cannot be combined with another
+suite in one run yet. Its checks are outside the frozen profile, so they count for nothing in the score until a new
+profile version lists them. **A run of this suite therefore always ends with exit code 3 ("conformance is not
+established"), even when a check failed: read the list of checks, not the exit code.**
+
+`--header` and `--header-env` are not used by this suite: it sends no value from them, to the server or anywhere else.
+
+It checks the 401 and its `WWW-Authenticate` challenge, the protected resource metadata (RFC 9728, by `resource_metadata`
+or the well-known URI), the authorization server's metadata (RFC 8414 and OpenID Connect Discovery, in the order of the
+specification), PKCE, HTTPS, `iss`, Client ID Metadata Documents, a token the server never issued, and a token issued for
+another resource (`oauth-neg-wrong-audience`). Each id, its level and the section it cites is in `--list-checks --suite oauth`.
+
+| Flag | Meaning |
+|------|---------|
+| `--config <file>` | A JSON file: `auth`, `registration`, `scopes`, `resource`, `protocolVersions`. A secret is never a value in it: `registration.clientSecretEnv` names the environment variable that holds the client secret, and a file with a key that names a secret is refused. |
+| `--allow-origin <origin>` | Ask this origin too. Without it, a `resource_metadata` URL or an authorization server on another origin than the server's is not asked, and the check is `could-not-run` (`needs-input`). It is also the only way the client secret leaves the run: the secret is sent only to a token endpoint whose origin is named here (the server's own origin included), and only over https, or http on a loopback name. Repeatable. |
+
+`oauth-neg-wrong-audience` needs `"auth": "client-credentials"` and a preregistered client the authorization server accepts
+for that grant:
+
+```json
+{
+  "auth": "client-credentials",
+  "registration": { "method": "preregistered", "clientId": "my-test-client", "clientSecretEnv": "MCP_CLIENT_SECRET" },
+  "scopes": ["mcp:tools"]
+}
+```
+
+It asks for two tokens (one for the server itself, one for `https://other-resource.plune-conformance.invalid`) and
+**sends both to the server under test**, as `Authorization: Bearer`, so the server sees both. It passes only when the
+first gets a `2xx` and the second a `401`. A server that refuses the first, an authorization server that gives the
+same token for both, and a `429`, a `5xx` or a redirect on any of the requests prove nothing, and the check is then
+`could-not-run`. A token, a client secret or an `Authorization` value never reaches the output, `--out`
+files, JUnit or an error message. Not in this version: the browser and headless sign-in, registration (`dcr`, `cimd`),
+the checks of the authorization endpoint and of the token endpoint, and a result per registration method.
 
 ### Exit codes
 

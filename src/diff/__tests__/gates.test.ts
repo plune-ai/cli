@@ -3,6 +3,7 @@ import { diffRuns } from '../diff.js';
 import { evaluateGates, MIN_PASS_RATE_ATTEMPTS, type GateOptions } from '../gates.js';
 import { parseWaivers, MAX_WAIVER_REASON, WaiversFileError, type Waiver } from '../waivers.js';
 import type { EvalResult, RowResult, RunResult, Usage } from '../../types/results.js';
+import { dryRunRow } from '../../orchestrator/run.js';
 
 // --- fixtures: only the fields the gates read ---
 
@@ -148,6 +149,60 @@ describe('CLI · diff · gates · pass-rate population rule', () => {
     });
     const r = gates(run([repeated(10)]), run([repeated(6)]), { maxPassRateDropPercent: 30 });
     expect(gate(r, 'pass-rate')).toMatchObject({ state: 'failed', value: 40 });
+  });
+});
+
+/** A dry run of the same suite, built the way `plune run --dry-run` builds it: every row priced, none judged. */
+function dryRun(evals: EvalResult[]): RunResult {
+  const priceOnly = (e: EvalResult): EvalResult => ({
+    ...e,
+    passed: false,
+    rows: e.rows.map((r) => dryRunRow(r.vars, r.usage ?? priced(0.01))),
+  });
+  return { ...run(evals.map(priceOnly)), dry_run: true };
+}
+
+describe('CLI · diff · gates · a dry run measured nothing (#252)', () => {
+  const measured = run([ev('a', 10)]);
+
+  it('as the current run: the pass rate is unmeasured (exit 3), not 0 of 10, and the reason names the dry run', () => {
+    const r = gates(measured, dryRun([ev('a', 10)]), { maxPassRateDropPercent: 5 });
+    expect(gate(r, 'pass-rate')).toMatchObject({
+      state: 'unmeasured',
+      reason: 'the current run is a dry run: nothing was measured',
+    });
+    expect(r.exitCode).toBe(3);
+  });
+
+  it('as the baseline: unmeasured as well, not a green gate over a baseline of 0 of 10', () => {
+    const r = gates(dryRun([ev('a', 10)]), measured, { maxPassRateDropPercent: 5 });
+    expect(gate(r, 'pass-rate')).toMatchObject({
+      state: 'unmeasured',
+      reason: 'the baseline is a dry run: nothing was measured',
+    });
+    expect(r.exitCode).toBe(3);
+  });
+
+  it('names the dry run first, even when the two files also differ in evals and have too few attempts', () => {
+    const r = gates(measured, dryRun([ev('a', 3, 3), ev('b', 3, 3)]), { maxPassRateDropPercent: 5 });
+    expect(gate(r, 'pass-rate').reason).toBe('the current run is a dry run: nothing was measured');
+    expect(gate(r, 'pass-rate').details).toBeUndefined();
+  });
+
+  it('a waiver on the pass rate does not lift it', () => {
+    const w = waiver({ gate: 'pass-rate', eval: undefined });
+    const r = gates(measured, dryRun([ev('a', 10)]), { maxPassRateDropPercent: 5 }, [w]);
+    expect(gate(r, 'pass-rate').state).toBe('unmeasured');
+    expect(r.exitCode).toBe(3);
+    expect(r.waivers.unused).toEqual([w]);
+  });
+
+  it('the eval-by-eval diff and the regression gate read the same dry run as unmeasured', () => {
+    const cur = dryRun([ev('a', 10)]);
+    expect(diffRuns(measured, cur).evals.map((e) => e.status)).toEqual(['unmeasured']);
+    const r = gates(measured, cur, { failOnRegression: true });
+    expect(gate(r, 'regression').state).toBe('unmeasured');
+    expect(r.exitCode).toBe(3);
   });
 });
 

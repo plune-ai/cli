@@ -10,6 +10,7 @@
  */
 
 import type { RequirementLevel } from '../result.js';
+import { OAUTH_CATALOG } from './auth-catalog.js';
 
 export type Suite = 'protocol' | 'oauth' | 'tasks' | 'apps';
 export const SUITES: readonly Suite[] = ['protocol', 'oauth', 'tasks', 'apps'];
@@ -946,6 +947,8 @@ export const CATALOG: readonly CatalogEntry[] = [
     eras: BOTH,
     transports: ['stdio'],
   }),
+  // The oauth suite (auth-catalog.ts)
+  ...OAUTH_CATALOG,
 ];
 
 const BY_ID = new Map(CATALOG.map((e) => [e.id, e]));
