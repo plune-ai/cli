@@ -4,8 +4,6 @@
 
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { createServer, type IncomingMessage } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,8 +18,9 @@ import { headerDeclarationProblems } from '../checks/modern/headers.js';
 import { paramHeaders } from '../checks/modern/meta.js';
 import { SCHEMA_SHA256, wireProblem } from '../checks/modern/observed.js';
 import { PROFILE } from '../profile.js';
+import { closeServed, serveHttp } from '../../__tests__/fixtures/conformance-http-servers.js';
 // @ts-expect-error a plain .mjs fixture, without types
-import { answer, REGION } from '../../__tests__/fixtures/modern-server.mjs';
+import { REGION } from '../../__tests__/fixtures/modern-server.mjs';
 
 const fixture = (name: string) => fileURLToPath(new URL(`../../__tests__/fixtures/${name}`, import.meta.url));
 const modern = (m: string) => [process.execPath, fixture('modern-server.mjs'), m];
@@ -34,10 +33,7 @@ const CALLS = [
   { tool: 'region', arguments: { region: 'eu-west' } },
 ];
 
-const servers: { close(): Promise<void> }[] = [];
-afterEach(async () => {
-  for (const s of servers.splice(0)) await s.close();
-});
+afterEach(closeServed);
 
 function fixtureFile(calls: unknown): string {
   const path = join(mkdtempSync(join(tmpdir(), 'plune-conformance-modern-')), 'fixture.json');
@@ -63,100 +59,6 @@ const states = (r: McpConformanceReport, ids?: string[]) =>
     r.checks.filter((c) => ids === undefined || ids.includes(c.id)).map((c) => [c.id, c.reason === undefined ? c.state : `${c.state} (${c.reason})`]),
   );
 const byId = (r: McpConformanceReport, id: string) => r.checks.find((c) => c.id === id)!;
-
-/** The header rules the HTTP wrapper keeps; each one off is a server that breaks it. */
-interface Rules {
-  mode?: string;
-  validate?: boolean;
-  decode?: boolean;
-  /** Mcp-Name compared without regard to case. */
-  nameAnyCase?: boolean;
-  /** Header names read only as written in lower case. */
-  namesExact?: boolean;
-  echoSession?: boolean;
-  statuses?: boolean;
-}
-
-const decoded = (v: string | undefined) => {
-  const m = v === undefined ? null : /^=\?base64\?(.*)\?=$/.exec(v);
-  return m === null ? v : Buffer.from(m[1] ?? '', 'base64').toString('utf8');
-};
-
-async function serveHttp(rules: Rules = {}) {
-  const r = { mode: 'good', validate: true, decode: true, statuses: true, ...rules };
-  const state = { http: true, discovered: true, connection: 'http' };
-  const bodies: { headers: IncomingMessage['headers']; body: string }[] = [];
-  const server = createServer((req, res) => {
-    let body = '';
-    req.on('data', (c: Buffer) => (body += String(c)));
-    req.on('end', () => {
-      bodies.push({ headers: req.headers, body });
-      const exact = (name: string) => {
-        if (r.namesExact !== true) return req.headers[name] as string | undefined;
-        const i = req.rawHeaders.indexOf(name);
-        return i < 0 ? undefined : req.rawHeaders[i + 1];
-      };
-      if (req.method !== 'POST') return res.writeHead(405).end();
-      let msg: { id?: string | number; method: string; params?: Record<string, unknown> };
-      try {
-        msg = JSON.parse(body) as typeof msg;
-      } catch {
-        return res.writeHead(400).end();
-      }
-      if (msg.id === undefined) return res.writeHead(202).end();
-      const session = req.headers['mcp-session-id'];
-      const extra: Record<string, string> = r.echoSession === true && typeof session === 'string' ? { 'mcp-session-id': session } : {};
-      const reply = (frame: { error?: { code: number } }) => {
-        const code = frame.error?.code;
-        const status = r.statuses && code !== undefined ? (code === -32601 ? 404 : [-32602, -32020, -32021, -32022].includes(code) ? 400 : 200) : 200;
-        res.writeHead(status, { 'content-type': 'application/json', ...extra }).end(JSON.stringify(frame));
-      };
-      const mismatch = (why: string) => reply({ jsonrpc: '2.0', id: msg.id, error: { code: -32020, message: `Header mismatch: ${why}` } } as never);
-      if (r.validate) {
-        const params = msg.params ?? {};
-        const meta = (params['_meta'] ?? {}) as Record<string, unknown>;
-        const version = exact('mcp-protocol-version');
-        const method = exact('mcp-method');
-        if (version === undefined || method === undefined) return mismatch('a required header is missing');
-        const v = meta['io.modelcontextprotocol/protocolVersion'];
-        if (typeof v === 'string' && v !== version) return mismatch('MCP-Protocol-Version');
-        if (method !== msg.method) return mismatch('Mcp-Method');
-        if (['tools/call', 'resources/read', 'prompts/get'].includes(msg.method)) {
-          const raw = exact('mcp-name');
-          const name = r.decode ? decoded(raw) : raw;
-          const body = String(msg.method === 'resources/read' ? params['uri'] : params['name']);
-          const same = r.nameAnyCase === true ? name?.toLowerCase() === body.toLowerCase() : name === body;
-          if (raw === undefined || !same) return mismatch('Mcp-Name');
-        }
-        if (msg.method === 'tools/call' && params['name'] === 'region') {
-          const region = (params['arguments'] as Record<string, unknown> | undefined)?.['region'];
-          const h = decoded(exact('mcp-param-region'));
-          if (region !== undefined && h !== String(region)) return mismatch('Mcp-Param-Region');
-        }
-      }
-      if (msg.method === 'subscriptions/listen') {
-        res.writeHead(200, { 'content-type': 'text/event-stream', ...extra });
-        return answer(r.mode, state, msg, (f: unknown) => res.write(`data: ${JSON.stringify(f)}\n\n`), () => res.end());
-      }
-      let sent = false;
-      answer(r.mode, state, msg, (f: { id?: unknown; error?: { code: number } }) => {
-        if (sent || f.id === undefined) return;
-        sent = true;
-        reply(f);
-      });
-    });
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const { port } = server.address() as AddressInfo;
-  servers.push({
-    close: () =>
-      new Promise<void>((resolve) => {
-        server.closeAllConnections();
-        server.close(() => resolve());
-      }),
-  });
-  return { url: `http://127.0.0.1:${port}/mcp`, bodies };
-}
 
 describe('CLI · mcp conformance · the 2026-07-28 revision over stdio', () => {
   it('a server that breaks each modern requirement fails each modern check, with what it got and how to fix it', async () => {
