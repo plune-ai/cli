@@ -10,6 +10,7 @@
  */
 
 import type { RequirementLevel } from '../result.js';
+import { APPS_CATALOG } from './apps-catalog.js';
 import { OAUTH_CATALOG } from './auth-catalog.js';
 
 export type Suite = 'protocol' | 'oauth' | 'tasks' | 'apps';
@@ -32,6 +33,8 @@ export interface SpecRef {
   page: string;
   /** The heading of the section on that page. */
   section: string;
+  /** Where the text is published, when it is not a page of the specification (an extension's own repository). */
+  url?: string;
 }
 
 export interface CatalogEntry {
@@ -67,7 +70,7 @@ export const VERSIONING_URL = 'https://modelcontextprotocol.io/specification/ver
 
 /** Where a specification reference is published. */
 export const specUrl = (ref: SpecRef): string =>
-  `https://modelcontextprotocol.io/specification/${ref.revision}/${ref.page}`;
+  ref.url ?? `https://modelcontextprotocol.io/specification/${ref.revision}/${ref.page}`;
 
 const L = '2025-11-25';
 const M = '2026-07-28';
@@ -949,6 +952,8 @@ export const CATALOG: readonly CatalogEntry[] = [
   }),
   // The oauth suite (auth-catalog.ts)
   ...OAUTH_CATALOG,
+  // The apps suite (apps-catalog.ts)
+  ...APPS_CATALOG,
 ];
 
 const BY_ID = new Map(CATALOG.map((e) => [e.id, e]));

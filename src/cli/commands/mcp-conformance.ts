@@ -174,6 +174,7 @@ function explainText(e: CatalogEntry): string {
     `suite: ${e.suite}`,
     `kind: ${e.kind}`,
     `level: ${e.level ?? 'none'}${e.derived ? ` (derived: ${e.derivation ?? ''})` : ''}`,
+    ...(!e.derived && e.derivation !== undefined ? [`quoted: ${e.derivation}`] : []),
     `eras: ${e.eras.join(', ')}`,
     `transports: ${e.transports.join(', ')}`,
     `needs a fixture: ${e.needsFixture ? 'yes' : 'no'}`,
