@@ -15,6 +15,8 @@ import { CATALOG } from '../catalog.js';
 import { PROFILE } from '../profile.js';
 import {
   authFixture,
+  AUTH_CODE,
+  AUTH_STATE,
   CLIENT_ID,
   CLIENT_SECRET,
   type AuthFixture,
@@ -82,7 +84,7 @@ async function run(url: string, flags: Partial<McpConformanceFlags> = {}) {
     code,
     out,
     err,
-    report: out === '' ? undefined : (JSON.parse(out) as McpConformanceReport),
+    report: !out.startsWith('{') ? undefined : (JSON.parse(out) as McpConformanceReport),
   };
 }
 
@@ -321,5 +323,140 @@ describe('CLI · mcp conformance · oauth probes · a redirect URI that is not r
     });
     expect(verdict(report, RM)).toBe('could-not-run (needs-input)');
     expect(asked(s)).toEqual([]);
+  });
+});
+
+// ---- review of PR 264 ----
+
+/** Every run of `n` characters of `value`: none may be in `text` if the value was masked as a whole. */
+const windows = (value: string, n = 8): string[] =>
+  Array.from({ length: value.length - n + 1 }, (_, i) => value.slice(i, i + n));
+const leaked = (text: string, value: string): string[] =>
+  windows(value).filter((w) => text.includes(w));
+
+describe('CLI · mcp conformance · oauth probes · what the server issues in a redirect is masked', () => {
+  const modes: [string, AuthOpts][] = [
+    ['the registered client redirected with a code (the control)', {}],
+    ['a client that does not exist redirected with a code', { authorize: 'accept-unknown' }],
+    ['any redirect URI redirected to with a code', { authorize: 'redirect-any' }],
+  ];
+  for (const [name, opts] of modes)
+    for (const format of ['json', 'human'] as const)
+      it(`${name}: neither the code nor the state is in the ${format} output, nor the client secret`, async () => {
+        const s = await serve(opts);
+        const { out, err } = await run(s.url, { config: client(), format });
+        const all = out + err;
+        expect(all.length).toBeGreaterThan(0);
+        expect(leaked(all, AUTH_CODE)).toEqual([]);
+        expect(leaked(all, AUTH_STATE)).toEqual([]);
+        expect(all).not.toContain(CLIENT_SECRET);
+      });
+
+  it('a code in the fragment of the Location is masked too', async () => {
+    // Values of their own: the code of the query is masked everywhere once it is known.
+    const code = 'fr4gM3ntC0deZz9x';
+    const token = 'fr4gM3ntT0kenQq7';
+    const s = await serve({
+      foreign: { status: 302, location: `${CB}#code=${code}&id_token=${token}` },
+    });
+    const { out } = await run(s.url, { config: bare() });
+    // The Location is in the report, so the absence below is the masking, not a missing header.
+    expect(out).toContain('#code=');
+    expect(leaked(out, code)).toEqual([]);
+    expect(leaked(out, token)).toEqual([]);
+  });
+});
+
+describe('CLI · mcp conformance · oauth probes · which 4xx is a refusal', () => {
+  for (const status of [400, 401, 403, 404])
+    it(`HTTP ${status} to a client that does not exist and to an unregistered redirect URI is a refusal`, async () => {
+      const s = await serve({ unknown: { status }, foreign: { status } });
+      const { report } = await run(s.url, { config: bare() });
+      expect(verdict(report, IC)).toBe('passed');
+      expect(verdict(report, RM)).toBe('passed');
+    });
+  for (const status of [408, 413, 414])
+    it(`HTTP ${status} is not a refusal: could-not-run`, async () => {
+      const s = await serve({ unknown: { status }, foreign: { status } });
+      const { report } = await run(s.url, { config: bare() });
+      expect(verdict(report, IC)).toBe('could-not-run (prerequisite-failed)');
+      expect(verdict(report, RM)).toBe('could-not-run (prerequisite-failed)');
+    });
+});
+
+describe('CLI · mcp conformance · oauth probes · where a Location points', () => {
+  const SIBLING_CONFIG = () =>
+    configFile({
+      redirectUri: 'myapp://a/callback',
+      registration: { method: 'preregistered', clientId: CLIENT_ID },
+    });
+
+  it('another URI of a scheme that has no origin is not the redirect URI (myapp://a vs myapp://b)', async () => {
+    const s = await serve({ authorize: 'unknown-sibling' });
+    const { report } = await run(s.url, { config: SIBLING_CONFIG() });
+    expect(verdict(report, IC)).toBe('could-not-run (needs-input)');
+  });
+
+  it('the very same URI of such a scheme is the redirect URI: failed', async () => {
+    const s = await serve({ authorize: 'accept-unknown' });
+    const { report } = await run(s.url, { config: SIBLING_CONFIG() });
+    expect(verdict(report, IC)).toBe('failed');
+  });
+
+  it('a trailing slash makes it another address: could-not-run, not failed (pinned)', async () => {
+    const s = await serve({ authorize: 'unknown-slash' });
+    const { report } = await run(s.url, { config: bare() });
+    expect(verdict(report, IC)).toBe('could-not-run (needs-input)');
+  });
+
+  const odd: [string, { status: number; location?: string }, string][] = [
+    [
+      'a host that only ends with the other one',
+      { status: 302, location: `https://${FOREIGN}.evil.example/callback?code=x` },
+      'could-not-run (needs-input)',
+    ],
+    [
+      'a relative Location',
+      { status: 302, location: '/callback?code=x' },
+      'could-not-run (needs-input)',
+    ],
+    [
+      'a Location that is not a URL',
+      { status: 302, location: 'http://[' },
+      'could-not-run (needs-input)',
+    ],
+    ['a 302 with no Location', { status: 302 }, 'could-not-run (transport-error)'],
+  ];
+  for (const [name, answer, expected] of odd)
+    it(`${name}: ${expected}, never failed`, async () => {
+      const s = await serve({ foreign: answer, unknown: answer });
+      const { report } = await run(s.url, { config: bare() });
+      expect(verdict(report, RM)).toBe(expected);
+      expect(verdict(report, IC)).toBe(expected);
+    });
+});
+
+describe('CLI · mcp conformance · oauth probes · no answer', () => {
+  for (const [name, answer] of [
+    ['a dropped connection', 'drop'],
+    ['a timeout', 'hang'],
+  ] as const)
+    it(`${name} at the probe request is could-not-run in both checks`, async () => {
+      const s = await serve({ foreign: answer, unknown: answer });
+      const { report } = await run(s.url, { config: bare(), timeout: '1s' });
+      expect(verdict(report, RM)).toMatch(/^could-not-run \((transport-error|timeout)\)$/);
+      expect(verdict(report, IC)).toMatch(/^could-not-run \((transport-error|timeout)\)$/);
+    });
+});
+
+describe('CLI · mcp conformance · oauth probes · the score', () => {
+  it('the suite still exits 3, with both ids shown and counted for nothing', async () => {
+    const s = await serve({});
+    const { report, code } = await run(s.url, { config: client() });
+    expect(code).toBe(3);
+    expect(report?.exitCode).toBe(3);
+    expect(report?.summary.pending).toContain(IC);
+    expect(report?.summary.pending).toContain(RM);
+    expect(verdict(report, IC)).toBe('passed');
   });
 });

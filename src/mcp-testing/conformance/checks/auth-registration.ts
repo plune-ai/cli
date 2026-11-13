@@ -97,6 +97,32 @@ function judged(
     : { kind: 'unclear', status, error: error.slice(0, 60), detail };
 }
 
+/** The query and fragment values of a Location that the server issued: they are masked in every exchange. */
+const ISSUED_IN_REDIRECT = ['code', 'access_token', 'id_token', 'refresh_token', 'state'];
+/** The `state` this suite sends: echoing it back is not an issue. */
+const SENT_STATE = 'plune-conformance';
+function collectRedirectIssued(ctx: OauthContext, location: string | undefined, base: URL): void {
+  if (location === undefined) return;
+  let target: URL;
+  try {
+    target = new URL(location, base);
+  } catch {
+    return;
+  }
+  for (const params of [target.searchParams, new URLSearchParams(target.hash.slice(1))])
+    for (const key of ISSUED_IN_REDIRECT) {
+      const value = params.get(key);
+      if (value !== null && value.length >= 4 && value !== SENT_STATE) ctx.secrets.add(value);
+    }
+}
+
+/** Whether a Location is the redirect URI: the same scheme, host and path (an origin is "null" for a custom scheme). */
+function sameAddress(a: URL, b: URL): boolean {
+  if (a.origin !== 'null' || b.origin !== 'null')
+    return a.origin === b.origin && a.pathname === b.pathname;
+  return a.protocol === b.protocol && a.host === b.host && a.pathname === b.pathname;
+}
+
 /**
  * One authorization request with `clientId`, to the endpoint of the metadata. Only the client_id, the redirect URI and
  * a PKCE challenge go: no secret. A redirect is read, never followed: one to the redirect URI with no error is
@@ -112,7 +138,7 @@ export async function authorize(
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('client_id', clientId);
   url.searchParams.set('redirect_uri', redirectUri);
-  url.searchParams.set('state', 'plune-conformance');
+  url.searchParams.set('state', SENT_STATE);
   url.searchParams.set('code_challenge', 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM');
   url.searchParams.set('code_challenge_method', 'S256');
   url.searchParams.set('resource', ctx.config.resource ?? ctx.url);
@@ -120,9 +146,11 @@ export async function authorize(
     method: 'GET',
     headers: [['Accept', 'text/html, application/json']],
   });
-  const d = detail();
   const { status } = res;
   const location = res.headers.find(([n]) => n.toLowerCase() === 'location')?.[1];
+  // Before the exchange is written down: what a redirect carries is issued by the server, and a code is as good as a token.
+  collectRedirectIssued(ctx, location, url);
+  const d = detail();
   if (transient(status) && !(status >= 300 && status < 400 && location !== undefined))
     return { kind: 'transient', status, detail: d, toRedirectUri: false };
   if (status >= 300 && status < 400) {
@@ -139,10 +167,7 @@ export async function authorize(
       expected = undefined;
     }
     // Compared as URLs, by origin and path: a redirect URI that only appears in a parameter of another address is not it.
-    const landed =
-      expected !== undefined &&
-      target.origin === expected.origin &&
-      target.pathname === expected.pathname;
+    const landed = expected !== undefined && sameAddress(target, expected);
     const fragment = new URLSearchParams(target.hash.slice(1));
     const error = target.searchParams.get('error') ?? fragment.get('error');
     if (error !== null)

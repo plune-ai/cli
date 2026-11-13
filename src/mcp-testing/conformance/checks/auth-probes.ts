@@ -70,6 +70,15 @@ function controlOutcome(a: Authorize, what: string): CheckOutcome | undefined {
   return undefined;
 }
 
+/** 4xx that say no: 408, 413, 414 and the like say the request was not taken, which is not an answer about the client. */
+const REFUSING = new Set([400, 401, 403, 404]);
+const isClientError = (status: number): boolean => status >= 400 && status < 500;
+const notARefusal = (what: string, a: Authorize): CheckOutcome =>
+  prerequisite(
+    `${what} answered HTTP ${a.status}, which does not say the request was refused for what it carried (only 400, 401, 403, 404 or an error naming the client do).`,
+    [a.detail],
+  );
+
 /** The first of the halves that failed, else the first that could not run, else all of them as one pass. */
 function combine(halves: CheckOutcome[], skipped: string[]): CheckOutcome {
   const details = halves.flatMap((h) => h.details ?? []);
@@ -114,7 +123,9 @@ async function unknownAtAuthorize(
     };
   if (a.kind === 'transient')
     return { ...inconclusive('The authorization endpoint (a made-up client)', a.status, details) };
-  if (a.kind === 'refused' || (a.status >= 400 && a.status < 500))
+  if (a.kind !== 'refused' && isClientError(a.status) && !REFUSING.has(a.status))
+    return { ...notARefusal('The authorization endpoint (a made-up client)', a), details };
+  if (a.kind === 'refused' || REFUSING.has(a.status))
     return {
       ...passed(
         `The authorization endpoint refused a client_id that does not exist (${said(a)}), and did not refuse the real client.`,
@@ -233,7 +244,12 @@ const redirectMismatch: ConformanceCheck = async (c) => {
       a.status,
       details,
     );
-  if (a.status >= 400 && a.status < 500)
+  if (isClientError(a.status) && a.kind !== 'refused' && !REFUSING.has(a.status))
+    return {
+      ...notARefusal('The authorization endpoint (an unregistered redirect URI)', a),
+      details,
+    };
+  if (isClientError(a.status))
     return {
       ...passed(
         `The authorization endpoint refused a redirect URI the client did not register without redirecting to it (${said(a)}), and did not refuse the registered one.`,

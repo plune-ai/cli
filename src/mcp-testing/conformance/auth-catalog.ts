@@ -292,7 +292,7 @@ export const OAUTH_CATALOG: readonly CatalogEntry[] = [
     id: 'oauth-neg-invalid-client',
     title: 'A client that does not exist is not accepted',
     description:
-      'A made-up client_id is not accepted at the authorization endpoint (it is not redirected to the redirect URI, with a code or with an error) and, when --config has client credentials, a made-up client is not given a token at the token endpoint (400 or 401 with invalid_client or invalid_request). The pre-registered client is the control for each half: it must not be refused. A server that sends every client to a sign-in page cannot be judged. The made-up client sends made-up credentials, never the real ones.',
+      'A made-up client_id is not accepted at the authorization endpoint (it is not redirected to the redirect URI, with a code or with an error) and, when --config has client credentials, a made-up client is not given a token at the token endpoint (HTTP 400 or 401). The pre-registered client is the control for each half: it must not be refused. A server that sends every client to a sign-in page cannot be judged. The made-up client sends made-up credentials, never the real ones.',
     level: 'MUST',
     derived: true,
     derivation:

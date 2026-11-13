@@ -134,7 +134,11 @@ describe('CLI · mcp conformance · oauth registration · a pre-registered clien
     const asked = s.seen.filter((x) => x.path === '/authorize');
     // The client asked for, and a made-up one as the control (the probes of auth-probes.ts ask too).
     expect(asked.filter((x) => x.query.includes('no-such-client'))).toHaveLength(1);
-    expect(asked.some((x) => x.query.includes('client_id=plune-test-client'))).toBe(true);
+    // Requests with the real client id: oauth-reg-prereg 1, oauth-neg-invalid-client 1 (its control),
+    // oauth-neg-authorize-redirect-mismatch 2 (its control, and the request with the other redirect URI).
+    expect(
+      asked.filter((x) => new URLSearchParams(x.query).get('client_id') === CLIENT_ID),
+    ).toHaveLength(4);
     expect(asked.every((x) => x.authorization === undefined)).toBe(true);
   });
 
@@ -603,6 +607,12 @@ describe('CLI · mcp conformance · oauth registration · the authorization endp
       (x) => x.path === '/authorize' && x.query.includes('no-such-client'),
     );
     expect(made).toHaveLength(1);
+    // Requests with the real client id: oauth-reg-prereg 1, oauth-neg-invalid-client 1 (its control),
+    // oauth-neg-authorize-redirect-mismatch 2 (its control, and the request with the other redirect URI).
+    const real = s.seen.filter(
+      (x) => x.path === '/authorize' && new URLSearchParams(x.query).get('client_id') === CLIENT_ID,
+    );
+    expect(real).toHaveLength(4);
   });
 
   for (const mode of ['login-all', 'redirect-login-all'] as const)
