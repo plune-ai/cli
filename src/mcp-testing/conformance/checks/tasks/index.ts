@@ -223,7 +223,8 @@ function created(ctx: ConformanceContext): Promise<CheckOutcome | State> {
       const kind = classify(a);
       if (kind === 'task' && a.kind === 'result') {
         s.create = a.result;
-        s.a = record(s, c.tool, a);
+        const made = record(s, c.tool, a);
+        if (made !== undefined) s.a = made;
       } else if (kind === 'untyped') s.untyped.push(c.tool);
       else s.standard.push(a);
     }

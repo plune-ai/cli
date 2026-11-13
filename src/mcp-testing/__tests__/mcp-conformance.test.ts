@@ -6,7 +6,7 @@ import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   handleMcpConformance,
   type McpConformanceFlags,
@@ -20,6 +20,8 @@ import type { ConformanceResult, McpConformanceReport } from '../result.js';
 import { streamableServer, type Fixture } from './fixtures/http-servers.js';
 
 const FIXTURE = fileURLToPath(new URL('./fixtures/stdio-server.mjs', import.meta.url));
+// A run probes the server in more than one revision and starts a process for each: a few take longer than 5 s.
+vi.setConfig({ testTimeout: 60_000 });
 const STDIO = [process.execPath, FIXTURE];
 
 const servers: Fixture[] = [];
