@@ -342,6 +342,17 @@ describe('CLI · mcp conformance · tasks · each requirement broken on its own'
       expect(byId(report, id).fix).not.toBe('');
     });
 
+  it('a wrong code and a missing data are told apart in the report', async () => {
+    const wrongCode = await withFixture('undeclared-code');
+    expect(byId(wrongCode.report, 'tasks-undeclared-capability-error').actual).toContain(
+      'tasks/get answered error -32602',
+    );
+    const noData = await withFixture('undeclared-no-data');
+    expect(byId(noData.report, 'tasks-undeclared-capability-error').actual).toContain(
+      'answered -32021 without data.requiredCapabilities',
+    );
+  });
+
   it('tasks/update that is an error says nothing about the acknowledgement: could-not-run', async () => {
     const { report } = await withFixture('update-error');
     expect(states(report)['tasks-update-ack']).toBe('could-not-run (prerequisite-failed)');
@@ -414,7 +425,7 @@ describe('CLI · mcp conformance · tasks · over Streamable HTTP', () => {
   afterEach(() => {
     for (const s of open.splice(0)) s.close();
   });
-  type Rule = 'good' | 'refuse-name' | 'down';
+  type Rule = 'good' | 'refuse-name' | 'down' | 'down-json';
   async function serve(rule: Rule) {
     const seen: { method: string; name: string | undefined; taskId: unknown }[] = [];
     const state = { tasks: new Map() };
@@ -436,6 +447,12 @@ describe('CLI · mcp conformance · tasks · over Streamable HTTP', () => {
         const reply = (status: number, frame: unknown) =>
           res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(frame));
         if (msg.method === 'tasks/get' && rule === 'down') return res.writeHead(503).end('busy');
+        if (msg.method === 'tasks/get' && rule === 'down-json')
+          return reply(503, {
+            jsonrpc: '2.0',
+            id: msg.id,
+            error: { code: -32603, message: 'Service unavailable' },
+          });
         if (
           msg.method.startsWith('tasks/') &&
           (rule === 'refuse-name' || name !== msg.params?.['taskId'])
@@ -493,6 +510,13 @@ describe('CLI · mcp conformance · tasks · over Streamable HTTP', () => {
     const s = await serve('refuse-name');
     const report = await runHttp(s.url);
     expect(states(report)[HTTP_ONLY]).toBe('failed');
+  });
+
+  it('a 503 that carries a JSON-RPC error is no verdict either', async () => {
+    const s = await serve('down-json');
+    const report = await runHttp(s.url);
+    expect(states(report)['tasks-get-status-shape']).toBe('could-not-run (transport-error)');
+    expect(states(report)[HTTP_ONLY]).toBe('could-not-run (transport-error)');
   });
 
   it('a 503 is not a verdict: could-not-run (transport-error), never failed', async () => {
