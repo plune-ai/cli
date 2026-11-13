@@ -401,6 +401,7 @@ async function measure(
       // A legacy run takes its era from the revision the handshake gave; without one, the handshake itself is legacy.
       const era: Era = modern ? 'modern' : eraOf(protocolVersion ?? '2025-11-25');
       const memos = new Map<string, Promise<unknown>>();
+      const endSteps: (() => Promise<string | undefined>)[] = [];
       const ctx: ConformanceContext = {
         session: live,
         transport,
@@ -423,6 +424,7 @@ async function measure(
           if (!memos.has(key)) memos.set(key, make());
           return memos.get(key) as Promise<T>;
         },
+        onEnd: (step) => void endSteps.push(step),
       };
       const prerequisite = modern ? DISCOVER_CHECK : HANDSHAKE_CHECK;
       let timeouts = 0;
@@ -445,6 +447,19 @@ async function measure(
       };
       for (const entry of entries)
         results.push(result(entry, applicability(entry, { era, transport }) ?? (await run(entry)), clean));
+      // What a check made on the server and has to end (a task) is ended here, and what stayed is told in the last result of its suite.
+      const left: string[] = [];
+      for (const step of endSteps) {
+        try {
+          const note = await step();
+          if (note !== undefined) left.push(note);
+        } catch (err) {
+          if (!(err instanceof ConnectError)) throw err;
+          left.push(`could not be ended: ${err.message}`);
+        }
+      }
+      const last = [...results].reverse().find((r) => r.suite === 'tasks');
+      if (left.length > 0 && last !== undefined) last.actual = clean(`${last.actual} Left behind: ${left.join(' ')}`.trim());
     } finally {
       await live.close();
     }
