@@ -5,8 +5,15 @@
  * (or a renderer) and leaves this shape as it is.
  */
 
+import type { ScanReport } from '../scan/report.js';
 import type { CheckClass, CheckLevel, CheckState } from '../result.js';
-import type { McpCheckReport, McpConformanceReport, McpConformanceReportSet, McpDiffReport, McpReport } from '../result.js';
+import type {
+  McpCheckReport,
+  McpConformanceReport,
+  McpConformanceReportSet,
+  McpDiffReport,
+  McpReport,
+} from '../result.js';
 
 /** One check of one target, as every format reads it. */
 export interface ReportCheck {
@@ -33,12 +40,18 @@ export interface ReportCheck {
   advisory?: true;
 }
 
-export type McpCommand = 'lint' | 'check' | 'diff' | 'conformance';
+export type McpCommand = 'lint' | 'check' | 'diff' | 'conformance' | 'scan';
 
 export interface McpRun {
   command: McpCommand;
   /** The command's own document: what `json` prints. */
-  document: McpReport | McpCheckReport | McpDiffReport | McpConformanceReport | McpConformanceReportSet;
+  document:
+    | McpReport
+    | McpCheckReport
+    | McpDiffReport
+    | McpConformanceReport
+    | McpConformanceReportSet
+    | ScanReport;
   /**
    * The fixed set of JUnit cases, the same on every run of the command with the same flags, whatever the server says.
    * Empty when nothing was measured: the report then holds one `run` case that could not run. `suite` (conformance)
@@ -51,6 +64,8 @@ export interface McpRun {
   nothing: string;
   /** `lint --show-info`: the info findings are shown in `human`, `github` and `markdown`. */
   showInfo: boolean;
+  /** A command whose formats are its own (`scan`): it renders every format itself, and the shared renderers are not used. */
+  custom?: (format: string) => string;
 }
 
 export const KIND = {

@@ -12,6 +12,7 @@ import type { HttpTarget } from '../raw-http.js';
 import type { Answer } from './wire.js';
 import { AUTH, type OauthContext } from './auth.js';
 import { AUTH_REGISTRATION } from './auth-registration.js';
+import { AUTH_PROBES } from './auth-probes.js';
 import { BASE } from './base.js';
 import { LIFECYCLE } from './lifecycle.js';
 import { MODERN } from './modern/index.js';
@@ -65,5 +66,6 @@ export const IMPLEMENTATIONS: Readonly<Record<string, ConformanceCheck>> = {
   ...MODERN,
   ...AUTH,
   ...AUTH_REGISTRATION,
+  ...AUTH_PROBES,
   ...APPS,
 };

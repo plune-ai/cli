@@ -222,7 +222,8 @@ export interface ConfigScan {
   findings: ConfigFinding[];
 }
 
-const MAX_FILE_BYTES = 8 * 1024 * 1024;
+/** The most bytes of one file the scanners read; `plune mcp scan` applies the same limit to snapshots, pins and exceptions. */
+export const MAX_FILE_BYTES = 8 * 1024 * 1024;
 /** What a regular expression reads of one value: a hostile megabyte-long argument is not matched to its end. */
 const MAX_VALUE = 64 * 1024;
 /** What every rule but the token formats reads of one argument or command: a flag, a package, a path is never longer. */
@@ -278,10 +279,10 @@ const tokenish = (name: string): boolean => {
 };
 
 /** A name from the file as it may be printed: not a token, escaped, bounded, and not a workflow command. */
-const safe = (name: string): string =>
+export const safe = (name: string): string =>
   noCommands(visible(tokenish(name) ? '[key]' : name, SHOWN_NAME));
 /** A path of a file as it may be printed: each segment through the mask of a name. */
-const safeText = (text: string): string =>
+export const safeText = (text: string): string =>
   noCommands(
     visible(
       text.slice(0, 1024).replace(/[^\\/]+/g, (seg) => (tokenish(seg) ? '[key]' : seg)),
@@ -289,7 +290,7 @@ const safeText = (text: string): string =>
     ),
   );
 /** A JSON Pointer of a snapshot text: each segment through the same mask as a name. */
-const safePointer = (pointer: string): string =>
+export const safePointer = (pointer: string): string =>
   noCommands(
     pointer
       .split('/')
