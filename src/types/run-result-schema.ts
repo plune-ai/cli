@@ -187,6 +187,8 @@ export const runResultSchema = z.object({
   started_at: z.string(),
   finished_at: z.string(),
   config_hash: z.string(),
+  /** cli#244. The result of `--dry-run`. Optional and additive — a RunResult without it validates unchanged. */
+  dry_run: z.boolean().optional(),
   summary: summarySchema,
   evals: z.array(evalResultSchema),
 });

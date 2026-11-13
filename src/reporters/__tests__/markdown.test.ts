@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { renderMarkdown } from '../markdown.js';
-import { mixed, allPass, inconclusive } from './fixtures.js';
+import { mixed, allPass, inconclusive, dryRun } from './fixtures.js';
 import type { RunResult } from '../../types/results.js';
 
 const ESC = String.fromCharCode(27);
@@ -78,5 +78,34 @@ describe('renderMarkdown (AC-4, AC-9)', () => {
     const out = renderMarkdown(inconclusive, {});
     expect(out).not.toContain('— failed');
     expect(out).not.toContain('All evals passed.');
+  });
+
+  // plune-ai/cli#244 — a dry run priced the rows and ran none: a price, and no word of a verdict.
+  it('CLI · run --dry-run · markdown · says the rows were priced, with no verdict', () => {
+    expect(renderMarkdown(dryRun, {})).toBe(
+      [
+        '# Plune dry run',
+        '',
+        'Nothing was measured: the rows were priced, not run.',
+        '',
+        '| Metric | Value |',
+        '| --- | --- |',
+        '| Rows priced | 3 |',
+        '| Estimated cost (USD) | 0.0492 |',
+        '',
+        '- repeated {"q":"3"}: dry run: estimate × 10 runs',
+      ].join('\n'),
+    );
+  });
+
+  it('CLI · run --dry-run · markdown · never says "All evals passed.", with rows or without', () => {
+    const none: RunResult = {
+      ...dryRun,
+      summary: { ...dryRun.summary, total: 0, skipped: 0 },
+      evals: [],
+    };
+    for (const out of [renderMarkdown(dryRun, {}), renderMarkdown(none, {})]) {
+      expect(out).not.toMatch(/All evals passed|Passed|Failed|Errored|skipped/);
+    }
   });
 });

@@ -1,4 +1,4 @@
-import type { RunResult } from '../../types/results.js';
+import type { RowResult, RunResult } from '../../types/results.js';
 
 // Shared RunResult fixtures for the reporter tests (no API — pure render input).
 
@@ -125,6 +125,41 @@ export const inconclusive: RunResult = {
           assertions: [{ type: 'contains', passed: false, reason: 'missing' }],
         },
         { vars: { q: 'later' }, output: null, cached: false, inconclusive: 'skipped', assertions: [] },
+      ],
+    },
+  ],
+};
+
+// plune-ai/cli#244 — a dry run: every row was priced and none was run, so none is passed, failed or
+// errored. `repeated` has `runs: 10`: its estimate is the price of one run times ten.
+const pricedRow = (q: string, runs = 1): RowResult => ({
+  vars: { q },
+  output: null,
+  cached: false,
+  usage: { input_tokens: 5 * runs, output_tokens: 1024 * runs, cost_usd: 0.0041 * runs },
+  inconclusive: 'skipped',
+  assertions: [],
+});
+const noVerdict = { passed: 0, failed: 0, errored: 0 };
+export const dryRun: RunResult = {
+  schemaVersion: 1,
+  plune_version: '0.1.0',
+  started_at: '2026-11-13T09:00:00.000Z',
+  finished_at: '2026-11-13T09:00:00.000Z',
+  config_hash: 'e'.repeat(64),
+  dry_run: true,
+  summary: { total: 3, ...noVerdict, blocked: 0, skipped: 3, cost_usd: 0.0492, duration_ms: 0 },
+  evals: [
+    { id: 'example', tags: ['smoke'], passed: false, rows: [pricedRow('1'), pricedRow('2')] },
+    {
+      id: 'repeated',
+      tags: [],
+      passed: false,
+      rows: [
+        {
+          ...pricedRow('3', 10),
+          attempts: { runs: 10, pass_threshold: 0.7, ...noVerdict, results: [] },
+        },
       ],
     },
   ],

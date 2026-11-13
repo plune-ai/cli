@@ -165,9 +165,9 @@ describe('CLI · config · mcp block · plune run', () => {
     expect(ok.code ?? 0).toBe(0);
     expect(JSON.parse(ok.stdout)).toHaveProperty('config_hash');
     expect(ok.stdout + ok.stderr).not.toContain(secret);
-    expect(fs.readFileSync(path.join(dir, '.plune', 'last-run.json'), 'utf8')).not.toContain(
-      secret,
-    );
+    // A dry run saves no last-run.json, so there is no file for the value to reach. The file of a
+    // measured run is read for the secret in orchestrator/__tests__/agent-run.test.ts.
+    expect(fs.existsSync(path.join(dir, '.plune', 'last-run.json'))).toBe(false);
   });
 
   it('CLI · config · mcp block · config_hash is the same for two values of one ${VAR} (AC-7)', async () => {

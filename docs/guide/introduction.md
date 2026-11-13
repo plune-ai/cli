@@ -74,4 +74,4 @@ plune run
 
 > **Status (v0.1):** `plune init`, `plune run`, and `plune report` all work. `plune run` prints a
 > console report and supports `--format console|json|markdown` and `-o <file>`; the full result is
-> always saved to `.plune/last-run.json`.
+> saved to `.plune/last-run.json` (a `--dry-run` saves nothing).

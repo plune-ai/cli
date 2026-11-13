@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { neededPasses, runOrchestration, type RunDeps, type RunOptions } from '../run.js';
 import { loadDataset } from '../dataset.js';
-import { cacheMissRows } from '../exit-code.js';
+import { cacheMissRows, exitCodeFor } from '../exit-code.js';
 import { diffRuns } from '../../diff/diff.js';
 import { ProviderError } from '../../providers/errors.js';
 import { renderConsole } from '../../reporters/console.js';
@@ -250,6 +250,42 @@ describe('CLI · run · repeats · cost', () => {
     expect(ten.summary.cost_usd).toBeGreaterThan(0);
     expect(renderConsole(ten)).toContain('× 10 runs');
     expect(renderConsole(single)).not.toContain('runs');
+  });
+
+  // plune-ai/cli#244 — a dry run prices and measures nothing: no row, eval or summary gets a verdict.
+  it('--dry-run gives a repeated row, its eval and the summary no verdict', async () => {
+    const r = await runOrchestration(
+      config({ runs: 10 }),
+      { dryRun: true },
+      deps(scripted('P').provider),
+    );
+    expect(r.dry_run).toBe(true);
+    expect(r.summary).toMatchObject({ total: 1, passed: 0, failed: 0, errored: 0, skipped: 1 });
+    expect(r.evals[0]!.passed).toBe(false);
+    expect(row(r).attempts).toMatchObject({
+      runs: 10,
+      passed: 0,
+      failed: 0,
+      errored: 0,
+      results: [],
+    });
+    expect(exitCodeFor(r)).toBe(0);
+  });
+
+  it('--dry-run --bail prices every eval: nothing failed, so nothing stops the run', async () => {
+    const two = config({});
+    two.evals.push({ ...two.evals[0]!, id: 'e2' });
+    const r = await runOrchestration(
+      two,
+      { dryRun: true, bail: true },
+      deps(scripted('P').provider),
+    );
+    expect(r.evals.map((ev) => ev.id)).toEqual(['e1', 'e2']);
+    expect(r.summary.total).toBe(2);
+  });
+
+  it('a measured run carries no dry_run marker', async () => {
+    expect('dry_run' in (await run('P', {}))).toBe(false);
   });
 });
 

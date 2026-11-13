@@ -5,6 +5,7 @@ import type { Embedder } from '../../types/embedder.js';
 import type { Cache } from '../../cache/cache.js';
 import type { AssertionConfig } from '../../types/config.js';
 import { ProviderError } from '../../providers/errors.js';
+import { rowStatus } from '../../types/results.js';
 
 function fakeCache(): Cache {
   const m = new Map<
@@ -171,5 +172,12 @@ describe('runRow', () => {
     expect(getSpy).not.toHaveBeenCalled();
     expect(r.output).toBeNull();
     expect(r.usage).toBeDefined(); // estimated cost present
+  });
+
+  // plune-ai/cli#244 — no assertion ran, so "every assertion passed" must not make the row a pass.
+  it('--dry-run: the row is priced and not judged, so it is not passed, failed or errored', async () => {
+    const r = await runRow(params({ dryRun: true }));
+    expect(r.assertions).toEqual([]);
+    expect(rowStatus(r)).toBe('skipped');
   });
 });

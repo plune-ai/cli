@@ -20,6 +20,28 @@ export function renderConsole(result: RunResult, opts: ConsoleOptions = {}): str
   const { summary } = result;
   const lines: string[] = [];
 
+  if (result.dry_run === true) {
+    // Nothing ran: a price and no verdict, so none of the words of a measured run (plune-ai/cli#244).
+    lines.push(s.bold('Plune dry run'));
+    lines.push(
+      `${summary.total} row(s) priced, none measured · estimated $${summary.cost_usd.toFixed(4)}`,
+    );
+    lines.push('');
+    for (const ev of result.evals) {
+      const tags = ev.tags.length > 0 ? s.dim(` (${ev.tags.join(', ')})`) : '';
+      lines.push(`${s.dim('PRICED')} ${s.bold(ev.id)}${tags}`);
+      for (const row of ev.rows) {
+        // Only a repeated row is named: its estimate is one run times `runs`.
+        const repeats = repeatsText(row);
+        if (repeats === undefined) continue;
+        lines.push(`  ${s.dim('vars:')} ${JSON.stringify(row.vars)}`);
+        lines.push(`  ${repeats}`);
+      }
+      lines.push(s.dim(`  ${ev.rows.length} row(s) priced`));
+    }
+    return lines.join('\n');
+  }
+
   lines.push(s.bold('Plune run'));
   const passedTxt = s.green(`${summary.passed} passed`);
   const failedTxt = summary.failed > 0 ? s.red(`${summary.failed} failed`) : `${summary.failed} failed`;
