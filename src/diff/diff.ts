@@ -9,6 +9,7 @@
 import type { RunResult, EvalResult } from '../types/results.js';
 import { rowStatus } from '../types/results.js';
 import type { GatesReport } from './gates.js';
+import type { DiffAdvice } from './advice.js';
 
 // 'unjudged': no row got a verdict — every row blocked or skipped, or no rows at all (plune#2497).
 export type EvalStatus = 'passed' | 'failed' | 'errored' | 'unjudged';
@@ -56,6 +57,11 @@ export interface RunDiff {
   summary: RunDiffSummary;
   /** Only when a gate was asked for (`--fail-on-regression` or a limit): an added field, so the rest is unchanged. */
   gates?: GatesReport;
+  /**
+   * Words and intervals for the pass rates, and the experiment on tool descriptions. Advice only (MCP-D7): nothing
+   * else in the diff, no gate and no exit code reads it. Absent when there is nothing to say.
+   */
+  advice?: DiffAdvice;
 }
 
 // Eval-level status, lifted from its rows with the same precedence as exit-code.ts:

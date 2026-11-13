@@ -115,7 +115,8 @@ describe('CLI · run · agent loop · tool-call assertions', () => {
     expect(row.assertions).toEqual([{ type: 'tool-called', passed: true }]);
     expect(r.summary).toMatchObject({ passed: 1, failed: 0, errored: 0 });
     expect(exitCodeFor(r)).toBe(0);
-    expect(adviceOf(row)).toEqual([
+    // The friction signals of the same row are separate advice; this test is about the heuristic assertion.
+    expect(adviceOf(row).filter((x) => x.type === 'no-repeated-call')).toEqual([
       {
         type: 'no-repeated-call',
         reason: expect.stringMatching(/step 1 echo \{"q":"a"\} then step 2 echo/) as unknown,
@@ -127,7 +128,7 @@ describe('CLI · run · agent loop · tool-call assertions', () => {
     const r = await runWith([{ type: 'no-repeated-call', tool: 'nope' }], REPEAT);
     const row = r.evals[0]!.rows[0]!;
     expect(row.error).toBeUndefined();
-    expect(adviceOf(row)).toEqual([
+    expect(adviceOf(row).filter((x) => x.type === 'no-repeated-call')).toEqual([
       { type: 'no-repeated-call', reason: expect.stringMatching(/"nope"/) as unknown },
     ]);
   });

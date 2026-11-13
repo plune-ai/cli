@@ -446,6 +446,8 @@ export interface RunOptions {
   cacheMaxAgeMs?: number;
   /** `--runs`: repeats of every row for this run, over `runs` in the config. */
   runs?: number;
+  /** `--tool-description`: tool name to the text the model is shown as its description, for agentic evals only. */
+  toolDescriptions?: Record<string, string>;
 }
 
 export interface RunDeps {
@@ -586,6 +588,12 @@ export async function runOrchestration(
     return { ev, template, rows, agentic };
   });
 
+  const swapped = Object.keys(options.toolDescriptions ?? {}).length > 0;
+  if (swapped && !prepared.some((x) => x.ev.mcp !== undefined))
+    throw new RunConfigError(
+      '--tool-description needs an eval with mcp in this run: no tool is offered otherwise',
+    );
+
   for (const { ev, template, rows, agentic } of prepared) {
     const providerConfig: ProviderConfig = { ...config.provider, ...ev.provider };
     const provider = agentic ?? deps.resolveProvider(providerConfig);
@@ -619,6 +627,9 @@ export async function runOrchestration(
         server: ev.mcp.server,
         ...(ev.mcp.allowed_tools !== undefined ? { allowedTools: ev.mcp.allowed_tools } : {}),
         limits: mcpLimits(config, ev),
+        ...(options.toolDescriptions !== undefined
+          ? { toolDescriptions: options.toolDescriptions }
+          : {}),
         // A dry run connects nowhere; the loop never calls this then.
         connect: deps.connectMcp ?? (() => Promise.reject(new Error('no MCP connection'))),
       };

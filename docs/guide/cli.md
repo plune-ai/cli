@@ -44,6 +44,7 @@ plune run [options]
 | `--cache-max-age <duration>` | Treat cache entries older than this (`90s`, `15m`, `12h`, `7d`) as a miss. |
 | `--bail` | Stop after the first eval that fails. |
 | `--runs <n>` | Run every dataset row `n` times (`1` to `100`) for this run, over `runs` in the config; `pass_threshold` still comes from the config. A value outside the range exits `2`. See [Repeats](./configuration.md#repeats-runs-and-pass_threshold). |
+| `--tool-description <tool>=<text\|@file>` | For an eval with `mcp`: show the model this text as the description of that tool, in place of the server's, **for this run only**. **Repeatable.** `@file` reads the text from a file. The server is not changed and is asked nothing different; the tools the model was offered keep the server's own list in the transcript. The swap is recorded with the SHA-256 of the new text, as `description_overrides` on each row's `agent`. A name that no row offered changes nothing and is said on stderr. Exit `2` for a malformed value, a name given twice, an unreadable or empty file, or a run with no `mcp` eval. See [the experiment with descriptions](#advice-in-plune-diff). |
 | `--format <fmt>` | Output format: `console` (default), `json`, or `markdown`. |
 | `-o, --output <path>` | Write the report to a file instead of stdout. |
 
@@ -174,6 +175,35 @@ summary's `unmeasured` field holds the count, and the report's headline names it
 regressions». An eval with at least one failed row counts as failed even if other rows errored.
 An eval in which no row was judged — every row blocked or skipped, or an empty dataset — counts as
 not measured too (exit `3`), never as a pass.
+
+### Advice in `plune diff`
+
+When both runs have repeats (`runs` above 1), `plune diff` adds a section «Advice (does not change the exit code)» to
+the console, Markdown and JSON (the added `advice` field). It is a report in words, never a gate: no eval state, no
+summary count (`unmeasured` included), no gate and no exit code reads it. Add or remove it and the exit code is the same.
+
+**Pass rate.** For each eval with repeats on both sides, and for all evals together (only when the two runs measured the
+same population, as for the pass-rate gate; otherwise the section says how they differ), it gives the 95 % interval of the
+difference of the two pass rates (current minus baseline), in percentage points, by Newcombe's method (method 10, 1998)
+over Wilson intervals, and one of four words:
+
+| Word | Meaning |
+|------|---------|
+| probably worse | the whole interval is below zero |
+| probably better | the whole interval is above zero |
+| no difference visible | the interval holds zero: this is not «no regression» |
+| too few attempts | either side has fewer than 5 attempts (the message names the minimum and both counts); a side with none is always too few, whatever the minimum |
+
+Attempts are all repeats of all rows of the eval. A single row repeated twice has 2 attempts, so it never gets a verdict,
+and a run with two repeats never says «worse» for one row. The attempts of one row are correlated and the interval treats
+them as independent: it is a guide, not a proof, and the more different rows there are, the more it can be trusted.
+
+**Experiment with descriptions.** Two runs of the same evals, one without `--tool-description` and one with it, are
+compared when they measured the same population and differ only in the replaced descriptions. The section then lists the
+replacements of each run (tool name and SHA-256 of the text), and for each eval the first tool the model called (by name,
+counted over the rows, from the attempt each row shows) and, where the eval has a `first-tool` check, the share of
+attempts that hit it in each run, with the interval and word above. If the populations differ the section says how and
+compares nothing. The diff never shows the text of a description, a row, an argument or a result.
 
 ---
 

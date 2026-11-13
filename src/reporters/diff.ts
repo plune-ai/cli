@@ -6,6 +6,10 @@
 import type { RunDiff, EvalDiffStatus } from '../diff/diff.js';
 import type { GateName, GateState } from '../diff/gates.js';
 import type { Waiver } from '../diff/waivers.js';
+import type { Comparison, Word } from '../diff/stats.js';
+import { MIN_ATTEMPTS } from '../diff/stats.js';
+import type { DiffAdvice } from '../diff/advice.js';
+import { noCommands, noCommandsJson } from '../mcp-testing/report/human.js';
 
 export const STICKY_MARKER = '<!-- plune-eval-diff -->';
 export type DiffFormat = 'console' | 'json' | 'markdown';
@@ -109,6 +113,77 @@ function gatesConsole(d: RunDiff): string[] {
   return out;
 }
 
+const WORD: Record<Word, string> = {
+  worse: 'probably worse',
+  better: 'probably better',
+  'no-difference': 'no difference visible',
+  'too-few': 'too few attempts',
+};
+
+const comparisonText = (c: Comparison): string => `${WORD[c.word]}: ${c.reason}`;
+
+const countsText = (counts: Record<string, number>): string =>
+  Object.entries(counts)
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .map(([tool, n]) => `${tool} ${n}`)
+    .join(', ') || '(no rows)';
+
+// The advice as plain lines; each format only decides how a line is marked up. Names and numbers only, never row content.
+function adviceLines(a: DiffAdvice): { heading: string; lines: string[] }[] {
+  const sections: { heading: string; lines: string[] }[] = [];
+  const stats = a.evals.map((e) =>
+    e.comparison !== undefined
+      ? `${e.id}: ${comparisonText(e.comparison)}`
+      : `${e.id}: not compared, ${e.unavailable!.map(oneLine).join('; ')}`,
+  );
+  if (a.overall.comparison !== undefined)
+    stats.push(`all evals together: ${comparisonText(a.overall.comparison)}`);
+  else if (a.overall.unavailable !== undefined)
+    stats.push(
+      `all evals together: not compared, the two runs did not measure the same population: ${a.overall.unavailable.map(oneLine).join('; ')}`,
+    );
+  if (stats.length > 0)
+    sections.push({
+      heading: `Pass rates (at least ${MIN_ATTEMPTS} attempts on each side; a guide, not a proof)`,
+      lines: stats,
+    });
+  const x = a.experiment;
+  if (x !== undefined) {
+    const lines = [
+      `descriptions replaced: baseline ${x.baseline.join(', ') || 'none'}; current ${x.current.join(', ') || 'none'}`,
+    ];
+    if (x.unavailable !== undefined)
+      lines.push(
+        `not compared, the two runs differ in more than the descriptions: ${x.unavailable.map(oneLine).join('; ')}`,
+      );
+    for (const e of x.evals) {
+      lines.push(
+        `${e.id}: first tool called, baseline ${countsText(e.firstTool.baseline)}; current ${countsText(e.firstTool.current)}`,
+      );
+      if (e.hit !== undefined)
+        lines.push(`${e.id}: first-tool hit, ${comparisonText(e.hit.comparison)}`);
+    }
+    sections.push({ heading: 'Experiment with descriptions', lines });
+  }
+  return sections;
+}
+
+function adviceMarkdown(d: RunDiff): string[] {
+  if (d.advice === undefined) return [];
+  const out = ['### Advice (does not affect the exit code)', '', d.advice.note, ''];
+  for (const s of adviceLines(d.advice))
+    out.push(`**${s.heading}**`, '', ...s.lines.map((l) => `- ${l}`), '');
+  return out;
+}
+
+function adviceConsole(d: RunDiff): string[] {
+  if (d.advice === undefined) return [];
+  const out = ['Advice (does not change the exit code):'];
+  for (const s of adviceLines(d.advice))
+    out.push(`  ${s.heading}:`, ...s.lines.map((l) => `    ${l}`));
+  return out;
+}
+
 function summaryLine(d: RunDiff): string {
   const s = d.summary;
   return [
@@ -140,6 +215,7 @@ export function renderDiffMarkdown(d: RunDiff): string {
     out.push('');
   }
   out.push(...gatesMarkdown(d));
+  out.push(...adviceMarkdown(d));
   out.push(`_${summaryLine(d)}_`);
   return out.join('\n');
 }
@@ -152,6 +228,7 @@ function renderDiffConsole(d: RunDiff): string {
     out.push(`  ${e.id}: ${e.baseline} -> ${e.current} [${e.status}]`);
   }
   out.push(...gatesConsole(d));
+  out.push(...adviceConsole(d));
   out.push(summaryLine(d));
   return out.join('\n');
 }
@@ -161,7 +238,8 @@ function renderDiffJson(d: RunDiff): string {
 }
 
 export function renderDiff(d: RunDiff, format: DiffFormat = 'console'): string {
-  if (format === 'json') return renderDiffJson(d);
-  if (format === 'markdown') return renderDiffMarkdown(d);
-  return renderDiffConsole(d);
+  // Names in a file may come from a server: no line may read as a CI workflow command.
+  if (format === 'json') return noCommandsJson(renderDiffJson(d));
+  if (format === 'markdown') return noCommands(renderDiffMarkdown(d));
+  return noCommands(renderDiffConsole(d));
 }

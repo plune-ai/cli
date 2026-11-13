@@ -123,6 +123,26 @@ missed when any of its runs had no cache entry, whatever its verdict. On a dry r
 empty. Without `runs` a row has no `attempts`, and the reports read exactly as before; with them
 the console and Markdown reports show `7/10` and the row's state.
 
+## Friction signals
+
+For a row with an `mcp` server, `plune run` looks at the order of the calls the model made and files what it finds as
+advice on the row (`agent.advice`, shown in the console and Markdown reports): a hint where the model may have spent steps
+it did not need. It never changes a row's state, the summary or the exit code, and each hint says when it may be fine.
+
+| Signal | What it means |
+|--------|---------------|
+| `identical-retry` | A call with the same tool and the same arguments (key order aside) as the call right before it, in the same step or the next one. |
+| `pagination-continuation` | A call that differs from the one before it only in pagination arguments (`cursor`, `page`, `offset`, `limit`, `after`, `before`, `start`, `pageToken`, `nextCursor`, and the snake_case forms `page_token`, `next_cursor`). Not a repeat. |
+| `search-after-id` | The same tool called again with other arguments in a **later step**, after an earlier answer of that tool already held an identifier. Calls of one step run from one model turn, so none could read another's answer: inside a step this signal is never given. |
+| `friction-unmeasured` | The earlier answer could not be read as JSON, so identifiers were not looked for. This is not the same as finding none. |
+
+An identifier is a value under a key named `id`, `ids`, `key`, `uuid`, `slug`, `number`, `ref` or `identifier` (the whole
+name, after an underscore as in `user_id`, or after a capital as in `userId`), or a string in the form of a UUID anywhere.
+The walk goes 6 levels deep and looks at the first 50 items of each array. This is a simple rule, so false hits are
+expected, which is why it only advises. A signal carries the tool, the steps, a count and the key paths where an
+identifier was found (`items[].id`), never the identifiers themselves. The signals are computed while the full answers of
+the tools are in memory; the stored transcript keeps only excerpts of them.
+
 ## Providers
 
 Plune talks to three providers: **`anthropic`**, **`openai`**, and **`openrouter`**.
