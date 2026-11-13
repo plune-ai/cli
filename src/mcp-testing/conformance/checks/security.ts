@@ -10,7 +10,7 @@ import { networkInterfaces } from 'node:os';
 import type { CheckOutcome } from '../outcome.js';
 import { isLocal } from '../raw-http.js';
 import type { ConformanceCheck, ConformanceContext } from './index.js';
-import { ask, isOutcome, ok, probe, probeMethod, session, target, type Asked } from './transport.js';
+import { ask, isOutcome, ok, probe, probeMethod, session, target, unjudged, type Asked } from './transport.js';
 import { failed, passed, prerequisite } from './wire.js';
 
 export const FOREIGN_ORIGIN = 'https://evil.example';
@@ -49,6 +49,8 @@ async function accepted(ctx: ConformanceContext, origin: string | null): Promise
   const what = origin === null ? 'A request without Origin' : `Origin: ${origin}`;
   const details = [a.detail];
   if (ok(a.res)) return { ...passed(`${what} was accepted (HTTP ${a.res.status}).`), details };
+  const stop = unjudged(a.res, details, { wall: false });
+  if (stop !== undefined) return stop;
   return {
     ...failed(`${what} got HTTP ${a.res.status}.`, 'Accept a request from the server\'s own origin, and one with no Origin.'),
     details,
@@ -71,6 +73,8 @@ const originInvalid403: ConformanceCheck = async (ctx) => {
   if (isOutcome(a)) return a;
   const details = [control.detail, a.detail];
   if (a.res.status === 403) return { ...passed(`Origin: ${FOREIGN_ORIGIN} got 403, Origin: ${localOrigin(ctx)} was accepted.`), details };
+  const stop = unjudged(a.res, details, { wall: false });
+  if (stop !== undefined) return stop;
   return {
     ...failed(
       `Origin: ${FOREIGN_ORIGIN} got HTTP ${a.res.status}.`,
@@ -126,6 +130,8 @@ const hostAdvice: ConformanceCheck = async (ctx) => {
   if (isOutcome(s)) return s;
   const a = await ask(ctx, s, probeMethod(ctx), { set: [['Host', FOREIGN_HOST]] });
   const details = [a.detail];
+  const stop = unjudged(a.res, details, { wall: false });
+  if (stop !== undefined) return stop;
   if (!ok(a.res)) return { ...passed(`Host: ${FOREIGN_HOST} got HTTP ${a.res.status}.`), details };
   return {
     ...failed(

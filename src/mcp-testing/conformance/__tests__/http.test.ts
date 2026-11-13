@@ -393,3 +393,65 @@ function fixtureFile(calls: unknown): string {
   writeFileSync(path, JSON.stringify(calls));
   return path;
 }
+
+describe('CLI · mcp conformance · a status that proves nothing is could-not-run, a refusal needs its control', () => {
+  const NOT_JUDGED = 'could-not-run (transport-error)';
+  const one = async (opts: Parameters<typeof serve>[0], id: string, flags: Partial<McpConformanceFlags> = {}) => {
+    const s = await serve(opts);
+    return states((await run({ url: s.url, check: [id], ...flags })).report!)[id];
+  };
+
+  for (const status of [429, 503, 302])
+    it(`HTTP ${status} to the notification, to GET or to a refusal probe is not a verdict`, async () => {
+      expect(await one({ notification: status }, 'http-notification-202')).toBe(NOT_JUDGED);
+      expect(await one({ get: status }, 'http-get-stream-or-405')).toBe(NOT_JUDGED);
+      const refusals = await serve({ refuse: status, origin: 'check', host: 'check', get: '405' });
+      const got = states(
+        (
+          await run({
+            url: refusals.url,
+            check: [
+              'http-session-required-400',
+              'http-protocol-version-header-invalid-400',
+              'http-session-terminated-404',
+              'http-origin-invalid-403',
+              'http-host-rebinding-advice',
+            ],
+          })
+        ).report!,
+      );
+      for (const id of Object.keys(got)) expect(got[id], id).toBe(NOT_JUDGED);
+    });
+
+  it('HTTP 401 is a wall in front of the endpoint: could-not-run (prerequisite-failed), not a verdict', async () => {
+    expect(await one({ notification: 401 }, 'http-notification-202')).toBe('could-not-run (prerequisite-failed)');
+    expect(await one({ get: 401 }, 'http-get-stream-or-405')).toBe('could-not-run (prerequisite-failed)');
+  });
+
+  it('modern: a 503 to GET or DELETE is not a verdict', async () => {
+    expect(
+      await one({ sessions: false, discover: 'modern-only', get: 503, del: 503 }, 'http-modern-get-delete-405', {
+        protocolVersion: '2026-07-28',
+      }),
+    ).toBe(NOT_JUDGED);
+  });
+
+  it('a server that refuses the valid request too: the 400 of the probe proves nothing, could-not-run (prerequisite-failed)', async () => {
+    const s = await serve({ pingStatus: 400 });
+    const got = states(
+      (
+        await run({
+          url: s.url,
+          check: ['http-session-required-400', 'http-protocol-version-header-invalid-400', 'http-session-terminated-404'],
+        })
+      ).report!,
+    );
+    for (const id of Object.keys(got)) expect(got[id], id).toBe('could-not-run (prerequisite-failed)');
+  });
+
+  it('a stream that opens and never sends the answer is could-not-run (timeout) for the concurrent POSTs, not failed', async () => {
+    const s = await serve({ silent: true });
+    const got = states((await run({ url: s.url, check: ['http-concurrent-posts-matched'] })).report!);
+    expect(got['http-concurrent-posts-matched']).toBe('could-not-run (timeout)');
+  }, 30_000);
+});

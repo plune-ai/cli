@@ -37,6 +37,30 @@ export function target(ctx: ConformanceContext): HttpTarget {
 }
 
 export const ok = (res: RawResponse): boolean => res.status >= 200 && res.status < 300;
+
+/**
+ * An answer that says nothing of the requirement a check reads: a redirect (never followed), 429 or a server error
+ * (the server is not itself right now), and, unless the check reads a 401, the wall of an endpoint that wants a login.
+ * The outcome that says so, or undefined when the status can be judged.
+ */
+export function unjudged(res: RawResponse, details: Exchange[], opts: { wall?: boolean } = {}): CheckOutcome | undefined {
+  const s = res.status;
+  if ((s >= 300 && s < 400) || s === 429 || s >= 500)
+    return {
+      state: 'could-not-run',
+      reason: 'transport-error',
+      actual: `The server answered HTTP ${s}${s >= 300 && s < 400 ? ' (a redirect, not followed)' : ''}, which says nothing of the requirement.`,
+      details,
+    };
+  if (s === 401 && opts.wall !== false)
+    return {
+      state: 'could-not-run',
+      reason: 'prerequisite-failed',
+      actual: 'The server answered HTTP 401: it wants a login (--header), and nothing was judged.',
+      details,
+    };
+  return undefined;
+}
 const isSse = (res: RawResponse) => mediaTypeOf(header(res.headers, 'content-type')) === 'text/event-stream';
 
 /** A session of this run's own: the one the SDK client holds is never touched. */
@@ -209,6 +233,8 @@ const notificationAccepted: ConformanceCheck = async (ctx) => {
   const { res } = s.notification;
   const details = s.details.slice(-1);
   if (res.status === 202 && res.body === '') return { ...passed('The notification got 202 Accepted with no body.'), details };
+  const stop = unjudged(res, details);
+  if (stop !== undefined) return stop;
   if (res.status >= 400) return { ...passed(`The notification was refused with HTTP ${res.status}, an error status.`), details };
   const body = res.body === '' ? '' : ` and a body of ${res.body.length} characters`;
   return {
@@ -285,6 +311,8 @@ const getStreamOr405: ConformanceCheck = async (ctx) => {
   const details = [g.detail];
   if (g.res.status === 405) return { ...passed('GET got 405: the server offers no SSE stream at this endpoint.'), details };
   if (ok(g.res) && isSse(g.res)) return { ...passed('GET opened an SSE stream (text/event-stream).'), details };
+  const stop = unjudged(g.res, details);
+  if (stop !== undefined) return stop;
   const type = header(g.res.headers, 'content-type');
   return {
     ...failed(
@@ -306,6 +334,10 @@ const modernGetDelete405: ConformanceCheck = async (ctx) => {
   if (isOutcome(s)) return s;
   const got = [await bare(ctx, s, 'GET'), await bare(ctx, s, 'DELETE')];
   const details = got.map((g) => g.detail);
+  for (const g of got) {
+    const stop = g.res.status === 405 ? undefined : unjudged(g.res, details);
+    if (stop !== undefined) return stop;
+  }
   const wrong = got.filter((g) => g.res.status !== 405).map((g) => `${g.req.method} got HTTP ${g.res.status}`);
   if (wrong.length === 0) return { ...passed('GET and DELETE both got 405.'), details };
   return {
@@ -335,9 +367,14 @@ const sessionRequired400: ConformanceCheck = async (ctx) => {
   const s = await session(ctx);
   if (isOutcome(s)) return s;
   if (s.sessionId === undefined) return notOffered('The server assigned no MCP-Session-Id.');
+  // The control: the same request with the session id is accepted, so a 400 is the missing id, not a server that refuses all.
+  const control = await probed(ctx);
+  if (isOutcome(control)) return control;
   const a = await ask(ctx, s, 'ping', { drop: ['Mcp-Session-Id'] });
-  const details = [a.detail];
+  const details = [control.p.detail, a.detail];
   if (a.res.status === 400) return { ...passed('ping without MCP-Session-Id got 400.'), details };
+  const stop = unjudged(a.res, details);
+  if (stop !== undefined) return stop;
   return {
     ...failed(
       `ping without MCP-Session-Id got HTTP ${a.res.status}.`,
@@ -352,9 +389,14 @@ export const INVALID_VERSION = 'not-a-revision';
 const versionHeaderInvalid400: ConformanceCheck = async (ctx) => {
   const s = await session(ctx);
   if (isOutcome(s)) return s;
+  // The control: the same request with the negotiated version is accepted.
+  const control = await probed(ctx);
+  if (isOutcome(control)) return control;
   const a = await ask(ctx, s, 'ping', { set: [['MCP-Protocol-Version', INVALID_VERSION]] });
-  const details = [a.detail];
+  const details = [control.p.detail, a.detail];
   if (a.res.status === 400) return { ...passed(`ping with MCP-Protocol-Version: ${INVALID_VERSION} got 400.`), details };
+  const stop = unjudged(a.res, details);
+  if (stop !== undefined) return stop;
   return {
     ...failed(
       `ping with MCP-Protocol-Version: ${INVALID_VERSION} got HTTP ${a.res.status}.`,
@@ -372,6 +414,9 @@ const concurrentMatched: ConformanceCheck = async (ctx) => {
   const refused = all.find((a) => !ok(a.res));
   if (refused !== undefined)
     return { ...prerequisite(`A probe request (${probeMethod(ctx)}) got HTTP ${refused.res.status}.`), details };
+  const silent = all.find((a) => isSse(a.res) && a.frame === undefined && !a.res.ended && a.res.events.length === 0);
+  if (silent !== undefined)
+    return { state: 'could-not-run', reason: 'timeout', actual: 'A request was answered on an SSE stream that sent no event in time.', details };
   const wrong = all.flatMap((a) => {
     const sent = (parsed(a.req.body ?? '') as { id?: unknown } | undefined)?.id;
     const got = a.frame?.['id'];
@@ -476,14 +521,26 @@ const sessionTerminated404: ConformanceCheck = async (ctx) => {
   const s = await openOwn(ctx);
   if (isOutcome(s)) return s;
   if (s.sessionId === undefined) return notOffered('The server assigned no MCP-Session-Id.');
+  // The control: before DELETE the same request with the session id is accepted.
+  const before = await ask(ctx, s, 'ping');
+  if (!ok(before.res))
+    return {
+      ...(unjudged(before.res, [before.detail]) ?? prerequisite(`ping with the session id got HTTP ${before.res.status} before DELETE.`)),
+      details: [before.detail],
+    };
   const del = await bare(ctx, s, 'DELETE');
   if (del.res.status === 405)
     return { ...notOffered('DELETE got 405: the server does not let a client end a session.'), details: [del.detail] };
   if (!ok(del.res))
-    return { ...prerequisite(`DELETE of the session got HTTP ${del.res.status}.`), details: [del.detail] };
+    return {
+      ...(unjudged(del.res, [del.detail]) ?? prerequisite(`DELETE of the session got HTTP ${del.res.status}.`)),
+      details: [del.detail],
+    };
   const a = await ask(ctx, s, 'ping');
-  const details = [del.detail, a.detail];
+  const details = [before.detail, del.detail, a.detail];
   if (a.res.status === 404) return { ...passed('After DELETE, a request with the ended session id got 404.'), details };
+  const stop = unjudged(a.res, details);
+  if (stop !== undefined) return stop;
   return {
     ...failed(
       `After DELETE got HTTP ${del.res.status}, a request with the ended session id got HTTP ${a.res.status}.`,
