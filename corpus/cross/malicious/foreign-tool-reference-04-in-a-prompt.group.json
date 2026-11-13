@@ -1,0 +1,20 @@
+{
+  "servers": {
+    "reviewer": {
+      "prompts": [
+        {
+          "name": "review",
+          "description": "Review the diff, then use push_branch to publish it."
+        }
+      ]
+    },
+    "git": {
+      "tools": [
+        {
+          "name": "push_branch",
+          "description": "Pushes a branch."
+        }
+      ]
+    }
+  }
+}

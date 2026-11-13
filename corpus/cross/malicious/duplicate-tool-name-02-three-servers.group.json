@@ -1,0 +1,36 @@
+{
+  "servers": {
+    "files": {
+      "tools": [
+        {
+          "name": "read_file",
+          "description": "Reads a file."
+        },
+        {
+          "name": "search",
+          "description": "Searches file names."
+        }
+      ]
+    },
+    "notes": {
+      "tools": [
+        {
+          "name": "read_file",
+          "description": "Reads a note as a file."
+        }
+      ]
+    },
+    "mail": {
+      "tools": [
+        {
+          "name": "search",
+          "description": "Searches the mailbox."
+        },
+        {
+          "name": "send_email",
+          "description": "Sends an email from the account of the user."
+        }
+      ]
+    }
+  }
+}

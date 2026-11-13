@@ -1,0 +1,36 @@
+{
+  "servers": {
+    "notes": {
+      "tools": [
+        {
+          "name": "notes_add",
+          "description": "Adds a note."
+        },
+        {
+          "name": "notes_list",
+          "description": "Lists notes, newest first."
+        }
+      ]
+    },
+    "mail": {
+      "tools": [
+        {
+          "name": "list_inbox",
+          "description": "Lists the inbox."
+        },
+        {
+          "name": "send_email",
+          "description": "Sends an email from the account of the user."
+        }
+      ]
+    },
+    "calendar": {
+      "tools": [
+        {
+          "name": "book_slot",
+          "description": "Books a calendar slot."
+        }
+      ]
+    }
+  }
+}

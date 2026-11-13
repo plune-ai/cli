@@ -21,7 +21,12 @@ import {
   type McpRun,
   type ReportFlags,
 } from '../../mcp-testing/report/index.js';
-import { MAX_FILE_BYTES, safe, type ConfigFile } from '../../mcp-testing/scan/config/config.js';
+import {
+  MAX_FILE_BYTES,
+  safe,
+  safeText,
+  type ConfigFile,
+} from '../../mcp-testing/scan/config/config.js';
 import { parseScanExceptions } from '../../mcp-testing/scan/exceptions.js';
 import { parseProbeFile } from '../../mcp-testing/scan/probes/file.js';
 import { DEFAULT_MAX_CALLS, DEFAULT_MAX_REQUESTS } from '../../mcp-testing/scan/probes/guard.js';
@@ -107,6 +112,8 @@ function groupsOf(flag: string, values: string[] | undefined): ScanGroup[] | und
 
 /** A file over `MAX_FILE_BYTES`: a snapshot or a pin file becomes a "not evaluated" row, an exceptions file a usage error. */
 class TooLargeError extends UsageError {}
+/** A file whose size or contents cannot be read (gone since the check, no permission): the same outcomes as too large. */
+class UnreadableError extends UsageError {}
 
 /**
  * A path as a report shows it: relative to the folder when inside it, else the file name alone. An absolute path
@@ -123,16 +130,24 @@ function shown(cwd: string, path: string): string {
 function readText(cwd: string, path: string, flag: string, limit = true): string {
   const full = resolve(cwd, path);
   if (!existsSync(full)) throw new UsageError(`${flag}: ${path} does not exist.`);
-  if (limit && statSync(full).size > MAX_FILE_BYTES)
+  // A fixed message: the text of an OS error holds the full path.
+  const unreadable = () =>
+    new UnreadableError(`${flag}: ${safeText(shown(cwd, path))} cannot be read.`);
+  let size = 0;
+  if (limit)
+    try {
+      size = statSync(full).size;
+    } catch {
+      throw unreadable();
+    }
+  if (size > MAX_FILE_BYTES)
     throw new TooLargeError(
       `${flag}: ${path} is too large to read (over ${MAX_FILE_BYTES / 1024 / 1024} MiB).`,
     );
   try {
     return readFileSync(full, 'utf8');
-  } catch (err) {
-    throw new UsageError(
-      `${flag}: ${path} cannot be read (${(err as NodeJS.ErrnoException).code ?? 'an error'}).`,
-    );
+  } catch {
+    throw unreadable();
   }
 }
 
@@ -215,10 +230,13 @@ async function scan(flags: McpScanFlags, server: string[], io: ScanIo): Promise<
     try {
       text = readText(io.cwd, path, '--snapshot');
     } catch (err) {
-      if (!(err instanceof TooLargeError)) throw err;
+      if (!(err instanceof TooLargeError) && !(err instanceof UnreadableError)) throw err;
       unreadable.push({
         target: shown(io.cwd, path),
-        reason: 'the file is too large to read (over 8 MiB)',
+        reason:
+          err instanceof TooLargeError
+            ? 'the file is too large to read (over 8 MiB)'
+            : 'the file cannot be read',
       });
       continue;
     }
@@ -278,7 +296,7 @@ async function scan(flags: McpScanFlags, server: string[], io: ScanIo): Promise<
     const first = labelFile.get(s.label);
     if (first !== undefined)
       throw new UsageError(
-        `two snapshots are called "${safe(s.label)}" (${first} and ${where}); a label names a server, so name them apart: label=file.`,
+        `two snapshots are called "${safe(s.label)}" (${safeText(first)} and ${safeText(where)}); a label names a server, so name them apart: label=file.`,
       );
     labelFile.set(s.label, where);
   }
@@ -312,10 +330,13 @@ async function scan(flags: McpScanFlags, server: string[], io: ScanIo): Promise<
     try {
       text = readText(io.cwd, flags.pinFile, '--pin-file');
     } catch (err) {
-      if (!(err instanceof TooLargeError)) throw err;
+      if (!(err instanceof TooLargeError) && !(err instanceof UnreadableError)) throw err;
       pinProblem = {
         file: shown(io.cwd, flags.pinFile),
-        reason: 'the file is too large to read (over 8 MiB)',
+        reason:
+          err instanceof TooLargeError
+            ? 'the file is too large to read (over 8 MiB)'
+            : 'the file cannot be read',
       };
     }
     try {
