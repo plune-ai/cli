@@ -2,17 +2,29 @@
 // that keeps what it is told (strict) and one that keeps nothing (lax), each recording what reached it, so a test can
 // say what was sent and what was not. The tokens are made-up strings.
 
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
+import {
+  existsSync,
+  linkSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { handleMcpScan, type McpScanFlags } from '../../cli/commands/mcp-scan.js';
 import { ProbeGuard, canonical, type Frame, type Reply } from '../scan/probes/guard.js';
 import { MAX_PROBE_FILE_BYTES, parseProbeFile } from '../scan/probes/file.js';
 import { runProbes } from '../scan/probes/runner.js';
+import { renderScan } from '../scan/report.js';
+import { ALL_RULES, runScan, type ScanInput } from '../scan/run.js';
 import type { ProbeEntry } from '../scan/probes/types.js';
+import { buildSnapshot, serializeSnapshot } from '../snapshot/index.js';
 
 const MARK = 'zq7+/Tok=41';
 const TOKEN_A = `tokA-${MARK}-a`;
@@ -49,6 +61,9 @@ interface Opts {
   /** The status of the redirect of `force` (302 by default). */
   redirectStatus?: number;
   host?: string;
+  /** A tools/call with no `doc` argument is answered with this text, as an isError result or a JSON-RPC error. */
+  errorText?: string;
+  errorAs?: 'rpc' | 'isError';
 }
 interface Fixture {
   url: string;
@@ -140,6 +155,21 @@ async function fixture(opts: Opts = {}): Promise<Fixture> {
       });
     if (body.method === 'notifications/initialized') return void res.writeHead(202).end();
     if (body.method === 'tools/list') return reply({ tools });
+    if (
+      body.method === 'tools/call' &&
+      opts.errorText !== undefined &&
+      body.params?.arguments?.['doc'] === undefined
+    ) {
+      if (opts.errorAs === 'rpc')
+        return void res.writeHead(200, { 'Content-Type': 'application/json' }).end(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: body.id,
+            error: { code: -32602, message: opts.errorText, data: { detail: opts.errorText } },
+          }),
+        );
+      return reply({ isError: true, content: [{ type: 'text', text: opts.errorText }] });
+    }
     if (body.method === 'tools/call') {
       // Strict: account B may not read an object of account A.
       const doc = body.params?.arguments?.['doc'];
@@ -740,7 +770,7 @@ describe('CLI · mcp scan probes · the summary table is in every format', () =>
     const human = await scan(dir, active(f, file, { format: 'human' }), TOKENS);
     expect(human.out).toMatch(/p1 \/ expect refuse \/ allowed \(VIOLATED\)/);
     expect(human.out).toMatch(/p2 \/ no expectation \/ not run \/ a token for another resource/);
-    expect(human.out).toContain('keeps no record of the frames');
+    expect(human.out).toContain('kept only with --journal');
     const github = await scan(dir, active(f, file, { format: 'github' }), TOKENS);
     expect(github.out).toMatch(/3 probes \(1 not run\)/);
     const sarif = (await scan(dir, active(f, file, { format: 'sarif' }), TOKENS)).json();
@@ -1053,5 +1083,791 @@ describe('CLI · mcp scan probes · the stdio command is announced without secre
     expect(lines.join('\n')).not.toContain(secret);
     expect(lines.join('\n')).not.toContain('Qw3rtYQw3rtY');
     expect(section.rows[0]!.reason).toBe('stdio');
+  });
+});
+
+// ---- step 2: the journal, the leak rule, the hint rule ----------------------------------------------------------------------
+
+const SCHEMA = {
+  type: 'object',
+  properties: { doc: { type: 'string' }, note: { type: 'string' } },
+  required: ['doc'],
+};
+const STEP2_TOOLS = [
+  { name: 'export', inputSchema: SCHEMA, annotations: { readOnlyHint: true } },
+  { name: 'wipe', inputSchema: SCHEMA, annotations: { destructiveHint: true } },
+];
+const allForms = (t: string) => [
+  t,
+  encodeURIComponent(t),
+  Buffer.from(t).toString('base64'),
+  Buffer.from(t).toString('base64url'),
+  JSON.stringify(t).slice(1, -1),
+];
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- a parsed line is read by key in the assertions
+const journalLines = (dir: string, name = 'j.jsonl'): Record<string, any>[] =>
+  readFileSync(join(dir, name), 'utf8')
+    .split('\n')
+    .filter((l) => l !== '')
+    .map((l) => JSON.parse(l));
+const journalProbes = [
+  entry('p-none', 'none', { expect: 'refuse' }),
+  entry('p-b', 'account-b', { expect: 'refuse' }),
+  entry('p-a', 'account-a', { expect: 'allow' }),
+];
+
+describe('CLI · mcp scan probes · --journal: one line for every frame and answer, with no secret and no body', () => {
+  it('a token, in plain, URL-encoded, base64 and base64url form, and the marks of a body and of arguments, are absent from the journal', async () => {
+    for (const lax of [true, false]) {
+      const f = await fixture({ lax, tools: STEP2_TOOLS });
+      const { dir, file } = probeFile(journalProbes);
+      const r = await scan(dir, active(f, file, { journal: 'j.jsonl' }), TOKENS);
+      expect(r.code, r.err).toBeLessThan(2);
+      const text = readFileSync(join(dir, 'j.jsonl'), 'utf8');
+      for (const form of [...allForms(TOKEN_A), ...allForms(TOKEN_B), MARK, ARG_MARK, 'bad token'])
+        expect(text.includes(form), `${lax}: ${form}`).toBe(false);
+    }
+  });
+
+  it('Authorization is a mark, and so is the session id; the line says only that a bearer was sent', async () => {
+    const f = await fixture({ tools: STEP2_TOOLS });
+    const { dir, file } = probeFile(journalProbes);
+    await scan(dir, active(f, file, { journal: 'j.jsonl' }), TOKENS);
+    const out = journalLines(dir).filter((l) => l['dir'] === 'out' && l['kind'] === 'rpc');
+    const bearer = out.filter((l) => l['as'] === 'bearer');
+    expect(bearer.length).toBeGreaterThan(0);
+    for (const l of bearer) expect(l['headers']['Authorization']).toBe('***');
+    for (const l of out.filter((x) => x['headers']['Mcp-Session-Id'] !== undefined))
+      expect(l['headers']['Mcp-Session-Id']).toBe('***');
+  });
+
+  it('the answer lines hold the status, the JSON-RPC id, result/error/isError and sizes, and no body', async () => {
+    const f = await fixture({ tools: STEP2_TOOLS });
+    const { dir, file } = probeFile(journalProbes);
+    await scan(dir, active(f, file, { journal: 'j.jsonl' }), TOKENS);
+    const ins = journalLines(dir).filter((l) => l['dir'] === 'in');
+    expect(ins.length).toBeGreaterThan(3);
+    for (const l of ins) {
+      expect(Object.keys(l).sort()).toEqual(expect.arrayContaining(['dir', 'seq', 'ts', 'status']));
+      for (const k of Object.keys(l))
+        expect(
+          ['dir', 'seq', 'ts', 'status', 'rpcId', 'result', 'error', 'isError', 'bytes', 'failure'],
+          k,
+        ).toContain(k);
+    }
+    expect(ins.some((l) => l['result'] === true && typeof l['rpcId'] === 'number')).toBe(true);
+    expect(ins.some((l) => l['status'] === 401)).toBe(true);
+  });
+
+  it('there is a line for every request the server received, and the file is there after a budget stop', async () => {
+    const f = await fixture({ lax: true, tools: STEP2_TOOLS });
+    const many = Array.from({ length: 10 }, (_, i) => entry(`p${i}`, 'none'));
+    const { dir, file } = probeFile(many);
+    const r = await scan(dir, active(f, file, { journal: 'j.jsonl', maxCalls: '3' }), TOKENS);
+    const lines = journalLines(dir);
+    const sent = lines.filter((l) => l['dir'] === 'out');
+    expect(sent).toHaveLength(probeFrames(f, r).length);
+    expect(sent.map((l) => l['seq'])).toEqual(sent.map((_, i) => i + 1));
+    expect(lines.some((l) => l['dir'] === 'refused' && l['reason'] === 'budget')).toBe(true);
+    expect(lines.filter((l) => l['dir'] === 'in')).toHaveLength(sent.length);
+  });
+
+  it('a frame the wrapper refuses is journaled as refused and is not sent', async () => {
+    const lines: Record<string, unknown>[] = [];
+    const sent: Frame[] = [];
+    const guard = new ProbeGuard(
+      [{ id: 'p1', tool: 'export', arguments: { doc: 'a' }, as: 'none' }],
+      { maxCalls: 8, maxRequests: 40 },
+      async (frame): Promise<Reply> => {
+        sent.push(frame);
+        return { kind: 'http', status: 200 };
+      },
+      { record: (line) => void lines.push(line) },
+    );
+    guard.setListedTools([]);
+    const bad: Frame = {
+      type: 'rpc',
+      method: 'tools/call',
+      params: { name: 'export', arguments: { doc: 'other' } },
+      probe: 'p1',
+      credential: { kind: 'none' },
+    };
+    expect(await guard.send(bad)).toEqual({ sent: false, refusal: 'undeclared' });
+    expect(sent).toHaveLength(0);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ dir: 'refused', reason: 'undeclared', tool: 'export' });
+    expect(JSON.stringify(lines)).not.toContain('other');
+  });
+
+  it('a journal that cannot be written stops the probes: nothing more is sent, and the rest are "not run, journal"', async () => {
+    let writes = 0;
+    const f = await fixture({ lax: true, tools: STEP2_TOOLS });
+    const section = await runProbes({
+      entries: [entry('p1', 'none'), entry('p2', 'none'), entry('p3', 'none')] as ProbeEntry[],
+      target: { kind: 'http', url: f.url, headers: {} } as never,
+      tokens: {},
+      timeoutMs: 5000,
+      announce: () => {},
+      journal: {
+        record: () => {
+          if (++writes > 7) throw new Error('disk full: C:\\secret\\path');
+        },
+        close: () => {},
+      },
+    });
+    const received = f.seen.length;
+    expect(section.rows.some((r) => r.reason === 'journal-failed')).toBe(true);
+    // Every request that reached the server had its line written first (the 7 that were written).
+    expect(received).toBeLessThanOrEqual(4);
+    expect(JSON.stringify(section)).not.toContain('disk full');
+  });
+
+  it('a journal that cannot be opened is a usage error before the first frame of the probes', async () => {
+    const f = await fixture({ tools: STEP2_TOOLS });
+    const { dir, file } = probeFile(journalProbes);
+    const r = await scan(dir, active(f, file, { journal: 'no-such-dir/j.jsonl' }), TOKENS);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain('--journal');
+    expect(r.err).not.toContain('ENOENT');
+    expect(r.err).not.toContain(dir);
+    expect(r.err).not.toContain('probes will go to');
+    expect(f.seen.filter((s) => s.rpc === 'tools/call' || s.path.includes('well-known'))).toEqual(
+      [],
+    );
+  });
+
+  it('--journal without --active is a usage error', async () => {
+    const r = await scan(tmp(), { journal: 'j.jsonl' });
+    expect(r.code).toBe(2);
+    expect(r.err).toContain('--journal');
+  });
+});
+
+describe('CLI · mcp scan probes · scan/probe/error-detail-leak', () => {
+  const malformed = [{ id: 'm1', tool: 'export', arguments: {}, as: 'account-a', malformed: true }];
+  const LEAK = 'LEAKMARK-77';
+  const stack = `TypeError: bad input\n    at handler (/srv/app/${LEAK}/tools.js:42:13)\n    at run (/srv/app/node_modules/x.js:1:1)`;
+
+  it('the probe file takes malformed only as account-a', () => {
+    expect(parseProbeFile(JSON.stringify({ probes: malformed }), 'p.json')[0]!).toMatchObject({
+      malformed: true,
+    });
+    expect(() =>
+      parseProbeFile(JSON.stringify({ probes: [{ ...malformed[0], as: 'none' }] }), 'p.json'),
+    ).toThrow(/malformed/);
+    expect(() =>
+      parseProbeFile(JSON.stringify({ probes: [{ ...malformed[0], malformed: 'yes' }] }), 'p.json'),
+    ).toThrow(/malformed/);
+  });
+
+  it('the derived arguments: the first required property dropped, else one property of a wrong type, else none', async () => {
+    const { malformedArguments } = await import('../scan/probes/leak.js');
+    expect(
+      malformedArguments({ properties: { a: {}, b: { type: 'number' } }, required: ['a', 'b'] }),
+    ).toEqual({ b: 0 });
+    expect(malformedArguments({ properties: { a: { type: 'string' } } })).toEqual({ a: 0 });
+    expect(malformedArguments({ properties: { a: { type: 'number' } } })).toEqual({ a: 'x' });
+    expect(malformedArguments({ properties: {} })).toBeUndefined();
+    expect(malformedArguments(undefined)).toBeUndefined();
+    expect(malformedArguments({ required: [] })).toBeUndefined();
+  });
+
+  it('red on a server that echoes a stack, in an isError result and in a JSON-RPC error; the finding holds the pattern and the tool only', async () => {
+    for (const errorAs of ['isError', 'rpc'] as const) {
+      const f = await fixture({ tools: STEP2_TOOLS, errorText: stack, errorAs });
+      const { dir, file } = probeFile([...journalProbes, ...malformed]);
+      const outputs: string[] = [];
+      let r!: Run;
+      for (const format of ['human', 'json', 'github', 'sarif'] as const) {
+        r = await scan(dir, active(f, file, { format, journal: 'j.jsonl' }), TOKENS);
+        outputs.push(r.out, r.err);
+      }
+      outputs.push(readFileSync(join(dir, 'j.jsonl'), 'utf8'));
+      const json = (await scan(dir, active(f, file), TOKENS)).json();
+      const found = json['findings'].filter(
+        (x: { rule: string }) => x.rule === 'scan/probe/error-detail-leak',
+      );
+      expect(found, errorAs).toHaveLength(1);
+      expect(found[0].message).toContain('stack-js');
+      expect(found[0].message).toContain('export');
+      expect(found[0]).toMatchObject({ class: 'heuristic', severity: 'advice', gating: false });
+      for (const text of outputs) {
+        expect(text).not.toContain(LEAK);
+        expect(text).not.toContain('/srv/app');
+        expect(text).not.toContain('TypeError');
+      }
+    }
+  });
+
+  it('green on a strict server that answers a plain message: "no pattern matched", exit code unchanged', async () => {
+    const f = await fixture({ tools: STEP2_TOOLS, errorText: 'invalid arguments' });
+    const { dir, file } = probeFile([...journalProbes, ...malformed]);
+    const r = await scan(dir, active(f, file), TOKENS);
+    expect(r.code).toBe(0);
+    expect(r.json()['findings']).toEqual([]);
+    const row = byId(r, 'm1') as { note?: string; outcome: string };
+    expect(row.outcome).toBe('as-expected');
+    expect(row.note).toBe('no pattern matched');
+    expect(JSON.stringify(rowsOf(r))).not.toMatch(/\bsafe\b/i);
+  });
+
+  it('the malformed call is sent as account-a with the derived arguments, counted in the budgets', async () => {
+    const f = await fixture({ tools: STEP2_TOOLS, errorText: 'invalid arguments' });
+    const { dir, file } = probeFile(malformed);
+    const r = await scan(dir, active(f, file, { maxCalls: '1' }), TOKENS);
+    const calls = probeFrames(f, r).filter((s) => s.rpc === 'tools/call');
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.auth).toBe(`Bearer ${TOKEN_A}`);
+    expect(r.json()['probes'].calls).toBe(1);
+  });
+
+  it('a malformed probe on a destructive tool is not sent without allowDestructive', async () => {
+    const f = await fixture({ tools: STEP2_TOOLS, errorText: 'invalid arguments' });
+    const { dir, file } = probeFile([{ ...malformed[0], tool: 'wipe' }]);
+    const r = await scan(dir, active(f, file), TOKENS);
+    expect(probeFrames(f, r).filter((s) => s.rpc === 'tools/call')).toEqual([]);
+    expect(byId(r, 'm1').reason).toBe('destructive');
+  });
+
+  it('a tool with no property to break is "not run, no schema"', async () => {
+    const f = await fixture({ tools: [{ name: 'export' }] });
+    const { dir, file } = probeFile(malformed);
+    const r = await scan(dir, active(f, file), TOKENS);
+    expect(byId(r, 'm1').reason).toBe('no-schema');
+    expect(probeFrames(f, r).filter((s) => s.rpc === 'tools/call')).toEqual([]);
+  });
+
+  it('the wrapper allows exactly the derived call for that entry: not its declared arguments, not other arguments, not another tool', async () => {
+    const entries: ProbeEntry[] = [
+      {
+        id: 'm1',
+        tool: 'export',
+        arguments: { doc: 'declared' },
+        as: 'account-a',
+        malformed: true,
+      },
+    ];
+    const sent: Frame[] = [];
+    const guard = new ProbeGuard(entries, { maxCalls: 8, maxRequests: 40 }, async (frame) => {
+      sent.push(frame);
+      return { kind: 'http', status: 200 } as Reply;
+    });
+    guard.setListedTools(STEP2_TOOLS);
+    const call = (name: string, args: Record<string, unknown>, probe = 'm1'): Frame => ({
+      type: 'rpc',
+      method: 'tools/call',
+      params: { name, arguments: args },
+      probe,
+      credential: { kind: 'none' },
+    });
+    const derived = guard.malformedArgumentsFor('export')!;
+    expect(derived).toEqual({});
+    for (const bad of [
+      call('export', { doc: 'declared' }),
+      call('export', { doc: 'x', rm: '-rf' }),
+      call('export', { ...derived, extra: 1 }),
+      call('wipe', derived),
+      call('export', derived, 'other-probe'),
+    ])
+      expect(await guard.send(bad)).toEqual({ sent: false, refusal: 'undeclared' });
+    expect(sent).toHaveLength(0);
+    expect((await guard.send(call('export', derived))).sent).toBe(true);
+    expect(sent).toHaveLength(1);
+    expect(guard.malformedArgumentsFor('nope')).toBeUndefined();
+  });
+
+  it('every pattern is linear: each runs on a hostile 64 KiB text in well under a second, and only the first 64 KiB is read', async () => {
+    const { LEAK_PATTERNS, findLeak, MAX_LEAK_TEXT } = await import('../scan/probes/leak.js');
+    expect(MAX_LEAK_TEXT).toBe(64 * 1024);
+    const n = MAX_LEAK_TEXT;
+    const hostile = [
+      'a'.repeat(n),
+      '/'.repeat(n),
+      ' at '.repeat(n / 4),
+      '(a'.repeat(n / 2),
+      '/a'.repeat(n / 2),
+      ('A:\\' + 'a'.repeat(30) + '\\').repeat(n / 34),
+      '1.'.repeat(n / 2),
+      'select '.repeat(n / 7),
+      'a.b'.repeat(n / 3),
+      'File "'.repeat(n / 6),
+      '\t'.repeat(n),
+      ' '.repeat(n),
+    ];
+    for (const p of LEAK_PATTERNS)
+      for (const text of hostile) {
+        const t = performance.now();
+        p.re.test(text.slice(0, n));
+        expect(performance.now() - t, p.id).toBeLessThan(250);
+      }
+    expect(findLeak(`${'a'.repeat(n)}\n    at f (/srv/x.js:1:2)`)).toBeUndefined();
+    expect(findLeak('    at f (/srv/x.js:1:2)')).toBe('stack-js');
+  });
+
+  it('each pattern finds its own kind and not an ordinary message', async () => {
+    const { findLeak } = await import('../scan/probes/leak.js');
+    const hit: [string, string][] = [
+      ['stack-js', 'Error: x\n    at run (/app/a.js:10:5)'],
+      ['stack-py', 'Traceback (most recent call last):\n  File "/app/a.py", line 3, in f'],
+      ['abs-path', 'cannot open /var/lib/app/data.db'],
+      ['abs-path', 'cannot open C:\\Users\\app\\data.db'],
+      ['sql', 'near "FROM users WHERE id = 1": syntax error'],
+      ['internal-host', 'connect ECONNREFUSED 10.0.3.7:5432'],
+      ['internal-host', 'getaddrinfo ENOTFOUND db.internal'],
+    ];
+    for (const [id, text] of hit) expect(findLeak(text), text).toBe(id);
+    for (const text of [
+      'invalid arguments',
+      'missing required argument: doc',
+      'Expected string, received number',
+      'path /tools/0/name is invalid',
+      'try again at 10:30',
+    ])
+      expect(findLeak(text), text).toBeUndefined();
+  });
+});
+
+describe('CLI · mcp scan · scan/hint/destructive-missing (static)', () => {
+  const snapOf = (tools: unknown[]) => {
+    const dir = tmp();
+    writeFileSync(
+      join(dir, 's.json'),
+      serializeSnapshot(
+        buildSnapshot({ transport: 'stdio', capabilities: { tools: {} }, tools } as never),
+      ),
+    );
+    return dir;
+  };
+  const rules = async (tools: unknown[]) => {
+    const r = await scan(snapOf(tools), { snapshot: ['s.json'] });
+    return { r, rules: (r.json()['findings'] as { rule: string }[]).map((x) => x.rule) };
+  };
+
+  it('annotations without destructiveHint, and not read-only: an info finding that does not gate, with no --active', async () => {
+    const { r, rules: got } = await rules([
+      { name: 'update_page', description: 'Updates a page.', annotations: { title: 'Update' } },
+    ]);
+    expect(got).toEqual(['scan/hint/destructive-missing']);
+    expect(r.json()['findings'][0]).toMatchObject({ severity: 'info', gating: false });
+    expect(r.code).toBe(0);
+  });
+
+  it('no finding: no annotations at all, destructiveHint stated either way, or readOnlyHint true', async () => {
+    for (const annotations of [
+      undefined,
+      { destructiveHint: true },
+      { destructiveHint: false },
+      { readOnlyHint: true },
+    ])
+      expect(
+        (
+          await rules([
+            { name: 'update_page', description: 'x', ...(annotations ? { annotations } : {}) },
+          ])
+        ).rules,
+        JSON.stringify(annotations),
+      ).toEqual([]);
+  });
+});
+
+// ---- step 2, after review ---------------------------------------------------------------------------------------------------
+
+describe('CLI · mcp scan probes · the journal never overwrites a file the command reads or writes', () => {
+  const same = async (flags: (f: Fixture) => McpScanFlags, name: string) => {
+    const f = await fixture({ tools: STEP2_TOOLS });
+    const { dir } = probeFile(journalProbes);
+    writeFileSync(
+      join(dir, 's.json'),
+      serializeSnapshot(
+        buildSnapshot({
+          transport: 'stdio',
+          capabilities: { tools: {} },
+          tools: [{ name: 'a', description: 'd' }],
+        } as never),
+      ),
+    );
+    const before = readFileSync(join(dir, name), 'utf8');
+    const r = await scan(dir, flags(f), TOKENS);
+    expect(r.code, r.err).toBe(2);
+    expect(r.err).not.toContain(dir);
+    expect(readFileSync(join(dir, name), 'utf8')).toBe(before);
+    expect(f.seen.filter((s) => s.rpc === 'tools/call')).toEqual([]);
+    return r;
+  };
+
+  it('--journal equal to --probes is exit 2 and the probe file is untouched', async () => {
+    const r = await same(
+      (f) => active(f, 'probes.json', { journal: 'probes.json' }),
+      'probes.json',
+    );
+    expect(r.err).toContain('--journal');
+    expect(r.err).toContain('--probes');
+  });
+  it('the same file spelled another way (./, a folder that is left again, other case on Windows) is the same file', async () => {
+    await same((f) => active(f, 'probes.json', { journal: './sub/../probes.json' }), 'probes.json');
+    if (process.platform === 'win32')
+      await same((f) => active(f, 'probes.json', { journal: 'PROBES.JSON' }), 'probes.json');
+  });
+  it('through a link to the folder it is the same file as well', async () => {
+    const f = await fixture({ tools: STEP2_TOOLS });
+    const { dir } = probeFile(journalProbes);
+    symlinkSync(dir, join(dir, 'link'), 'junction');
+    const before = readFileSync(join(dir, 'probes.json'), 'utf8');
+    const r = await scan(dir, active(f, 'probes.json', { journal: 'link/probes.json' }), TOKENS);
+    expect(r.code).toBe(2);
+    expect(readFileSync(join(dir, 'probes.json'), 'utf8')).toBe(before);
+  });
+  it('--journal equal to a --snapshot, --out or --save-snapshot file is exit 2', async () => {
+    await same(
+      (f) => active(f, 'probes.json', { journal: 's.json', snapshot: ['s.json'] }),
+      's.json',
+    );
+    await same(
+      (f) => active(f, 'probes.json', { journal: 'probes.json', out: ['probes.json'] }),
+      'probes.json',
+    );
+    await same(
+      (f) => active(f, 'probes.json', { journal: 's.json', saveSnapshot: 's.json' }),
+      's.json',
+    );
+  });
+  it('the reverse pairs: --out equal to --probes or to a --snapshot is exit 2 too', async () => {
+    await same((f) => active(f, 'probes.json', { out: ['probes.json'] }), 'probes.json');
+    await same(
+      (f) => active(f, 'probes.json', { snapshot: ['s.json'], out: ['sarif=s.json'] }),
+      's.json',
+    );
+  });
+  it('a directory as the journal path is exit 2 with a plain message', async () => {
+    const f = await fixture({ tools: STEP2_TOOLS });
+    const { dir, file } = probeFile(journalProbes);
+    mkdirSync(join(dir, 'a-folder'));
+    const r = await scan(dir, active(f, file, { journal: 'a-folder' }), TOKENS);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain('--journal');
+    expect(r.err).not.toMatch(/EISDIR|EPERM|EACCES/);
+    expect(r.err).not.toContain(dir);
+  });
+});
+
+describe('CLI · mcp scan probes · a journal write that fails on any line marks the run', () => {
+  const failOn = (n: number) => {
+    let writes = 0;
+    return {
+      record: () => {
+        if (++writes === n) throw new Error('disk full');
+      },
+      close: () => {},
+    };
+  };
+  const one = async (n: number) => {
+    const f = await fixture({ lax: true, tools: STEP2_TOOLS });
+    return runProbes({
+      entries: [entry('p1', 'none')] as ProbeEntry[],
+      target: { kind: 'http', url: f.url, headers: {} } as never,
+      tokens: {},
+      timeoutMs: 5000,
+      announce: () => {},
+      journal: failOn(n),
+    });
+  };
+
+  it('a failure on the last "in" line (nothing left to stop) is still reported as an incomplete journal', async () => {
+    // lines: meta, then out/in for discovery, initialize, initialized, tools/list, tools/call = 1 + 2 * 5 = 11
+    const section = await one(11);
+    expect(section.journalFailed).toBe(true);
+  });
+  it('a failure on a "refused" line is reported too', async () => {
+    const f = await fixture({ lax: true, tools: STEP2_TOOLS });
+    let refusedWritten = 0;
+    const section = await runProbes({
+      entries: [entry('p1', 'none'), entry('p2', 'none')] as ProbeEntry[],
+      target: { kind: 'http', url: f.url, headers: {} } as never,
+      tokens: {},
+      maxCalls: 1,
+      timeoutMs: 5000,
+      announce: () => {},
+      journal: {
+        record: (line) => {
+          if (line['dir'] === 'refused' && ++refusedWritten === 1) throw new Error('disk full');
+        },
+      },
+    });
+    expect(section.journalFailed).toBe(true);
+  });
+  it('a clean journal is not marked', async () => {
+    expect((await one(1000)).journalFailed).toBeUndefined();
+  });
+  it('the report says the journal is incomplete and the exit code is 3, with no probe left to run', () => {
+    const input: ScanInput = {
+      snapshots: [],
+      unreadable: [],
+      configFiles: [],
+      configRequested: false,
+      active: true,
+      allowHosts: [],
+      allowPackages: [],
+      probes: {
+        rows: [
+          {
+            id: 'p1',
+            tool: 'export',
+            as: 'none',
+            expect: 'none',
+            answer: 'allowed',
+            outcome: 'observed',
+          },
+        ],
+        findings: [],
+        calls: 1,
+        requests: 5,
+        metadata: null,
+        journalFailed: true,
+      },
+    };
+    const report = runScan(input, { failOn: 'error', gateHeuristics: false, allowPartial: false });
+    expect(report.exitCode).toBe(3);
+    expect(JSON.stringify(report.notEvaluated)).toContain('journal');
+  });
+});
+
+describe('CLI · mcp scan probes · the derived malformed arguments are bounded', () => {
+  it('a giant required list, or a giant properties object, is "not run, schema too large": nothing is sent', async () => {
+    const names = Array.from({ length: 300 }, (_, i) => `p${i}`);
+    for (const schema of [
+      { type: 'object', properties: { doc: { type: 'string' } }, required: names },
+      { type: 'object', properties: Object.fromEntries(names.map((n) => [n, { type: 'string' }])) },
+    ]) {
+      const f = await fixture({ tools: [{ name: 'export', inputSchema: schema } as never] });
+      const { dir, file } = probeFile([
+        { id: 'm1', tool: 'export', arguments: {}, as: 'account-a', malformed: true },
+      ]);
+      const r = await scan(dir, active(f, file), TOKENS);
+      expect(byId(r, 'm1').reason).toBe('schema-too-large');
+      expect(probeFrames(f, r).filter((s) => s.rpc === 'tools/call')).toEqual([]);
+    }
+  });
+  it('arguments over 16 KiB once derived are "schema too large" too', async () => {
+    const { malformedArguments } = await import('../scan/probes/leak.js');
+    const big = { type: 'object', properties: { a: {}, b: {} }, required: ['a', 'b'] };
+    expect(malformedArguments(big)).toEqual({ b: null });
+    const { derivedTooLarge } = await import('../scan/probes/leak.js');
+    expect(derivedTooLarge({ x: 'y'.repeat(17 * 1024) })).toBe(true);
+    expect(derivedTooLarge({ x: 'y' })).toBe(false);
+  });
+  it('__proto__ and constructor as names are own keys: the prototype is not touched', async () => {
+    const { malformedArguments } = await import('../scan/probes/leak.js');
+    const schema = JSON.parse(
+      '{"properties":{"a":{},"__proto__":{"type":"string"},"constructor":{"type":"constructor"}},"required":["a","__proto__","constructor"]}',
+    );
+    const args = malformedArguments(schema)!;
+    expect(Object.getPrototypeOf(args)).toBe(Object.prototype);
+    expect(Object.keys(args)).toEqual(['__proto__', 'constructor']);
+    expect(Object.hasOwn(args, '__proto__')).toBe(true);
+    expect(args['constructor']).toBeNull();
+    expect(({} as Record<string, unknown>)['polluted']).toBeUndefined();
+    expect(args['__proto__']).toBe('');
+  });
+});
+
+describe('CLI · mcp scan probes · a malformed call that ran says so', () => {
+  const malformed = [{ id: 'm1', tool: 'export', arguments: {}, as: 'account-a', malformed: true }];
+  it('a result with no error is "ran; no error text to read", in every format that lists the rows; not "no pattern matched"', async () => {
+    const f = await fixture({ tools: STEP2_TOOLS });
+    const { dir, file } = probeFile(malformed);
+    for (const format of ['human', 'json', 'sarif'] as const) {
+      const r = await scan(dir, active(f, file, { format }), TOKENS);
+      expect(r.out, format).toContain('ran; no error text to read');
+      expect(r.out, format).not.toContain('no pattern matched');
+    }
+    const r = await scan(dir, active(f, file, { out: ['junit-xml=j.xml'] }), TOKENS);
+    expect(readFileSync(join(dir, 'j.xml'), 'utf8')).toContain('ran; no error text to read');
+    expect(r.code).toBe(0);
+  });
+  it('an error that was read and matched nothing is still "no pattern matched"', async () => {
+    const f = await fixture({ tools: STEP2_TOOLS, errorText: 'invalid arguments' });
+    const { dir, file } = probeFile(malformed);
+    const r = await scan(dir, active(f, file), TOKENS);
+    expect((byId(r, 'm1') as { note?: string }).note).toBe('no pattern matched');
+  });
+});
+
+describe('CLI · mcp scan · smaller points of the review of step 2', () => {
+  it('destructiveHint that is not a boolean is not "present" for scan/hint/destructive-missing', async () => {
+    for (const destructiveHint of [null, 'false', 0]) {
+      const dir = tmp();
+      writeFileSync(
+        join(dir, 's.json'),
+        serializeSnapshot(
+          buildSnapshot({
+            transport: 'stdio',
+            capabilities: { tools: {} },
+            tools: [{ name: 'update_page', description: 'x', annotations: { destructiveHint } }],
+          } as never),
+        ),
+      );
+      const r = await scan(dir, { snapshot: ['s.json'] });
+      expect(
+        (r.json()['findings'] as { rule: string }[]).map((x) => x.rule),
+        String(destructiveHint),
+      ).toEqual(['scan/hint/destructive-missing']);
+    }
+  });
+
+  it('the wrapper refuses a malformed frame whose entry is not account-a, called directly', async () => {
+    const entries: ProbeEntry[] = [
+      { id: 'm1', tool: 'export', arguments: {}, as: 'none', malformed: true },
+    ];
+    const sent: Frame[] = [];
+    const guard = new ProbeGuard(entries, { maxCalls: 8, maxRequests: 40 }, async (frame) => {
+      sent.push(frame);
+      return { kind: 'http', status: 200 } as Reply;
+    });
+    guard.setListedTools(STEP2_TOOLS);
+    const frame: Frame = {
+      type: 'rpc',
+      method: 'tools/call',
+      params: { name: 'export', arguments: guard.malformedArgumentsFor('export') },
+      probe: 'm1',
+      credential: { kind: 'none' },
+    };
+    expect(await guard.send(frame)).toEqual({ sent: false, refusal: 'undeclared' });
+    expect(sent).toHaveLength(0);
+  });
+});
+
+// ---- step 2, second review ---------------------------------------------------------------------------------------------------
+
+describe('CLI · mcp scan probes · the journal path guard compares files, not spellings', () => {
+  it('a hard link to the probe file as the journal is exit 2, nothing is sent, the probe file is untouched', async () => {
+    const f = await fixture({ tools: STEP2_TOOLS });
+    const { dir } = probeFile(journalProbes);
+    linkSync(join(dir, 'probes.json'), join(dir, 'hard.json'));
+    const before = readFileSync(join(dir, 'probes.json'), 'utf8');
+    const r = await scan(dir, active(f, 'probes.json', { journal: 'hard.json' }), TOKENS);
+    expect(r.code, r.err).toBe(2);
+    expect(f.seen.filter((s) => s.rpc === 'tools/call')).toEqual([]);
+    expect(readFileSync(join(dir, 'probes.json'), 'utf8')).toBe(before);
+  });
+
+  it('an 8.3 short name of the probe file as the journal is exit 2 (skipped where the volume has no short names)', async (ctx) => {
+    const dir = tmp();
+    const long = join(dir, 'probes-long-name.json');
+    writeFileSync(long, JSON.stringify({ probes: journalProbes }));
+    let short = '';
+    if (process.platform === 'win32') {
+      try {
+        const listing = execSync(`dir /x "${dir}"`, { encoding: 'utf8' });
+        const line = listing.split(/\r?\n/).find((l) => l.includes('probes-long-name.json')) ?? '';
+        short = join(dir, line.trim().split(/\s+/).at(-2) ?? '');
+      } catch {
+        short = '';
+      }
+    }
+    if (!basename(short).includes('~') || !existsSync(short)) return ctx.skip();
+    const f = await fixture({ tools: STEP2_TOOLS });
+    const before = readFileSync(long, 'utf8');
+    const r = await scan(
+      dir,
+      active(f, 'probes-long-name.json', { journal: basename(short) }),
+      TOKENS,
+    );
+    expect(r.code, r.err).toBe(2);
+    expect(readFileSync(long, 'utf8')).toBe(before);
+    expect(f.seen.filter((s) => s.rpc === 'tools/call')).toEqual([]);
+  });
+});
+
+describe('CLI · mcp scan probes · an incomplete journal is in JUnit too', () => {
+  const junitOf = async (
+    extra: Partial<Parameters<typeof runProbes>[0]>,
+    writeFails: (l: Record<string, unknown>, n: number) => boolean,
+  ) => {
+    const f = await fixture({ lax: true, tools: STEP2_TOOLS });
+    let n = 0;
+    const section = await runProbes({
+      entries: [entry('p1', 'none')] as ProbeEntry[],
+      target: { kind: 'http', url: f.url, headers: {} } as never,
+      tokens: {},
+      timeoutMs: 5000,
+      announce: () => {},
+      journal: {
+        record: (l) => {
+          if (writeFails(l, ++n)) throw new Error('disk full');
+        },
+      },
+      ...extra,
+    });
+    const input: ScanInput = {
+      snapshots: [],
+      unreadable: [],
+      configFiles: [],
+      configRequested: false,
+      active: true,
+      allowHosts: [],
+      allowPackages: [],
+      probes: section,
+    };
+    const report = runScan(input, { failOn: 'error', gateHeuristics: false, allowPartial: false });
+    return renderScan(report, 'junit-xml', ALL_RULES, '0');
+  };
+  it('a failure on the last "in" line, and on a "refused" line, say so in the XML', async () => {
+    expect(await junitOf({}, (_l, n) => n === 11)).toContain(
+      'the journal (--journal) could not be written',
+    );
+    expect(
+      await junitOf(
+        { entries: [entry('p1', 'none'), entry('p2', 'none')] as ProbeEntry[], maxCalls: 1 },
+        (l) => l['dir'] === 'refused',
+      ),
+    ).toContain('the journal (--journal) could not be written');
+  });
+});
+
+describe('CLI · mcp scan probes · a malformed destructiveHint blocks, and a control that ran is a JUnit pass', () => {
+  it('the wrapper blocks on true and on any non-boolean that is present; false, null and absent do not block', async () => {
+    const cases: [unknown, boolean][] = [
+      [true, true],
+      [false, false],
+      [undefined, false],
+      [null, false],
+      ['true', true],
+      ['false', true],
+      [1, true],
+      [0, true],
+      [{}, true],
+    ];
+    for (const [hint, blocked] of cases) {
+      const sent: Frame[] = [];
+      const guard = new ProbeGuard(
+        [{ id: 'p1', tool: 'wipe', arguments: {}, as: 'none' }],
+        { maxCalls: 8, maxRequests: 40 },
+        async (frame) => {
+          sent.push(frame);
+          return { kind: 'http', status: 200 } as Reply;
+        },
+      );
+      guard.setListedTools([
+        { name: 'wipe', annotations: hint === undefined ? {} : { destructiveHint: hint } },
+      ]);
+      const got = await guard.send({
+        type: 'rpc',
+        method: 'tools/call',
+        params: { name: 'wipe', arguments: {} },
+        probe: 'p1',
+        credential: { kind: 'none' },
+      });
+      expect(got.sent, String(hint)).toBe(!blocked);
+    }
+  });
+
+  it('a control that ran and was allowed is a passed test case, not a skipped one', async () => {
+    const f = await fixture({ tools: STEP2_TOOLS });
+    const { dir, file } = probeFile(journalProbes);
+    await scan(dir, active(f, file, { out: ['junit-xml=j.xml'] }), TOKENS);
+    const xml = readFileSync(join(dir, 'j.xml'), 'utf8');
+    const m = /<testcase [^>]*name="probe p-a"[^>]*?(\/>|>[\s\S]*?<\/testcase>)/.exec(xml);
+    expect(m).not.toBeNull();
+    expect(m![1]).not.toContain('<skipped');
   });
 });
