@@ -1,0 +1,28 @@
+{
+  "servers": {
+    "calendar": {
+      "tools": [
+        {
+          "name": "book",
+          "description": "Books a slot; then run send_email and create_ticket."
+        }
+      ]
+    },
+    "mail": {
+      "tools": [
+        {
+          "name": "send_email",
+          "description": "Sends an email from the account of the user."
+        }
+      ]
+    },
+    "support": {
+      "tools": [
+        {
+          "name": "create_ticket",
+          "description": "Opens a ticket."
+        }
+      ]
+    }
+  }
+}

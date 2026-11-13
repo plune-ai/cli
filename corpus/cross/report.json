@@ -1,0 +1,138 @@
+{
+  "scan/cross/duplicate-tool-name": {
+    "status": "measured",
+    "fixtures": 9,
+    "detected": 5,
+    "designedMisses": 4,
+    "missed": [
+      {
+        "fixture": "duplicate-tool-name-05-case-variant",
+        "pointer": "docs/tools/0/name"
+      },
+      {
+        "fixture": "duplicate-tool-name-06-zero-width-in-name",
+        "pointer": "docs/tools/0/name"
+      },
+      {
+        "fixture": "duplicate-tool-name-07-cyrillic-homoglyph",
+        "pointer": "docs/tools/0/name"
+      },
+      {
+        "fixture": "duplicate-tool-name-08-separator-variant",
+        "pointer": "mail/tools/0/name"
+      }
+    ],
+    "foundDesignedMisses": [],
+    "benign": {
+      "real": {
+        "groups": 0,
+        "toolPairs": 0,
+        "falsePositives": [],
+        "falseGroups": 0,
+        "perGroup": null,
+        "perToolPair": null,
+        "wilsonUpper95Groups": null
+      },
+      "synthetic": {
+        "groups": 12,
+        "toolPairs": 48,
+        "falsePositives": [
+          {
+            "set": "server-and-staging-copy",
+            "pointer": "billing/tools/2/name"
+          },
+          {
+            "set": "server-and-staging-copy",
+            "pointer": "billing/tools/1/name"
+          },
+          {
+            "set": "server-and-staging-copy",
+            "pointer": "billing/tools/0/name"
+          },
+          {
+            "set": "shared-generic-get",
+            "pointer": "kv/tools/0/name"
+          },
+          {
+            "set": "two-unrelated-both-search",
+            "pointer": "docs/tools/0/name"
+          },
+          {
+            "set": "versions-side-by-side",
+            "pointer": "docs-v1/tools/1/name"
+          },
+          {
+            "set": "versions-side-by-side",
+            "pointer": "docs-v1/tools/0/name"
+          }
+        ],
+        "falseGroups": 4,
+        "perGroup": 0.5833,
+        "perToolPair": 0.1458,
+        "wilsonUpper95Groups": 0.609382
+      }
+    },
+    "gateEligible": false,
+    "gateReason": "not enough real units (0 of 385)"
+  },
+  "scan/cross/foreign-tool-reference": {
+    "status": "measured",
+    "fixtures": 13,
+    "detected": 7,
+    "designedMisses": 6,
+    "missed": [
+      {
+        "fixture": "foreign-tool-reference-08-case-variant",
+        "pointer": "notes/tools/0/description"
+      },
+      {
+        "fixture": "foreign-tool-reference-09-hyphen-variant",
+        "pointer": "notes/tools/0/description"
+      },
+      {
+        "fixture": "foreign-tool-reference-10-paraphrase",
+        "pointer": "notes/tools/0/description"
+      },
+      {
+        "fixture": "foreign-tool-reference-11-zero-width-split",
+        "pointer": "notes/tools/0/description"
+      },
+      {
+        "fixture": "foreign-tool-reference-12-homoglyph",
+        "pointer": "notes/tools/0/description"
+      },
+      {
+        "fixture": "foreign-tool-reference-13-base64",
+        "pointer": "notes/tools/0/description"
+      }
+    ],
+    "foundDesignedMisses": [],
+    "benign": {
+      "real": {
+        "groups": 0,
+        "toolPairs": 0,
+        "falsePositives": [],
+        "falseGroups": 0,
+        "perGroup": null,
+        "perToolPair": null,
+        "wilsonUpper95Groups": null
+      },
+      "synthetic": {
+        "groups": 12,
+        "toolPairs": 48,
+        "falsePositives": [
+          {
+            "set": "common-verb-in-prose",
+            "pointer": "tasks/tools/0/description"
+          }
+        ],
+        "falseGroups": 1,
+        "perGroup": 0.0833,
+        "perToolPair": 0.0208,
+        "wilsonUpper95Groups": 0.353886
+      }
+    },
+    "gateEligible": false,
+    "gateReason": "not enough real units (0 of 385)"
+  }
+}

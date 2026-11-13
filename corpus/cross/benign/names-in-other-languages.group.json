@@ -1,0 +1,20 @@
+{
+  "servers": {
+    "notes": {
+      "tools": [
+        {
+          "name": "ajouter_note",
+          "description": "Ajoute une note au carnet."
+        }
+      ]
+    },
+    "mail": {
+      "tools": [
+        {
+          "name": "envoyer_courriel",
+          "description": "Envoie un courriel."
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "servers": {
+    "docs-v1": {
+      "tools": [
+        {
+          "name": "fetch",
+          "description": "Fetches a page."
+        },
+        {
+          "name": "search",
+          "description": "Searches pages."
+        }
+      ]
+    },
+    "docs-v2": {
+      "tools": [
+        {
+          "name": "fetch",
+          "description": "Fetches a page."
+        },
+        {
+          "name": "search",
+          "description": "Searches pages, with filters."
+        },
+        {
+          "name": "summarize",
+          "description": "Summarises a page."
+        }
+      ]
+    }
+  }
+}

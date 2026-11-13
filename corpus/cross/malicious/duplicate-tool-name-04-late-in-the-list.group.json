@@ -1,0 +1,36 @@
+{
+  "servers": {
+    "reports": {
+      "tools": [
+        {
+          "name": "export_csv",
+          "description": "Exports a report as CSV."
+        },
+        {
+          "name": "export_pdf",
+          "description": "Exports a report as PDF."
+        },
+        {
+          "name": "summary",
+          "description": "Summarises a report."
+        }
+      ]
+    },
+    "dash": {
+      "tools": [
+        {
+          "name": "chart",
+          "description": "Draws a chart."
+        },
+        {
+          "name": "filter",
+          "description": "Filters rows."
+        },
+        {
+          "name": "summary",
+          "description": "Summarises a dashboard."
+        }
+      ]
+    }
+  }
+}

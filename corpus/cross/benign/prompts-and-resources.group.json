@@ -1,0 +1,27 @@
+{
+  "servers": {
+    "wiki": {
+      "prompts": [
+        {
+          "name": "summarize_page",
+          "description": "Summarize one page of the wiki."
+        }
+      ],
+      "resources": [
+        {
+          "uri": "wiki://home",
+          "name": "home",
+          "description": "The home page."
+        }
+      ]
+    },
+    "notes": {
+      "tools": [
+        {
+          "name": "notes_add",
+          "description": "Adds a note."
+        }
+      ]
+    }
+  }
+}

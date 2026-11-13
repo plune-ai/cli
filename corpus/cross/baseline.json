@@ -1,0 +1,99 @@
+{
+  "measuredAt": "2026-11-13",
+  "commit": "467e488",
+  "corpusSha256": "c695a8f47b5abbe0bb3a6b68682add495e1a7bfbc3b0134e44d6ab7519c360b4",
+  "rules": {
+    "scan/cross/duplicate-tool-name": {
+      "fixtures": 9,
+      "missed": [
+        {
+          "fixture": "duplicate-tool-name-05-case-variant",
+          "pointer": "docs/tools/0/name"
+        },
+        {
+          "fixture": "duplicate-tool-name-06-zero-width-in-name",
+          "pointer": "docs/tools/0/name"
+        },
+        {
+          "fixture": "duplicate-tool-name-07-cyrillic-homoglyph",
+          "pointer": "docs/tools/0/name"
+        },
+        {
+          "fixture": "duplicate-tool-name-08-separator-variant",
+          "pointer": "mail/tools/0/name"
+        }
+      ],
+      "falsePositives": {
+        "real": [],
+        "synthetic": [
+          {
+            "set": "server-and-staging-copy",
+            "pointer": "billing/tools/2/name"
+          },
+          {
+            "set": "server-and-staging-copy",
+            "pointer": "billing/tools/1/name"
+          },
+          {
+            "set": "server-and-staging-copy",
+            "pointer": "billing/tools/0/name"
+          },
+          {
+            "set": "shared-generic-get",
+            "pointer": "kv/tools/0/name"
+          },
+          {
+            "set": "two-unrelated-both-search",
+            "pointer": "docs/tools/0/name"
+          },
+          {
+            "set": "versions-side-by-side",
+            "pointer": "docs-v1/tools/1/name"
+          },
+          {
+            "set": "versions-side-by-side",
+            "pointer": "docs-v1/tools/0/name"
+          }
+        ]
+      }
+    },
+    "scan/cross/foreign-tool-reference": {
+      "fixtures": 13,
+      "missed": [
+        {
+          "fixture": "foreign-tool-reference-08-case-variant",
+          "pointer": "notes/tools/0/description"
+        },
+        {
+          "fixture": "foreign-tool-reference-09-hyphen-variant",
+          "pointer": "notes/tools/0/description"
+        },
+        {
+          "fixture": "foreign-tool-reference-10-paraphrase",
+          "pointer": "notes/tools/0/description"
+        },
+        {
+          "fixture": "foreign-tool-reference-11-zero-width-split",
+          "pointer": "notes/tools/0/description"
+        },
+        {
+          "fixture": "foreign-tool-reference-12-homoglyph",
+          "pointer": "notes/tools/0/description"
+        },
+        {
+          "fixture": "foreign-tool-reference-13-base64",
+          "pointer": "notes/tools/0/description"
+        }
+      ],
+      "falsePositives": {
+        "real": [],
+        "synthetic": [
+          {
+            "set": "common-verb-in-prose",
+            "pointer": "tasks/tools/0/description"
+          }
+        ]
+      }
+    }
+  }
+}

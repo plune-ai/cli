@@ -1,0 +1,20 @@
+{
+  "servers": {
+    "mail": {
+      "tools": [
+        {
+          "name": "send_email",
+          "description": "Sends an email from the account of the user."
+        }
+      ]
+    },
+    "helper": {
+      "tools": [
+        {
+          "name": "send-email",
+          "description": "Sends an email."
+        }
+      ]
+    }
+  }
+}

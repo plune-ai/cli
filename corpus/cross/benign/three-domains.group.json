@@ -1,0 +1,36 @@
+{
+  "servers": {
+    "git": {
+      "tools": [
+        {
+          "name": "commit",
+          "description": "Commits staged changes."
+        },
+        {
+          "name": "log_history",
+          "description": "Shows the history."
+        }
+      ]
+    },
+    "db": {
+      "tools": [
+        {
+          "name": "describe_table",
+          "description": "Describes a table."
+        },
+        {
+          "name": "run_query",
+          "description": "Runs a read-only query."
+        }
+      ]
+    },
+    "chat": {
+      "tools": [
+        {
+          "name": "post_message",
+          "description": "Posts a message to a channel."
+        }
+      ]
+    }
+  }
+}

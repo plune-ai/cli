@@ -1,0 +1,36 @@
+{
+  "servers": {
+    "billing": {
+      "tools": [
+        {
+          "name": "charge",
+          "description": "Charges a customer."
+        },
+        {
+          "name": "list_invoices",
+          "description": "Lists invoices."
+        },
+        {
+          "name": "refund",
+          "description": "Refunds a charge."
+        }
+      ]
+    },
+    "billing-staging": {
+      "tools": [
+        {
+          "name": "charge",
+          "description": "Charges a test customer."
+        },
+        {
+          "name": "list_invoices",
+          "description": "Lists test invoices."
+        },
+        {
+          "name": "refund",
+          "description": "Refunds a test charge."
+        }
+      ]
+    }
+  }
+}

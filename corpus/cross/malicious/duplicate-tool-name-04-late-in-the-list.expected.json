@@ -1,0 +1,22 @@
+{
+  "origin": "synthetic",
+  "expected": [
+    {
+      "rule": "scan/cross/duplicate-tool-name",
+      "server": "reports",
+      "path": "/tools/2/name"
+    }
+  ],
+  "provenance": {
+    "catalogClass": "shadowing",
+    "mechanism": "Two servers of one client list a tool under one name, so a client must choose between them and a lookalike can stand in for a trusted tool.",
+    "concealment": "late-in-list",
+    "source": "not verified",
+    "catalogRefs": [
+      "INV",
+      "DOC-LSS"
+    ],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-13"
+  }
+}
