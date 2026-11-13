@@ -1,10 +1,12 @@
 /**
  * `--config <file>` of the oauth suite: how the run may sign in, in JSON. A secret is never a value here, only the
  * name of the environment variable that holds it (`clientSecretEnv`); a file with a key that names a secret is refused,
- * so a secret is not written into a file by habit. YAML is not read yet.
+ * so a secret is not written into a file by habit. A file named `.yaml` or `.yml` is read as YAML (the same rules), with
+ * no anchor, alias, custom tag or merge key and a size limit checked before parsing; any other file is JSON.
  */
 
 import { readFileSync } from 'node:fs';
+import { isScalar, parseDocument, visit } from 'yaml';
 import { UsageError } from '../../connect/options.js';
 
 export type RegistrationMethod = 'preregistered' | 'dcr' | 'cimd';
@@ -141,15 +143,55 @@ function parseRegistration(value: unknown, label: string): Registration {
   return reg;
 }
 
-/** The configuration in `source` (a file's text); a UsageError for anything that is not one. */
-export function parseOauthConfig(source: string): OauthConfig {
+/** The largest `--config` file read, in bytes, checked before anything is parsed. */
+export const MAX_CONFIG_BYTES = 64 * 1024;
+
+/** YAML as plain data: no anchor, alias, custom tag or merge key, one document, no repeated key. */
+function readYaml(source: string): unknown {
+  const parsed = parseDocument(source, { merge: false, schema: 'core', uniqueKeys: true });
+  const first = parsed.errors[0];
+  if (first !== undefined)
+    throw new UsageError(`--config: the file is not valid YAML (${first.code}).`);
+  // Walked before anything is turned into data, so an alias is never expanded.
+  visit(parsed, {
+    Alias() {
+      throw new UsageError('--config: YAML aliases and anchors are not allowed.');
+    },
+    Node(_key, node) {
+      if (node.anchor !== undefined)
+        throw new UsageError('--config: YAML aliases and anchors are not allowed.');
+      if (node.tag !== undefined)
+        throw new UsageError(`--config: a YAML tag (${node.tag.slice(0, 40)}) is not allowed.`);
+    },
+    Pair(_key, pair) {
+      if (isScalar(pair.key) && pair.key.value === '<<')
+        throw new UsageError('--config: a YAML merge key (<<) is not allowed.');
+    },
+  });
+  return parsed.toJS();
+}
+
+/**
+ * The configuration in `source` (a file's text, JSON unless `format` says YAML); a UsageError for anything that is
+ * not one.
+ */
+export function parseOauthConfig(source: string, format: 'json' | 'yaml' = 'json'): OauthConfig {
+  if (Buffer.byteLength(source) > MAX_CONFIG_BYTES)
+    throw new UsageError(
+      `--config: the file is too large (more than ${MAX_CONFIG_BYTES / 1024} KiB).`,
+    );
   let doc: unknown;
-  try {
-    doc = JSON.parse(source);
-  } catch {
-    throw new UsageError('--config: the file is not JSON (YAML is not read yet).');
+  if (format === 'yaml') doc = readYaml(source);
+  else {
+    try {
+      doc = JSON.parse(source);
+    } catch {
+      throw new UsageError(
+        '--config: the file is not JSON (a file named .yaml or .yml is read as YAML).',
+      );
+    }
   }
-  if (!isObject(doc)) throw new UsageError('--config: the file must hold a JSON object.');
+  if (!isObject(doc)) throw new UsageError('--config: the file must hold an object.');
   const config: OauthConfig = {};
   for (const [key, value] of Object.entries(doc)) {
     if (!TOP.has(key)) {
@@ -220,5 +262,5 @@ export function loadOauthConfig(path: string): OauthConfig {
       `--config: could not read ${path}${code === undefined ? '' : ` (${code})`}.`,
     );
   }
-  return parseOauthConfig(source);
+  return parseOauthConfig(source, /\.ya?ml$/i.test(path) ? 'yaml' : 'json');
 }
