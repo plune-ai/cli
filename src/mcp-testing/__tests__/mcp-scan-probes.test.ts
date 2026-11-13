@@ -16,10 +16,8 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
-// A stdio test starts a node process or two; the first start on a cold machine takes seconds.
-vi.setConfig({ testTimeout: 60_000 });
 import { handleMcpScan, type McpScanFlags } from '../../cli/commands/mcp-scan.js';
 import { ProbeGuard, canonical, type Frame, type Reply } from '../scan/probes/guard.js';
 import { MAX_PROBE_FILE_BYTES, parseProbeFile } from '../scan/probes/file.js';
@@ -70,6 +68,8 @@ interface Opts {
   /** The tool fetch_page fetches the URL in its argument (named `urlParam`, `url` by default) and answers with the page. */
   fetchMode?: 'verbatim' | 'wrapped' | 'none' | 'big';
   urlParam?: string;
+  /** The tool fetch_page notes the address it was given and never answers. */
+  hangOnFetch?: boolean;
 }
 interface Fixture {
   url: string;
@@ -168,6 +168,10 @@ async function fixture(opts: Opts = {}): Promise<Fixture> {
       const target = body.params.arguments?.[opts.urlParam ?? 'url'];
       if (typeof target !== 'string' || opts.fetchMode === 'none')
         return reply({ content: [{ type: 'text', text: 'nothing fetched' }] });
+      if (opts.hangOnFetch === true) {
+        fetched.push({ url: target, body: '' });
+        return;
+      }
       const page = await (await fetch(target)).text();
       fetched.push({ url: target, body: page });
       const text =
@@ -1829,10 +1833,14 @@ describe('CLI · mcp scan probes · scan/probe/untrusted-content-verbatim: a pag
     const { dir, file } = probeFile([fetchEntry()]);
     const r = await scan(dir, active(f, file), TOKENS);
     expect(r.json()['findings']).toEqual([]);
-    expect((byId(r, 'f1') as { note?: string }).note).toBe('the marker came back with a boundary');
+    expect((byId(r, 'f1') as { note?: string }).note).toBe(
+      'the marker came back inside a boundary',
+    );
     const g = await fixture({ tools: FETCH_TOOLS, fetchMode: 'none' });
     const r2 = await scan(dir, active(g, file), TOKENS);
-    expect((byId(r2, 'f1') as { note?: string }).note).toBe('the marker did not come back');
+    expect((byId(r2, 'f1') as { note?: string }).note).toBe(
+      'the marker did not come back in the text that was read',
+    );
     expect(r2.json()['findings']).toEqual([]);
   });
 
@@ -1895,7 +1903,9 @@ describe('CLI · mcp scan probes · scan/probe/untrusted-content-verbatim: a pag
     const wrong = probeFile([fetchEntry('f1')]);
     const r = await scan(wrong.dir, active(f, wrong.file), TOKENS);
     expect(f.fetched.length).toBe(1);
-    expect((byId(r, 'f1') as { note?: string }).note).toBe('the marker did not come back');
+    expect((byId(r, 'f1') as { note?: string }).note).toBe(
+      'the marker did not come back in the text that was read',
+    );
   });
 
   it('a server that is not on this machine cannot reach the page: "not run, remote server", no listener, no call', async () => {
@@ -1910,11 +1920,13 @@ describe('CLI · mcp scan probes · scan/probe/untrusted-content-verbatim: a pag
     expect(PROBE_REASONS).toHaveProperty('remote-server');
   });
 
-  it('only the first 64 KiB of an answer is read: a marker after it is "did not come back"', async () => {
+  it('only the first 64 KiB of an answer is read: a marker after it is not judged', async () => {
     const f = await fixture({ tools: FETCH_TOOLS, fetchMode: 'big' });
     const { dir, file } = probeFile([fetchEntry()]);
     const r = await scan(dir, active(f, file), TOKENS);
-    expect((byId(r, 'f1') as { note?: string }).note).toBe('the marker did not come back');
+    expect((byId(r, 'f1') as { note?: string }).note).toBe(
+      'the answer was over 64 KiB: not judged',
+    );
   });
 
   it('the wrapper allows exactly the call with the page address in the named argument', async () => {
@@ -1962,6 +1974,19 @@ const tools = [
   { name: 'wipe', inputSchema: { type: 'object', properties: { doc: { type: 'string' } }, required: ['doc'] }, annotations: { destructiveHint: true } },
   { name: 'fetch_page', inputSchema: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] } },
 ];
+if (modes.includes('grandchild'))
+  fs.writeFileSync(pidfile + '.gc', String(require('child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' }).pid));
+if (modes.includes('stderr-flood')) {
+  const chunk = 'x'.repeat(1024 * 1024);
+  let n = 0;
+  const pump = () => {
+    while (n < 50) {
+      n++;
+      if (!process.stderr.write(chunk)) return void process.stderr.once('drain', pump);
+    }
+  };
+  pump();
+}
 if (modes.includes('silent')) setInterval(() => {}, 1000);
 else {
   process.stderr.write('STDERRMARK-9 at x (/srv/app/a.js:1:2)\\n');
@@ -1971,6 +1996,8 @@ else {
     if (log) fs.appendFileSync(log, (m.method || '') + (m.params && m.params.name ? ':' + m.params.name : '') + '\\n');
     if (m.id === undefined) return;
     const ok = (result) => send({ jsonrpc: '2.0', id: m.id, result });
+    if (m.method === 'initialize' && modes.includes('stdout-flood')) return void process.stdout.write('y'.repeat(11 * 1024 * 1024));
+    if (m.method === 'tools/call' && modes.includes('hang-on-call')) return;
     if (m.method === 'initialize') return ok({ protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 's', version: '1' } });
     if (m.method === 'tools/list') {
       if (modes.includes('exit-on-list')) process.exit(0);
@@ -2048,149 +2075,156 @@ const stdioRun = (
   };
 };
 
-describe('CLI · mcp scan probes · stdio: the same wrapper, the command only with --yes, the child always stopped', () => {
-  it('without --yes the command is announced and nothing is started: "not run, no --yes", exit 3', async () => {
-    const s = stdioServer('leaky');
-    const { dir, file } = probeFile([...leaky]);
-    const r = await scan(
-      dir,
-      { active: true, probes: file },
-      {},
-      undefined,
-      s.args.length ? [process.execPath, ...s.args] : [],
-    );
-    expect(r.err).toContain('probes target the server started by');
-    expect(rowsOf(r)[0]!.reason).toBe('no-yes');
-    expect(r.code).toBe(3);
-    expect(s.methods().filter((m) => m.startsWith('tools/call'))).toEqual([]);
-  });
-
-  it('with --yes the authentication probes are "not applicable (stdio)" and the malformed one runs: red on a stack, green on a plain message', async () => {
-    for (const [mode, hits] of [
-      ['leaky', 1],
-      ['strict', 0],
-    ] as const) {
-      const s = stdioServer(mode);
-      const { dir, file } = probeFile([
-        entry('p-none', 'none', { expect: 'refuse' }),
-        entry('p-a', 'account-a'),
-        ...leaky,
-      ]);
+// A stdio test starts a node process or two; the first start on a cold machine takes seconds. Only these tests wait long.
+describe(
+  'CLI · mcp scan probes · stdio: the same wrapper, the command only with --yes, the child always stopped',
+  { timeout: 60_000 },
+  () => {
+    it('without --yes the command is announced and nothing is started: "not run, no --yes", exit 3', async () => {
+      const s = stdioServer('leaky');
+      const { dir, file } = probeFile([...leaky]);
       const r = await scan(
         dir,
-        { active: true, yes: true, probes: file, journal: 'j.jsonl' },
+        { active: true, probes: file },
         {},
         undefined,
-        [process.execPath, ...s.args],
+        s.args.length ? [process.execPath, ...s.args] : [],
       );
-      expect(byId(r, 'p-none').reason, mode).toBe('stdio');
-      expect(byId(r, 'p-a').reason, mode).toBe('stdio');
-      const found = (r.json()['findings'] as { rule: string }[]).filter(
-        (x) => x.rule === 'scan/probe/error-detail-leak',
-      );
-      expect(found, mode).toHaveLength(hits);
-      expect(r.code, mode).toBe(3);
-      expect(s.calls(), mode).toEqual(['tools/call:export']);
-      const all = r.out + r.err + readFileSync(join(dir, 'j.jsonl'), 'utf8');
-      expect(all).not.toContain('STDERRMARK-9');
-      expect(all).not.toContain('/srv/app');
-    }
-  });
-
-  it('every frame goes through the wrapper: the budget, the declared call and the destructive hint hold on stdio', async () => {
-    const { s, run } = stdioRun(
-      'strict',
-      [
-        { id: 'm1', tool: 'export', arguments: {}, as: 'account-a', malformed: true },
-        { id: 'm2', tool: 'export', arguments: {}, as: 'account-a', malformed: true },
-        { id: 'm3', tool: 'wipe', arguments: {}, as: 'account-a', malformed: true },
-      ],
-      { maxCalls: 1 },
-    );
-    const section = await run();
-    expect(s.calls()).toEqual(['tools/call:export']);
-    expect(section.rows.map((x) => x.reason)).toEqual([undefined, 'budget', 'destructive']);
-    expect(section.calls).toBe(1);
-  });
-
-  it('there is a journal line for every frame the child received', async () => {
-    const lines: Record<string, unknown>[] = [];
-    const { s, run } = stdioRun('strict', leaky, {
-      journal: { record: (l) => void lines.push(l) },
+      expect(r.err).toContain('probes target the server started by');
+      expect(rowsOf(r)[0]!.reason).toBe('no-yes');
+      expect(r.code).toBe(3);
+      expect(s.methods().filter((m) => m.startsWith('tools/call'))).toEqual([]);
     });
-    await run();
-    expect(lines.filter((l) => l['dir'] === 'out')).toHaveLength(s.methods().length);
-    expect(lines.filter((l) => l['dir'] === 'in').length).toBeGreaterThan(0);
-  });
 
-  it('the child is gone when the run ends: normally, on a budget stop, on a journal that cannot be written, on a thrown error', async () => {
-    const cases: [string, Partial<Parameters<typeof runProbes>[0]>][] = [
-      ['normal', {}],
-      ['budget', { maxCalls: 1 }],
-      [
-        'journal',
-        {
-          journal: {
-            record: () => {
-              throw new Error('disk full');
-            },
-          },
-        },
-      ],
-      [
-        'thrown',
-        {
-          journal: {
-            record: () => {},
-            bind: () => {
-              throw new Error('boom');
-            },
-          },
-        },
-      ],
-    ];
-    for (const [name, extra] of cases) {
-      const { s, run } = stdioRun('strict', [...leaky, { ...leaky[0], id: 'm2' }], extra);
-      try {
-        await run();
-      } catch {
-        /* the thrown case */
+    it('with --yes the authentication probes are "not applicable (stdio)" and the malformed one runs: red on a stack, green on a plain message', async () => {
+      for (const [mode, hits] of [
+        ['leaky', 1],
+        ['strict', 0],
+      ] as const) {
+        const s = stdioServer(mode);
+        const { dir, file } = probeFile([
+          entry('p-none', 'none', { expect: 'refuse' }),
+          entry('p-a', 'account-a'),
+          ...leaky,
+        ]);
+        const r = await scan(
+          dir,
+          { active: true, yes: true, probes: file, journal: 'j.jsonl' },
+          {},
+          undefined,
+          [process.execPath, ...s.args],
+        );
+        expect(byId(r, 'p-none').reason, mode).toBe('stdio');
+        expect(byId(r, 'p-a').reason, mode).toBe('stdio');
+        const found = (r.json()['findings'] as { rule: string }[]).filter(
+          (x) => x.rule === 'scan/probe/error-detail-leak',
+        );
+        expect(found, mode).toHaveLength(hits);
+        expect(r.code, mode).toBe(3);
+        expect(s.calls(), mode).toEqual(['tools/call:export']);
+        const all = r.out + r.err + readFileSync(join(dir, 'j.jsonl'), 'utf8');
+        expect(all).not.toContain('STDERRMARK-9');
+        expect(all).not.toContain('/srv/app');
       }
-      expect(alive(s.pid()), name).toBe(false);
-    }
-  });
+    });
 
-  it('a child that exits in the middle of a probe is a transport failure: not run, never a verdict; the others stop', async () => {
-    const { run } = stdioRun('exit-on-list', [
-      ...leaky,
-      { ...leaky[0], id: 'm2' },
-      { ...leaky[0], id: 'm3' },
-    ]);
-    const section = await run();
-    expect(section.rows.every((x) => x.outcome === 'not-run')).toBe(true);
-    expect(section.findings).toEqual([]);
-    expect(section.rows.map((x) => x.reason)).toContain('transport-stopped');
-  });
+    it('every frame goes through the wrapper: the budget, the declared call and the destructive hint hold on stdio', async () => {
+      const { s, run } = stdioRun(
+        'strict',
+        [
+          { id: 'm1', tool: 'export', arguments: {}, as: 'account-a', malformed: true },
+          { id: 'm2', tool: 'export', arguments: {}, as: 'account-a', malformed: true },
+          { id: 'm3', tool: 'wipe', arguments: {}, as: 'account-a', malformed: true },
+        ],
+        { maxCalls: 1 },
+      );
+      const section = await run();
+      expect(s.calls()).toEqual(['tools/call:export']);
+      expect(section.rows.map((x) => x.reason)).toEqual([undefined, 'budget', 'destructive']);
+      expect(section.calls).toBe(1);
+    });
 
-  it('a child that never answers is bounded by the timeout', async () => {
-    const { s, run } = stdioRun(
-      'silent',
-      [...leaky, { ...leaky[0], id: 'm2' }, { ...leaky[0], id: 'm3' }],
-      { timeoutMs: 300 },
-    );
-    const t = Date.now();
-    const section = await run();
-    expect(Date.now() - t).toBeLessThan(8000);
-    expect(section.rows.every((x) => x.outcome === 'not-run')).toBe(true);
-    expect(alive(s.pid())).toBe(false);
-  });
+    it('there is a journal line for every frame the child received', async () => {
+      const lines: Record<string, unknown>[] = [];
+      const { s, run } = stdioRun('strict', leaky, {
+        journal: { record: (l) => void lines.push(l) },
+      });
+      await run();
+      expect(lines.filter((l) => l['dir'] === 'out')).toHaveLength(s.methods().length);
+      expect(lines.filter((l) => l['dir'] === 'in').length).toBeGreaterThan(0);
+    });
 
-  it('a fetches probe works on stdio too, against the page of the scan', async () => {
-    const { run } = stdioRun('strict', [fetchEntry('f1')]);
-    const section = await run();
-    expect(section.findings.map((x) => x.rule)).toEqual(['scan/probe/untrusted-content-verbatim']);
-  });
-});
+    it('the child is gone when the run ends: normally, on a budget stop, on a journal that cannot be written, on a thrown error', async () => {
+      const cases: [string, Partial<Parameters<typeof runProbes>[0]>][] = [
+        ['normal', {}],
+        ['budget', { maxCalls: 1 }],
+        [
+          'journal',
+          {
+            journal: {
+              record: () => {
+                throw new Error('disk full');
+              },
+            },
+          },
+        ],
+        [
+          'thrown',
+          {
+            journal: {
+              record: () => {},
+              bind: () => {
+                throw new Error('boom');
+              },
+            },
+          },
+        ],
+      ];
+      for (const [name, extra] of cases) {
+        const { s, run } = stdioRun('strict', [...leaky, { ...leaky[0], id: 'm2' }], extra);
+        try {
+          await run();
+        } catch {
+          /* the thrown case */
+        }
+        expect(alive(s.pid()), name).toBe(false);
+      }
+    });
+
+    it('a child that exits in the middle of a probe is a transport failure: not run, never a verdict; the others stop', async () => {
+      const { run } = stdioRun('exit-on-list', [
+        ...leaky,
+        { ...leaky[0], id: 'm2' },
+        { ...leaky[0], id: 'm3' },
+      ]);
+      const section = await run();
+      expect(section.rows.every((x) => x.outcome === 'not-run')).toBe(true);
+      expect(section.findings).toEqual([]);
+      expect(section.rows.map((x) => x.reason)).toContain('transport-stopped');
+    });
+
+    it('a child that never answers is bounded by the timeout', async () => {
+      const { s, run } = stdioRun(
+        'silent',
+        [...leaky, { ...leaky[0], id: 'm2' }, { ...leaky[0], id: 'm3' }],
+        { timeoutMs: 300 },
+      );
+      const t = Date.now();
+      const section = await run();
+      expect(Date.now() - t).toBeLessThan(8000);
+      expect(section.rows.every((x) => x.outcome === 'not-run')).toBe(true);
+      expect(alive(s.pid())).toBe(false);
+    });
+
+    it('a fetches probe works on stdio too, against the page of the scan', async () => {
+      const { run } = stdioRun('strict', [fetchEntry('f1')]);
+      const section = await run();
+      expect(section.findings.map((x) => x.rule)).toEqual([
+        'scan/probe/untrusted-content-verbatim',
+      ]);
+    });
+  },
+);
 
 // ---- --import-conformance ------------------------------------------------------------------------------------------------
 
@@ -2512,3 +2546,197 @@ describe('CLI · mcp scan probes · a malformed destructiveHint blocks, and a co
     expect(m![1]).not.toContain('<skipped');
   });
 });
+
+// ---- step 3, after review ---------------------------------------------------------------------------------------------------
+
+describe('CLI · mcp scan probes · the verdict on the page marker: bounded cost, every place a result carries text, distinct notes', () => {
+  const MARKER = 'PLUNE-CANARY-0123456789abcdef';
+  const floods: [string, string][] = [
+    ['newlines', '\n'.repeat(64 * 1024)],
+    ['space-newline', ' \n'.repeat(32 * 1024)],
+    ['spaces', ' '.repeat(64 * 1024)],
+    ['dashes', '-'.repeat(64 * 1024)],
+    ['dash-lines', '--- \n'.repeat(13 * 1024)],
+    ['angle', '<'.repeat(64 * 1024)],
+    ['tag-starts', '<data '.repeat(10 * 1024)],
+    ['backticks', '`'.repeat(64 * 1024)],
+    ['hashes', '#'.repeat(64 * 1024)],
+    ['hash-lines', '# \n'.repeat(21 * 1024)],
+    ['begin-lines', 'begin untrusted\n'.repeat(4 * 1024)],
+  ];
+  const text = (t: string) => ({ content: [{ type: 'text', text: t }] });
+
+  it('each sign of a boundary is found in linear time: every flood of 64 KiB, before or after the marker, is judged in under 50 ms', async () => {
+    const { markerVerdict } = await import('../scan/probes/page.js');
+    for (const [name, flood] of floods)
+      for (const input of [
+        `${MARKER}\n${flood}`,
+        `${flood}\n${MARKER}`,
+        `${flood}${MARKER}${flood}`,
+      ]) {
+        const t = performance.now();
+        markerVerdict(text(input), MARKER);
+        expect(performance.now() - t, name).toBeLessThan(50);
+      }
+  });
+
+  it('a boundary counts only where it encloses the marker: a word or a fence somewhere else does not turn the finding off', async () => {
+    const { markerVerdict } = await import('../scan/probes/page.js');
+    expect(
+      markerVerdict(
+        text(`the word untrusted is fine here\n\`\`\`js\ncode\n\`\`\`\n${MARKER}`),
+        MARKER,
+      ),
+    ).toBe('verbatim');
+    expect(markerVerdict(text(`<data>x</data>\n${MARKER}`), MARKER)).toBe('verbatim');
+    expect(
+      markerVerdict(
+        {
+          content: [
+            { type: 'text', text: 'a', annotations: {} },
+            { type: 'text', text: MARKER },
+          ],
+        },
+        MARKER,
+      ),
+    ).toBe('verbatim');
+    expect(markerVerdict(text(`\`\`\`\n${MARKER}\n\`\`\``), MARKER)).toBe('bounded');
+    expect(
+      markerVerdict(text(`<untrusted-content>\n${MARKER}\n</untrusted-content>`), MARKER),
+    ).toBe('bounded');
+    expect(markerVerdict(text(`---\n${MARKER}\n---`), MARKER)).toBe('bounded');
+    expect(markerVerdict(text(`BEGIN UNTRUSTED\n${MARKER}\nEND UNTRUSTED`), MARKER)).toBe(
+      'bounded',
+    );
+    expect(
+      markerVerdict(
+        { content: [{ type: 'text', text: MARKER, annotations: { audience: ['user'] } }] },
+        MARKER,
+      ),
+    ).toBe('bounded');
+  });
+
+  it('the marker is looked for in content text, in an embedded resource text and in structuredContent', async () => {
+    const { markerVerdict } = await import('../scan/probes/page.js');
+    expect(
+      markerVerdict(
+        { content: [{ type: 'resource', resource: { uri: 'x://a', text: MARKER } }] },
+        MARKER,
+      ),
+    ).toBe('verbatim');
+    expect(markerVerdict({ content: [], structuredContent: { page: MARKER } }, MARKER)).toBe(
+      'verbatim',
+    );
+  });
+
+  it('what was not judged is said apart: an answer over the 64 KiB read, an answer with no text, a marker that did not come back', async () => {
+    const { markerVerdict } = await import('../scan/probes/page.js');
+    expect(markerVerdict(text(`${'x'.repeat(70 * 1024)}${MARKER}`), MARKER)).toBe('too-large');
+    expect(
+      markerVerdict({ content: [{ type: 'image', data: 'AAAA', mimeType: 'image/png' }] }, MARKER),
+    ).toBe('no-text');
+    expect(markerVerdict({}, MARKER)).toBe('no-text');
+    expect(markerVerdict(text('nothing here'), MARKER)).toBe('absent');
+  });
+
+  it('the notes of the row are distinct in the report: did not come back, over the limit, the tool did not run', async () => {
+    const big = await fixture({ tools: FETCH_TOOLS, fetchMode: 'big' });
+    const { dir, file } = probeFile([fetchEntry()]);
+    const r = await scan(dir, active(big, file), TOKENS);
+    expect((byId(r, 'f1') as { note?: string }).note).toBe(
+      'the answer was over 64 KiB: not judged',
+    );
+    const none = await fixture({ tools: FETCH_TOOLS, fetchMode: 'none' });
+    const r2 = await scan(dir, active(none, file), TOKENS);
+    expect((byId(r2, 'f1') as { note?: string }).note).toBe(
+      'the marker did not come back in the text that was read',
+    );
+    const hang = await fixture({ tools: FETCH_TOOLS, hangOnFetch: true });
+    const r3 = await scan(dir, { ...active(hang, file), timeout: '500ms' } as McpScanFlags, TOKENS);
+    expect(byId(r3, 'f1').outcome).toBe('not-run');
+  });
+
+  it('the listener of the page has explicit small limits', async () => {
+    const { startPage } = await import('../scan/probes/page.js');
+    const page = await startPage();
+    try {
+      expect(page.limits.maxConnections).toBeLessThanOrEqual(16);
+      for (const k of ['headersTimeout', 'requestTimeout', 'keepAliveTimeout'] as const) {
+        expect(page.limits[k], k).toBeGreaterThan(0);
+        expect(page.limits[k], k).toBeLessThanOrEqual(10_000);
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('the listener is closed when the tool never answers', async () => {
+    const f = await fixture({ lax: true, tools: FETCH_TOOLS, hangOnFetch: true });
+    await runProbes({
+      entries: [fetchEntry('f1')] as ProbeEntry[],
+      target: { kind: 'http', url: f.url, headers: {} } as never,
+      tokens: { accountA: TOKEN_A },
+      timeoutMs: 400,
+      announce: () => {},
+    });
+    expect(f.fetched.length).toBeGreaterThan(0);
+    for (const u of new Set(f.fetched.map((x) => x.url))) await expect(fetch(u)).rejects.toThrow();
+  });
+});
+
+// A stdio test starts a node process or two; the first start on a cold machine takes seconds. Only these tests wait long.
+describe(
+  'CLI · mcp scan probes · what a stdio child writes is bounded',
+  { timeout: 60_000 },
+  () => {
+    it('the stderr reader keeps no more than a line limit: 50 MiB with no newline is one cut line, and the lines after it are whole', async () => {
+      const { readLines, STDERR_LINE_LIMIT } = await import('../connect/session.js');
+      const { PassThrough } = await import('node:stream');
+      const stream = new PassThrough();
+      const lines: string[] = [];
+      const done = readLines(stream, (l) => lines.push(l));
+      const chunk = Buffer.alloc(1024 * 1024, 'x');
+      for (let i = 0; i < 50; i++)
+        if (!stream.write(chunk)) await new Promise((r) => stream.once('drain', r));
+      stream.write('\nsecond\r\nthird');
+      stream.end();
+      await done;
+      expect(lines).toHaveLength(3);
+      expect(lines[0]!.length).toBeLessThanOrEqual(STDERR_LINE_LIMIT);
+      expect(lines.slice(1)).toEqual(['second', 'third']);
+    });
+
+    it('a child that writes 50 MiB to stderr with no newline: the run ends with its normal result and the session kept little', async () => {
+      const { s, run } = stdioRun('stderr-flood', leaky);
+      const before = process.memoryUsage().rss;
+      const section = await run();
+      expect(section.rows[0]!.outcome).toBe('as-expected');
+      expect(process.memoryUsage().rss - before).toBeLessThan(120 * 1024 * 1024);
+      expect(alive(s.pid())).toBe(false);
+    });
+
+    it('a child that writes more than 10 MiB to stdout with no newline is a transport failure, not a hang, and is stopped', async () => {
+      const { s, run } = stdioRun('stdout-flood', [...leaky, { ...leaky[0], id: 'm2' }]);
+      const t = Date.now();
+      const section = await run();
+      expect(Date.now() - t).toBeLessThan(20_000);
+      expect(section.rows.every((x) => x.outcome === 'not-run')).toBe(true);
+      expect(alive(s.pid())).toBe(false);
+    });
+
+    it('a child that never answers a tools/call is stopped, and the page of the scan is closed', async () => {
+      const { s, run } = stdioRun('hang-on-call', [fetchEntry('f1')], { timeoutMs: 600 });
+      const section = await run();
+      expect(section.rows[0]!.outcome).toBe('not-run');
+      expect(alive(s.pid())).toBe(false);
+    });
+
+    it('on Windows, a process the child started is gone after the scan (skipped elsewhere: the tree kill of the other systems is not under test here)', async (ctx) => {
+      if (process.platform !== 'win32') return ctx.skip();
+      const { s, run } = stdioRun('grandchild', leaky);
+      await run();
+      expect(alive(s.pid())).toBe(false);
+      expect(alive(Number(readFileSync(`${s.dir}/pid.gc`, 'utf8')))).toBe(false);
+    });
+  },
+);

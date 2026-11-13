@@ -173,8 +173,7 @@ export interface ScanOptions {
   showDecoded?: boolean;
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> =>
-  typeof v === 'object' && v !== null && !Array.isArray(v);
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const U = (cp: number) => `U+${cp.toString(16).toUpperCase().padStart(4, '0')}`;
 const SHOWN = /^[\p{L}\p{N}\p{P}\p{S} ]$/u;
 
@@ -194,13 +193,11 @@ export function visible(s: string, max = EXCERPT): string {
   return pieces.join('');
 }
 
-const segment = (s: string | number) =>
-  typeof s === 'number' ? String(s) : visible(s.replace(/~/g, '~0').replace(/\//g, '~1'), Infinity);
+const segment = (s: string | number) => (typeof s === 'number' ? String(s) : visible(s.replace(/~/g, '~0').replace(/\//g, '~1'), Infinity));
 const pointerOf = (path: (string | number)[]) => `/${path.map(segment).join('/')}`;
 
 const hasStringType = (schema: Record<string, unknown>) =>
-  schema['type'] === 'string' ||
-  (Array.isArray(schema['type']) && schema['type'].includes('string'));
+  schema['type'] === 'string' || (Array.isArray(schema['type']) && schema['type'].includes('string'));
 
 /**
  * Every text of a snapshot the rules read: the name, title and description of a tool and its `annotations.title`;
@@ -211,15 +208,8 @@ const hasStringType = (schema: Record<string, unknown>) =>
  */
 export function descriptionTexts(snapshot: McpSnapshot): ScannedText[] {
   const out: ScannedText[] = [];
-  const add = (
-    surface: Surface,
-    path: (string | number)[],
-    v: unknown,
-    key = false,
-    stringParam = false,
-  ) => {
-    if (typeof v === 'string' && v !== '')
-      out.push({ pointer: pointerOf(path), surface, text: v, key, stringParam });
+  const add = (surface: Surface, path: (string | number)[], v: unknown, key = false, stringParam = false) => {
+    if (typeof v === 'string' && v !== '') out.push({ pointer: pointerOf(path), surface, text: v, key, stringParam });
   };
   const schema = (path: (string | number)[], node: unknown): void => {
     if (typeof node === 'string') add('tools', path, node);
@@ -228,18 +218,12 @@ export function descriptionTexts(snapshot: McpSnapshot): ScannedText[] {
       const param = path.at(-2) === 'properties' && hasStringType(node);
       for (const [k, v] of Object.entries(node)) {
         add('tools', [...path, k], k, true);
-        if (k === 'description' && typeof v === 'string')
-          add('tools', [...path, k], v, false, param);
+        if (k === 'description' && typeof v === 'string') add('tools', [...path, k], v, false, param);
         else schema([...path, k], v);
       }
     }
   };
-  const fields = (
-    surface: Surface,
-    path: (string | number)[],
-    entity: unknown,
-    names: readonly string[],
-  ) => {
+  const fields = (surface: Surface, path: (string | number)[], entity: unknown, names: readonly string[]) => {
     if (isRecord(entity)) for (const f of names) add(surface, [...path, f], entity[f]);
   };
 
@@ -247,27 +231,14 @@ export function descriptionTexts(snapshot: McpSnapshot): ScannedText[] {
   snapshot.tools?.forEach((t, i) => {
     fields('tools', ['tools', i], t, ['name', 'title', 'description']);
     fields('tools', ['tools', i, 'annotations'], t.annotations, ['title']);
-    for (const f of ['inputSchema', 'outputSchema'] as const)
-      if (t[f] !== undefined) schema(['tools', i, f], t[f]);
+    for (const f of ['inputSchema', 'outputSchema'] as const) if (t[f] !== undefined) schema(['tools', i, f], t[f]);
   });
   snapshot.prompts?.forEach((p, i) => {
     fields('prompts', ['prompts', i], p, ['name', 'title', 'description']);
-    if (Array.isArray(p.arguments))
-      p.arguments.forEach((a, j) =>
-        fields('prompts', ['prompts', i, 'arguments', j], a, ['name', 'title', 'description']),
-      );
+    if (Array.isArray(p.arguments)) p.arguments.forEach((a, j) => fields('prompts', ['prompts', i, 'arguments', j], a, ['name', 'title', 'description']));
   });
-  snapshot.resources?.forEach((r, i) =>
-    fields('resources', ['resources', i], r, ['uri', 'name', 'title', 'description']),
-  );
-  snapshot.resourceTemplates?.forEach((r, i) =>
-    fields('resourceTemplates', ['resourceTemplates', i], r, [
-      'uriTemplate',
-      'name',
-      'title',
-      'description',
-    ]),
-  );
+  snapshot.resources?.forEach((r, i) => fields('resources', ['resources', i], r, ['uri', 'name', 'title', 'description']));
+  snapshot.resourceTemplates?.forEach((r, i) => fields('resourceTemplates', ['resourceTemplates', i], r, ['uriTemplate', 'name', 'title', 'description']));
   return out;
 }
 
@@ -301,8 +272,7 @@ const NOUNS: Partial<Record<DescRuleId, string>> = {
 
 // ponytail: scripts listed by hand (the ones that write right to left, and the ones that use joiners between letters);
 // MCP-G7 measures these bounds on the corpus, and a script missing here shows there as a false finding.
-const RTL =
-  /[\p{Script=Arabic}\p{Script=Hebrew}\p{Script=Syriac}\p{Script=Thaana}\p{Script=Nko}\p{Script=Samaritan}\p{Script=Mandaic}\p{Script=Adlam}]/u;
+const RTL = /[\p{Script=Arabic}\p{Script=Hebrew}\p{Script=Syriac}\p{Script=Thaana}\p{Script=Nko}\p{Script=Samaritan}\p{Script=Mandaic}\p{Script=Adlam}]/u;
 const JOINING =
   /[\p{Script=Arabic}\p{Script=Syriac}\p{Script=Nko}\p{Script=Mongolian}\p{Script=Devanagari}\p{Script=Bengali}\p{Script=Gurmukhi}\p{Script=Gujarati}\p{Script=Oriya}\p{Script=Tamil}\p{Script=Telugu}\p{Script=Kannada}\p{Script=Malayalam}\p{Script=Sinhala}\p{Script=Khmer}\p{Script=Myanmar}]/u;
 const EMOJI_BEFORE_ZWJ = /[\p{Extended_Pictographic}\p{Emoji_Modifier}\u{FE0F}]/u;
@@ -321,15 +291,11 @@ function charRule(cps: string[], i: number, rtl: boolean): DescRuleId | undefine
   const c = cps[i]!.codePointAt(0)!;
   if (c >= 0xe0000 && c <= 0xe007f) return 'scan/desc/tag-character';
   if ((c >= 0x202a && c <= 0x202e) || (c >= 0x2066 && c <= 0x2069)) return 'scan/desc/bidi-control';
-  if (c === 0x200b || c === 0x2060 || c === 0xfeff)
-    return i === 0 ? undefined : 'scan/desc/zero-width';
-  if (c === 0x200c || c === 0x200d)
-    return joinerNeeded(cps, i) ? undefined : 'scan/desc/joiner-or-direction-mark';
-  if (c === 0x200e || c === 0x200f || c === 0x061c)
-    return rtl ? undefined : 'scan/desc/joiner-or-direction-mark';
+  if (c === 0x200b || c === 0x2060 || c === 0xfeff) return i === 0 ? undefined : 'scan/desc/zero-width';
+  if (c === 0x200c || c === 0x200d) return joinerNeeded(cps, i) ? undefined : 'scan/desc/joiner-or-direction-mark';
+  if (c === 0x200e || c === 0x200f || c === 0x061c) return rtl ? undefined : 'scan/desc/joiner-or-direction-mark';
   // C0 and C1, and DEL between them, except the line ends and the tab.
-  if ((c < 0x20 && c !== 0x09 && c !== 0x0a && c !== 0x0d) || (c >= 0x7f && c <= 0x9f))
-    return 'scan/desc/control-character';
+  if ((c < 0x20 && c !== 0x09 && c !== 0x0a && c !== 0x0d) || (c >= 0x7f && c <= 0x9f)) return 'scan/desc/control-character';
   return undefined;
 }
 
@@ -349,18 +315,9 @@ function charHits(cps: string[], opts: ScanOptions): Hit[] {
     if (c === 0x1b || c === 0x9b) {
       // A CSI sequence (ESC [ or CSI, then parameters and a final byte), an OSC string (ESC ]), or one character.
       const rest = cps.slice(i + 1, i + 40).join('');
-      const seq =
-        (c === 0x1b
-          ? /^(?:\[[0-?]*[ -/]*[@-~]|\][^\u0007\u001b]{0,32}|[\s\S])?/
-          : /^[0-?]*[ -/]*[@-~]/
-        ).exec(rest)?.[0] ?? '';
+      const seq = (c === 0x1b ? /^(?:\[[0-?]*[ -/]*[@-~]|\][^\u0007\u001b]{0,32}|[\s\S])?/ : /^[0-?]*[ -/]*[@-~]/).exec(rest)?.[0] ?? '';
       const shown = `${c === 0x1b ? 'ESC' : 'CSI'}${seq === '' ? '' : ` ${visible(seq, 20)}`}`;
-      hits.push({
-        rule: 'scan/desc/ansi-escape',
-        offset: i,
-        match: U(c),
-        message: `terminal escape ${shown} at offset ${i}`,
-      });
+      hits.push({ rule: 'scan/desc/ansi-escape', offset: i, match: U(c), message: `terminal escape ${shown} at offset ${i}` });
       continue;
     }
     const rule = charRule(cps, i, rtl);
@@ -381,9 +338,7 @@ function charHits(cps: string[], opts: ScanOptions): Hit[] {
     } else {
       const shown = points.length > 3 ? `${points.slice(0, 3).join(' ')} ...` : points.join(' ');
       const message =
-        run.length === 1
-          ? `${NAMES[c] ?? 'control character'} ${shown} at offset ${i}`
-          : `${run.length} ${NOUNS[rule]} from offset ${i} (${shown})`;
+        run.length === 1 ? `${NAMES[c] ?? 'control character'} ${shown} at offset ${i}` : `${run.length} ${NOUNS[rule]} from offset ${i} (${shown})`;
       hits.push({ rule, offset: i, match: shown, message });
     }
     i = end - 1;
@@ -398,16 +353,7 @@ function codePointCounter(text: string): (index: number) => number {
   return (index) => {
     for (; unit < index; unit++) {
       const c = text.charCodeAt(unit);
-      if (
-        !(
-          c >= 0xdc00 &&
-          c <= 0xdfff &&
-          unit > 0 &&
-          text.charCodeAt(unit - 1) >= 0xd800 &&
-          text.charCodeAt(unit - 1) <= 0xdbff
-        )
-      )
-        count++;
+      if (!(c >= 0xdc00 && c <= 0xdfff && unit > 0 && text.charCodeAt(unit - 1) >= 0xd800 && text.charCodeAt(unit - 1) <= 0xdbff)) count++;
     }
     return count;
   };
@@ -430,10 +376,7 @@ function decodesToText(run: string): boolean {
 
 type HeuristicId = keyof typeof DESCRIPTION_PHRASES.rules;
 const PHRASES = Object.fromEntries(
-  Object.entries(DESCRIPTION_PHRASES.rules).map(([id, list]) => [
-    id,
-    new RegExp(list.map((p) => `(?:${p.replace(/ /g, '\\s+')})`).join('|'), 'giu'),
-  ]),
+  Object.entries(DESCRIPTION_PHRASES.rules).map(([id, list]) => [id, new RegExp(list.map((p) => `(?:${p.replace(/ /g, '\\s+')})`).join('|'), 'giu')]),
 ) as Record<HeuristicId, RegExp>;
 const SAYS: Record<HeuristicId, (m: string) => string> = {
   'scan/desc/override-instruction': (m) => `phrase "${m}"`,
@@ -451,33 +394,18 @@ function textHits(text: string, item: ScannedText): Hit[] {
     const end = text.indexOf('-->', start + 4);
     if (end === -1) break;
     const offset = at(start);
-    hits.push({
-      rule: 'scan/desc/html-comment',
-      offset,
-      match: 'html-comment',
-      message: `HTML comment of ${[...text.slice(start, end + 3)].length} characters at offset ${offset}`,
-    });
+    hits.push({ rule: 'scan/desc/html-comment', offset, match: 'html-comment', message: `HTML comment of ${[...text.slice(start, end + 3)].length} characters at offset ${offset}` });
     start = text.indexOf('<!--', end + 3);
   }
   for (const m of matches(text, new RegExp(`[A-Za-z0-9+/_-]{${MIN_BASE64_RUN},}={0,2}`, 'g'))) {
     if (!decodesToText(m.text)) continue;
-    hits.push({
-      rule: 'scan/desc/encoded-blob',
-      offset: m.offset,
-      match: 'base64',
-      message: `base64 run of ${m.text.length} characters at offset ${m.offset} decodes to printable text`,
-    });
+    hits.push({ rule: 'scan/desc/encoded-blob', offset: m.offset, match: 'base64', message: `base64 run of ${m.text.length} characters at offset ${m.offset} decodes to printable text` });
   }
   for (const id of Object.keys(PHRASES) as HeuristicId[]) {
     if (id === 'scan/desc/param-asks-for-context' && !item.stringParam) continue;
     for (const m of matches(text, PHRASES[id])) {
       const shown = visible(m.text, 60);
-      hits.push({
-        rule: id,
-        offset: m.offset,
-        match: shown,
-        message: `${SAYS[id](shown)} at offset ${m.offset}`,
-      });
+      hits.push({ rule: id, offset: m.offset, match: shown, message: `${SAYS[id](shown)} at offset ${m.offset}` });
     }
   }
   return hits;
@@ -491,12 +419,7 @@ function scanText(item: ScannedText, opts: ScanOptions): DescriptionFinding[] {
     // A character cut in two at the limit decodes to U+FFFD; it is not part of the text.
     text = Buffer.from(text, 'utf8').subarray(0, MAX_TEXT_BYTES).toString('utf8').replace(/�$/, '');
     const offset = [...text].length;
-    hits.push({
-      rule: 'scan/desc/oversized-text',
-      offset,
-      match: 'size',
-      message: `${(bytes / MAX_TEXT_BYTES).toFixed(1)} MB, scanned the first 1 MB only`,
-    });
+    hits.push({ rule: 'scan/desc/oversized-text', offset, match: 'size', message: `${(bytes / MAX_TEXT_BYTES).toFixed(1)} MB, scanned the first 1 MB only` });
   }
   const cps = [...text];
   hits.push(...charHits(cps, opts), ...textHits(text, item));
@@ -537,27 +460,19 @@ export function scanDescriptions(snapshot: McpSnapshot, opts: ScanOptions = {}):
 }
 
 /** A finding as one report line: its pointer and its message, both already escaped. */
-export const formatDescriptionFinding = (f: DescriptionFinding): string =>
-  `${f.pointer}: ${f.message}`;
+export const formatDescriptionFinding = (f: DescriptionFinding): string => `${f.pointer}: ${f.message}`;
 
 /**
  * Where `text` names one of `names`: whole names only (no letter, digit, `_` or `-` on either side) and in the same
  * letter case, or `list` would match half the sentences. The caller gives the names: for `scan/cross/foreign-tool-reference`
  * (MCP-G4), the tools of the other servers. Offsets in code points, in the order they appear.
  */
-export function findToolNames(
-  text: string,
-  names: readonly string[],
-): { name: string; offset: number }[] {
+export function findToolNames(text: string, names: readonly string[]): { name: string; offset: number }[] {
   const found: { name: string; offset: number }[] = [];
   for (const name of new Set(names)) {
     if (name === '') continue;
     const escaped = name.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
-    for (const m of matches(
-      text,
-      new RegExp(`(?<![\\p{L}\\p{N}_-])${escaped}(?![\\p{L}\\p{N}_-])`, 'gu'),
-    ))
-      found.push({ name, offset: m.offset });
+    for (const m of matches(text, new RegExp(`(?<![\\p{L}\\p{N}_-])${escaped}(?![\\p{L}\\p{N}_-])`, 'gu'))) found.push({ name, offset: m.offset });
   }
   return found.sort((a, b) => a.offset - b.offset);
 }

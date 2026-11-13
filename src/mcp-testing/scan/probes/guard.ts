@@ -112,7 +112,7 @@ export class ProbeGuard {
     return this.#stopped;
   }
 
-  /** The tools the server listed: the names whose `destructiveHint` is exactly `true`. */
+  /** The tools the server listed: those whose `destructiveHint` is `true` or is present and not a boolean (a malformed hint is no permission). */
   setListedTools(tools: readonly unknown[]): void {
     this.#listed = true;
     this.#schemas.clear();

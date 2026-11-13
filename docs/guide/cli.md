@@ -1281,14 +1281,28 @@ does not mean the server is protected.
 #### A page that comes from outside
 
 An entry with `"fetches": true`, `"urlArgument": "<name>"` and `"as": "account-a"` declares a tool that returns data from
-outside. The scan starts a listener on `127.0.0.1`, serves one harmless line to any request (`PLUNE-CANARY-` and 16 random
-hex digits, new for each run), calls the tool with the address of that page in the argument you named (the name is never
-guessed from the schema), and looks at the first 64 KiB of the answer. If the marker is in it and no sign of a boundary is
-(a wrapper tag, the word untrusted, a code fence, a separator line, or `annotations` on the content item), the advice
-finding `scan/probe/untrusted-content-verbatim` says the server hands outside text to the model unmarked. It is a
-heuristic, never gates without `--gate-heuristics`, and is not "the server is unsafe". The answer is never printed or
-journaled. The listener is closed on every way out of the run. A server that is not on this machine cannot reach it: that
-probe is "not run: remote server". A stdio server and a server on `localhost` or `127.0.0.1` can.
+outside. **The tool makes the server perform a request to this machine**: it is not read-only by nature, so name only tools
+that are safe to run on a test account. The scan starts a listener on `127.0.0.1` when the first `fetches` probe runs
+(with small limits on connections and timeouts), serves one harmless line to any request (`PLUNE-CANARY-` and 16 random hex
+digits, new for each run), calls the tool with the address of that page in the argument you named (the name is never
+guessed from the schema), and reads the text of the answer, up to 64 KiB in all: `content[].text`, `content[].resource.text`
+and `structuredContent` as JSON. The listener is closed when the run ends, on every way out.
+
+The row says which case it was: the marker came back verbatim; came back inside a boundary; did not come back in the text
+that was read; the answer was over the 64 KiB read (not judged); the answer had no text (not judged); or the tool did not
+run. Only the first is a finding: the advice `scan/probe/untrusted-content-verbatim`, which never gates without
+`--gate-heuristics`. A boundary is a sign that encloses the marker (a code fence, a tag such as `<untrusted-content>`, a
+separator line or a begin/end untrusted line on both sides) or `annotations` on the same content item. That is a heuristic
+a server can satisfy trivially, and "did not come back" proves nothing about how the server handles outside text. The answer
+is never printed or journaled. A server that is not on this machine cannot reach the page: that probe is "not run: remote
+server". A stdio server and a server on `localhost` or `127.0.0.1` can.
+
+#### A stdio server
+
+With `--yes` a probe starts the command you gave after `--` (printed first, secrets masked). The child gets only the values
+you passed with `--env` and the short default list of the SDK (`PATH`, `HOME` and the like), not the environment of the scan,
+so a token variable of the scan does not reach it. The child and the processes it started are stopped on every way out of
+the run. What it writes to stderr is never printed, and a line of it is cut at 64 KiB as it is read.
 
 #### The journal
 

@@ -30,6 +30,14 @@ import type { ProbeEntry, ProbeReason, ProbeRow } from './types.js';
 
 /** The rule of a malformed probe (`malformed: true`): not a rule of an `as`, so it is not in the map below. */
 export const LEAK_RULE = 'scan/probe/error-detail-leak';
+/** What a row of a `fetches` probe says; "did not come back" is never "safe", and what was not judged is said apart. */
+const VERDICT_NOTE = {
+  verbatim: 'the marker came back verbatim, with no boundary',
+  bounded: 'the marker came back inside a boundary',
+  absent: 'the marker did not come back in the text that was read',
+  'too-large': 'the answer was over 64 KiB: not judged',
+  'no-text': 'the answer had no text to read: not judged',
+} as const;
 export const FETCH_RULE = 'scan/probe/untrusted-content-verbatim';
 
 export const PROBE_RULE_OF = {
@@ -438,12 +446,8 @@ ${canonical(e.arguments)}`;
         outcome: 'as-expected',
         note:
           verdict === undefined
-            ? 'the call failed; there is nothing to compare'
-            : verdict === 'verbatim'
-              ? 'the marker came back verbatim, with no boundary'
-              : verdict === 'bounded'
-                ? 'the marker came back with a boundary'
-                : 'the marker did not come back',
+            ? 'the tool did not run: the call failed or was refused'
+            : VERDICT_NOTE[verdict],
       });
       if (verdict === 'verbatim')
         section.findings.push({
