@@ -29,6 +29,8 @@ import {
   type ScanLevel,
 } from './descriptions.js';
 import { covers, type ScanException } from './exceptions.js';
+import type { ProbeSection } from './probes/runner.js';
+import { PROBE_REASONS } from './probes/types.js';
 import {
   DISCLAIMER,
   fingerprintOf,
@@ -69,6 +71,8 @@ export interface ScanInput {
   /** A pin file that was named and could not be read: the pins group cannot run, and says why. */
   pinProblem?: { file: string; reason: string };
   active: boolean;
+  /** What the active probes did (`--active`); undefined when none was run. */
+  probes?: ProbeSection;
   allowHosts: string[];
   allowPackages: string[];
 }
@@ -89,12 +93,34 @@ const PIN_IDS = [
   'scan/pin/tool-removed',
   'scan/pin/server-not-pinned',
 ] as const;
+/** The rules of the active probes (`--active`): a finding of one is the server's own answer to a declared call. */
+const PROBE_RULES = {
+  'scan/probe/unauthenticated-call': {
+    class: 'deterministic',
+    level: 'error',
+    gating: 'yes',
+    fix: 'Require authentication for this tool, or drop expect: refuse from the probe if the tool is meant to be public.',
+  },
+  'scan/probe/garbage-token-accepted': {
+    class: 'deterministic',
+    level: 'error',
+    gating: 'yes',
+    fix: 'Check the token on every call: a value the server never issued must be refused (401).',
+  },
+  'scan/probe/cross-account-access': {
+    class: 'deterministic',
+    level: 'error',
+    gating: 'yes',
+    fix: 'Check that the account of the token owns the object the call names, before the tool runs.',
+  },
+} as const satisfies Record<string, RuleDef>;
+
 export const GROUP_RULES: Record<ScanGroup, string[]> = {
   descriptions: Object.keys(DESC_RULES),
   pins: [...PIN_IDS],
   config: Object.keys(CONFIG_RULES).filter((id) => id.startsWith('scan/cfg/')),
   cross: Object.keys(CONFIG_RULES).filter((id) => id.startsWith('scan/cross/')),
-  active: [],
+  active: Object.keys(PROBE_RULES),
 };
 
 interface RuleDef {
@@ -122,7 +148,8 @@ const def = (rule: string): RuleDef =>
   (DESC_RULES as Record<string, RuleDef>)[rule] ??
   (CONFIG_RULES as Record<string, RuleDef>)[rule] ??
   PIN_DEFS[rule] ??
-  (EXCEPTION_RULES as Record<string, RuleDef>)[rule]!;
+  (EXCEPTION_RULES as Record<string, RuleDef>)[rule] ??
+  (PROBE_RULES as Record<string, RuleDef>)[rule]!;
 
 /** Every rule the command can report, for the rules of SARIF. */
 export const ALL_RULES: SarifRule[] = [
@@ -130,6 +157,7 @@ export const ALL_RULES: SarifRule[] = [
   ...PIN_IDS.map((id) => [id, PIN_DEFS[id]!] as const),
   ...Object.entries(CONFIG_RULES),
   ...Object.entries(EXCEPTION_RULES),
+  ...Object.entries(PROBE_RULES),
 ].map(([id, d]) => ({ id, class: d.class, severity: d.level, gating: d.gating, fix: d.fix }));
 
 /** The rules that gate from the first day, as the catalog marks them; a test reads the catalog against this. */
@@ -248,6 +276,8 @@ export function failsAt(
 type Draft = Omit<ScanFinding, 'counted' | 'fingerprint' | 'gating' | 'class' | 'severity'> & {
   rule: string;
   severity?: ScanLevel;
+  /** Set when this finding does not gate although its rule does (a probe with no expectation is information). */
+  gating?: boolean;
 };
 
 export function runScan(input: ScanInput, opts: ScanOptions): ScanReport {
@@ -527,14 +557,46 @@ function runScanUncached(input: ScanInput, opts: ScanOptions): ScanReport {
     );
   }
 
-  // active probes: not part of this version; asked for, so reported as not run
-  if (asked.active)
-    couldNot(
-      'active',
-      '',
-      'active probes are not available in this version of plune, and none was run; there is no consent flag to give',
-    );
-  state('active', false, [], rows.find((r) => r.group === 'active')?.reason);
+  // active probes (--active): the rows of what the probes did; one that did not run is "not measured"
+  const section: ProbeSection = input.probes ?? {
+    rows: [
+      {
+        id: '',
+        tool: '',
+        as: '',
+        expect: 'none',
+        answer: null,
+        outcome: 'not-run',
+        reason: 'no-probe-file',
+      },
+    ],
+    findings: [],
+    calls: 0,
+    requests: 0,
+    metadata: null,
+  };
+  if (asked.active) {
+    for (const row of section.rows)
+      if (row.outcome === 'not-run')
+        couldNot('active', safeText(row.id), PROBE_REASONS[row.reason!]);
+    for (const f of section.findings)
+      drafts.push({
+        rule: f.rule,
+        group: 'active',
+        target: safeText(f.id),
+        path: '',
+        severity: f.severity,
+        ...(f.severity === 'info' ? { gating: false } : {}),
+        message: safeText(f.message),
+        fix: PROBE_RULES[f.rule].fix,
+      });
+  }
+  state(
+    'active',
+    asked.active && section.rows.some((r) => r.answer !== null),
+    section.rows.filter((r) => r.answer !== null).map((r) => safeText(r.id)),
+    rows.find((r) => r.group === 'active')?.reason,
+  );
 
   // exceptions
   const ex = opts.exceptions;
@@ -545,7 +607,8 @@ function runScanUncached(input: ScanInput, opts: ScanOptions): ScanReport {
   const seen = new Map<string, number>();
   const finish = (d: Draft): ScanFinding => {
     const r = def(d.rule);
-    const gating = r.gating === 'yes' || (opts.gateHeuristics && r.class === 'heuristic');
+    const gating =
+      d.gating ?? (r.gating === 'yes' || (opts.gateHeuristics && r.class === 'heuristic'));
     const hit = d.group === 'exceptions' ? undefined : suppressedOf(d);
     if (hit !== undefined) used.add(hit);
     const base = { class: r.class, severity: d.severity ?? r.level, gating };
@@ -655,6 +718,14 @@ function runScanUncached(input: ScanInput, opts: ScanOptions): ScanReport {
       notAffectingExit: live.filter((f) => !f.counted).length,
     },
     findings,
+    probes: {
+      rows: asked.active
+        ? section.rows.map((r) => ({ ...r, id: safeText(r.id), tool: safeText(r.tool) }))
+        : [],
+      calls: asked.active ? section.calls : 0,
+      requests: asked.active ? section.requests : 0,
+      metadata: asked.active ? section.metadata : null,
+    },
     notEvaluated: rows,
     exceptions: {
       file: ex === undefined ? null : safeText(ex.file),

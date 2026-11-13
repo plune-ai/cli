@@ -1135,7 +1135,7 @@ plune mcp scan --format sarif --out sarif=scan.sarif --snapshot notes.snapshot.j
 | `--allow-partial` | Exit `0` when part of what was asked ran; the report says so. Never when nothing ran. |
 | `--allow-host`, `--allow-package` | The lists `scan/cfg/foreign-host` and `scan/cfg/package-not-allowed` need. Without them those two rules are listed as not evaluated, and the exit code does not change because of that. |
 | `--ignore-file <path>` | Exceptions (default `plune-mcp-scan-ignore.yaml` in this folder, read without a flag: protect it with code owners, as any file that switches a check off). Every entry has `rule`, `scope`, `reason` and `expires` (at most 180 days; `--allow-long-exceptions` lifts that). |
-| `--active` | Active probes are not part of this version: the group is reported as not evaluated and the exit code is `3`. |
+| `--active`, `--probes <file>` | Active probes: calls a person declared, sent to a server that is theirs. See [Active probes](#active-probes-plune-mcp-scan---active). Without `--active` nothing more than the static scan is sent. |
 | `--format human\|json\|github\|sarif`, `--reporter junit-xml`, `--out [format=]path` | The report. Every format says what was checked, what was not and why, how many findings do not change the exit code, and that no finding is not proof of safety. Findings hidden by exceptions are listed in `human`, `json`, `sarif` (as `suppressions`) and `junit-xml`; `github` counts them in its summary line and in one `::notice`. Paths in a report are relative to the folder, or the file name alone for a file outside it. |
 
 An exception file:
@@ -1159,10 +1159,58 @@ and an empty `path` are errors.
 | `0` | No finding that gates at `--fail-on`. |
 | `1` | At least one finding that gates, at the level of `--fail-on`. Wins over `3`. |
 | `2` | Usage: nothing to scan or every group left out, a bad flag, a file that does not exist, a malformed snapshot, pin file or exceptions file (also an exception without `reason` or `expires`, or an exceptions file over 8 MiB), two snapshots with one label. |
-| `3` | Something asked for could not be measured: an empty snapshot, a snapshot or pin file over 8 MiB, a client configuration file that cannot be parsed or holds no servers, a config scan cut at its cap of findings, a description over 1 MB (only its first 1 MB is scanned), a live server that could not be read, `--active`. |
+| `3` | Something asked for could not be measured: an empty snapshot, a snapshot or pin file over 8 MiB, a client configuration file that cannot be parsed or holds no servers, a config scan cut at its cap of findings, a description over 1 MB (only its first 1 MB is scanned), a live server that could not be read, a probe that did not run (no probe file, no consent, a spent budget, an answer that decides nothing). |
 
 Only deterministic findings of a rule marked as gating change the exit code. Heuristics (`override-instruction`, ...)
 are advice and print as `note` in SARIF.
+
+### Active probes: `plune mcp scan --active`
+
+Static scanning cannot see how a server behaves: whether it lets a call through with no token, with a random token, or with
+the token of another account. Only calls show that, and a call on a server can do harm. So probes are for your own server
+only, run only with `--active`, send only the calls you wrote in a probe file, and stop at a budget.
+
+```json
+{ "probes": [
+  { "id": "p1", "tool": "export", "arguments": { "doc": "doc-1" }, "as": "none", "expect": "refuse" },
+  { "id": "p2", "tool": "export", "arguments": { "doc": "doc-1" }, "as": "account-b", "expect": "refuse" }
+] }
+```
+
+```bash
+export TOKEN_A=... TOKEN_B=...
+plune mcp scan --active --url http://127.0.0.1:3000/mcp --probes probes.json --token-env TOKEN_A --other-token-env TOKEN_B
+```
+
+| Flag | Meaning |
+| --- | --- |
+| `--probes <file>` | The calls, as above. `as`: `none`, `garbage` (a random value made for each run), `account-a`, `account-b` (the tokens of `--token-env` and `--other-token-env`), `wrong-audience`. `expect`: `refuse`, `allow` or left out. `allowDestructive: true` lets a tool marked `destructiveHint: true` be called. An unknown key, a repeated id or a file over 256 KiB is exit `2`. |
+| `--token-env`, `--other-token-env` | The names of variables, never the tokens. A token goes only to the origin of `--url`, over https or to this machine, and a redirect is never followed. The `--header` values are not sent by a probe. |
+| `--confirm-host <host>` | For a `--url` that is not on this machine: the host of the URL exactly as written (with the port, if the URL has one). Without it nothing is sent, and the probes are "not run: no consent". The line `probes will go to <url>` is printed to stderr before the first probe frame. |
+| `--max-calls <n>`, `--max-requests <n>` | At most `n` `tools/call` (default 8) and `n` requests of any kind (default 40). A frame over a budget is refused before it is sent. |
+| `--yes` | Accepts the command printed for a stdio server. No probe of this version runs on stdio (the authentication probes are "not applicable (stdio)"). |
+
+Every probe goes through one wrapper. It refuses a `tools/call` for a tool and arguments that are not an entry of the
+probe file, counts both budgets, stops after two transport failures in a row (a timeout, a connection that fails, 429 or
+5xx), and never calls a tool the server marks `destructiveHint: true` unless the entry says so. `readOnlyHint` widens
+nothing.
+
+| Rule | A finding when |
+| --- | --- |
+| `scan/probe/unauthenticated-call` | `as: none` and the tool ran. An error and gating with `expect: refuse`; information otherwise. |
+| `scan/probe/garbage-token-accepted` | `as: garbage` and the tool ran. Same levels. |
+| `scan/probe/cross-account-access` | `as: account-b` and the tool ran for an object you declared. Same levels. |
+
+A verdict of "violated" comes only from the answer of the server: a call that ran (a result without `isError`). A refusal is
+401 or 403, a JSON-RPC error, or `isError`. A timeout, 429, 5xx, a redirect or any other status decides nothing: the probe
+is "not run" with its reason, and the exit code is `3`. The table of the report lists every probe with what it expected, what
+the server did and why it did not run: no probe file, no consent, no token for account A or B, stdio, a spent budget, the
+transport stopped, the tool is not on the server, the tool is destructive, or an answer that decides nothing. A probe that
+did not run is never a pass. `wrong-audience` is checked by the oauth suite of `plune mcp conformance` and is not run here.
+
+Findings and the table hold the probe id, the rule, the tool name and the category: no response body, no error text and no
+argument value. Step 1 keeps no record of the frames beyond this table. Probes are for your own server only, and no finding
+does not mean the server is protected.
 
 GitHub Actions (replace `X.Y.Z` with the version of `@plune-ai/cli` you have tested):
 
