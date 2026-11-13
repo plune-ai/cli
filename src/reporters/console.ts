@@ -34,7 +34,7 @@ export function renderConsole(result: RunResult, opts: ConsoleOptions = {}): str
     if (matrix !== undefined) lines.push(s.bold('Estimated cost per model'), ...matrixConsole(matrix, true), '');
     for (const ev of result.evals) {
       const tags = ev.tags.length > 0 ? s.dim(` (${ev.tags.join(', ')})`) : '';
-      lines.push(`${s.dim('PRICED')} ${s.bold(ev.id)}${tags}`);
+      lines.push(`${s.dim('PRICED')} ${s.bold(safeLine(ev.id))}${tags}`);
       for (const row of ev.rows) {
         // Only a repeated row is named: its estimate is one run times `runs`.
         const repeats = repeatsText(row);
@@ -74,7 +74,7 @@ export function renderConsole(result: RunResult, opts: ConsoleOptions = {}): str
   for (const ev of result.evals) {
     const mark = ev.passed ? s.green('PASS') : s.red('FAIL');
     const tags = ev.tags.length > 0 ? s.dim(` (${ev.tags.join(', ')})`) : '';
-    lines.push(`${mark} ${s.bold(ev.id)}${tags}`);
+    lines.push(`${mark} ${s.bold(safeLine(ev.id))}${tags}`);
 
     let passedCount = 0;
     for (const row of ev.rows) {

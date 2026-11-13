@@ -207,8 +207,8 @@ function summaryLine(d: RunDiff): string {
 
 /**
  * How long the markdown diff may be, in characters, so the sticky comment is accepted. The limit of a GitHub
- * comment body is 65,536 characters; that figure comes from the tracker issue and is not confirmed by
- * documentation (GitHub's REST reference for issue comments states no limit). This budget stays well below it.
+ * comment body is 65,536 characters, the commonly cited figure, not confirmed by GitHub's documentation
+ * (its REST reference for issue comments states no limit). This budget stays well below it.
  */
 export const COMMENT_BUDGET = 60_000;
 

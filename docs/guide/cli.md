@@ -248,7 +248,7 @@ A diff of one model has no `matrix`.
 
 The Markdown diff shows a matrix of the cells that changed or still fail, errored or were not measured. The stable
 passes collapse into one line with a count. The comment stays within a budget of 60,000 characters (a GitHub
-comment body is limited to 65,536 according to the tracker issue; that figure is not confirmed by documentation).
+comment body is limited to the commonly cited 65,536, not confirmed by GitHub's documentation).
 Over the budget, whole table rows are dropped, least important first, and the last line says `N more cells in the
 job summary`. The hidden marker that lets the Action find its comment is always the first line.
 

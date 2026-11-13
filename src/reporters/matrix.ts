@@ -4,6 +4,7 @@
 
 import type { EvalResult, RunResult } from '../types/results.js';
 import { baseEvalId, rowStatus } from '../types/results.js';
+import { mdCell, safeLine } from './helpers.js';
 
 export type CellState = 'pass' | 'fail' | 'error' | 'unmeasured';
 
@@ -118,20 +119,18 @@ export function cellText(cell: MatrixCell | null, dry = false): string {
   return [head, cost, ...(cell.latency_ms !== undefined ? [formatLatency(cell.latency_ms)] : [])].join(' · ');
 }
 
-const pipe = (t: string): string => t.replace(/\|/g, '\\|');
-
-/** Markdown table lines of the matrix (no heading). */
+/** Markdown table lines of the matrix (no heading). A model or eval name is one plain line: it is text of the config. */
 export function matrixMarkdown(m: Matrix, dry = false): string[] {
   return [
-    `| Eval | ${m.models.map((x) => pipe(x.model)).join(' | ')} |`,
+    `| Eval | ${m.models.map((x) => mdCell(x.model)).join(' | ')} |`,
     `| --- | ${m.models.map(() => '---').join(' | ')} |`,
-    ...m.rows.map((r) => `| ${pipe(r.eval)} | ${r.cells.map((c) => cellText(c, dry)).join(' | ')} |`),
+    ...m.rows.map((r) => `| ${mdCell(r.eval)} | ${r.cells.map((c) => cellText(c, dry)).join(' | ')} |`),
   ];
 }
 
 /** Plain-text lines of the matrix, columns aligned. */
 export function matrixConsole(m: Matrix, dry = false): string[] {
-  const table = [['Eval', ...m.models.map((x) => x.model)], ...m.rows.map((r) => [r.eval, ...r.cells.map((c) => cellText(c, dry))])];
+  const table = [['Eval', ...m.models.map((x) => safeLine(x.model))], ...m.rows.map((r) => [safeLine(r.eval), ...r.cells.map((c) => cellText(c, dry))])];
   const widths = table[0]!.map((_, i) => Math.max(...table.map((row) => [...row[i]!].length)));
   return table.map((row) =>
     row

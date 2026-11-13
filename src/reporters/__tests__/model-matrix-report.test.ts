@@ -92,6 +92,45 @@ describe('CLI · report · model matrix · console and markdown', () => {
     expect(out).toMatch(/greet\s+PASS 7\/10 · \$0\.1000 · 100ms\s+FAIL 3\/10 · \$0\.1000 · 2\.0s/);
   });
 
+  describe('a model name is text of the config: one line, no workflow command', () => {
+    const NAMES = ['x\ny', '\n::error::boom'];
+    const hostile = result(
+      NAMES.flatMap((m) => [cell('e1', m, [row(true, 0.01, 10)], true), cell('e2', m, [row(false, 0.01, 10)], false)]),
+    );
+    const commands = (text: string) => text.split('\n').filter((l) => /^\s*(::|##\[)/.test(l));
+
+    it('markdown: the header and every row stay one line, and no line is a command', () => {
+      const md = renderMarkdown(hostile);
+      expect(commands(md)).toEqual([]);
+      const lines = md.split('\n');
+      const at = lines.indexOf('## Model matrix');
+      // The heading, a blank line, the header, the rule, one row per eval: the table ends at the blank line.
+      const table = lines.slice(at + 2, lines.indexOf('', at + 2));
+      expect(table).toHaveLength(2 + 2);
+      for (const l of table) expect(l.startsWith('| ')).toBe(true);
+      expect(table[0]).toBe('| Eval | x y | ?::error::boom |');
+    });
+
+    it('console: the matrix has one line per row, and the PASS and FAIL lines name the model on one line', () => {
+      const out = renderConsole(hostile);
+      expect(commands(out)).toEqual([]);
+      const lines = out.split('\n');
+      const at = lines.indexOf('Model matrix');
+      expect(lines.slice(at + 1, lines.indexOf('', at + 1))).toHaveLength(1 + 2);
+      expect(lines.filter((l) => /^(PASS|FAIL) /.test(l))).toEqual([
+        'PASS e1@x y',
+        'FAIL e2@x y',
+        'PASS e1@ ::error::boom',
+        'FAIL e2@ ::error::boom',
+      ]);
+    });
+
+    it('a model name with a pipe does not split a cell', () => {
+      const md = renderMarkdown(result([cell('e1', 'a|b', [row(true, 0.01, 10)], true)]));
+      expect(md).toContain('| Eval | a\\|b |');
+    });
+  });
+
   it('a result of one model reads exactly as before', () => {
     expect(renderConsole(mixed)).not.toContain('Model matrix');
     expect(renderMarkdown(mixed)).not.toContain('Model matrix');
