@@ -17,8 +17,8 @@ import type { ReporterConfig, RunMeta } from './types.js';
  * like success. A client believing it saved something the server discarded is the most expensive
  * kind of quiet — cheaper to say "not yet" out loud.
  *
- * `PLUNE_RUN_TITLE`, `PLUNE_ENV` and `PLUNE_LABELS` left this list when D13 gave a run somewhere to
- * put them. `PLUNE_GROUP` stays: a run group is D6's, and a group of one run means nothing.
+ * `PLUNE_RUN_TITLE`, `PLUNE_ENV` and `PLUNE_LABELS` left this list when the platform gave a run somewhere to
+ * put them. `PLUNE_GROUP` stays: run groups are a platform change of their own, and a group of one run means nothing.
  */
 export const UNSUPPORTED_VARS = ['PLUNE_GROUP'] as const;
 
@@ -28,7 +28,7 @@ export interface ShardOf {
   total: number;
 }
 
-/** The platform's bound on N (plune#1601). */
+/** The platform's bound on N. */
 export const SHARDS_MAX = 1000;
 
 /**
@@ -48,7 +48,7 @@ function shardOf(env: NodeJS.ProcessEnv): { shard?: ShardOf; error?: string } {
 }
 
 /**
- * `PLUNE_CONFIGURATION="Browser=Chrome;Operating system=Windows"` (plune-ai/plune#1251): the combination a
+ * `PLUNE_CONFIGURATION="Browser=Chrome;Operating system=Windows"`: the combination a
  * CI job of a matrix runs, group name → value label, sent on every results batch. Names, because a job knows
  * no ids; the platform matches them without case. Pairs split at `;`, a pair at its first `=` (a label may
  * hold one), both sides trimmed; a blank pair is what a template leaves and is dropped.
@@ -105,7 +105,7 @@ export interface EnvSettings {
 /** Bounds of `PLUNE_UPLOAD_CONCURRENCY` and `PLUNE_UPLOAD_RETRIES`, and what each is when unset. */
 export const UPLOAD_CONCURRENCY = { min: 1, max: 32, default: 16 } as const;
 export const UPLOAD_RETRIES = { min: 0, max: 20, default: 6 } as const;
-/** `PLUNE_IMPORT_TIMEOUT` / `--timeout`: seconds for the whole of `plune run import`; 0 means no limit (plune-ai/plune#1473). */
+/** `PLUNE_IMPORT_TIMEOUT` / `--timeout`: seconds for the whole of `plune run import`; 0 means no limit. */
 export const IMPORT_TIMEOUT = { min: 0, max: 86_400, default: 600 } as const;
 
 /** A variable that is set but blank is what a CI template leaves when it had no value to give. */
@@ -148,12 +148,12 @@ function bounded(
  * middle slot, not a request for an empty label.
  *
  * Nothing is capped or truncated here on purpose. The platform states the limits and refuses what
- * exceeds them by name (ADR 0012 — one side owns the contract), and a refusal is loud and costs no
+ * exceeds them by name (one side owns the contract), and a refusal is loud and costs no
  * results: the run fails to start, the reporter says why, and every result goes to the fallback
  * file. A client-side copy of the caps would be a second place for them to drift.
  *
  * The two sizes the core does hold are not such copies: a results batch's 8 MiB and a failure text's
- * 512 KB (#790, ADR-0006 of that feature) are this client's own transport limits, set under the
+ * 512 KB are this client's own transport limits, set under the
  * platform's caps rather than equal to them — the numbers may drift apart and nothing breaks.
  */
 function list(env: NodeJS.ProcessEnv, name: string): string[] | undefined {
@@ -176,10 +176,10 @@ export function readEnv(env: NodeJS.ProcessEnv = process.env): EnvSettings {
   const title = value(env, 'PLUNE_RUN_TITLE');
   const environment = value(env, 'PLUNE_ENV');
   const labels = list(env, 'PLUNE_LABELS');
-  // Rung 6 of the C2 ladder, unblocked by D14. Read as a flag rather than by presence for the same
+  // Rung 6 of the C2 ladder, unblocked by a platform change. Read as a flag rather than by presence for the same
   // reason as the others: `PLUNE_CREATE=0` in one matrix cell must mean off.
   const offerDiscovered = flag(env, 'PLUNE_CREATE');
-  // The claim that this run is the whole suite (D20). Same rule: only `1`/`true` means it, and only
+  // The claim that this run is the whole suite. Same rule: only `1`/`true` means it, and only
   // the job that runs everything should say so — a filtered run with this set detaches the rest.
   const full = flag(env, 'PLUNE_FULL_RUN');
   const { shard, error: shardError } = shardOf(env);
@@ -261,7 +261,7 @@ const PROVIDERS = [
 ] as const;
 
 /**
- * The commit and the branch a run belongs to (plune-ai/plune#927), for `meta.sha` and `meta.branch`.
+ * The commit and the branch a run belongs to, for `meta.sha` and `meta.branch`.
  *
  * `reported` is what the runner said about its CI — Playwright's `metadata.ci`, or the copy of it in
  * its JSON report — and outranks the job's variables: it is a project's own word where the CI is one

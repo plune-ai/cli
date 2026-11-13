@@ -1,5 +1,5 @@
 // `plune requirements links <file.md>` — a traceability matrix (requirement key -> test) from a Markdown
-// file, imported as links between requirements and cases (plune-ai/cli follow-up of plune-ai/plune#1608).
+// file, imported as links between requirements and cases.
 //
 //   no --table  → POST /v1/projects/:id/requirements/import/discover: the tables of the file;
 //   --table + --requirement-column + --test-column → POST /v1/projects/:id/requirements/import/links:

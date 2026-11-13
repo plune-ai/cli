@@ -6,7 +6,7 @@ import { errorContextFields, errorContextOf, failureOf, filesOf, repoRootOf, web
 import type { FailedAttempt } from '../types.js';
 
 /**
- * #790 T13 — the failure detail from one normalized attempt. The texts are the ones Playwright 1.63
+ * The failure detail from one normalized attempt. The texts are the ones Playwright 1.63
  * wrote for a trial run (`formatError`: the message, the code frame, the stack's `at` lines), with
  * the machine's paths put under `/repo` and `D:\repo`.
  */
@@ -81,12 +81,12 @@ describe('failureOf — the headline (AC-01, AC-01c)', () => {
     expect(failureOf(attempt({ status: 'timedOut', errors: [{ text: TIMEOUT }] }))?.headline).toBe('Test timeout of 1500ms exceeded.');
   });
 
-  it('is not cut — the platform bounds it after its own cleaning (ADR-0001)', () => {
+  it('is not cut — the platform bounds it after its own cleaning', () => {
     const long = `Error: ${'x'.repeat(5000)}`;
     expect(failureOf(attempt({ errors: [{ text: long }] }))?.headline).toBe(long);
   });
 
-  // #790 review F2. The messages are Playwright 1.63's own: a missing snapshot, a missing browser.
+  // The messages are Playwright 1.63's own: a missing snapshot, a missing browser.
   it('names the repository and the home folder as the text does, never this machine’s paths (AC-05)', () => {
     const snapshot = "Error: A snapshot doesn't exist at /home/ci-user/shop/e2e/__snapshots__/cart-1.png, writing actual.";
     const failure = failureOf(attempt({ errors: [{ text: snapshot }], testFile: '/home/ci-user/shop/e2e/cart.spec.ts', repoRoot: '/home/ci-user/shop' }), '/home/ci-user');
@@ -101,11 +101,11 @@ describe('failureOf — the headline (AC-01, AC-01c)', () => {
     );
   });
 
-  it('is left out whole when its line is longer than the text may be — never cut (ADR-0001, AC-15)', () => {
+  it('is left out whole when its line is longer than the text may be — never cut', () => {
     const failure = failureOf(attempt({ errors: [{ text: `Error: ${'x'.repeat(512 * 1024)}\n    at /repo/e2e/shop.spec.ts:4:2` }] }), '/home/ci-user');
     expect(failure).not.toHaveProperty('headline');
     expect(failure?.location).toEqual({ file: 'e2e/shop.spec.ts', line: 4, column: 2 });
-    // Measured as the batch carries it: 300 000 quotes are 600 000 bytes of JSON (#790 review G1).
+    // Measured as the batch carries it: 300 000 quotes are 600 000 bytes of JSON.
     const quoted = failureOf(attempt({ errors: [{ text: `Error: ${'"'.repeat(300_000)}\n    at /repo/e2e/shop.spec.ts:4:2` }] }), '/home/ci-user');
     expect(quoted?.location).toEqual({ file: 'e2e/shop.spec.ts', line: 4, column: 2 });
     expect(quoted).not.toHaveProperty('headline');
@@ -214,7 +214,7 @@ describe('failureOf — the place (AC-02, AC-05, AC-07)', () => {
     expect(failureOf(attempt({ repoRoot: undefined }))).not.toHaveProperty('location');
   });
 
-  // #790 review F6: the frame pattern retries from every " (" of a line that opens like a frame, which
+  // The frame pattern retries from every " (" of a line that opens like a frame, which
   // is quadratic in its length — 180 ms at 20 000, on the runner's own thread. Escalated in one test,
   // so a worse regression fails at the small size instead of hanging at the large one.
   it('passes over a line too long to be a frame, in time that does not grow with its square', () => {
@@ -227,7 +227,7 @@ describe('failureOf — the place (AC-02, AC-05, AC-07)', () => {
     }
   });
 
-  it('reads a frame whose file URL has a broken escape as it is, and still finds the place (#790 review F6)', () => {
+  it('reads a frame whose file URL has a broken escape as it is, and still finds the place', () => {
     const text = 'Error: boom\n    at file:///repo/e2e/%E0%A4%A.spec.ts:3:1\n    at /repo/e2e/shop.spec.ts:4:2';
     expect(() => failureOf(attempt({ errors: [{ text }] }), '/home/ci-user')).not.toThrow();
     expect(failureOf(attempt({ errors: [{ text }] }), '/home/ci-user')?.location).toEqual({ file: 'e2e/shop.spec.ts', line: 4, column: 2 });
@@ -257,7 +257,7 @@ describe('failureOf — what the runner kept, and the CI run (AC-04, AC-05)', ()
     expect(failure?.artifacts).toEqual([{ name: 'screenshot', contentType: 'image/png' }, { name: 'trace' }]);
   });
 
-  // #790 review G2: `testInfo.attach(file, { path: file })` names the attachment by its absolute path.
+  // `testInfo.attach(file, { path: file })` names the attachment by its absolute path.
   it('names an attachment named by its path by the file alone — no folder of this machine (AC-05)', () => {
     const failure = failureOf(
       attempt({
@@ -279,7 +279,7 @@ describe('failureOf — what the runner kept, and the CI run (AC-04, AC-05)', ()
     ]);
   });
 
-  // #790 review F3: the platform refuses an empty type, and with it the whole batch.
+  // The platform refuses an empty type, and with it the whole batch.
   it('sends no type for an attachment whose type is empty (AC-07)', () => {
     expect(failureOf(attempt({ attachments: [{ name: 'log', contentType: '', path: '/repo/test-results/a/log.txt' }] }))?.artifacts).toEqual([{ name: 'log' }]);
   });
@@ -291,7 +291,7 @@ describe('failureOf — what the runner kept, and the CI run (AC-04, AC-05)', ()
     }
   });
 
-  // #790 review G5: `new URL` mends these into https, the platform's check does not — and a link it
+  // `new URL` mends these into https, the platform's check does not — and a link it
   // refuses costs the run's start or the whole batch (contracts/cli.md §1 promises no link instead).
   it.each([
     'https:/github.com/acme/shop/actions/runs/42',
@@ -303,7 +303,7 @@ describe('failureOf — what the runner kept, and the CI run (AC-04, AC-05)', ()
     expect(failureOf(attempt({ buildHref: href }))).not.toHaveProperty('ciUrl');
   });
 
-  // #790 re-review C3: the platform trims this one and takes it; the link is still sent only as written
+  // The platform trims this one and takes it; the link is still sent only as written
   // (contracts/cli.md §1), so a value the report did not start with a scheme stays no link.
   it('is no link for one with a space in front, which the platform would trim', () => {
     expect(webLink(' https://github.com/acme/shop/actions/runs/42')).toBeUndefined();
@@ -398,7 +398,7 @@ describe('errorContextOf — the text of every error (AC-01, AC-01c, AC-05, AC-1
     expect(text).toBe(['at c.ts:3:3', 'at ~/repo2/a.ts:1:1', 'at /srv/ci-cache/b.ts:2:2', 'Expected: "/home/bob/report.txt"'].join('\n'));
   });
 
-  // #790 review F5: a root of one segment is a word an address can hold too.
+  // A root of one segment is a word an address can hold too.
   it('rewrites a root or a home only where a path starts — never inside an address (AC-01)', () => {
     const lines = [
       'Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/app/login',
@@ -419,7 +419,7 @@ describe('errorContextOf — the text of every error (AC-01, AC-01c, AC-05, AC-1
     );
   });
 
-  // #790 re-review C1: after a scheme's `//` the host is not a path, even when it is named as the root
+  // After a scheme's `//` the host is not a path, even when it is named as the root
   // or the home is — a compose service `app` beside `WORKDIR /app`, say.
   it('leaves an address alone whose host is named as the root or the home (AC-01)', () => {
     const lines = [
@@ -433,7 +433,7 @@ describe('errorContextOf — the text of every error (AC-01, AC-01c, AC-05, AC-1
     expect(text).toBe([...lines.slice(0, 3), '    at e2e/shop.spec.ts:3:1', '    at e2e/helpers.ts:5:7'].join('\n'));
   });
 
-  // #790 re-review C6: PHP's JSON escapes every slash — `\/Users\/alice\/…` — and a path printed that way
+  // PHP's JSON escapes every slash — `\/Users\/alice\/…` — and a path printed that way
   // names the machine all the same; after an escaped scheme's `\/\/` the host still stays.
   it('rewrites a path whose slashes are escaped, as PHP writes JSON — an address stays whole (AC-01, AC-05)', () => {
     const of = (text: string, repoRoot: string | undefined, home: string): string => errorContextOf(attempt({ errors: [{ text }], repoRoot }), home);
@@ -464,14 +464,14 @@ describe('errorContextOf — the text of every error (AC-01, AC-01c, AC-05, AC-1
     }
   });
 
-  // #790 re-review C9: every path form a round of the review raised, as it reads now. The C1 fix broke
+  // Every path form a round of the review raised, as it reads now. The C1 fix broke
   // forms 0.14.1 had read before a posix root or home: escaped slashes (C6) and webpack's `///` (C9) read
   // again; another scheme's `////` and a scheme in capitals stay a ceiling (C11). Only a later review saw
   // each; this table is that review. Beside a row 0.14.1 read otherwise: what 0.14.1 made of it. A row
   // marked as a ceiling keeps what 0.14.1 already did to that form or to its plain twin; it is not a goal
   // (C12).
   const PATH_FORMS: [text: string, repoRoot: string | undefined, home: string, expected: string][] = [
-  // escaped slashes, as PHP writes JSON (#790 re-review C6)
+  // escaped slashes, as PHP writes JSON
   ["{\"file\":\"\\/Users\\/alice\\/shop\\/vendor\\/x.php\",\"home\":\"\\/Users\\/alice\\/.composer\"}", "/Users/alice/shop", "/Users/alice", "{\"file\":\"vendor\\/x.php\",\"home\":\"~\\/.composer\"}"],
   ["\"\\/app\\/e2e\\/data.json\"", "/app", "/root", "\"e2e\\/data.json\""],
   [" \\/app\\/e2e", "/app", "/root", " e2e"],
@@ -570,7 +570,7 @@ describe('errorContextOf — the text of every error (AC-01, AC-01c, AC-05, AC-1
     expect(errorContextOf(attempt({ errors: [{ text }], repoRoot }), home)).toBe(expected);
   });
 
-  // #790 review G2: a diff prints a string, so a Windows path in it has every backslash doubled.
+  // A diff prints a string, so a Windows path in it has every backslash doubled.
   it('rewrites a Windows path printed with doubled backslashes, as in a diff of a string (AC-05)', () => {
     const diff = ['-   "file": "D:\\\\a\\\\shop\\\\e2e\\\\data.json",', '+   "file": "C:\\\\Users\\\\alice\\\\AppData\\\\Local\\\\Temp\\\\data.json",'].join('\n');
     expect(errorContextOf(attempt({ errors: [{ text: diff }], testFile: 'D:\\a\\shop\\e2e\\x.spec.ts', repoRoot: 'D:\\a\\shop' }), 'C:\\Users\\alice')).toBe(
@@ -645,7 +645,7 @@ describe('errorContextOf — the text of every error (AC-01, AC-01c, AC-05, AC-1
     expect(kept + Number(MARKER.exec(out[at]!)![1])).toBe(lines.length);
     expect(out.slice(0, at)).toEqual(lines.slice(0, at));
     expect(out.slice(at + 1)).toEqual(lines.slice(lines.length - (kept - at)));
-    // Full to the limit in the unit it is kept in: what the text weighs in a batch (#790 review G1).
+    // Full to the limit in the unit it is kept in: what the text weighs in a batch.
     const inBatch = Buffer.byteLength(JSON.stringify(text)) - 2;
     expect(inBatch).toBeLessThanOrEqual(LIMIT);
     expect(inBatch).toBeGreaterThan(LIMIT - 1024);
@@ -659,7 +659,7 @@ describe('errorContextOf — the text of every error (AC-01, AC-01c, AC-05, AC-1
     expect(text).toMatch(/…\[omitted \d+ lines\]…/);
   });
 
-  // #790 review G1. A batch is packed by the bytes JSON writes, where a quote, a backslash and a CR
+  // A batch is packed by the bytes JSON writes, where a quote, a backslash and a CR
   // weigh two: a text cut by its raw bytes weighed a quarter more in the batch, and the worst run
   // took 12 calls instead of 10. The line is a diff of a Windows path, as `toEqual` prints one.
   it('measures the limit in the bytes the text weighs in a batch — quotes and backslashes count twice (AC-15)', () => {
@@ -689,12 +689,12 @@ describe('errorContextOf — the text of every error (AC-01, AC-01c, AC-05, AC-1
 });
 
 /**
- * plune-ai/plune#913 and #928. What the core is handed to upload, for both roads: the files an attempt kept
+ * What the core is handed to upload, for both roads: the files an attempt kept
  * — and, since the platform keeps text besides pictures, a JSON or a plain text kept as a `body`, which is
  * no file at all. A body of any other type is not handed over: the platform takes no image, trace or page
  * from memory, and a suite full of screenshots kept as bodies must not sit in memory until a batch is sent.
  */
-describe('filesOf — what the core uploads from (plune#913, plune#928)', () => {
+describe('filesOf — what the core uploads from', () => {
   const files = (attachments: FailedAttempt['attachments']) => filesOf(attempt({ attachments }));
 
   it('keeps every attachment kept as a file, whatever its type — which of them go is the session’s to say', () => {
@@ -743,8 +743,8 @@ describe('filesOf — what the core uploads from (plune#913, plune#928)', () => 
   });
 });
 
-// plune-ai/plune#1281 AC-03: what the cut took out is sent as `errorContextOmitted`, in characters, never 0.
-describe('errorContextFields — errorContextOmitted (#1281 AC-03)', () => {
+// AC-03: what the cut took out is sent as `errorContextOmitted`, in characters, never 0.
+describe('errorContextFields — errorContextOmitted', () => {
   const HOME = '/home/ci-user';
   const LIMIT = 512 * 1024;
   const MARKER = /…\[omitted \d+ lines\]…/;

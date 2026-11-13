@@ -1,4 +1,4 @@
-// END-TO-END for `plune run import` of an allure-results folder (plune-ai/plune#1221), against the REAL built
+// END-TO-END for `plune run import` of an allure-results folder, against the REAL built
 // binary (dist/cli.cjs) and a platform on a real socket that has a bucket. Run with `pnpm test:e2e` (builds first).
 // What a client checks after an import: did every file the adapter kept arrive, with its bytes, and what does the
 // command tell me about the ones that did not.

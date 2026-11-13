@@ -15,7 +15,7 @@ vi.mock('node:fs', async (original) => {
 });
 
 /**
- * plune-ai/plune#2309: a folder of JUnit XML files, one per class, as Maven Surefire (`target/surefire-reports`)
+ * A folder of JUnit XML files, one per class, as Maven Surefire (`target/surefire-reports`)
  * and Gradle (`build/test-results/test`) write it, is one run; a folder with a `*-result.json` stays Allure.
  *
  * Live, copied as the job left them: `junit-folder-surefire-3.5.6` (report-action's Smoke 41614390691) and
@@ -67,7 +67,7 @@ describe('CLI · run import · JUnit folder · Maven Surefire 3.5.6', () => {
     ]);
     expect(read.notes).toEqual([]);
     expect(read.missing).toEqual([]);
-    // Surefire writes no `timestamp` on <testsuite> (plune-ai/plune#2310): each case's `time` still arrives, as the span
+    // Surefire writes no `timestamp` on <testsuite>: each case's `time` still arrives, as the span
     // that ends when the import read the report. `appliesACoupon` was skipped with time="0.0", a real zero.
     expect(read.results.map((r) => r.execution?.durationMs)).toEqual([22, 12, 0, 27]);
     for (const r of read.results) {

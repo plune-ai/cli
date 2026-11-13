@@ -61,7 +61,7 @@ describe('renderMarkdown (AC-4, AC-9)', () => {
     expect(renderMarkdown(mixed, {})).not.toContain(ESC);
   });
 
-  // plune#1245 (AC-05) — the breakdown, with the new rows only when they are not zero.
+  // The breakdown, with the new rows only when they are not zero.
   it('adds Blocked and Skipped rows to the table when they are not zero', () => {
     const out = renderMarkdown(inconclusive, {});
     expect(out).toContain('| Errored | 0 |\n| Blocked | 1 |\n| Skipped | 1 |\n| Cost (USD)');

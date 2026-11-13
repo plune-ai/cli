@@ -12,7 +12,7 @@ import {
 } from './sync.js';
 
 /**
- * `plune pull` / `plune push` (D9): the project's cases as one Markdown document in Testomat's
+ * `plune pull` / `plune push`: the project's cases as one Markdown document in Testomat's
  * classical format — `GET /v1/test-cases/markdown` into a file, and the file back through
  * `POST /v1/test-cases/markdown`, whose report says what was created, updated, left alone and
  * refused, line by line. The platform matches by id, never deletes, and with `--dry-run` writes

@@ -54,7 +54,7 @@ export interface PluneReporterOptions {
   /**
    * The mapfile `plune ids --write` keeps, `{ "<path-title>": "<case id>" }`. Defaults to `PLUNE_IDS_FILE`,
    * then `plune/ids.json` under the directory the run starts in. Missing is fine; a broken one is
-   * warned about once and ignored (plune-ai/plune#1291).
+   * warned about once and ignored.
    */
   idsFile?: string;
 }
@@ -106,7 +106,7 @@ function keysFor(test: TestCase): KeyRef[] {
   ];
 }
 
-/** The content type a test uses to hand the reporter structured metadata (ADR 0023). */
+/** The content type a test uses to hand the reporter structured metadata. */
 const METADATA_TYPE = 'application/plune.metadata+json';
 
 /** `@P<id>` anywhere in a title. Deliberately not stripped from the title afterwards: the token IS
@@ -137,7 +137,7 @@ function metadataOf(result: TestResult): PluneMetadata | undefined {
 }
 
 /**
- * The case this test says it is, in the order ADR 0023 fixed.
+ * The case this test says it is, in the order the platform fixed.
  *
  * An annotation is the most deliberate thing an author can write, so it wins. The `@P` token is the
  * same statement made where it is visible in the report. An attachment is what a fixture or a
@@ -158,7 +158,7 @@ function statedIdOf(
   if (metadata?.id !== undefined && metadata.id !== '') return metadata.id;
 
   // The mapfile is the last thing that names a case outright: it is read before any key is asked
-  // for, so a renamed test with an entry keeps its case instead of drifting (#1291).
+  // for, so a renamed test with an entry keeps its case instead of drifting.
   return mapped;
 }
 
@@ -190,13 +190,13 @@ function readIds(file: string): Record<string, string> {
   return {};
 }
 
-/** The statuses of an attempt that has no failure detail (#790 AC-02b). */
+/** The statuses of an attempt that has no failure detail. */
 const NOT_FAILED = new Set(['passed', 'skipped']);
 
 /**
  * One error as Playwright's own JSON report writes it — `formatError` with colours off: the message
  * (the stack's head when there is a stack), the code frame, the stack's `at` lines, a cause after
- * them — so `plune run import` of that report and this reporter send one text (#790 ADR-0001).
+ * them — so `plune run import` of that report and this reporter send one text.
  */
 function textOf(error: TestError): string {
   const message = error.message || error.value || '';
@@ -236,7 +236,7 @@ function attemptOf(test: TestCase, result: TestResult, ctx: RunContext): FailedA
       name,
       contentType,
       ...(path !== undefined ? { path } : {}),
-      // What a test attached from memory has no file: the bytes are the reporter's only copy (plune#928).
+      // What a test attached from memory has no file: the bytes are the reporter's only copy.
       ...(body !== undefined ? { body } : {}),
     })),
     ...(ctx.buildHref !== undefined ? { buildHref: ctx.buildHref } : {}),
@@ -270,7 +270,7 @@ function pendingFrom(
     // Anything the test named itself comes before what we derived from its location: a Qase or
     // TestRail id written by a fixture is a deliberate statement, and a file path is a guess.
     keys: [...(metadata?.keys ?? []), ...keysFor(test)],
-    // Read only if nothing resolves this test, and then it is what the review queue shows (D14).
+    // Read only if nothing resolves this test, and then it is what the review queue shows.
     // The full `describe > title` path rather than `test.title` alone: two suites in one file
     // routinely share a title, and "adds an item" on its own is not something a person can judge.
     title: titlesOf(test).join(' › '),
@@ -332,7 +332,7 @@ export default class PluneReporter {
     // a `merge-reports` step, or several suites reporting into one run.
     this.keepOpen = (config.shard !== null && config.shard !== undefined) || readEnv().keepOpen;
     this.config = config;
-    // Once per run: the failure detail names files from the repository root (#790).
+    // Once per run: the failure detail names files from the repository root.
     const repoRoot = config.rootDir === undefined ? undefined : repoRootOf(config.rootDir);
     if (repoRoot !== undefined) this.context = { repoRoot };
   }
@@ -351,7 +351,7 @@ export default class PluneReporter {
   private open(): Promise<RunSession> {
     if (this.session === null) {
       // Not at `onConfigure`: Playwright's git plugin writes `metadata.ci` after it, and before the
-      // first result (#790 ADR-0004). Only an http(s) address — anything else opens without a link.
+      // first result. Only an http(s) address — anything else opens without a link.
       const ci: unknown = this.config?.metadata?.['ci'];
       const buildHref = typeof ci === 'object' && ci !== null ? (ci as { buildHref?: unknown }).buildHref : undefined;
       if (typeof buildHref === 'string') this.context = { ...this.context, buildHref };
@@ -367,7 +367,7 @@ export default class PluneReporter {
           ...(this.options.fallbackPath !== undefined
             ? { fallbackPath: this.options.fallbackPath }
             : {}),
-          // Where it ran (plune#927): the commit Playwright wrote into `metadata.ci`, and its branch —
+          // Where it ran: the commit Playwright wrote into `metadata.ci`, and its branch —
           // which Playwright gives on GitLab and Jenkins, and the core reads from the job on GitHub.
           meta: { runner: SOURCE, ...(ciUrl !== undefined ? { ciUrl } : {}), ...ciCommit(ci) },
         },
@@ -380,7 +380,7 @@ export default class PluneReporter {
   onTestEnd(test: TestCase, result: TestResult): void {
     const session = this.open();
     // Awaited: `add` sends a batch once enough are buffered, and `onEnd` closes the run after the
-    // chain — a batch still in flight then freezes `notRun` without it (#790 AC-15).
+    // chain — a batch still in flight then freezes `notRun` without it.
     this.chain = this.chain
       .then(async () => {
         this.ids ??= readIds(

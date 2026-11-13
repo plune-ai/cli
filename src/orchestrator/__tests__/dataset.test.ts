@@ -52,7 +52,7 @@ describe('loadDataset', () => {
     );
   });
 
-  // plune-ai/plune#2543: a row without `vars` crashed the run with an internal error.
+  // A row without `vars` crashed the run with an internal error.
   it('a row without "vars" is a config error naming the file and line', () => {
     const dir = tmpDir();
     fs.writeFileSync(path.join(dir, 'd.jsonl'), '{"vars":{"q":"ok"}}\n\n{"q":"hi"}\n');

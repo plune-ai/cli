@@ -9,7 +9,7 @@
  * The vocabulary is not invented here. The platform's default status map already carries a `junit`
  * entry — `pass` / `failure` / `error` / `skipped` — so those four words are the contract, and a
  * project that disagrees overrides the map on its side rather than waiting for a release of this.
- * The same discipline as every adapter (ADR 0023): this file knows the FORMAT, never the platform.
+ * The same discipline as every adapter: this file knows the FORMAT, never the platform.
  */
 
 import { resultKey } from '../reporter-core/result-key.js';
@@ -20,7 +20,7 @@ import { parseXml, type XmlElement } from './xml.js';
 /** The key into the project's status map. */
 const SOURCE = 'junit';
 
-/** `@P<id>` anywhere in a title — the token the adapter and `playwright-json.ts` read, and the same non-stripping (ADR 0023). */
+/** `@P<id>` anywhere in a title — the token the adapter and `playwright-json.ts` read, and the same non-stripping. */
 const TOKEN = /@P([A-Za-z0-9_-]+)/;
 
 /**
@@ -112,7 +112,7 @@ function keyOf(classname: string, name: string, playwright: PlaywrightTest | und
 }
 
 /**
- * A name a reviewer can judge, for the queue entry an unknown test becomes (D14).
+ * A name a reviewer can judge, for the queue entry an unknown test becomes.
  *
  * `classname › name`, except when the class already ends with the name — Playwright's own JUnit
  * writer puts the whole path in `classname`, and `a › b › b` reads like a bug in us.
@@ -147,7 +147,7 @@ function specRefOf(test: XmlElement, suite: XmlElement | undefined, classname: s
  * is the closest thing the file actually contains, so every case in a suite reports the suite's
  * start — approximate, but derived from the report rather than from this machine's clock.
  *
- * Surefire writes no `timestamp` (plune-ai/plune#2310). The duration is the part Plune sorts and
+ * Surefire writes no `timestamp`. The duration is the part Plune sorts and
  * averages results by, and dropping it with the missing start lost every Maven duration; so a case with
  * a `time` still sends it, as the span that ends at `now`: the moment the import read the report. That
  * is how Plune's own dashboard sends a duration a person typed. The file's mtime stays out of it: a
@@ -180,7 +180,7 @@ function executionOf(test: XmlElement, suite: XmlElement | undefined, now: Date)
 /**
  * Read a JUnit XML report. Throws `XmlParseError`, which names the file and the line.
  *
- * The files a test announced with `[[ATTACHMENT|path]]` (plune-ai/plune#1220) are looked up from the folder
+ * The files a test announced with `[[ATTACHMENT|path]]` are looked up from the folder
  * of `file`; those that cannot be given are pushed to `missing`, which is how the caller learns of them.
  */
 export function readJUnit(
@@ -201,7 +201,7 @@ export function readJUnit(
     const { status, detail } = outcomeOf(test);
     const playwright = playwrightOf(classname, name);
     const key = keyOf(classname, name, playwright);
-    // A `@P<id>` names the case outright (ADR 0023), so a renamed test keeps it. The adapter reads the
+    // A `@P<id>` names the case outright, so a renamed test keeps it. The adapter reads the
     // test's OWN title, not its describes': the last of Playwright's joined titles; for any other writer
     // the whole name, since the file does not say where its describes end.
     const stated = TOKEN.exec(playwright?.titles.at(-1) ?? name)?.[1];

@@ -4,7 +4,7 @@
 // `POST /v1/runs` contract validates — so no shape translation is needed, the local file posts as-is.
 //
 // Cloud commands are optional: nothing here runs unless the user asks for it, and `plune run` keeps
-// working with no account, no token, and no network (ADR 0006).
+// working with no account, no token, and no network.
 //
 // Every failure is mapped to a typed error with a clean, actionable message (never a stack trace, never
 // the token). `cli.ts` turns those into the right exit code via `reportSyncFailure`.
@@ -80,7 +80,7 @@ export interface SyncDeps {
   loadToken?: () => string | null;
   /** HTTP transport (injected in tests — e.g. a real Hono app's `request`). Defaults to global `fetch`. */
   fetchImpl?: typeof fetch;
-  /** `--fail-on-failures`: read the run's summary back once after the upload and judge it (plune#1247). */
+  /** `--fail-on-failures`: read the run's summary back once after the upload and judge it. */
   failOnFailures?: boolean;
 }
 
@@ -151,7 +151,7 @@ export async function handleSync(deps: SyncDeps = {}): Promise<SyncResult> {
 
   // The key is the SHA-256 of the exact bytes sent: the same upload retried has the same key, other content
   // another. The server answers a repeat with 200 and the same id (no second run), a key reused with another
-  // body with 422, a key of a run in the Bin with 409 (plune ADR 0053); an older server ignores the header.
+  // body with 422, a key of a run in the Bin with 409; an older server ignores the header.
   const payload = JSON.stringify(run);
   const idempotencyKey = createHash('sha256').update(payload).digest('hex');
 

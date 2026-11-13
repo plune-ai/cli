@@ -31,7 +31,7 @@ const BATCH_MAX = 500;
  * because it is a different endpoint's promise and they are free to diverge. */
 const DISCOVER_MAX = 500;
 const BATCH_DEFAULT = 500;
-/** Result batches of one run in flight at once (plune-ai/plune#1393). */
+/** Result batches of one run in flight at once. */
 const SEND_CONCURRENCY = 4;
 /** What `configuration.expected` may hold before the contract refuses the whole start. */
 const EXPECTED_MAX = 10_000;
@@ -65,7 +65,7 @@ interface Upload {
 }
 
 /**
- * What the platform takes as a result's file, and how many (ADR 0040). Checked before sending rather
+ * What the platform takes as a result's file, and how many. Checked before sending rather
  * than left to the platform's refusal: a refused file has already crossed the wire — up to 2 MB, twenty
  * times a result — to learn what was known here. Drift costs no result: at worst a screenshot the
  * platform would now take is skipped, or one it no longer takes is refused and counted.
@@ -93,7 +93,7 @@ const TYPE_BY_EXTENSION: Record<string, string> = {
 };
 /** The attachment that tells the reporter which test case a test is: read by it, and not a file of the test. */
 const METADATA_TYPE = 'application/plune.metadata+json';
-/** The longest name the platform takes for a result's file (ADR 0040) — in UTF-16 units, as it measures. */
+/** The longest name the platform takes for a result's file — in UTF-16 units, as it measures. */
 const NAME_MAX = 200;
 
 /**
@@ -272,7 +272,7 @@ export interface RunSession {
   /** Send whatever is buffered. Safe to call when nothing is. */
   flush(): Promise<void>;
   /**
-   * Send what is left and close the run. Resolves to the summary the platform froze at `finish` (plune#1247), or
+   * Send what is left and close the run. Resolves to the summary the platform froze at `finish`, or
    * `undefined` when it answered with none: no run, a refused finish, a deployment older than the summary.
    */
   finish(reason?: string): Promise<FrozenSummary | undefined>;
@@ -286,8 +286,8 @@ export interface RunSession {
 }
 
 /**
- * What one results call may weigh, as serialized JSON — under the 10 MiB the route admits (#790,
- * ADR-0006 of that feature) with room for the envelope. The CLI's own transport limit, not a copy of
+ * What one results call may weigh, as serialized JSON — under the 10 MiB the route admits,
+ * with room for the envelope. The CLI's own transport limit, not a copy of
  * the platform's cap: the two can differ and nothing breaks.
  */
 const BATCH_BYTES = 8 * 1024 * 1024;
@@ -338,7 +338,8 @@ interface RunEcho {
 /**
  * Say so when a deployment took the run's description and kept none of it.
  *
- * This is the failure D13 exists to end, and it is the one the client can see and the server cannot:
+ * This is the failure the run's title, environment and label fields exist to end, and it is the
+ * one the client can see and the server cannot:
  * a deployment older than those columns validates the body, stores what it knows, and answers 201.
  * Nothing about that is distinguishable from success — which is exactly why the reporter refused
  * these variables out loud before there was anywhere to put them.
@@ -397,7 +398,7 @@ export async function startRun(
   /** Requests made to the platform's file routes (not to buckets), retries not counted; and files it already had (`exists`). */
   let requests = 0;
   let existed = 0;
-  /** A platform older than ADR 0051 has no bulk routes (404, no JSON): the files go one request each, as before. Decided by the answer, not by a version. */
+  /** A platform older than the bulk routes has none (404, no JSON): the files go one request each, as before. Decided by the answer, not by a version. */
   let batchMissing = false;
   const client: PlatformClient = createClient({
     apiUrl: resolveApiUrl(cfg.apiUrl),
@@ -426,7 +427,7 @@ export async function startRun(
   const resolved = new Map<KeyId, string | null>();
   let buffer: PendingResult[] = [];
   /**
-   * Tests that resolved to nothing, held until the run ends (D14).
+   * Tests that resolved to nothing, held until the run ends.
    *
    * Accumulated rather than offered per batch for one reason: a retried test appears several times,
    * and a queue that grew a row per attempt would be unusable by the second flaky suite. Keyed by
@@ -435,8 +436,8 @@ export async function startRun(
    */
   const discoveries = new Map<KeyId, DiscoveredTest>();
   /**
-   * The results behind `discoveries`, by each of their keys: a case the platform creates from an offer gets its result recorded
-   * (plune-ai/plune#1581), and the platform names that test by its highest-ranked key, which need not be the first one sent (cli#156).
+   * The results behind `discoveries`, by each of their keys: a case the platform creates from an offer gets its result recorded,
+   * and the platform names that test by its highest-ranked key, which need not be the first one sent (cli#156).
    */
   const held = new Map<KeyId, PendingResult>();
   /** Cases created from an offer, and how many of them have a result delivered; the summary says "recorded" only when they match. */
@@ -516,14 +517,14 @@ export async function startRun(
         '/v1/test-cases/resolve',
         { keys: part },
       );
-      // A 2xx without its list is no answer either (#790 re-review C5).
+      // A 2xx without its list is no answer either.
       if (!out.ok || !Array.isArray(out.body?.results)) {
         // Not fatal: an unresolved key defers its result rather than losing it.
         log(`plune: could not look up test cases (${out.ok ? 'the answer had no results' : out.detail || out.kind}).`);
         return;
       }
       for (const row of out.body.results) {
-        // A row with no key names no test: its result stays unanswered, and so deferred (#790 re-review C7).
+        // A row with no key names no test: its result stays unanswered, and so deferred.
         if (typeof row?.key?.value === 'string') resolved.set(keyId(row.key), row.testCaseId);
       }
     }
@@ -553,7 +554,7 @@ export async function startRun(
               // count it, but the run still declares how many tests it meant to run.
               return keys[0] === undefined ? [] : [{ externalKey: keys[0] }];
             }),
-            // The claim travels with the list it is about (D20). A runner that could not enumerate
+            // The claim travels with the list it is about. A runner that could not enumerate
             // its tests has no list, and a claim without one is nothing the platform can check —
             // so it is not sent, rather than sent and silently meaningless.
             ...(cfg.full === true ? { full: true } : {}),
@@ -562,7 +563,7 @@ export async function startRun(
       log(`plune: ${expected.length} tests is more than the run configuration holds — reporting the first ${EXPECTED_MAX}.`);
     }
 
-    // D13. Sent as they are — the platform states the limits and refuses what exceeds them by
+    // Sent as they are — the platform states the limits and refuses what exceeds them by
     // name, and its refusal costs no results: the run fails to start, this says why, and every
     // result goes to the fallback file. A second copy of the caps here would only drift.
     const described = {
@@ -585,11 +586,11 @@ export async function startRun(
     };
     let start = await client.post<{ run: RunEcho; joined: boolean }>('/v1/runs', request);
 
-    // plune#1949: the one refusal that is worth a second start. A 413 is the run being too large to keep, and the
+    // The one refusal that is worth a second start. A 413 is the run being too large to keep, and the
     // list of expected tests is nearly all of a start's bytes: over the 1 MiB a run keeps, 9 512 results of the
     // platform's own CI went to a fallback file the job then deleted. Without the list the run still takes every
     // result; what it loses is said here — no not-run count, and no full-run claim, which travels with the list.
-    // The limit stays the platform's to state (D13): this reacts to its refusal rather than copying the number.
+    // The limit stays the platform's to state: this reacts to its refusal rather than copying the number.
     if (!start.ok && start.status === 413 && configuration !== undefined) {
       log(
         `plune: the platform refused the run's list of expected tests as too large (${start.detail || start.kind}) — ` +
@@ -673,12 +674,12 @@ export async function startRun(
         discovered: batch,
         runId,
       });
-      // A 2xx without its list is no answer either (#790 re-review C7).
+      // A 2xx without its list is no answer either.
       if (!out.ok || !Array.isArray(out.body?.results)) {
         // The number that matters is not the batch that was refused — it is everything still
         // unoffered, which is that batch plus every one behind it, because this loop stops here.
         // Naming only the batch understates the work left by however many batches remain, and the
-        // reader has no way to see the difference: the rest were never mentioned at all (#627).
+        // reader has no way to see the difference: the rest were never mentioned at all.
         stats.unoffered = batches.slice(index).reduce((n, rest) => n + rest.length, 0);
         stats.unofferedWhy = whyUnoffered(out);
         log(
@@ -731,7 +732,7 @@ export async function startRun(
   }
 
   /**
-   * Ask where one file goes (plune-ai/plune#945): into the customer's bucket by a link, to the route that has
+   * Ask where one file goes: into the customer's bucket by a link, to the route that has
    * always taken a picture or a text, or nowhere. One file to a call: a refusal of one (a file over the
    * bucket's ceiling refuses the whole call) costs no other, and a renewed link is the same call again.
    */
@@ -797,7 +798,7 @@ export async function startRun(
     else failed(job, out.detail || out.kind);
   }
 
-  /** The three steps of ADR 0041: the link is the platform's, the PUT the bucket's, and `complete` is the platform asking the bucket. */
+  /** The three steps of the bucket upload: the link is the platform's, the PUT the bucket's, and `complete` is the platform asking the bucket. */
   async function uploadToBucket(job: Upload, size: number, first: { id: string; url: string; headers: Record<string, string> }): Promise<void> {
     const source = job.body !== undefined ? { body: job.body } : { path: job.path as string, size };
     let link = first;
@@ -884,7 +885,7 @@ export async function startRun(
     return () => uploadToBucket(job, size, link);
   }
 
-  /** The way it was before ADR 0051: a request or three per file. Used against a platform that has no bulk routes. */
+  /** The way it was before the bulk routes: a request or three per file. Used against a platform that has no bulk routes. */
   async function uploadEach(jobs: Upload[]): Promise<void> {
     // The files of one result are asked about one after the other, in the order of the attachments; the results
     // run side by side, and the calls they make share the places of `gated`.
@@ -952,7 +953,7 @@ export async function startRun(
   const itemPause = (round: number): Promise<void> => new Promise((r) => setTimeout(r, Math.min(250 * 2 ** round, 4000)));
 
   /**
-   * Up to 100 files per request (platform ADR 0051): announce all with their SHA-256 (a file the platform has
+   * Up to 100 files per request: announce all with their SHA-256 (a file the platform has
    * already is `exists` and sends nothing), PUT the ones that got a link, complete them in one request, and send
    * the ones that have no bucket by `direct-batch`. Every item has its own verdict; one that fails costs the others nothing.
    */
@@ -1155,8 +1156,7 @@ export async function startRun(
   }
 
   /**
-   * The screenshots and the text files of the results a batch just stored, each to its own result
-   * (platform ADR 0040).
+   * The screenshots and the text files of the results a batch just stored, each to its own result.
    *
    * Only `accepted`: a `duplicate` was stored by an earlier report, files and all, and sending them
    * again would fill its places with copies. Awaited before the next batch, and so before anything
@@ -1288,11 +1288,11 @@ export async function startRun(
       }
       const out = await client.post<{ counts: Record<keyof RunStats, number>; items?: BatchItem[] }>(
         `/v1/runs/${runId}/results`,
-        // The job's combination on every batch (plune-ai/plune#1251); a refusal of it is a 422 said below as it came.
+        // The job's combination on every batch; a refusal of it is a 422 said below as it came.
         { results: part, ...(configuration !== undefined ? { configuration } : {}) },
       );
       // A success with no counts says nothing about what was stored: kept for a replay, not guessed —
-      // and counts with no number in them say no more (#790 re-review C7).
+      // and counts with no number in them say no more.
       const counts = out.ok ? out.body?.counts : undefined;
       const told = COUNTED.filter((k) => typeof counts?.[k] === 'number');
       if (told.length > 0) {
@@ -1320,7 +1320,7 @@ export async function startRun(
   }
 
   /**
-   * Movement, but only where its absence would be ambiguous (#627).
+   * Movement, but only where its absence would be ambiguous.
    *
    * A suite that fits in one batch reports once and is done; a line about it would be noise. A
    * mature suite is a dozen or more silent round trips, and a person watching a first import has
@@ -1381,8 +1381,8 @@ export async function startRun(
       );
     }
     log(`plune: ${parts.join(' · ')}`);
-    // Where a GitHub run shows it without anyone opening the log — for every road, from here (#790).
-    // Said and nothing more: a reporting failure is not the build's failure (#788).
+    // Where a GitHub run shows it without anyone opening the log — for every road, from here.
+    // Said and nothing more: a reporting failure is not the build's failure.
     if (stats.deferred > 0 && process.env['GITHUB_ACTIONS'] === 'true') {
       log(`::warning::${stats.deferred} result(s) were not delivered to Plune — see the reporting step's log.`);
     }
@@ -1420,9 +1420,9 @@ export async function startRun(
         // A refusal here leaves the run open, which is a truthful state — see `leaveOpen`.
         if (!out.ok) log(`plune: could not close run ${runId} (${out.detail || out.kind}).`);
         else {
-          // Handed back as it came: what it means for an exit code is the gate's to say (plune#1247).
+          // Handed back as it came: what it means for an exit code is the gate's to say.
           frozen = out.body?.summary ?? undefined;
-          // The one thing a full run does outside itself (D20). Said when it happened and only then:
+          // The one thing a full run does outside itself. Said when it happened and only then:
           // a `0 detached` on every ordinary run would teach people to stop reading the line.
           if (typeof out.body?.detached === 'number' && out.body.detached > 0) {
             log(`plune: ${out.body.detached} test case(s) marked detached — this full run no longer reports them.`);

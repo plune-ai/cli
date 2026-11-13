@@ -42,7 +42,7 @@ const clean: RunDiff = {
   },
 };
 
-// plune#2414 — nothing regressed, but one eval was never measured.
+// Nothing regressed, but one eval was never measured.
 const unmeasured: RunDiff = {
   evals: [
     { id: 'err', status: 'errored', baseline: 'passed', current: 'errored' },
@@ -70,7 +70,7 @@ describe('renderDiffMarkdown', () => {
     expect(md).toContain(STICKY_MARKER);
   });
 
-  it('an unmeasured eval takes the green «no regressions» header away and is counted (#2414)', () => {
+  it('an unmeasured eval takes the green «no regressions» header away and is counted', () => {
     const md = renderDiffMarkdown(unmeasured);
     expect(md).not.toMatch(/no regress/i);
     expect(md).not.toContain('✅ No');

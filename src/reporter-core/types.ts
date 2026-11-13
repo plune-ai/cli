@@ -1,7 +1,7 @@
 /**
  * The platform's wire, mirrored in types — and only in types.
  *
- * There is deliberately no zod here. ADR 0012 says the platform owns the contract and clients
+ * There is deliberately no zod here. The platform owns the contract and clients
  * conform to it; a second copy of the schema on the client is a second place to drift, and it
  * would put a validation library into the dependency tree of every project that installs an
  * adapter. The platform validates and answers with a named reason (`validation failed — <field>:
@@ -118,7 +118,7 @@ export interface PendingResult {
   /** What the author expected — `test.fail()` and friends. Absent means a pass was expected. */
   expectedStatus?: ResultStatus;
   /**
-   * What to call this test, and where it lives — read ONLY when nothing resolved it (D14).
+   * What to call this test, and where it lives — read ONLY when nothing resolved it.
    *
    * A result that found its case needs neither: the case already has a title and a spec. These are
    * for the other path, where the reporter offers the test to the review queue and the queue needs a
@@ -132,7 +132,7 @@ export interface PendingResult {
   specRef?: string;
   execution?: Execution;
   errorContext?: string;
-  /** What failed and where, for a failed attempt (#790); a pass carries none. Built by `failureOf`. */
+  /** What failed and where, for a failed attempt; a pass carries none. Built by `failureOf`. */
   failure?: FailureDetail;
   params?: Record<string, unknown>;
   attachments?: Attachment[];
@@ -140,14 +140,14 @@ export interface PendingResult {
   /**
    * The files the runner kept for this attempt, passed or not — built by `filesOf`. Never part of a
    * batch: the paths are this machine's. Once the platform has accepted the result, the core uploads
-   * the screenshots and the text files among them to it (platform ADR 0040) — never a body to the
+   * the screenshots and the text files among them to it — never a body to the
    * fallback file either, which keeps a file by its path and leaves the bytes out.
    */
   files?: ResultFile[];
 }
 
 /**
- * What a failed attempt says about itself on the run page (#790, platform ADR-0002): every field
+ * What a failed attempt says about itself on the run page: every field
  * optional — a field the runner could not supply is absent, never guessed. Nothing here is cut: the
  * platform bounds the fields after its own cleaning, and a cut before that could halve a credential.
  */
@@ -189,7 +189,7 @@ export interface DeclaredStep {
 
 /**
  * One failed attempt, as both roads reduce their runner's data to it before anything is derived —
- * `plune run import` from the JSON report, the adapter from the reporter API (#790 ADR-0001). The same
+ * `plune run import` from the JSON report, the adapter from the reporter API. The same
  * shape in, so the same detail and the same text out.
  */
 export interface FailedAttempt {
@@ -216,7 +216,7 @@ export interface ResultSubmission extends Omit<PendingResult, 'keys' | 'testCase
 }
 
 /**
- * A test this project runs and the platform has no case for (D14, platform ADR 0029).
+ * A test this project runs and the platform has no case for.
  *
  * Deliberately NOT a proposed case. A proposal carries steps and an expected result, and a reporter
  * has neither — it sees a `TestResult`, never the test's source. This says the test exists and where
@@ -236,7 +236,7 @@ export interface DiscoveredTest {
  * is already known or already refused, and only `queued` is new work for a reviewer.
  *
  * `created` is the fifth, and the one a client must not treat as noise: the project trusts this
- * source (platform ADR 0030), so the case was made without asking. Counting only `queued` would
+ * source, so the case was made without asking. Counting only `queued` would
  * report "0 offered for review" over two thousand new cases — the offer was answered, not ignored.
  */
 export interface DiscoveryOutcome {
@@ -269,7 +269,7 @@ export interface RunRecord {
 }
 
 /**
- * What the platform froze into a run at `finish` and answers the event with (plune#1247): the verdict a
+ * What the platform froze into a run at `finish` and answers the event with: the verdict a
  * release gate is made on, never recomputed. `counts` is by the status each result is counted under — a
  * muted case's `failed` or `broken` is under `muted`, outside both — and an absent key is zero.
  */
@@ -294,12 +294,11 @@ export interface RunStats extends SubmitCounts {
   /** Results whose keys matched no case — never sent, because inventing an id would write into
    * somebody else's history. Rung 6 of C2's ladder is what to do about them: see `offered`. */
   unresolved: number;
-  /** Unresolved tests offered to the review queue under `PLUNE_CREATE=1` (D14). Counted separately
+  /** Unresolved tests offered to the review queue under `PLUNE_CREATE=1`. Counted separately
    * from `unresolved` because they are the same tests seen twice, not a second population. */
   offered: number;
   /**
-   * Offered tests the platform turned into cases outright, because the project trusts this source
-   * (platform ADR 0030).
+   * Offered tests the platform turned into cases outright, because the project trusts this source.
    *
    * Its own number rather than part of `offered`: these are the opposite of work to do. `offered`
    * means "somebody has to look at this"; `created` means "nobody has to, and here is what appeared
@@ -308,7 +307,7 @@ export interface RunStats extends SubmitCounts {
    */
   created: number;
   /**
-   * Unmatched tests that were NOT offered, because the queue would not take them (#627).
+   * Unmatched tests that were NOT offered, because the queue would not take them.
    *
    * Separate from `offered` rather than a shortfall computed against `unresolved`: the reason a
    * test went unoffered is the caller's next action, and a subtraction cannot carry a reason. A
@@ -322,25 +321,25 @@ export interface RunStats extends SubmitCounts {
    */
   unofferedWhy?: UnofferedWhy;
   /**
-   * Results not delivered, written to the fallback file instead of the platform (#790): a batch
+   * Results not delivered, written to the fallback file instead of the platform: a batch
    * refused for any reason — its size, the network, the token, a closed run — or a result whose keys
    * the platform could not be asked about. Apart from `rejected` and `unresolved`, which it did answer.
    */
   deferred: number;
   /**
-   * The screenshots of the accepted results (platform ADR 0040): uploaded to their result; skipped
+   * The screenshots of the accepted results: uploaded to their result; skipped
    * because the platform would refuse them or the file is not here; refused or unanswered on the way.
    * None of them costs a result — a result is reported whether its screenshots arrive or not.
    */
   screenshots: { uploaded: number; skipped: number; failed: number };
   /**
-   * The same for the JSON and plain-text files of the accepted results (plune-ai/plune#928): counted
+   * The same for the JSON and plain-text files of the accepted results: counted
    * apart from the screenshots because the two have limits of their own — 512 KiB and ten a result against
    * 2 MB and twenty — and a person reading "3 skipped" has to know which kind it was.
    */
   textFiles: { uploaded: number; skipped: number; failed: number };
   /**
-   * Every other file (a trace, a video, a page): only a project's bucket takes them (plune-ai/plune#946), so
+   * Every other file (a trace, a video, a page): only a project's bucket takes them, so
    * without one they are counted as skipped. With one, the summary adds all three kinds up.
    */
   otherFiles: { uploaded: number; skipped: number; failed: number };
@@ -363,7 +362,7 @@ export interface ReporterConfig {
   /** How the run is marked — smoke, nightly, a team. */
   labels?: string[];
   /**
-   * The combination this job runs, group name → value label (`PLUNE_CONFIGURATION`, plune-ai/plune#1251):
+   * The combination this job runs, group name → value label (`PLUNE_CONFIGURATION`):
    * sent as `configuration` on every results batch. Not the run's own `configuration` (what it expects).
    * Stated, it is all there is: the variable is not read, and `{}` sends none (what a replay passes for a line that recorded none).
    */
@@ -377,7 +376,7 @@ export interface ReporterConfig {
   /** Where unsent batches go. Defaults beside the run file the CLI already writes. */
   fallbackPath?: string;
   /**
-   * Offer tests that resolved to nothing to the platform's review queue (`PLUNE_CREATE=1`, D14).
+   * Offer tests that resolved to nothing to the platform's review queue (`PLUNE_CREATE=1`).
    *
    * Off by default, and that is the product decision rather than caution: a reporter that filled a
    * stranger's review queue on first run would teach the team to ignore the queue. Turning it on is
@@ -385,7 +384,7 @@ export interface ReporterConfig {
    */
   offerDiscovered?: boolean;
   /**
-   * This run is the whole suite (`PLUNE_FULL_RUN=1`, D20).
+   * This run is the whole suite (`PLUNE_FULL_RUN=1`).
    *
    * Sent as `configuration.full` beside `expected`. When such a run finishes having reported
    * everything it expected, the platform moves the cases this source used to report and did not

@@ -53,7 +53,7 @@ describe('runOrchestration', () => {
     expect(r.config_hash).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it('defaults.assertions run on every eval, before its own (#2415)', async () => {
+  it('defaults.assertions run on every eval, before its own', async () => {
     const cfg: Config = {
       ...config([evalPass, { ...evalPass, id: 'e2' }]),
       defaults: { assertions: [{ type: 'contains', value: 'NEVER-IN-THE-REPLY' }] },
@@ -138,9 +138,9 @@ describe('runOrchestration', () => {
   });
 });
 
-// plune#1245 — `blocked` and `skipped` are counted apart from `failed`, in the platform's order
-// (ADR 0045): the runner's `inconclusive` first, then an error, then the assertions.
-describe('summarize (plune#1245)', () => {
+// `blocked` and `skipped` are counted apart from `failed`, in the platform's order:
+// the runner's `inconclusive` first, then an error, then the assertions.
+describe('summarize', () => {
   const pass: AssertionResultRecord = { type: 'contains', passed: true };
   const fail: AssertionResultRecord = { type: 'contains', passed: false };
   const row = (extra: Partial<RowResult> = {}): RowResult => ({

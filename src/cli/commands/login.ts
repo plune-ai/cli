@@ -3,7 +3,7 @@
 // The saving half is deliberately small: trim, refuse blank, write 0600, return only the PATH so the
 // token cannot reach a terminal or a log through this function.
 //
-// The checking half exists because it did not (#329). A wrong token used to be accepted here without
+// The checking half exists because it did not. A wrong token used to be accepted here without
 // a word and surfaced two commands later, on `plune sync`, as a failure that looks like something
 // else entirely — and by then the person has also run their evals. One request at the moment the
 // token is pasted turns that into "this token is wrong, here is where to get a right one".

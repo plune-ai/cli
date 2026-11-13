@@ -16,7 +16,7 @@ export interface McpServeDeps {
 }
 
 /**
- * `plune mcp serve` (plune-ai/plune#1284): the Plune tools over MCP stdio. stdout carries the protocol, so nothing
+ * `plune mcp serve`: the Plune tools over MCP stdio. stdout carries the protocol, so nothing
  * here may print; the caller reports failures on stderr.
  */
 export async function handleMcpServe(flags: McpServeFlags, deps: McpServeDeps): Promise<void> {

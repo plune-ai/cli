@@ -71,7 +71,7 @@ export {
   TEST_CASE_SCHEMA_VERSION,
 } from './types/test-case-schema.js';
 
-// Cairn ingest (Plune #10 / #86): read a Cairn run directory and record it in Plune. Exposed on the
+// Cairn ingest: read a Cairn run directory and record it in Plune. Exposed on the
 // public API for the same reason `sync` is — embedding hosts drive it without shelling out.
 export {
   handleIngest as ingest,

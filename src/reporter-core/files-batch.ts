@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 
 /**
- * The bulk routes of the platform for a report's files (platform ADR 0051): `uploads-batch`, `complete-batch` and
+ * The bulk routes of the platform for a report's files: `uploads-batch`, `complete-batch` and
  * `direct-batch` take up to this many files a request and answer 200 with one verdict per item, in order.
  */
 export const FILES_BATCH_MAX = 100;

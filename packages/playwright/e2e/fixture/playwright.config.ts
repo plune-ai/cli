@@ -15,17 +15,17 @@ if (apiUrl === undefined || apiUrl === '') {
   throw new Error('PLUNE_STUB_URL must be set — this fixture must never reach a real deployment');
 }
 
-// The same run as a JSON report as well, when a test asks for one — what `plune run import` reads (#790).
+// The same run as a JSON report as well, when a test asks for one — what `plune run import` reads.
 const jsonReport = process.env['PLUNE_JSON_REPORT'];
 
 // And as Playwright's own JUnit report, for the import that reads that one (plune-ai/cli#47).
 const junitReport = process.env['PLUNE_JUNIT_REPORT'];
 
-// The results per batch, when a test asks — the core sends from inside `add` at every multiple (#790).
+// The results per batch, when a test asks — the core sends from inside `add` at every multiple.
 const batchSize = process.env['PLUNE_BATCH_SIZE'];
 
 export default defineConfig({
-  // `./many` when a test asks: a hundred quick passes, the AC-15 run's count (#790).
+  // `./many` when a test asks: a hundred quick passes, the AC-15 run's count.
   testDir: process.env['PLUNE_TEST_DIR'] ?? './tests',
   reporter: [
     [

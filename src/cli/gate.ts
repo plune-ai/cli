@@ -1,6 +1,6 @@
-// `--fail-on-failures` (plune-ai/plune#1247, decision 8 of 12.10.2026): a release gate on the verdict the platform
+// `--fail-on-failures`: a release gate on the verdict the platform
 // already keeps. The platform counts a muted case's `failed` or `broken` under `muted`, so a muted failure is
-// outside both counts here without the CLI knowing what a mute is — the case flag stays the one source (decision 7).
+// outside both counts here without the CLI knowing what a mute is — the case flag stays the one source.
 
 /** The platform's verdict on a run: the summary `finish` froze, or the one `GET /v1/runs/:id/summary` reads. */
 export interface Verdict {

@@ -5,7 +5,7 @@ import { stripVTControlCharacters } from 'node:util';
 import type { AttemptError, DeclaredStep, FailedAttempt, FailureDetail, ResultFile, RunnerLocation } from './types.js';
 
 /**
- * The failure detail of one attempt (#790, ADR-0001 of the feature): what failed, the declared steps
+ * The failure detail of one attempt: what failed, the declared steps
  * down to it, where, what the runner kept, and the CI run — derived from the attempt both roads
  * reduce their data to, so `plune run import` and the adapter cannot disagree about it.
  *
@@ -15,7 +15,7 @@ import type { AttemptError, DeclaredStep, FailedAttempt, FailureDetail, ResultFi
  */
 export function failureOf(attempt: FailedAttempt, home: string = homedir()): FailureDetail | undefined {
   const error = chosen(attempt);
-  // Rewritten as the text is; past `HEADLINE_LIMIT` left out whole, never cut (ADR-0001).
+  // Rewritten as the text is; past `HEADLINE_LIMIT` left out whole, never cut.
   const line = error === undefined ? undefined : firstLine(machineless(error.text, attempt.repoRoot, home));
   const headline = line !== undefined && jsonBytes(line) <= HEADLINE_LIMIT ? line : undefined;
   const steps = chainOf(attempt.steps);
@@ -52,14 +52,14 @@ export function repoRootOf(dir: string, stopAt?: string): string | undefined {
  * `errorContext` for one attempt: every error in order, colour codes gone, the repository as relative
  * paths and a home folder as `~` — any home folder when the root is unknown, since the report may come
  * from another machine — and no longer than the CLI's transport limit, cut by whole lines. Nothing is
- * searched for credentials: the platform does that before its own cut (ADR-0005).
+ * searched for credentials: the platform does that before its own cut.
  */
 export function errorContextOf(attempt: FailedAttempt, home: string = homedir()): string {
   return cutErrorContext(attempt, home).text;
 }
 
 /**
- * The `errorContext` and `errorContextOmitted` keys of a result (plune-ai/plune#1281 AC-03), ready to spread:
+ * The `errorContext` and `errorContextOmitted` keys of a result (AC-03), ready to spread:
  * none for an empty text, and `errorContextOmitted` only when the cut took something out, a whole number of at
  * least 1 (the platform refuses 0). Counted in characters of the text as it would have been sent (`.length`,
  * the unit the platform counts in), never bytes; the `…[omitted N lines]…` marker is not counted.
@@ -99,7 +99,7 @@ export const mediaTypeOf = (contentType: string | undefined): string | undefined
   contentType?.split(';')[0]?.trim().toLowerCase() || undefined;
 
 /**
- * The types the platform keeps as a text file (platform ADR 0040, its 2026-09-29 review). A log is
+ * The types the platform keeps as a text file. A log is
  * `text/plain`: `.log`, `stdout` and `stderr` are names, not types.
  */
 export const TEXT_TYPES: ReadonlySet<string> = new Set(['application/json', 'text/plain']);
@@ -109,11 +109,11 @@ export const isTextType = (contentType: string | undefined): boolean => TEXT_TYP
 
 /**
  * The files the runner kept for one attempt, whatever its status: a screenshot of a test that passed
- * is how a person sees what it checked (plune-ai/plune#913). Which of them the platform takes, the
+ * is how a person sees what it checked. Which of them the platform takes, the
  * session decides as it uploads — once, for both roads.
  *
  * A file is what has a `path`. What a test attached as a `body` leaves none — Playwright hands the bytes
- * over and keeps nothing — so a JSON or a text is kept with its bytes (plune-ai/plune#928), and nothing
+ * over and keeps nothing — so a JSON or a text is kept with its bytes, and nothing
  * else is: an image, a trace or a page is not taken from memory, and a suite whose screenshots are
  * bodies must not hold them all until a batch is sent.
  */
@@ -124,7 +124,7 @@ export function filesOf(attempt: FailedAttempt): ResultFile[] {
 /**
  * A text without this machine in it: colour codes gone, the repository as relative paths and a home
  * folder as `~` — any home folder when the root is unknown. The headline and the text both go through
- * here, so neither can name a folder the other hides (#790 AC-05).
+ * here, so neither can name a folder the other hides.
  */
 export function machineless(raw: string, repoRoot: string | undefined, home: string): string {
   let text = stripVTControlCharacters(raw).replaceAll('\u001b', '');
@@ -145,8 +145,8 @@ export function machineless(raw: string, repoRoot: string | undefined, home: str
 const PATH_START = '(?<![\\w.~%/\\\\-])';
 
 /**
- * The CLI's own transport limit for one text (ADR-0006) — not a copy of the platform's 256 KB — in the
- * bytes the text weighs in a batch, which is packed by its JSON (#790 review G1).
+ * The CLI's own transport limit for one text — not a copy of the platform's 256 KB — in the
+ * bytes the text weighs in a batch, which is packed by its JSON.
  */
 const TEXT_LIMIT = 524_288;
 
@@ -175,7 +175,7 @@ const ANY_HOME =
 /**
  * `path` as a text may spell it: either slash, doubled as a printed string doubles a backslash or
  * escaped as PHP's JSON escapes a slash (`\/`), as a file URL or a webpack source map's
- * (`webpack:///Users/…`, #790 re-review C9), and on Windows in any case. Nothing for `/` or a bare
+ * (`webpack:///Users/…`), and on Windows in any case. Nothing for `/` or a bare
  * drive — they would match every path.
  */
 function pathIn(path: string): RegExp | undefined {
@@ -184,13 +184,13 @@ function pathIn(path: string): RegExp | undefined {
   if (!parts.some((part) => part !== '' && !/^[A-Za-z]:$/.test(part))) return undefined;
   const joined = parts.map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\\\/]+');
   // A posix path's leading slash is one slash, escaped or not: as `[\\/]+` it also took the `//` after
-  // a scheme, and `http://app/login` lost its host to a root `/app` (#790 re-review C1); as a bare `/`
+  // a scheme, and `http://app/login` lost its host to a root `/app`; as a bare `/`
   // it missed `\/Users\/alice\/…` (C6). A UNC path keeps both.
   const escaped = /^\/(?!\/)/.test(path) ? joined.replace('[\\\\/]+', '\\\\*\\/') : joined;
   // Only the schemes whose `///` opens a path of this machine: any scheme would take `sqlite:///app/…`.
   // ponytail: so another scheme's absolute `////` (`sqlite:////Users/alice/…`) keeps its path, and so does
   // a scheme in capitals before a posix path (`FILE:///Users/…`) — a Windows root or home is matched in
-  // any case. Neither is likely in a runner's error text (#790 re-review C11).
+  // any case. Neither is likely in a runner's error text.
   const url = '(?:(?:file|webpack|webpack-internal):(?:\\\\*\\/){2,3})?';
   return new RegExp(`${url}${escaped}`, /^[A-Za-z]:$/.test(parts[0]!) ? 'gi' : 'g');
 }
@@ -222,7 +222,7 @@ function cut(text: string): { text: string; omitted: number } {
 
 const omitted = (lines: number): string => `…[omitted ${lines} lines]…`;
 
-/** The content type a test hands the reporter its metadata in (platform ADR 0023) — not an artifact. */
+/** The content type a test hands the reporter its metadata in — not an artifact. */
 const METADATA_TYPE = 'application/plune.metadata+json';
 
 /** What the platform takes as a file from the repository root; anything else would refuse the batch. */

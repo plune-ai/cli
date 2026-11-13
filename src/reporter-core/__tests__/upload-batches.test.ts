@@ -122,7 +122,7 @@ async function report(
   }
 }
 
-describe('result batches (plune-ai/plune#1393)', () => {
+describe('result batches', () => {
   it('7 000 results are 14 requests by default, where batches of 100 were 70', async () => {
     const before = await report(7000, { batchSize: 100 });
     const after = await report(7000);

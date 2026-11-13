@@ -56,7 +56,7 @@ beforeEach(() => {
 
 const markdown = { 'content-type': 'text/markdown; charset=utf-8', 'x-plune-cases': '3' };
 
-describe('handlePull (D9)', () => {
+describe('handlePull', () => {
   it('writes the document to plune/cases.md, with the bearer token and never in the output', async () => {
     const { fn, calls } = stubFetch(200, DOC, markdown);
     const result = await handlePull({
@@ -162,7 +162,7 @@ describe('handlePull (D9)', () => {
   });
 });
 
-describe('handlePush (D9)', () => {
+describe('handlePush', () => {
   it('posts the file as text/markdown and returns the report as the server gave it', async () => {
     mkdirSync(join(tmp, 'plune'), { recursive: true });
     writeFileSync(join(tmp, 'plune', 'cases.md'), DOC);
@@ -222,7 +222,7 @@ describe('handlePush (D9)', () => {
   });
 });
 
-describe('formatReport / reportCasesFailure (D9)', () => {
+describe('formatReport / reportCasesFailure', () => {
   it('prints the counts, then each refusal and warning with its line; a dry run says so', () => {
     const out = formatReport(
       report({

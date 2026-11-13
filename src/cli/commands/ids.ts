@@ -4,7 +4,7 @@ import { loadSources, type CodeTest, type PlatformCase, type VerifyDeps } from '
 import { SyncFileError } from './sync.js';
 
 /**
- * `plune ids` (plune-ai/plune#1291, AC-01/AC-05): writes the Plune case id of each Playwright test that does not
+ * `plune ids` (AC-01/AC-05): writes the Plune case id of each Playwright test that does not
  * name one into a mapfile, `plune/ids.json` — `{ "<path-title>": "<case id>" }` — instead of editing the test
  * sources. A test is covered when it already names an id (`PluneId` annotation, `@P<id>`) or already has an entry.
  * Only tests whose case the platform already holds get an entry; a test with no case yet is listed and left alone

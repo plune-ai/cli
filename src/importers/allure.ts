@@ -1,5 +1,5 @@
 /**
- * An `allure-results` folder → results (plune-ai/plune#1221).
+ * An `allure-results` folder → results.
  *
  * The folder is what every Allure adapter writes — pytest, JUnit 5, TestNG, Playwright, Cypress, Jest, Vitest,
  * WebdriverIO, .NET — so this one reader is all of them. A test is a `*-result.json`; a `*-container.json` is the
@@ -22,7 +22,7 @@ import { readReportFile } from './read-file.js';
 
 const SOURCE = 'allure';
 
-/** `@P<id>` anywhere in a name — the token JUnit and Playwright read too (ADR 0023). */
+/** `@P<id>` anywhere in a name — the token JUnit and Playwright read too. */
 const TOKEN = /@P([A-Za-z0-9_-]+)/;
 
 /** A folder we could not read as a report. Exit 2 — the user can fix it. */
@@ -73,7 +73,7 @@ const MAX_DEPTH = 256;
 /** The latest time `Date` can hold (ms). */
 const MAX_TIME = 8.64e15;
 
-/** Whether `path` is a folder: an `allure-results` report, or a folder of JUnit files (plune-ai/plune#2309). */
+/** Whether `path` is a folder: an `allure-results` report, or a folder of JUnit files. */
 export function isFolder(path: string): boolean {
   try {
     return fs.statSync(path).isDirectory();

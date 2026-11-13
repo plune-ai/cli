@@ -1,13 +1,13 @@
 import { z } from 'zod';
 
 /**
- * Input shapes of the tools, mirrored from the platform's contracts (`plune-ai/plune` `src/contracts/mission.ts`,
+ * Input shapes of the tools, mirrored from the platform's contracts (`src/contracts/mission.ts`,
  * `mission-strategy.ts`, `review-item.ts`, `cairn-ingest.ts`, `api-endpoint.ts`). Mirrored, not imported: the platform
  * depends on this package, not the other way round. The platform validates every body again, so a drift here shows up
  * as its 400 with the field named — never as a write the caller did not mean.
  */
 
-/** Objects one call takes (plune#1284 AC-03). */
+/** Objects one call takes. */
 export const BATCH_MAX = 100;
 
 const isHttp = (s: string): boolean => {
@@ -29,7 +29,7 @@ export const dryRun = z
   .optional()
   .describe('true: answer what would be sent, and send nothing');
 
-// --- Missions (#2188) ---------------------------------------------------------------------------
+// --- Missions ---------------------------------------------------------------------------
 
 export const MISSION_STATES = ['draft', 'active', 'done'] as const;
 export const MISSION_DOCUMENTATION = ['unknown', 'provided', 'none'] as const;
@@ -78,7 +78,7 @@ export const fileSource = z.strictObject({
   dry_run: dryRun,
 });
 
-// --- Questions (#2189) --------------------------------------------------------------------------
+// --- Questions --------------------------------------------------------------------------
 
 export const ACCESS_KINDS = ['openapi', 'repo', 'staging', 'har'] as const;
 const questionText = z.string().trim().min(1).max(2_000);
@@ -106,7 +106,7 @@ export const questionInput = z.strictObject({
   dry_run: dryRun,
 });
 
-// --- Strategy (#2190) ---------------------------------------------------------------------------
+// --- Strategy ---------------------------------------------------------------------------
 
 export const STRATEGY_SOURCE_KINDS = ['mission-source', 'doc-section', 'screen', 'endpoint', 'requirement', 'url'] as const;
 export const TEST_LEVELS = ['component', 'component-integration', 'system', 'system-integration', 'acceptance'] as const;
@@ -185,7 +185,7 @@ export const strategyContent = z.strictObject({
   exitCriteria: items,
 });
 
-// --- Case proposals (ingest, ADR 0010) ----------------------------------------------------------
+// --- Case proposals (ingest) ----------------------------------------------------------
 
 export const SOURCE_REF_KINDS = ['url', 'openapi-operation', 'requirement', 'pasted-text'] as const;
 
@@ -203,7 +203,7 @@ export const proposedCase = z.strictObject({
   rationale: z.string().min(1).max(400).optional().describe('Why the case is worth having'),
 });
 
-// --- Cases from pasted text (plune#1876, plune#1995) ---------------------------------------------
+// --- Cases from pasted text ---------------------------------------------
 
 /** The platform's bounds of a run (`POST /v1/projects/:id/case-generations`). */
 export const CASE_GENERATION_TITLE_MAX = 300;
@@ -236,7 +236,7 @@ export const caseGenerationBody = {
     .describe('true: go ahead although cases or proposals from this text exist (the platform answers 409 duplicate_source first)'),
 };
 
-// --- API catalog proposals (#2192) --------------------------------------------------------------
+// --- API catalog proposals --------------------------------------------------------------
 
 export const API_METHODS = ['GET', 'PUT', 'POST', 'DELETE', 'OPTIONS', 'HEAD', 'PATCH', 'TRACE'] as const;
 

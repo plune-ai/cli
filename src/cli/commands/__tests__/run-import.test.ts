@@ -25,7 +25,7 @@ interface Seen {
 function platform(
   resolveTo: (key: string) => string | null = () => 'tc-1',
   discoveryOutcome: 'queued' | 'known' | 'created' = 'queued',
-  /** A `created` answer names the new case (plune-ai/plune#1581); an older platform does not. */
+  /** A `created` answer names the new case; an older platform does not. */
   createdIds = true,
 ) {
   const seen: Seen[] = [];
@@ -37,7 +37,7 @@ function platform(
       seen.push({ path: target, body: {}, file: { type: (init?.headers as Record<string, string>)['content-type']!, bytes } });
       return json(201, { id: 'f-1', size: bytes.length });
     }
-    // A project without a bucket (ADR 0041): what the database takes goes the old way, the rest has nowhere to go.
+    // A project without a bucket: what the database takes goes the old way, the rest has nowhere to go.
     if (target.endsWith('/files/uploads')) {
       const { files } = JSON.parse(String(init?.body)) as { files: { name: string; contentType: string; size: number }[] };
       return json(200, {
@@ -115,7 +115,7 @@ const deps = (fetchImpl: typeof fetch) => ({
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plune-import-'));
   lines.length = 0;
-  // The run opens with the commit and branch of the CI it runs in (plune#927), so these tests are not
+  // The run opens with the commit and branch of the CI it runs in, so these tests are not
   // to know which CI that is: on GitHub Actions every run here would open with the job's own.
   for (const marker of ['GITHUB_ACTIONS', 'GITLAB_CI', 'JENKINS_URL']) vi.stubEnv(marker, '');
 });
@@ -137,7 +137,7 @@ describe('plune run import', () => {
     expect(lines.join('\n')).toContain('Read 2 result(s) from a junit report');
   });
 
-  // plune#1251. The import sends the reporter's way, so a job of a matrix lands in its combination too.
+  // The import sends the reporter's way, so a job of a matrix lands in its combination too.
   it('sends the combination PLUNE_CONFIGURATION names with the results, and refuses one it cannot read before sending', async () => {
     vi.stubEnv('PLUNE_CONFIGURATION', 'Browser=Chrome');
     const { seen, fetchImpl } = platform();
@@ -210,7 +210,7 @@ describe('plune run import', () => {
       const offer = seen.find((s) => s.path === '/v1/review-items/discovered');
       expect(offer?.body['discovered']).toHaveLength(2);
       expect(lines.join('\n')).toContain('2 unknown test(s) offered to the review queue');
-      // The cause and the way out, not just the fact (plune#1569).
+      // The cause and the way out, not just the fact.
       expect(lines.join('\n')).toContain('do not count on the run until approved');
       expect(lines.join('\n')).toContain('add `junit` under Settings → Trusted sources');
     });
@@ -234,7 +234,7 @@ describe('plune run import', () => {
     });
 
     /**
-     * A trusted source (platform ADR 0030) answers the offer instead of queueing it — and the
+     * A trusted source answers the offer instead of queueing it — and the
      * reporter counted only `queued`, so a run that filled a project with cases printed nothing at
      * all about them. That is the same shape as every silence that has cost a day here: the work
      * happened, the accounting did not, and there is nobody to complain to.
@@ -256,7 +256,7 @@ describe('plune run import', () => {
       expect(lines.join('\n')).not.toContain('pass --create');
     });
 
-    describe('a trusted source (plune-ai/plune#1581)', () => {
+    describe('a trusted source', () => {
       const resultPosts = (seen: Seen[]) => seen.filter((s) => s.path === '/v1/runs/r-9/results');
       const sentCases = (seen: Seen[]) =>
         resultPosts(seen).flatMap((s) => (s.body['results'] as { testCaseId?: string }[]).map((r) => r.testCaseId));
@@ -367,7 +367,7 @@ describe('plune run import', () => {
   });
 
   /**
-   * The verb has to survive a run where nothing landed (#622).
+   * The verb has to survive a run where nothing landed.
    *
    * When the platform is unreachable the line read «Imported 555 result(s) … 0 accepted, 0 already
    * there, 0 unmatched» — the first half announcing success, the second half three zeros. A reader
@@ -385,7 +385,7 @@ describe('plune run import', () => {
   });
 
   /**
-   * A queue that fills up mid-import (#627).
+   * A queue that fills up mid-import.
    *
    * The review queue holds at most 1000 waiting items. A mature suite arriving for the first time
    * is bigger than that — this repository's own is 2029 — so the offer stops partway, and what the
@@ -587,11 +587,11 @@ describe('plune run import', () => {
   });
 
   /**
-   * #790 T16. What did not reach Plune is said on the line people and workflows already read, and in
+   * What did not reach Plune is said on the line people and workflows already read, and in
    * GitHub Actions once more where a run's annotations show it; the CI run comes from the report the
    * runner wrote, never from the machine that happens to import it.
    */
-  describe('what was not delivered, and the CI run (#790)', () => {
+  describe('what was not delivered, and the CI run', () => {
     const BUILD = 'https://github.com/acme/shop/actions/runs/42';
     const playwrightReport = (buildHref: string) =>
       JSON.stringify({
@@ -668,11 +668,11 @@ describe('plune run import', () => {
   });
 
   /**
-   * plune-ai/plune#927. The run opens with the commit and branch it ran at, read from the CI's own
+   * The run opens with the commit and branch it ran at, read from the CI's own
    * variables — as `@plune-ai/playwright` reads them, and from the report's when it names a commit:
    * whoever imports may be another job, and this job's branch is not that commit's.
    */
-  describe('the commit and branch the run opens with (plune#927)', () => {
+  describe('the commit and branch the run opens with', () => {
     const SHA = '0123456789abcdef0123456789abcdef01234567';
     const OTHER = 'fedcba9876543210fedcba9876543210fedcba98';
     const BUILD = 'https://github.com/acme/shop/actions/runs/42';
@@ -806,10 +806,10 @@ describe('plune run import', () => {
   });
 
   /**
-   * plune-ai/plune#913. A Playwright JSON report names the files each attempt kept; the screenshots
+   * A Playwright JSON report names the files each attempt kept; the screenshots
    * among them go to their result — a passed test's too — once the batch that carries it is stored.
    */
-  describe('the screenshots a Playwright report keeps (plune#913)', () => {
+  describe('the screenshots a Playwright report keeps', () => {
     // A 1×1 PNG.
     const PNG = Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
@@ -880,11 +880,11 @@ describe('plune run import', () => {
   });
 
   /**
-   * plune-ai/plune#928. The same report names JSON and text files: kept by `path`, or as the base64 of a
+   * The same report names JSON and text files: kept by `path`, or as the base64 of a
    * `body` when the test attached the bytes themselves. They go to their result as the screenshots do, and
    * are counted apart from them.
    */
-  describe('the text files a Playwright report keeps (plune#928)', () => {
+  describe('the text files a Playwright report keeps', () => {
     // A 1×1 PNG.
     const PNG = Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
@@ -1025,7 +1025,7 @@ describe('plune run import', () => {
   });
 
   /**
-   * `--fail-on-failures` (plune#1247): the exit code is the verdict the platform froze at `finish` — muted
+   * `--fail-on-failures`: the exit code is the verdict the platform froze at `finish` — muted
    * failures outside `failed` and `broken` — and no verdict is no pass.
    */
   describe('--fail-on-failures', () => {
@@ -1097,7 +1097,7 @@ describe('plune run import', () => {
   });
 });
 
-describe('a platform that stops answering (plune-ai/plune#1473)', () => {
+describe('a platform that stops answering', () => {
   /** Answers the run's start, then goes silent on everything else; remembers whether `terminate` was tried. */
   function stalls(terminateAnswers: boolean) {
     const events: string[] = [];
@@ -1172,7 +1172,7 @@ describe('a platform that stops answering (plune-ai/plune#1473)', () => {
   });
 });
 
-/** plune-ai/plune#2309. The fixture is written by hand to Surefire's format, not taken from a live Maven run. */
+/** The fixture is written by hand to Surefire's format, not taken from a live Maven run. */
 describe('CLI · run import · JUnit folder · Maven Surefire', () => {
   const SUREFIRE = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'importers', '__tests__', 'fixtures', 'junit-folder-surefire');
 

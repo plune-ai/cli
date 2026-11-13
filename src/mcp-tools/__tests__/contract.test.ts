@@ -1,5 +1,5 @@
-// The tool contract (plune-ai/plune#1284, plune-ai/cli#146): one list of definitions that both the MCP
-// server here and the platform's built-in agent (plune-ai/plune#2202) read. What it promises a client
+// The tool contract (plune-ai/cli#146): one list of definitions that both the MCP
+// server here and the platform's built-in agent read. What it promises a client
 // is checked here, before any transport is involved.
 
 import { readdirSync, readFileSync } from 'node:fs';
@@ -32,7 +32,7 @@ describe('the tool contract', () => {
     for (const name of MISSION_TOOLS) expect(names).toContain(name);
   });
 
-  it('covers the groups of plune#1284: bootstrap, read, write, review, escape hatch, discover', () => {
+  it('covers the tool groups: bootstrap, read, write, review, escape hatch, discover', () => {
     for (const name of [
       'plune_project_context',
       'plune_get',
@@ -128,7 +128,7 @@ describe('the tool contract', () => {
     expect(update.safeParse({ cases: Array(101).fill({ id: 'c', changes: { title: 't' } }) }).success).toBe(false);
   });
 
-  it('starts cases from pasted text only: the Jira-ticket mode is not offered (plune-ai/plune#1876)', () => {
+  it('starts cases from pasted text only: the Jira-ticket mode is not offered', () => {
     const generate = pluneTool('plune_cases_generate');
     expect(generate.visibility).toBe('core');
     const text = 'A shopper adds an item to the cart, reloads the page and still sees the item with its price and quantity kept.';
@@ -143,7 +143,7 @@ describe('the tool contract', () => {
     expect(generate.description).toContain('plune_cases_generation_get');
   });
 
-  it('tells the agent a policy_refused entry needs another reviewer, not a retry (plune-ai/plune#2499)', () => {
+  it('tells the agent a policy_refused entry needs another reviewer, not a retry', () => {
     const decide = pluneTool('plune_review_decide');
     expect(decide.description).toContain('policy_refused');
     expect(decide.description).toMatch(/do not retry/);

@@ -22,12 +22,12 @@ import {
 } from './schemas.js';
 
 /**
- * The tool contract of Plune's agent surface (plune-ai/plune#1284, plune-ai/cli#146): names, task descriptions, input and
+ * The tool contract of Plune's agent surface (plune-ai/cli#146): names, task descriptions, input and
  * output schemas, and which tools write. The MCP server (`plune mcp serve`) registers exactly these, and the platform's
- * built-in agent (plune-ai/plune#2202) imports them from `@plune-ai/cli/mcp-tools`, so the two paths cannot drift apart.
+ * built-in agent imports them from `@plune-ai/cli/mcp-tools`, so the two paths cannot drift apart.
  *
  * `visibility`: `core` tools are listed to a client from the start; `discoverable` ones only after `plune_discover_tools`
- * names them (Qase's 17-of-41 rule, plune#1284 AC-01/AC-02). `endpoints` is what the tool calls on the platform, the
+ * names them (Qase's 17-of-41 rule). `endpoints` is what the tool calls on the platform, the
  * signature the no-duplicates check reads.
  */
 export type ToolVisibility = 'core' | 'discoverable';
@@ -44,7 +44,7 @@ export interface PluneToolDefinition {
   readonly endpoints: readonly string[];
 }
 
-/** What a client sees before it asks for more (plune#1284 AC-01). */
+/** What a client sees before it asks for more. */
 export const MAX_VISIBLE_TOOLS = 20;
 
 const define = <T extends PluneToolDefinition>(tool: T): T => tool;

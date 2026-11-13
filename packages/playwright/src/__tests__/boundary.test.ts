@@ -11,7 +11,7 @@ const sources = fs
   .map((e) => fs.readFileSync(path.join(root, 'src', e.name), 'utf8'));
 
 /**
- * ADR 0023 splits the reporter in two: a core that knows the platform and adapters that know a
+ * The platform's design splits the reporter in two: a core that knows the platform and adapters that know a
  * runner. That split is a sentence in a document until something checks it — and the way it
  * erodes is not a rewrite, it is one `fetch` added here because it was three lines shorter than
  * threading it through the core.

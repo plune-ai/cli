@@ -51,14 +51,15 @@ interface PlatformOptions {
   known?: Record<string, string>;
   /** Status to answer `POST /v1/runs` with (201 created, 200 joined). */
   startStatus?: number;
-  /** The platform's CHECK on a run's configuration (plune#1949): a start that carries one is answered 413. */
+  /** The platform's CHECK on a run's configuration: a start that carries one is answered 413. */
   refuseConfiguration?: boolean;
   /** Force a reply on `…/results`: a status + error message, or a thrown network failure. */
   resultsFailure?: { status: number; error: string } | 'network';
   /** Only this call to `…/results` (from 0) meets `resultsFailure`; absent means every call does. */
   failCall?: number;
   /**
-   * Whether this deployment has the D13 columns. `false` models one older than them: it validates
+   * Whether this deployment has the run's title, environment and label columns. `false` models
+   * one older than them: it validates
    * the body, keeps what it knows, answers 201 — and nothing about that reads as a loss.
    */
   storesDescription?: boolean;
@@ -66,9 +67,9 @@ interface PlatformOptions {
   discoverFailure?: { status: number; error: string };
   /** What the platform answers per offered test. Defaults to `queued` for each. */
   discoverOutcomes?: string[];
-  /** How many cases the platform says a `finish` detached (D20). Absent models a platform older than that. */
+  /** How many cases the platform says a `finish` detached. Absent models a platform older than that. */
   detached?: number;
-  /** The summary a `finish` answers with, frozen (plune#1247). Absent models a platform older than that. */
+  /** The summary a `finish` answers with, frozen. Absent models a platform older than that. */
   summary?: unknown;
   /** Force a reply on `…/events`. */
   eventsFailure?: { status: number; error: string };
@@ -79,13 +80,13 @@ interface PlatformOptions {
   /** How long each upload takes to be answered. */
   fileMs?: number;
   /**
-   * The project has a bucket: `uploads` answers a link for every file (ADR 0041). Absent models one without —
+   * The project has a bucket: `uploads` answers a link for every file. Absent models one without —
    * the route of the database for a picture or a text within its ceilings, `skipped` for the rest.
    */
   bucket?: boolean;
   /** Force a reply on `…/files/uploads`. */
   uploadsFailure?: { status: number; error: string; code?: string; /** Only for the file of this name. */ only?: string };
-  /** A platform older than #945: there is no `uploads` route, and the 404 is not JSON. */
+  /** A platform older than the bucket routes: there is no `uploads` route, and the 404 is not JSON. */
   uploadsMissing?: boolean;
   /** `Retry-After` of every PUT that is not answered 2xx. */
   putRetryAfter?: string;
@@ -141,7 +142,7 @@ function platform(opts: PlatformOptions = {}) {
         ...(status >= 400 && opts.putRetryAfter !== undefined ? { headers: { 'retry-after': opts.putRetryAfter } } : {}),
       });
     }
-    // A platform older than the bulk routes (ADR 0051): the CLI falls back to one request per file.
+    // A platform older than the bulk routes: the CLI falls back to one request per file.
     if (/\/v1\/files\/(uploads|complete|direct)-batch$/.test(target)) return new Response('404 Not Found', { status: 404 });
     const uploadsAt = /\/v1\/results\/([^/]+)\/files\/uploads$/.exec(target);
     if (uploadsAt) {
@@ -250,7 +251,7 @@ function platform(opts: PlatformOptions = {}) {
           // As the platform answers: a test is named by its highest-ranked key, not by the first one sent (cli#156).
           const key = [...d.keys].sort((a, b) => RANK.indexOf(a.kind!) - RANK.indexOf(b.kind!))[0]!;
           const outcome = opts.discoverOutcomes?.[i] ?? 'queued';
-          // A `created` answer names the new case (plune-ai/plune#1581).
+          // A `created` answer names the new case.
           return { key, outcome, ...(outcome === 'created' ? { id: `tc-new-${key.value}` } : {}) };
         }),
       });
@@ -385,7 +386,7 @@ describe('startRun — what the run intended to run (AC-09)', () => {
   });
 });
 
-// plune#1949: a list of expected tests over what a run keeps (1 MiB) refused the start, and every result of the run
+// A list of expected tests over what a run keeps (1 MiB) refused the start, and every result of the run
 // went to the fallback file, which CI deletes with the job: 9 512 results of the platform's own CI were lost that way.
 describe('startRun — a list too large for the run does not cost the results', () => {
   const declared = [[{ kind: 'playwright-id' as const, value: 'a' }]];
@@ -416,7 +417,7 @@ describe('startRun — a list too large for the run does not cost the results', 
   });
 });
 
-describe('a full run says so beside what it expects (D20)', () => {
+describe('a full run says so beside what it expects', () => {
   const declared = [[{ kind: 'playwright-id' as const, value: 'a' }]];
 
   it('sends `configuration.full` when the config claims it, and not otherwise', async () => {
@@ -549,7 +550,7 @@ describe('batching', () => {
     expect(seen.results.map((r) => r.results.length)).toEqual([2, 1]);
   });
 
-  it('sends 500 results to a call when nothing is said, the platform’s ceiling (#1393)', async () => {
+  it('sends 500 results to a call when nothing is said, the platform’s ceiling', async () => {
     const ids = Array.from({ length: 501 }, (_, i) => `t${i}`);
     const { seen, fetchImpl } = platform({ known: Object.fromEntries(ids.map((id) => [id, 'tc'])) });
     const run = await startRun(config(fetchImpl));
@@ -590,7 +591,7 @@ describe('batching', () => {
   });
 });
 
-describe('a batch is packed by bytes as well as by count (#790, ADR-0006)', () => {
+describe('a batch is packed by bytes as well as by count', () => {
   const BATCH_BYTES = 8 * 1024 * 1024;
   const failed = (id: string, bytes: number): PendingResult => result(id, { rawStatus: 'failed', errorContext: 'x'.repeat(bytes) });
   const known = (n: number): Record<string, string> => Object.fromEntries(Array.from({ length: n }, (_, i) => [`t${i}`, `tc-${i}`]));
@@ -681,17 +682,17 @@ describe('a batch is packed by bytes as well as by count (#790, ADR-0006)', () =
 });
 
 /**
- * #790 T18, spec §6 «Доставка найгіршого прогону». A server that refuses as the platform does, by the
+ * A server that refuses as the platform does, by the
  * bytes that arrive (`hono/body-limit`): 10 MiB on `POST /v1/runs` and `…/results`, 512 KiB on every
  * other write, 500 results a batch — Plune `src/server/middleware/body-limit.ts` and
  * `src/server/results/v1-routes.ts`. Over a real socket, so what is measured is what was sent.
  */
-describe('the worst run arrives whole against the platform’s ceilings (#790 AC-15)', () => {
+describe('the worst run arrives whole against the platform’s ceilings', () => {
   const BULK = /^POST \/v1\/runs(?:\/[^/]+\/results)?$/;
 
   /**
    * The run through the transport that ships — `node:http`, which nothing else here exercises for a
-   * whole run (#790 review F7) — so `fetch` must not be touched at all.
+   * whole run — so `fetch` must not be touched at all.
    */
   async function deliver(worst: PendingResult[]): Promise<{ calls: string[]; run: Awaited<ReturnType<typeof startRun>>; cfg: ReporterConfig }> {
     const calls: string[] = [];
@@ -748,7 +749,7 @@ describe('the worst run arrives whole against the platform’s ceilings (#790 AC
     expect(fs.existsSync(cfg.fallbackPath as string)).toBe(false);
   });
 
-  // #790 review G1: a text as long as any, cut to the limit, full of what JSON writes in two bytes —
+  // A text as long as any, cut to the limit, full of what JSON writes in two bytes —
   // a `toEqual` diff of a Windows path, CRLF-ended. Cut by its raw bytes it weighed a quarter more in
   // the batch, and the run took 12 calls.
   it('100 failures whose text is cut to the limit and full of quotes, backslashes and CRLF: the same', async () => {
@@ -822,11 +823,11 @@ describe('the platform is not there (AC-05)', () => {
 });
 
 /**
- * plune-ai/plune#927. A batch the platform did not take is replayed by `plune run report`, which opens
+ * A batch the platform did not take is replayed by `plune run report`, which opens
  * a run for it when none was — and a run opened there is to be the run the reporter would have opened,
  * with the commit and branch it ran at. So the line says where the run came from.
  */
-describe('a deferred line says where its run came from (plune#927)', () => {
+describe('a deferred line says where its run came from', () => {
   const meta = {
     runner: 'playwright',
     ciUrl: 'https://ci.test/runs/1',
@@ -874,11 +875,11 @@ describe('a deferred line says where its run came from (plune#927)', () => {
 });
 
 /**
- * plune-ai/plune#1251. A job of a CI matrix names its combination in `PLUNE_CONFIGURATION`, and every
+ * A job of a CI matrix names its combination in `PLUNE_CONFIGURATION`, and every
  * results batch carries it; the platform finds the combination in the run or appends it. Without the
  * variable a batch is exactly what it was.
  */
-describe('every batch names the combination the job runs (plune#1251)', () => {
+describe('every batch names the combination the job runs', () => {
   afterEach(() => vi.unstubAllEnvs());
   const named = { Browser: 'Chrome', 'Operating system': 'Windows' };
   /** The bodies posted to `…/results`, refused ones included, as they went. */
@@ -1011,10 +1012,10 @@ describe('a refused token stops the asking (AC-06)', () => {
 });
 
 /**
- * #790 T17 — the line both roads end on names what did not reach Plune in the words the import's own
+ * The line both roads end on names what did not reach Plune in the words the import's own
  * summary uses, and in GitHub Actions says it once more where a run's annotations show it.
  */
-describe('the summary says what was not delivered (#790)', () => {
+describe('the summary says what was not delivered', () => {
   beforeEach(() => vi.stubEnv('GITHUB_ACTIONS', ''));
   afterEach(() => vi.unstubAllEnvs());
 
@@ -1048,11 +1049,11 @@ describe('the summary says what was not delivered (#790)', () => {
 });
 
 /**
- * #790 review F4. A success the client cannot read — a proxy's page answering 200, a body with no
+ * A success the client cannot read — a proxy's page answering 200, a body with no
  * counts — used to throw out of `add`: the adapter lost the batch and said "reporting stopped", and
  * `plune run import` ended non-zero. It is a batch not delivered, like any other refusal.
  */
-describe('a success the client cannot read is a batch not delivered (#790)', () => {
+describe('a success the client cannot read is a batch not delivered', () => {
   it.each([
     ['a page instead of JSON', () => new Response('<html>signed in</html>', { status: 200, headers: { 'content-type': 'text/html' } })],
     ['JSON without counts', () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })],
@@ -1072,7 +1073,7 @@ describe('a success the client cannot read is a batch not delivered (#790)', () 
     expect(logOf(cfg).some((l) => l.startsWith('plune: could not send results'))).toBe(true);
   });
 
-  // #790 re-review C5: the same for the other calls — JSON that lacks what the core reads.
+  // The same for the other calls — JSON that lacks what the core reads.
   const answering = (route: RegExp, body: string, p: ReturnType<typeof platform>) =>
     (async (url: string | URL | Request, init?: RequestInit) =>
       route.test(String(url))
@@ -1110,7 +1111,7 @@ describe('a success the client cannot read is a batch not delivered (#790)', () 
     expect(run.stats).toMatchObject({ accepted: 1, deferred: 0 });
   });
 
-  // #790 re-review C7: the review queue too — the offer threw out of `finish`, and the run stayed open.
+  // The review queue too — the offer threw out of `finish`, and the run stayed open.
   it.each([
     ['null', 1],
     ['{}', 1],
@@ -1160,7 +1161,7 @@ describe('who closes the run (AC-03, AC-08)', () => {
   });
 
   /**
-   * The verdict a release gate is made on (plune#1247): the platform freezes it into the run at `finish` and
+   * The verdict a release gate is made on: the platform freezes it into the run at `finish` and
    * answers the event with it. The session hands it back as it came — deciding what it means is the gate's.
    */
   describe('finish hands back the summary the platform froze', () => {
@@ -1305,7 +1306,7 @@ describe('the token stays out of everything a person can read (AC-12)', () => {
   });
 });
 
-describe('what the run is called, where it ran, how it is marked (D13)', () => {
+describe('what the run is called, where it ran, how it is marked', () => {
   const described = { title: 'nightly regression', environment: 'staging', labels: ['smoke'] };
 
   it('sends all three when the run opens', async () => {
@@ -1372,14 +1373,14 @@ describe('what the run is called, where it ran, how it is marked (D13)', () => {
 });
 
 /**
- * D14 — rung 6 of the C2 ladder: `PLUNE_CREATE=1`.
+ * Rung 6 of the C2 ladder: `PLUNE_CREATE=1`.
  *
  * It stayed blocked until the platform had a shape for it, and the shape is the whole argument: a
  * proposal carries steps and an expected result, and a reporter has neither. What this sends is a
  * TESTIMONY — this test exists, here is where it lives, here is what it did — and every assertion
  * below is about not sending more than that, and not sending it more than once.
  */
-describe('offering tests the platform has no case for (D14)', () => {
+describe('offering tests the platform has no case for', () => {
   const found = (id: string, over: Partial<PendingResult> = {}): PendingResult =>
     result(id, {
       title: 'cart › adds an item',
@@ -1458,7 +1459,7 @@ describe('offering tests the platform has no case for (D14)', () => {
   /**
    * The platform requires both halves and would refuse the whole batch over one thin adapter. Skipped
    * in silence rather than guessed: a file path invented for a test nobody can name is exactly the
-   * fabrication D14 was raised to prevent.
+   * fabrication this rung exists to prevent.
    */
   it('skips a test that cannot say what it is called or where it lives', async () => {
     const { seen, fetchImpl } = platform();
@@ -1661,12 +1662,12 @@ describe('a test name longer than a key (AC-13)', () => {
 });
 
 /**
- * plune-ai/plune#913, platform ADR 0040. A run in Plune shows every test with its screenshots, a passed
+ * A run in Plune shows every test with its screenshots, a passed
  * one's too. No file rides in a batch — its path names this machine: once the platform has stored a
  * result, the screenshots its attempt kept are uploaded to that result, all of them before anything can
  * close the run, and nothing about them can cost a result.
  */
-describe('screenshots go to the result they belong to (plune#913)', () => {
+describe('screenshots go to the result they belong to', () => {
   // A 1×1 PNG.
   const PNG = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
@@ -1855,14 +1856,14 @@ describe('screenshots go to the result they belong to (plune#913)', () => {
 });
 
 /**
- * plune-ai/plune#928, platform ADR 0040 (its 2026-09-29 review). A test attaches more than pictures — the
+ * A test attaches more than pictures — the
  * answer of an API, a log — and the platform now keeps JSON and plain text beside screenshots: up to 512 KiB
  * a file and 10 a result, UTF-8 only. They travel as screenshots do: to their result once the batch that
  * stores it is answered, before anything closes the run, and nothing about them can cost a result. What the
  * platform would refuse stays behind, counted and said — a refusal known here has no business crossing the
  * wire, and the platform's answer is not the only place a limit is written down.
  */
-describe('text files go to the result they belong to (plune#928)', () => {
+describe('text files go to the result they belong to', () => {
   const KIB512 = 512 * 1024;
   /** What Playwright names the copy of a file attached by path: `<name>-<sha1 of the original's path><ext>`. */
   const SHA1 = '87f15b965a84499fbcc46f54036099902e9a69d6';
@@ -2339,7 +2340,7 @@ describe('text files go to the result they belong to (plune#928)', () => {
   });
 });
 
-describe('files go to the project’s bucket by short-lived links (plune-ai/plune#946)', () => {
+describe('files go to the project’s bucket by short-lived links', () => {
   const FOUND =
     'plune: storage bucket found for this project — screenshots, text, trace and video go straight to it over short-lived links.';
   const NOT_STORED = 'not stored — no storage bucket is connected to this project.';

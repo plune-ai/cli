@@ -48,7 +48,7 @@ export interface PluneToolExecutor {
   execute(name: string, input: unknown): Promise<ToolOutcome>;
 }
 
-/** How long a confirm value of the escape hatch lives — the platform's own five minutes (#1280). */
+/** How long a confirm value of the escape hatch lives — the platform's own five minutes. */
 export const CONFIRM_TTL_MS = 5 * 60 * 1000;
 
 const READ_ONLY_REFUSAL = 'read-only token';

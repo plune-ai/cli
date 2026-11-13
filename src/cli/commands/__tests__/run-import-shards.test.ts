@@ -6,7 +6,7 @@ import { handleRunImport } from '../run-import.js';
 
 /**
  * `PLUNE_SHARD=k/N` (cli#110): the shard that finishes its upload tells the platform, and the platform
- * closes the run when N distinct shards have. The fake below keeps the set the way plune#1601 does.
+ * closes the run when N distinct shards have. The fake below keeps the set the way the platform does.
  */
 
 const TOKEN = 'tok-shards-never-print-me';

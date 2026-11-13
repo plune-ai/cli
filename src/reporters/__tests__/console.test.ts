@@ -76,7 +76,7 @@ describe('renderConsole', () => {
     expect(out).toContain('contains');
   });
 
-  // plune#1245 (AC-05) — the breakdown, with the new words only when they are not zero.
+  // The breakdown, with the new words only when they are not zero.
   it('shows blocked and skipped in the summary line when they are not zero', () => {
     const out = renderConsole(inconclusive, { color: false });
     expect(out).toContain('1 passed · 0 failed · 0 errored · 1 blocked · 1 skipped · 3 total');

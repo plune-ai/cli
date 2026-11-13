@@ -29,11 +29,11 @@ export interface ImportOptions extends RunCommandDeps {
   minScores?: Record<string, number>;
   /** `--name`: the run's title in the list, over `PLUNE_RUN_TITLE` and the default made from the folder. */
   name?: string;
-  /** Offer tests that resolved to nothing to the review queue (the `PLUNE_CREATE=1` switch, D14). */
+  /** Offer tests that resolved to nothing to the review queue (the `PLUNE_CREATE=1` switch). */
   create?: boolean;
   /** `--upload-concurrency`: files in flight at once, over `PLUNE_UPLOAD_CONCURRENCY`. */
   uploadConcurrency?: number;
-  /** `--fail-on-failures`: judge the run by the summary the platform froze when this import finished it (plune#1247). */
+  /** `--fail-on-failures`: judge the run by the summary the platform froze when this import finished it. */
   failOnFailures?: boolean;
   /** `--timeout`: seconds for the whole import, over `PLUNE_IMPORT_TIMEOUT`; 0 is no limit. */
   timeoutSec?: number;
@@ -62,14 +62,14 @@ export interface ImportResult {
   /** Why, when there are any: the review queue is full, the project is at its case limit, or another reason. */
   unofferedWhy?: UnofferedWhy;
   deferred: number;
-  /** The screenshots the report's files hold, as they went to the accepted results (ADR 0040). */
+  /** The screenshots the report's files hold, as they went to the accepted results. */
   screenshots: { uploaded: number; skipped: number; failed: number };
-  /** Its JSON and plain-text files, kept by path or as a body, counted the same way and apart (plune-ai/plune#928). */
+  /** Its JSON and plain-text files, kept by path or as a body, counted the same way and apart. */
   textFiles: { uploaded: number; skipped: number; failed: number };
   /** Tests the report gives no location for, so the queue could never show a reviewer where to look. */
   unlocatable: number;
   /**
-   * The files the report announced and this machine could not give (plune-ai/plune#1220): absent, not a file,
+   * The files the report announced and this machine could not give: absent, not a file,
    * or outside the report's folder. The one place the list is kept — a «not there at import» state on the
    * platform, once it has one, is sent from here.
    */
@@ -121,7 +121,7 @@ async function timeoutMessage(limit: number, runId: string | null, ours: boolean
 export async function handleRunImport(options: ImportOptions): Promise<ImportResult> {
   const write = options.write ?? ((line: string) => void process.stdout.write(`${line}\n`));
 
-  // A folder is an allure-results report (plune-ai/plune#1221) or JUnit files (plune-ai/plune#2309); anything else is a file.
+  // A folder is an allure-results report or JUnit files; anything else is a file.
   let read: { format: ImportFormat; results: PendingResult[]; missing: MissingAttachment[]; notes: string[]; ciUrl?: string; ci?: unknown };
   if (isFolder(options.file)) {
     read = readFolder(options.file, options.format, {
@@ -144,7 +144,7 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
   }
 
   // Said now and whatever else happens: a file that is not here is the answer to «where is my screenshot?»,
-  // and it is not for --verbose to give (plune-ai/plune#1220).
+  // and it is not for --verbose to give.
   // The title and the path are the report's words: the title as a JSON string and the path without control
   // characters, so a name with a new line in it cannot start a line of ours (a `::warning::` is a command to
   // GitHub Actions) and an escape code cannot reach a terminal.
@@ -171,10 +171,10 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
       ...(options.create === true ? { offerDiscovered: true } : {}),
       ...(options.uploadConcurrency !== undefined ? { uploadConcurrency: options.uploadConcurrency } : {}),
       kind: 'automated',
-      // The CI run the report names, never this machine's: whoever imports may be another job (#790).
+      // The CI run the report names, never this machine's: whoever imports may be another job.
       // The commit and branch likewise, where the report names a commit; a report that names none —
       // JUnit's never does — takes this job's own, which is where the tests ran when import follows
-      // them in one job (plune-ai/plune#927).
+      // them in one job.
       meta: { runner: format, ...(ciUrl !== undefined ? { ciUrl } : {}), ...ciCommit(ci) },
       log: write,
     },
@@ -195,7 +195,7 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
   };
 
   // The whole exchange with the platform has one deadline. Each request already gives up after 300 s of
-  // silence, but with retries and a hundred batches that adds up to hours, and CI is what ended it (plune-ai/plune#1473).
+  // silence, but with retries and a hundred batches that adds up to hours, and CI is what ended it.
   const limit = options.timeoutSec ?? env.importTimeout ?? IMPORT_TIMEOUT.default;
   const sent = send();
   let frozen: FrozenSummary | undefined;
@@ -288,8 +288,8 @@ function describe(result: ImportResult, apiUrl: string): string[] {
     // `Read`, not `Imported`: the verb describes the FILE, which was read whatever happened next.
     // «Imported 555 result(s): 0 accepted, 0 already there, 0 unmatched» was a sentence whose two
     // halves disagreed, and readers stop at the verb — a run that reached nobody read as one that
-    // worked (#622).
-    // `not delivered` always, zero included (#790): a number that only appears when it is bad is one
+    // worked.
+    // `not delivered` always, zero included: a number that only appears when it is bad is one
     // nobody learns to look for. The `[0-9]+ unmatched` the workflows read stays whole.
     `Read ${result.parsed} result(s) from ${result.format === 'allure' ? 'an' : 'a'} ${result.format} report: ` +
       `${result.accepted} accepted, ${result.duplicate} already there, ${result.unresolved} unmatched, ` +
@@ -316,7 +316,7 @@ function describe(result: ImportResult, apiUrl: string): string[] {
     );
   }
   if (result.offered > 0) {
-    // Said with the cause and the way out (plune#1569): "offered" alone read as a fact with no reason,
+    // Said with the cause and the way out: "offered" alone read as a fact with no reason,
     // and a first import of an untrusted source shows its run at zero until somebody decides.
     const source = result.format === 'playwright-json' ? 'playwright' : result.format;
     lines.push(
@@ -338,7 +338,7 @@ function describe(result: ImportResult, apiUrl: string): string[] {
   // still to do. A first import of a mature suite is bigger than the queue holds, so it stops
   // partway — and the number alone is not the message. Without the second sentence a person reads
   // "some did not fit", empties the queue, and never learns that the rest are waiting on a second
-  // import they were never asked for (#627). What that sentence says is what refused them: advice
+  // import they were never asked for. What that sentence says is what refused them: advice
   // about a queue, said over a project at its case limit, sent people to empty a queue that was not
   // the problem (cli#71).
   if (result.unoffered > 0) {

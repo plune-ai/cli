@@ -2,7 +2,7 @@
  * `@plune-ai/cli/mcp-tools` — the tool contract of Plune's agent surface and the executor that runs it over the HTTP API.
  *
  * Transport-free and side-effect-free on import: no MCP SDK, no stdio, no filesystem. `plune mcp serve` wraps it in an
- * MCP server; the platform's built-in agent (plune-ai/plune#2202) imports the same definitions, so both paths offer the
+ * MCP server; the platform's built-in agent imports the same definitions, so both paths offer the
  * same tools with the same schemas.
  */
 export {

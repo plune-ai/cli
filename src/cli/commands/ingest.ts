@@ -1,4 +1,4 @@
-// `plune ingest <dir>` — record a Cairn run in Plune (Plune #10 / #86, ADR-CI-01).
+// `plune ingest <dir>` — record a Cairn run in Plune (ADR-CI-01).
 //
 // Cairn writes its runs to disk and knows nothing about Plune; this command is the thing that carries
 // one across. That direction is deliberate: a Cairn user who has never heard of Plune should not find
@@ -6,11 +6,11 @@
 //
 // Nothing uploaded here becomes a test case. Generated cases arrive in Plune's review queue as
 // proposals for a person to accept or refuse, so a run cannot fill a project with cases nobody
-// authored (Plune ADR 0010 / ADR-CI-03). The counters printed at the end say exactly what happened.
+// authored (ADR-CI-03). The counters printed at the end say exactly what happened.
 //
 // Reading the artifact is `cairn-artifact.ts`; this file is the network edge. Same failure discipline
 // as `sync`: typed errors, actionable messages, never a stack trace, never the token. And the same job report:
-// the platform's queue shows the ingest from start to end (plune#2047), and the report never decides the exit code.
+// the platform's queue shows the ingest from start to end, and the report never decides the exit code.
 
 import * as path from 'node:path';
 import { resolveApiUrl } from '../api-url.js';
@@ -118,7 +118,7 @@ export async function handleIngest(deps: IngestDeps): Promise<IngestResult> {
   await job.open(path.basename(path.resolve(dir)), payload.cases.length);
   try {
     const result = await upload();
-    // The run the ingest landed in is the job's subject, so the run's page lists it (#1279).
+    // The run the ingest landed in is the job's subject, so the run's page lists it.
     await job.uploaded({ subjectId: result.runId || undefined });
     await job.finish({ ok: true });
     if (job.problem !== undefined) result.jobProblem = job.problem;

@@ -4,7 +4,6 @@ owner: "Leonid (AZANIR)"
 reviewers: ["Tech Lead"]
 updated_at: "2026-11-03"
 feature_size: "M"
-ticket: "https://github.com/plune-ai/plune/issues/1219"
 ---
 
 # 0001 — Один CLI і стандартні формати
@@ -18,7 +17,7 @@ ticket: "https://github.com/plune-ai/plune/issues/1219"
 Клієнт підключає Plune до свого CI і не хоче ставити окремий пакет під кожен фреймворк. Сьогодні є
 один CLI (`@plune-ai/cli`) і один тонкий репортер, `@plune-ai/playwright`; обидва користуються
 спільним ядром `reporter-core` (ADR 0001 у `C1-reporter-core`). Файли (скріншоти, трейси,
-логи) кладуться в бакет клієнта за тимчасовими посиланнями на запис (platform #945, #946, cli#82):
+логи) кладуться в бакет клієнта за тимчасовими посиланнями на запис (cli#82):
 ключів бакета в CI немає.
 
 Питання: як звітують pytest, Maven, Jest, Vitest, PHPUnit, Cypress, .NET — репортер на кожну мову
@@ -31,13 +30,13 @@ ticket: "https://github.com/plune-ai/plune/issues/1219"
    `npx -y @plune-ai/cli run import <звіт>` читає його без встановлення.
 2. **Вкладення беруться зі стандартних форматів**, а не з «репортерів для Python, Java, C#»:
    - JUnit XML: явна позначка `[[ATTACHMENT|path]]` на окремому рядку в `system-out` або
-     `system-err` тесту — її розуміють Jenkins і GitLab (cli, plune-ai/plune#1220);
-   - Allure: каталог `allure-results` — результати, кроки, вкладення тесту, кроків і фікстур
-     (plune-ai/plune#1221). Каталог читається без прапора; `source` вкладення проходить ту саму
+     `system-err` тесту — її розуміють Jenkins і GitLab;
+   - Allure: каталог `allure-results` — результати, кроки, вкладення тесту, кроків і фікстур.
+     Каталог читається без прапора; `source` вкладення проходить ту саму
      перевірку шляху, що й позначка JUnit. Через Allure вкладення дає й Jest (`allure-jest`), якому
      JUnit цього не дає.
-3. **GitHub Action** `plune-ai/report-action` — зараз, за зразком `eval-action`
-   (plune-ai/plune#1222). Docker-образ CLI для GitLab, Jenkins і Azure — коли попросить перший
+3. **GitHub Action** `plune-ai/report-action` — зараз, за зразком `eval-action`.
+   Docker-образ CLI для GitLab, Jenkins і Azure — коли попросить перший
    клієнт не з GitHub.
 4. **Цей ADR** — у першому PR епіку.
 
@@ -45,7 +44,7 @@ ticket: "https://github.com/plune-ai/plune/issues/1219"
 `direct` для картинок і тексту, назва, якщо бакета немає), з тими самими лімітами й попередженнями.
 Нового шляху завантаження імпорт не має.
 
-**Доповнення (03.11.2026, plune-ai/plune#2309): `run import` читає й теку JUnit-файлів.** Maven Surefire
+**Доповнення (03.11.2026): `run import` читає й теку JUnit-файлів.** Maven Surefire
 (`target/surefire-reports`) і Gradle (`build/test-results/test`) пишуть по `TEST-<клас>.xml` на клас, і вся тека
 стає одним прогоном. Для Java тоді не потрібна залежність `allure-jupiter`. Рішення оператора: «А (рекомендую):
 навчити run import читати теку JUnit-файлів підтримую робим». Правила:
@@ -84,6 +83,5 @@ ticket: "https://github.com/plune-ai/plune/issues/1219"
 
 ## References
 
-- Епік plune-ai/plune#1219; задачі #1220 (імпорт JUnit), #1221 (Allure), #1222 (GitHub Action).
-- plune-ai/plune#946, cli#82 — файли в бакет через `reporter-core`.
+- cli#82 — файли в бакет через `reporter-core`.
 - `docs/features/C1-reporter-core/adr/0001-adapter-bundles-the-core.md`.

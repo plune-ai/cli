@@ -16,7 +16,7 @@ import {
 } from '../mcp-tools/index.js';
 
 /**
- * `plune mcp serve` (plune-ai/plune#1284): the tool contract of `src/mcp-tools` as an MCP server. The tools, their
+ * `plune mcp serve`: the tool contract of `src/mcp-tools` as an MCP server. The tools, their
  * schemas and their behaviour live there; this file only maps an executor outcome onto MCP results and decides what
  * the client's tool list holds.
  *
@@ -86,7 +86,7 @@ export function createPluneMcpServer(opts: PluneMcpServerOptions, era: ProtocolE
   };
 
   for (const tool of PLUNE_TOOLS) {
-    // A known `read` token never sees a writer (#1283 AC-03: a forbidden tool is not listed rather than failing).
+    // A known `read` token never sees a writer (a forbidden tool is not listed rather than failing).
     if (opts.scope === 'read' && tool.write) continue;
     const handle = server.registerTool(
       tool.name,

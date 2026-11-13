@@ -25,7 +25,7 @@ vi.mock('@plune-ai/cli/reporter-core', async () => {
     resultKey: actual.resultKey,
     readEnv: actual.readEnv,
     ciCommit: actual.ciCommit,
-    // The same for what the failure detail is made of (#790): the adapter's part is the attempt.
+    // The same for what the failure detail is made of: the adapter's part is the attempt.
     errorContextFields: actual.errorContextFields,
     failureOf: actual.failureOf,
     filesOf: actual.filesOf,
@@ -69,7 +69,7 @@ beforeEach(() => {
   addedAtClose.length = 0;
   addImpl = null;
   startThrows = false;
-  // The run opens with the commit and branch of the CI it runs in (plune#927), so these tests are
+  // The run opens with the commit and branch of the CI it runs in, so these tests are
   // not to know which CI that is: on GitHub Actions they would open every run with its own.
   for (const marker of ['GITHUB_ACTIONS', 'GITLAB_CI', 'JENKINS_URL']) vi.stubEnv(marker, '');
 });
@@ -86,7 +86,7 @@ function fakeTest(over: Partial<Record<string, unknown>> = {}): TestCase {
     title: 'rejects a negative quantity',
     annotations: [],
     expectedStatus: 'passed',
-    // Playwright always sets it; the adapter reads the line for `specRef` (D14), so a fake without
+    // Playwright always sets it; the adapter reads the line for `specRef`, so a fake without
     // one is a fake of a `TestCase` that cannot exist.
     location: { file: 'tests/cart.spec.ts', line: 12, column: 3 },
     parent: describeSuite,
@@ -169,7 +169,8 @@ describe('what the adapter tells the core about a test', () => {
   });
 
   /**
-   * The adapter's half of D14. The core offers an unresolved test to the review queue and needs two
+   * The adapter's half of offering unresolved tests. The core offers an unresolved test to the
+   * review queue and needs two
    * things it cannot derive: a name a person can judge, and somewhere to open. Both are read ONLY on
    * that path — a test that found its case has a case with a title of its own.
    */
@@ -184,10 +185,10 @@ describe('what the adapter tells the core about a test', () => {
   });
 
   /**
-   * plune-ai/plune#913. The core uploads the screenshots among them once the result is stored, so a
+   * The core uploads the screenshots among them once the result is stored, so a
    * person sees what a green test looked at, not only a red one. An image or a trace kept in memory is
    * no file, and an attachment with nothing in it (`attach(name)`) has nothing to hand over; only a text
-   * is read from memory (#928, below).
+   * is read from memory (below).
    */
   it('hands the core every file the attempt kept, a passed one’s too', async () => {
     const attachments = [
@@ -207,7 +208,7 @@ describe('what the adapter tells the core about a test', () => {
   });
 
   /**
-   * plune-ai/plune#928. What a test attaches as a `body` — `testInfo.attach('api-response', { body:
+   * What a test attaches as a `body` — `testInfo.attach('api-response', { body:
    * JSON.stringify(…), contentType: 'application/json' })` — is not a file: Playwright hands the reporter
    * the bytes, and this callback is the only place they are. The adapter passes them on as they are, for
    * the core to upload once the result is stored.
@@ -400,7 +401,7 @@ describe('identity and timing', () => {
   });
 });
 
-describe('the ids mapfile (plune-ai/plune#1291)', () => {
+describe('the ids mapfile', () => {
   const PATH_TITLE = 'tests/cart.spec.ts#cart#rejects a negative quantity';
   let stderr: MockInstance<Parameters<typeof process.stderr.write>, boolean>;
   beforeEach(() => {
@@ -534,7 +535,7 @@ describe('the reporter never fails the run', () => {
 });
 
 /**
- * #790 review F4. The core sends a batch from inside `add` once enough results are buffered, and a
+ * The core sends a batch from inside `add` once enough results are buffered, and a
  * batch takes as long as the platform does. A run closed while one is in flight freezes `notRun`
  * without it and refuses the batches behind it — the AC-15 run lost 40 of 100 that way.
  */
@@ -628,12 +629,12 @@ describe('it stays out of the terminal', () => {
 });
 
 /**
- * #790 T17. Replays what Playwright 1.63 handed a reporter in a trial run (`fixtures/trial-790`,
+ * Replays what Playwright 1.63 handed a reporter in a trial run (`fixtures/trial-790`,
  * recorded beside the JSON report of the same run; the machine's paths put under `/repo`): a test that
  * timed out while a helper waited, one with two soft assertions, one whose fixture threw in another
  * file, one that passed — each with the hooks, fixtures and actions a real run has around its steps.
  */
-describe('what failed and where, from a recorded run (#790)', () => {
+describe('what failed and where, from a recorded run', () => {
   interface RecordedStep {
     title: string;
     category: string;
@@ -655,7 +656,7 @@ describe('what failed and where, from a recorded run (#790)', () => {
   const recorded = fixture('events.json') as { rootDir: string; ciAtBegin: Record<string, string>; events: RecordedEvent[] };
   const CI = recorded.ciAtBegin['buildHref'];
 
-  /** The run again: `metadata.ci` arrives after `onConfigure`, as the git plugin adds it (ADR-0004). */
+  /** The run again: `metadata.ci` arrives after `onConfigure`, as the git plugin adds it. */
   async function replay(): Promise<void> {
     const file = { type: 'file', title: 'shop.spec.ts', parent: undefined };
     const tests = recorded.events.map((e, i) =>
@@ -682,7 +683,7 @@ describe('what failed and where, from a recorded run (#790)', () => {
 
   it('opens the run with the CI run the git plugin wrote after onConfigure, and finds the root once (AC-04)', async () => {
     await replay();
-    // With its commit too (plune#927): the same recording holds `commitHash`, and no branch — GitHub
+    // With its commit too: the same recording holds `commitHash`, and no branch — GitHub
     // gives none, and there is no GitHub environment here to name one.
     expect(startConfigs[0]?.['meta']).toEqual({
       runner: 'playwright',
@@ -718,7 +719,7 @@ describe('what failed and where, from a recorded run (#790)', () => {
   });
 
   /**
-   * #790 T18. `expected.json` is what `plune run import` makes of `report.json`, the same run read the
+   * `expected.json` is what `plune run import` makes of `report.json`, the same run read the
    * other road; `src/importers/__tests__/playwright-json.test.ts` holds the importer to the same file.
    * Neither road can import the other's code, so they meet at the file.
    */
@@ -779,12 +780,12 @@ describe('what failed and where, from a recorded run (#790)', () => {
 });
 
 /**
- * plune-ai/plune#927. The run opens with the commit and the branch it ran at, so the panel of a run can
+ * The run opens with the commit and the branch it ran at, so the panel of a run can
  * say where it ran. The `ci` objects are what Playwright 1.63's `ciInfo()` builds under each CI's own
  * variables (`lib/runner/index.js`): a commit and no branch on GitHub, both on GitLab and on Jenkins —
  * where there is no `buildHref` either.
  */
-describe('the commit and branch the run opens with (plune#927)', () => {
+describe('the commit and branch the run opens with', () => {
   const SHA = '0123456789abcdef0123456789abcdef01234567';
   const BUILD = 'https://github.com/acme/shop/actions/runs/42';
   const onGitHub = {

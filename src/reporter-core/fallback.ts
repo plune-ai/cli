@@ -26,7 +26,7 @@ export const DEFAULT_FALLBACK_PATH = path.join('.plune', 'pending-results.jsonl'
  * `runId: null` is a real state, not a missing value — the platform was unreachable when the run
  * was supposed to be created, so these results have no run yet and replay has to make one.
  *
- * `meta` is where that run came from — the commit and branch, the CI run, the runner (plune-ai/plune#927).
+ * `meta` is where that run came from — the commit and branch, the CI run, the runner.
  * Recorded so the run replay makes is the run the reporter would have made; replay reads it and nothing
  * else about the machine it runs on. A line written before the field existed has none.
  *
@@ -35,7 +35,7 @@ export const DEFAULT_FALLBACK_PATH = path.join('.plune', 'pending-results.jsonl'
  * marker rather than one for each. A line written before the field existed has none, and is one run's
  * worth by itself — nothing in it says otherwise.
  *
- * `configuration` is the combination the job named (`PLUNE_CONFIGURATION`, plune-ai/plune#1251), recorded for
+ * `configuration` is the combination the job named (`PLUNE_CONFIGURATION`), recorded for
  * the same reason as `meta`: replay sends the batch into the combination it ran in, whatever the machine that
  * replays it has set. A line without it was written by a job that named none, or before the field existed.
  */

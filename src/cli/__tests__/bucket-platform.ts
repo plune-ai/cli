@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 
 /**
  * A platform on a real socket for the tests that import a report with files: it knows every test, stores
- * every result under an id, and — with a bucket (platform ADR 0041) — hands out links back to itself, where
+ * every result under an id, and — with a bucket — hands out links back to itself, where
  * a PUT is the file arriving. Not a test file: the in-process and the binary tests share it.
  */
 export interface Put {
@@ -33,7 +33,7 @@ export const sha256 = (bytes: Buffer | string): string => createHash('sha256').u
 export async function startBucketPlatform(options: { bucket?: boolean; known?: boolean; batch?: boolean } = {}): Promise<BucketPlatform> {
   const bucket = options.bucket ?? true;
   const known = options.known ?? true;
-  /** `false` models a platform older than the bulk routes (ADR 0051): they answer a bare 404. */
+  /** `false` models a platform older than the bulk routes: they answer a bare 404. */
   const batch = options.batch ?? true;
   const calls: string[] = [];
   /** What each announced file is, by id; and which ones a `complete` has finished. */

@@ -3,8 +3,8 @@
  *
  * The whole of what these files know is a FORMAT. Which run the results join, how a test resolves
  * to a case, what a status means, what happens when the platform is down — all of that is the
- * reporter core's, and the import command drives it exactly as the Playwright reporter does
- * (ADR 0023). An importer that opened its own connection would be a second reporter to keep
+ * reporter core's, and the import command drives it exactly as the Playwright reporter does.
+ * An importer that opened its own connection would be a second reporter to keep
  * correct, and the two would drift on the day one of them was fixed.
  */
 
@@ -74,8 +74,8 @@ function perfFormatOf(source: string): 'k6' | 'lighthouse' | undefined {
 export { isFolder };
 
 /**
- * Read a folder: an `allure-results` one (plune-ai/plune#1221) when a `*-result.json` is in it, otherwise the
- * JUnit files Maven Surefire and Gradle write one per class (plune-ai/plune#2309), all of them one run.
+ * Read a folder: an `allure-results` one when a `*-result.json` is in it, otherwise the
+ * JUnit files Maven Surefire and Gradle write one per class, all of them one run.
  * `--format` says which outright; `playwright-json` is never a folder. `--min-score` is refused for a folder as it is
  * for any file that is not Lighthouse: no folder holds a Lighthouse report, and a bar that judged nothing reads as met.
  */

@@ -101,7 +101,7 @@ describe('the variables that have nowhere to go yet', () => {
     expect(readEnv(env({ PLUNE_RUN: 'x' })).ignored).toEqual([]);
   });
 
-  // The three that left this list did so because D13 gave a run somewhere to put them. A name that
+  // The three that left this list did so because the platform gave a run somewhere to put them. A name that
   // is both accepted and listed here would print a refusal for a setting that did arrive.
   it('no longer refuses what the platform now stores', () => {
     expect([...UNSUPPORTED_VARS]).toEqual(['PLUNE_GROUP']);
@@ -109,7 +109,7 @@ describe('the variables that have nowhere to go yet', () => {
   });
 });
 
-describe('PLUNE_CREATE — offering tests the platform has no case for (D14)', () => {
+describe('PLUNE_CREATE — offering tests the platform has no case for', () => {
   it('is read by value, so one matrix cell can turn it off', () => {
     expect(readEnv(env({ PLUNE_CREATE: '1' })).config.offerDiscovered).toBe(true);
     expect(readEnv(env({ PLUNE_CREATE: '0' })).config.offerDiscovered).toBeUndefined();
@@ -122,7 +122,7 @@ describe('PLUNE_CREATE — offering tests the platform has no case for (D14)', (
   });
 });
 
-describe('PLUNE_FULL_RUN — the claim that this run is the whole suite (D20)', () => {
+describe('PLUNE_FULL_RUN — the claim that this run is the whole suite', () => {
   it('is read by value, and says nothing when unset', () => {
     expect(readEnv(env({ PLUNE_FULL_RUN: '1' })).config.full).toBe(true);
     expect(readEnv(env({ PLUNE_FULL_RUN: 'true' })).config.full).toBe(true);
@@ -132,7 +132,7 @@ describe('PLUNE_FULL_RUN — the claim that this run is the whole suite (D20)', 
   });
 });
 
-describe('PLUNE_CONFIGURATION — the combination a job of a matrix runs (plune#1251)', () => {
+describe('PLUNE_CONFIGURATION — the combination a job of a matrix runs', () => {
   const read = (raw: string) => readEnv(env({ PLUNE_CONFIGURATION: raw }));
 
   it('reads Group=Value pairs split at ;', () => {
@@ -177,7 +177,7 @@ describe('PLUNE_CONFIGURATION — the combination a job of a matrix runs (plune#
 });
 
 /**
- * plune-ai/plune#927. The panel of a run says where it ran: the branch and the commit. Neither
+ * The panel of a run says where it ran: the branch and the commit. Neither
  * reached the platform before, so every row read empty.
  *
  * The `ci` objects below are what Playwright 1.63's own `ciInfo()` builds (`lib/runner/index.js`): under
@@ -185,7 +185,7 @@ describe('PLUNE_CONFIGURATION — the combination a job of a matrix runs (plune#
  * provider's own variables, and a pull request is told apart from a push the way GitHub tells them:
  * `GITHUB_HEAD_REF` is the pull request's branch and empty on a push, where `GITHUB_REF_NAME` is it.
  */
-describe('the commit and branch a CI job says it runs at (plune#927)', () => {
+describe('the commit and branch a CI job says it runs at', () => {
   const SHA = '0123456789abcdef0123456789abcdef01234567';
   const OTHER = 'fedcba9876543210fedcba9876543210fedcba98';
   const github = (more: Record<string, string> = {}): NodeJS.ProcessEnv =>

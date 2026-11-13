@@ -127,7 +127,7 @@ export interface FinishOptions extends RunCommandDeps {
   reason?: string;
   /** `terminate` says the run was cut short; the platform refuses it on a finished run. */
   terminate?: boolean;
-  /** `--fail-on-failures`: the exit code is the platform's verdict on the run (plune#1247). */
+  /** `--fail-on-failures`: the exit code is the platform's verdict on the run. */
   failOnFailures?: boolean;
 }
 
@@ -168,7 +168,7 @@ export async function handleRunFinish(id: string, options: FinishOptions = {}, r
 }
 
 /**
- * `plune run delete <id>` — undo an import from the surface the import happened on (D17).
+ * `plune run delete <id>` — undo an import from the surface the import happened on.
  *
  * The command exists because the CLI is where the mistake is made. Onboarding a suite is a loop of
  * `plune run import`, and the person doing it for the first time will point it at the wrong file,
@@ -205,7 +205,7 @@ export async function handleRunDelete(id: string, options: RunCommandDeps = {}):
 export interface ExecOptions extends StartOptions {
   /** The command and its arguments, as given after `--`. */
   argv: string[];
-  /** `--fail-on-failures`: the platform's verdict replaces the command's exit code once results arrived (plune#1247). */
+  /** `--fail-on-failures`: the platform's verdict replaces the command's exit code once results arrived. */
   failOnFailures?: boolean;
 }
 
@@ -308,7 +308,7 @@ export async function handleRunReport(options: ReportOptions = {}): Promise<Repo
     for (const line of group) {
       const ready = line.results.filter((r): r is ResultSubmission => !isPending(r));
       if (line.runId !== null && ready.length > 0) {
-        // Into the combination the job named, as the line recorded it (plune-ai/plune#1251).
+        // Into the combination the job named, as the line recorded it.
         const out = await client.post(`/v1/runs/${line.runId}/results`, {
           results: ready,
           ...(line.configuration !== undefined ? { configuration: line.configuration } : {}),
@@ -333,9 +333,9 @@ export async function handleRunReport(options: ReportOptions = {}): Promise<Repo
         ...(options.token !== undefined ? { token: options.token } : {}),
         ...(options.fetchImpl !== undefined ? { fetchImpl: options.fetchImpl } : {}),
         ...(first.externalKey !== null ? { externalKey: first.externalKey } : {}),
-        // Where the run came from, as the reporter recorded it (plune#927) — never this machine's own.
+        // Where the run came from, as the reporter recorded it — never this machine's own.
         ...(first.meta !== undefined ? { meta: first.meta } : {}),
-        // The combination the line recorded, or none (`{}`) — never this machine's `PLUNE_CONFIGURATION` (plune-ai/plune#1251).
+        // The combination the line recorded, or none (`{}`) — never this machine's `PLUNE_CONFIGURATION`.
         configuration: first.configuration ?? {},
         // The replay does not know whether the run is complete, so it must not say that it is.
         log: write,

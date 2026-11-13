@@ -7,7 +7,7 @@ feature_size: "M"
 
 # Spec — C5-run-commands
 
-> **Епік:** `plune-ai/plune#486` (B-2) · **Сусіди:** [`C1-reporter-core`](../C1-reporter-core/spec.md), [`C4-reporter-env`](../C4-reporter-env/spec.md)
+> **Сусіди:** [`C1-reporter-core`](../C1-reporter-core/spec.md), [`C4-reporter-env`](../C4-reporter-env/spec.md)
 
 ## 1. Context
 
@@ -33,7 +33,7 @@ feature_size: "M"
 
 - **`--playwright-json` / `--junit`** — імпорт готового звіту раннера. Це друга половина C5 і
   окремий парсер на формат; лишається наступним кроком, а не мовчазним пропуском.
-- Поля прогону з D13 (`title`, `env`, `labels`) — зміна платформи.
+- Поля прогону (`title`, `env`, `labels`) — зміна платформи.
 - Заміна репортера. Ці команди — для того, чого репортер не бачить, а не замість нього.
 
 ## 4. User stories

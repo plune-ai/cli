@@ -83,10 +83,10 @@ describe('RunResult shape (AC-02)', () => {
   });
 });
 
-// plune#1245 — one classifier for the summary, the reporters and the diff, in the platform's order
-// (`statusFromAssertions` in Plune `src/server/runs/status.ts`, ADR 0045): the runner's
+// One classifier for the summary, the reporters and the diff, in the platform's order
+// (`statusFromAssertions` in Plune `src/server/runs/status.ts`): the runner's
 // `inconclusive` first, then an error, then the assertions.
-describe('rowStatus — the platform order (plune#1245)', () => {
+describe('rowStatus — the platform order', () => {
   const pass: AssertionResultRecord = { type: 'contains', passed: true };
   const fail: AssertionResultRecord = { type: 'contains', passed: false };
   const down = { code: 'PROVIDER_TRANSIENT_EXHAUSTED', message: 'down' };

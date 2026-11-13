@@ -116,7 +116,7 @@ describe('plune diff command', () => {
     expect(process.exitCode).toBe(1);
   });
 
-  it('exits 3 WITH --fail-on-regression when nothing regressed but an eval was not measured (#2414)', async () => {
+  it('exits 3 WITH --fail-on-regression when nothing regressed but an eval was not measured', async () => {
     const errored: EvalResult = {
       id: 'a',
       tags: [],

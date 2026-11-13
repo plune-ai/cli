@@ -1,5 +1,5 @@
-// `plune requirements import <file.md>` — requirements from a Markdown file (plune-ai/cli#113, epic
-// plune-ai/plune#1594). Two steps, as the platform's two routes:
+// `plune requirements import <file.md>` — requirements from a Markdown file (plune-ai/cli#113).
+// Two steps, as the platform's two routes:
 //
 //   no mapping flags  → POST /v1/projects/:id/requirements/import/discover: what the file holds (the
 //                       tables and sections), so the person can choose;

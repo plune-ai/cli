@@ -52,7 +52,7 @@ export function renderConsole(result: RunResult, opts: ConsoleOptions = {}): str
   const failedTxt = summary.failed > 0 ? s.red(`${summary.failed} failed`) : `${summary.failed} failed`;
   const erroredTxt =
     summary.errored > 0 ? s.yellow(`${summary.errored} errored`) : `${summary.errored} errored`;
-  // plune#1245: only when not zero, so a run without them reads as it always has.
+  // Only when not zero, so a run without them reads as it always has.
   const blockedTxt = (summary.blocked ?? 0) > 0 ? ` · ${s.yellow(`${summary.blocked} blocked`)}` : '';
   const skippedTxt = (summary.skipped ?? 0) > 0 ? ` · ${s.dim(`${summary.skipped} skipped`)}` : '';
   lines.push(

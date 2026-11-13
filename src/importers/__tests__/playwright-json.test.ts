@@ -138,7 +138,7 @@ describe('reading a Playwright JSON report', () => {
   });
 
   it('reads the case a test states outright, annotation before token', () => {
-    // Same order as the adapter (ADR 0023): an annotation is the most deliberate thing an author
+    // Same order as the adapter: an annotation is the most deliberate thing an author
     // writes, and the `@P` token is the same statement made where it shows in the report.
     const stated = (over: Record<string, unknown>): string =>
       JSON.stringify({
@@ -205,7 +205,7 @@ describe('reading a Playwright JSON report', () => {
 
   it('recognises a report whose config runs long before its suites', () => {
     // Playwright writes `config` first — argv, every project, every reporter's options, the CI
-    // metadata; a pinned 1.63 run of the adapter's e2e fixture put "suites" at byte 7 632 (#790 T18).
+    // metadata; a pinned 1.63 run of the adapter's e2e fixture put "suites" at byte 7 632.
     const config = { argv: ['node', 'playwright', 'test'], projects: [{ name: 'x'.repeat(8_000) }] };
     expect(looksLikePlaywrightJson(JSON.stringify({ config, suites: [] }, null, 2))).toBe(true);
     expect(looksLikePlaywrightJson(JSON.stringify({ config, testResults: [] }, null, 2))).toBe(false);
@@ -214,12 +214,12 @@ describe('reading a Playwright JSON report', () => {
 });
 
 /**
- * #790 T16 — the import road reduces each attempt of the report to the normalized attempt the core
+ * The import road reduces each attempt of the report to the normalized attempt the core
  * reads, so it says what failed, where and in which CI run exactly as the reporter does. The report is
  * the shape Playwright 1.63 wrote in a trial: `errors[i]` is `formatError` of each error, `steps` are
  * already only the declared ones, `config.metadata.ci.buildHref` is the CI run.
  */
-describe('a failed attempt in the report carries its failure detail (#790)', () => {
+describe('a failed attempt in the report carries its failure detail', () => {
   let root = '';
   beforeEach(() => {
     root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plune-json-')));
@@ -314,9 +314,9 @@ describe('a failed attempt in the report carries its failure detail (#790)', () 
     expect(refused.results[0]?.failure).not.toHaveProperty('ciUrl');
   });
 
-  // plune#927. The commit and branch the run opens with travel as the CI run does: the report's own
+  // The commit and branch the run opens with travel as the CI run does: the report's own
   // word, whichever machine imports it. What is handed up is Playwright's `metadata.ci` as written.
-  it('hands up the runner’s own CI record too, for the commit and branch the run opens with (plune#927)', () => {
+  it('hands up the runner’s own CI record too, for the commit and branch the run opens with', () => {
     expect(readPlaywrightJson(report(), 'report.json').ci).toEqual({
       buildHref: BUILD,
       commitHash: 'abc',
@@ -332,7 +332,7 @@ describe('a failed attempt in the report carries its failure detail (#790)', () 
   });
 
   /**
-   * #790 T18. The trial run the adapter's tests replay as reporter events
+   * The trial run the adapter's tests replay as reporter events
    * (`packages/playwright/src/__tests__/fixtures/trial-790`), read here as its JSON report; both roads
    * answer to the one `expected.json` beside it, since neither can import the other's code.
    */
@@ -345,7 +345,7 @@ describe('a failed attempt in the report carries its failure detail (#790)', () 
     expect(results.map((r) => r.title)).toEqual(Object.keys(expected));
     for (const r of results) expect({ failure: r.failure, errorContext: r.errorContext }, r.title).toEqual(expected[r.title]);
     expect(ciUrl).toBe(BUILD);
-    // The commit the recording's runner wrote (plune#927) — what a real 1.63 gives under GitHub: no branch.
+    // The commit the recording's runner wrote — what a real 1.63 gives under GitHub: no branch.
     expect(ci).toEqual({
       commitHref: 'https://github.com/acme/shop/commit/0123456789abcdef0123456789abcdef01234567',
       commitHash: '0123456789abcdef0123456789abcdef01234567',
@@ -364,12 +364,12 @@ describe('a failed attempt in the report carries its failure detail (#790)', () 
 });
 
 /**
- * plune-ai/plune#913 and #928. A Playwright JSON report names what each attempt kept: a file by its `path`,
+ * A Playwright JSON report names what each attempt kept: a file by its `path`,
  * or — what `testInfo.attach(name, { body })` leaves — the bytes themselves, as base64 in `body`. Both go to
  * the core as the files of the result; a body is decoded only where the platform would take it, since
  * a report full of screenshots kept as bodies is megabytes of base64 nothing will read.
  */
-describe('the files a report keeps (plune#913, plune#928)', () => {
+describe('the files a report keeps', () => {
   const report = (attachments: unknown[]): string =>
     JSON.stringify({
       config: {},

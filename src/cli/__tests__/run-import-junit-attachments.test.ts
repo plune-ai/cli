@@ -15,7 +15,7 @@ vi.mock('node:fs', async (original) => {
 });
 
 /**
- * plune-ai/plune#1220, through the command line: `plune run import report.xml` of a JUnit report whose tests
+ * Through the command line: `plune run import report.xml` of a JUnit report whose tests
  * print `[[ATTACHMENT|path]]` on a line of their own. The program is the one the binary runs; the platform
  * is on a real socket, a project with a bucket, and the file is "uploaded" when its bytes arrive there.
  */

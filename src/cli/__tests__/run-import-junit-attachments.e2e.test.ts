@@ -1,4 +1,4 @@
-// END-TO-END for `plune run import` of a JUnit report that announces files (plune-ai/plune#1220), against
+// END-TO-END for `plune run import` of a JUnit report that announces files, against
 // the REAL built binary (dist/cli.cjs) and a platform on a real socket that has a bucket. Run with
 // `pnpm test:e2e` (builds first). What a client checks after an import: did every file I kept arrive, with
 // its bytes, and what does the command tell me about the ones that did not.

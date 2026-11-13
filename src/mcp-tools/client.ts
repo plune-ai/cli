@@ -1,7 +1,7 @@
 /**
  * The HTTP half of the tools: one request to the platform with the caller's token, the project and the agent's session.
  * `X-Plune-Session` is what makes the platform treat the caller as an agent — its changes grouped and undoable as one,
- * and its deletions refused (#1280) — so it is on every request, never optional.
+ * and its deletions refused — so it is on every request, never optional.
  */
 
 export interface PluneApiOptions {
@@ -87,7 +87,7 @@ export function createPluneApi(opts: PluneApiOptions) {
         method: req.method,
         headers: req.body === undefined ? headers : { ...headers, 'content-type': 'application/json' },
         ...(req.body === undefined ? {} : { body: JSON.stringify(req.body) }),
-        // Host pinning (#1283): a redirect elsewhere would carry the token there.
+        // Host pinning: a redirect elsewhere would carry the token there.
         redirect: 'manual',
       });
     } catch {

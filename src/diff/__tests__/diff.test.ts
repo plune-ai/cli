@@ -80,7 +80,7 @@ describe('diffRuns', () => {
     expect(d.summary.hasRegression).toBe(false);
   });
 
-  // plune#2414 — an eval with no verdict is counted, so a gate can refuse to call it green.
+  // An eval with no verdict is counted, so a gate can refuse to call it green.
   it('counts as unmeasured a current errored eval and a baseline errored one that fails now', () => {
     const d = diffRuns(
       run([ev('a', 'passed'), ev('b', 'errored'), ev('c', 'errored'), ev('d', 'errored'), ev('e', 'passed')]),
@@ -125,7 +125,7 @@ describe('diffRuns', () => {
     });
   });
 
-  // plune#1245 — the diff reads rows with the same classifier as the summary (ADR 0045 order), so a
+  // The diff reads rows with the same classifier as the summary, so a
   // row the runner says was never judged cannot turn into a regression through its assertions.
   it('a blocked row whose assertions failed is not a regression', () => {
     const blocked: EvalResult = { id: 'a', tags: [], rows: [{ ...row({ fail: true }), inconclusive: 'blocked' }], passed: true };
@@ -135,7 +135,7 @@ describe('diffRuns', () => {
   });
 });
 
-// plune#2497: an eval with no judged row (every row blocked or skipped, or no rows) has no verdict.
+// An eval with no judged row (every row blocked or skipped, or no rows) has no verdict.
 describe('diffRuns — an eval with no judged row', () => {
   const unjudged = (id: string, rows: RowResult[]): EvalResult => ({ id, tags: [], rows, passed: true });
   const skippedRow = (kind: 'blocked' | 'skipped'): RowResult => ({ ...row(), inconclusive: kind });
@@ -160,7 +160,7 @@ describe('diffRuns — an eval with no judged row', () => {
     expect(d.summary.newPasses).toBe(0);
   });
 
-  it('keeps an eval with one passed row and the rest skipped as passed (plune#1245)', () => {
+  it('keeps an eval with one passed row and the rest skipped as passed', () => {
     const d = diffRuns(run([ev('a', 'passed')]), run([unjudged('a', [row(), skippedRow('skipped')])]));
     expect(d.evals[0]!.status).toBe('stable-pass');
     expect(d.summary.unmeasured).toBe(0);

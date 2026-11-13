@@ -9,9 +9,9 @@ import { startRun } from '../session.js';
 import type { PendingResult } from '../types.js';
 
 /**
- * Platform ADR 0051: the files of a report go through `uploads-batch`, `complete-batch` and `direct-batch`, up to 100 a
+ * The files of a report go through `uploads-batch`, `complete-batch` and `direct-batch`, up to 100 a
  * request, each item judged alone. The fake below is the platform's three routes on a real socket (the answers follow
- * `files-batch.ts` of plune-ai/plune), plus the single routes an older platform has.
+ * the platform's `files-batch.ts`), plus the single routes an older platform has.
  */
 interface Options {
   /** The project has a bucket (links) or not (`direct`). */
@@ -170,7 +170,7 @@ async function report(platform: Awaited<ReturnType<typeof fake>>, files: number,
   return { run, log, line: log.find((l) => l.startsWith('plune: files —')) ?? '' };
 }
 
-describe('files by the bulk routes (platform ADR 0051)', () => {
+describe('files by the bulk routes', () => {
   it('250 files are 3 + 3 requests, not 250 + 250 + 250, and each announced file carries its sha256', async () => {
     const p = await fake();
     try {

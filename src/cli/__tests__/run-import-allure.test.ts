@@ -7,7 +7,7 @@ import { createProgram } from '../../cli.js';
 import { sha256, startBucketPlatform, type BucketPlatform } from './bucket-platform.js';
 
 /**
- * plune-ai/plune#1221, through the command line: `plune run import allure-results/` of a folder an Allure adapter
+ * Through the command line: `plune run import allure-results/` of a folder an Allure adapter
  * wrote. The program is the one the binary runs; the platform is on a real socket, a project with a bucket, and a
  * file is "uploaded" when its bytes arrive there.
  */
@@ -189,7 +189,7 @@ describe('CLI · run import · Allure · a folder that is not a report', () => {
     expect(platform.results).toEqual([]);
   });
 
-  // plune-ai/plune#2309: --format junit reads a folder as JUnit files, and an allure-results folder has none.
+  // --format junit reads a folder as JUnit files, and an allure-results folder has none.
   it('--format junit on an allure-results folder, --format playwright-json on a folder and --format allure on a file are refused', async () => {
     await expect(importIt(copyOf('pytest'), '--format', 'junit')).rejects.toThrow('the command exited with 2');
     expect(printed.join('')).toMatch(/— no JUnit XML files in it/);
@@ -205,7 +205,7 @@ describe('CLI · run import · Allure · a folder that is not a report', () => {
   });
 });
 
-// plune-ai/plune#2309: the line about a skipped file is never printed when the import stops, so the error says it.
+// The line about a skipped file is never printed when the import stops, so the error says it.
 describe('CLI · run import · JUnit folder · only XML that is not JUnit', () => {
   it('a folder with testng-results.xml alone: exit 2, the message names the file it skipped, and nothing is sent', async () => {
     const only = path.join(dir, 'surefire-reports');

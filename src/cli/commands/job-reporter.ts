@@ -1,5 +1,5 @@
 // The platform's job queue, as the commands that upload to it describe their work there: `plune sync` (kind `sync`,
-// cli#139) and `plune ingest` (kind `ingest`, plune#2047). Both are kinds the queue panel has words for (plune
+// cli#139) and `plune ingest` (kind `ingest`). Both are kinds the queue panel has words for (the platform's
 // `app/src/i18n/en.json`, `queue.kind.*`).
 
 /** A job report never holds the command up for long: the upload is the work, the job only describes it. */
@@ -63,7 +63,7 @@ export class JobReporter {
 
   /**
    * The upload is in: every row is on the platform. `subjectId` is what the job works on, learnt from the upload's
-   * answer (the run an ingest landed in): the platform takes it while the job names none (#1279).
+   * answer (the run an ingest landed in): the platform takes it while the job names none.
    */
   async uploaded(at: { cursor?: string | undefined; subjectId?: string | undefined }): Promise<void> {
     if (this.id === undefined) return;

@@ -38,7 +38,7 @@ export function parseRetryAfter(raw: string | null | undefined, now: number = Da
 
 /**
  * One pool per scheme, shared by every request of the process: a new connection to the platform costs
- * about 200 ms to the first byte (TLS ~70 ms of it), so a run's tens of requests reuse sockets (plune-ai/plune#1393).
+ * about 200 ms to the first byte (TLS ~70 ms of it), so a run's tens of requests reuse sockets.
  * An idle socket in the pool is unref'd by Node, so it never keeps the process alive after the last request.
  */
 const POOLS = { 'http:': new HttpAgent({ keepAlive: true }), 'https:': new HttpsAgent({ keepAlive: true }) };
@@ -145,7 +145,7 @@ export interface PlatformClient {
   /** `retries` after the first try: the default is 2; a file's requests ask for more. */
   post<T>(path: string, body: unknown, retries?: number): Promise<ClientOutcome<T>>;
   /**
-   * A file's bytes as the body, under the file's own type (platform ADR 0040) — not JSON. Through the
+   * A file's bytes as the body, under the file's own type — not JSON. Through the
    * same retries as a POST, so a 429 on the platform's upload limit waits out its `Retry-After`.
    */
   upload<T>(path: string, bytes: Buffer, contentType: string): Promise<ClientOutcome<T>>;
@@ -159,7 +159,7 @@ export interface PlatformClient {
   /** A GET, through the same retries, classification and token scrubbing. */
   get<T>(path: string): Promise<ClientOutcome<T>>;
   /**
-   * The bytes to a short-lived link of the customer's bucket (plune-ai/plune#946): exactly the headers the
+   * The bytes to a short-lived link of the customer's bucket: exactly the headers the
    * link came with, no token of ours. Network failures and 5xx wait and try again, up to three times; a 403
    * (the link has expired) comes back at once, for the caller to ask for a new one.
    */
@@ -337,7 +337,7 @@ export function createClient(opts: ClientOptions): PlatformClient {
         // success by the code that expects a JSON answer everywhere else.
         if (res.status === 204) return { ok: true, status: res.status, body: undefined as T };
         // A success that is not JSON is not the platform's answer — a proxy's page, say. Classified,
-        // not thrown: a throw here left `add` with a batch nobody delivered or deferred (#790).
+        // not thrown: a throw here left `add` with a batch nobody delivered or deferred.
         try {
           return { ok: true, status: res.status, body: (await res.json()) as T };
         } catch {

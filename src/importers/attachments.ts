@@ -1,5 +1,5 @@
 /**
- * The files a JUnit report points at (plune-ai/plune#1220).
+ * The files a JUnit report points at.
  *
  * The format has no field for a file. Jenkins' JUnit Attachments plugin and GitLab settled on a line of
  * the test's own output — `[[ATTACHMENT|path]]` in `system-out` or `system-err` — and pytest, Surefire,

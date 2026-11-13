@@ -20,7 +20,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('plune login / logout (#48)', () => {
+describe('plune login / logout', () => {
   it('handleLogin stores the token and returns its path', async () => {
     const { path } = await handleLogin({ token: 'plune_tok', skipVerify: true });
     expect(loadToken()).toBe('plune_tok');
@@ -73,7 +73,7 @@ describe('plune login / logout (#48)', () => {
       err.push(typeof c === 'string' ? c : Buffer.from(c).toString());
       return true;
     });
-    // `process.exitCode`, not `process.exit` — login joined sync and ingest on that (#329). Calling
+    // `process.exitCode`, not `process.exit` — login joined sync and ingest on that. Calling
     // `exit` outright races undici's async teardown and trips a libuv assertion on Windows, which is
     // exactly the failure `sync.ts` documents; the code now sets the exit code and returns.
     const before = process.exitCode;

@@ -101,8 +101,8 @@ export function withLongOutput(maxLen: number): RunResult {
   };
 }
 
-// plune#1245 — rows the runner says were never judged. The blocked row's assertion failed, and it is
-// still blocked, not failed: the runner's word comes first (ADR 0045).
+// Rows the runner says were never judged. The blocked row's assertion failed, and it is
+// still blocked, not failed: the runner's word comes first.
 export const inconclusive: RunResult = {
   schemaVersion: 1,
   plune_version: '0.1.0',

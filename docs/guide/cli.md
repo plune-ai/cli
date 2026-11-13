@@ -310,7 +310,7 @@ says so outright). Subfolders (Gradle's `binary/`) and other files are not opene
 XML file is in; Gradle writes a test's output into its testcase only with `reports.junitXml.outputPerTestCase = true`.
 A folder with neither a `*-result.json` nor a JUnit file is an error that names both and up to three of the files it
 skipped as not JUnit (exit 2). Surefire writes no `timestamp` on a suite, so a Maven test's duration arrives as the span
-that ends when the import reads the report (plune-ai/plune#2310).
+that ends when the import reads the report.
 
 **`exec`** is the whole thing in one line: it opens a run, gives the command `PLUNE_RUN` and
 `PLUNE_PROCEED` so any reporter inside joins without closing it, waits, then closes the run and

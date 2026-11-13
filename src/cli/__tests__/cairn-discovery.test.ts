@@ -7,7 +7,7 @@ import { findLatestCairnRun, NoCairnRunsError } from '../commands/cairn-artifact
 import { handleIngest } from '../commands/ingest.js';
 
 /**
- * Picking the run when nobody named one (#295).
+ * Picking the run when nobody named one.
  *
  * `plune ingest` used to require the directory, and the directory is named after Cairn's run id —
  * which nobody types from memory. The command therefore began with a `ls runs/` every single time.

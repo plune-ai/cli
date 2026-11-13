@@ -74,7 +74,7 @@ describe('readCairnRun — api runs', () => {
     expect(payload.cases.filter((c) => c.verdict === 'passed')).toHaveLength(8);
   });
 
-  // plune-ai/plune#1327. Cairn writes `error` when a request got no response after the retries; the product never
+  // Cairn writes `error` when a request got no response after the retries; the product never
   // answered, so the case is `blocked`, not `failed`. Read through the real file reader, not an injected one.
   it('sends a case whose request got no answer as blocked, not failed', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cairn-api-'));

@@ -116,12 +116,12 @@ interface GoldenSummary {
   passed: number;
   failed: number;
   errored: number;
-  /** plune#1245 — optional, so a RunResult written before them is still this type. */
+  /** Optional, so a RunResult written before them is still this type. */
   blocked?: number;
   skipped?: number;
   cost_usd: number;
   duration_ms: number;
-  /** plune-ai/plune#1696 — optional, so a RunResult written before it is still this type. */
+  /** Optional, so a RunResult written before it is still this type. */
   cache?: {
     from_cache: number;
     from_model: number;
@@ -154,9 +154,9 @@ interface GoldenRowResult {
   latency_ms?: number;
   error?: GoldenRunError;
   assertions: GoldenAssertionResultRecord[];
-  /** plune-ai/plune#1696 — optional; set on a cache hit. */
+  /** Optional; set on a cache hit. */
   cache_saved?: { input_tokens: number; output_tokens: number; cost_usd: number };
-  /** ADR 0045 — optional, so the type is a union with `undefined` exactly as the field is. */
+  /** Optional, so the type is a union with `undefined` exactly as the field is. */
   inconclusive?: 'blocked' | 'skipped';
   /** Repeats — optional; present only when an eval sets `runs` above 1. */
   attempts?: {
@@ -232,7 +232,7 @@ type _PinRowResult = Expect<Equal<_RowResult, GoldenRowResult>>;
 type _PinEvalResult = Expect<Equal<_EvalResult, GoldenEvalResult>>;
 type _PinRunResult = Expect<Equal<_RunResult, GoldenRunResult>>;
 
-// TestCase pins — ADR 0045 / plune#1246
+// TestCase pins
 interface GoldenExternalKey {
   kind: 'playwright-id' | 'path-title' | 'allure-history' | 'cairn-stable' | 'eval-id' | 'qase' | 'testrail';
   value: string;
