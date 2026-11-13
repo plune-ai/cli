@@ -163,12 +163,23 @@ export interface ConfigFinding {
   column?: number;
   message: string;
   fix: string;
+  /** The catalog's fields of a finding about a value: the name of the key it is under (masked like any name). */
+  key?: string;
+  /** `secret-known-format`: the id of the format. */
+  format?: string;
+  /** `secret-known-format` in `args`: the index, and the flag before it when that looks like one. */
+  argIndex?: number;
+  previousArg?: string;
+  /** `secret-in-url`: `userinfo`, or the name of the query parameter. */
+  urlPart?: string;
 }
 
 export type FileProblem =
   | { kind: 'parse-error'; category: ParseErrorCategory; line: number; column: number }
   | { kind: 'too-large' }
   | { kind: 'unknown-client' }
+  | { kind: 'bad-input' }
+  | { kind: 'internal-error' }
   | { kind: 'not-an-object'; path: string }
   | { kind: 'duplicate-key'; path: string; line: number; column: number };
 
@@ -183,18 +194,28 @@ export interface ServerRef {
 
 export interface FileResult {
   path: string;
-  client: ClientId;
+  client: string;
   /** `nothing-to-scan`: no server entry at all; `unreadable`: the file could not be read as this client's JSON. Neither is clean. */
   status: 'scanned' | 'nothing-to-scan' | 'unreadable';
   servers: ServerRef[];
   problems: FileProblem[];
 }
 
+/** A rule, or one field for a rule, that was not checked, and why; the reason is fixed text, never a value. */
+export interface NotEvaluated {
+  rule: ConfigRuleId;
+  reason: string;
+  file?: string;
+  path?: string;
+  line?: number;
+  column?: number;
+}
+
 export interface ConfigScan {
   status: 'scanned' | 'nothing-to-scan';
   files: FileResult[];
   /** Rules that did not run, and why: a report says "not evaluated" for them, never "clean". */
-  notEvaluated: { rule: ConfigRuleId; reason: string }[];
+  notEvaluated: NotEvaluated[];
   /** The cap on findings was reached; there may be more. */
   truncated: boolean;
   findings: ConfigFinding[];
@@ -203,6 +224,8 @@ export interface ConfigScan {
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
 /** What a regular expression reads of one value: a hostile megabyte-long argument is not matched to its end. */
 const MAX_VALUE = 64 * 1024;
+/** What every rule but the token formats reads of one argument or command: a flag, a package, a path is never longer. */
+const MAX_TOKEN = 4096;
 const DEFAULT_MAX_FINDINGS = 5000;
 const SHOWN_NAME = 64;
 const CLIENTS: ReadonlySet<string> = new Set<ClientId>([
@@ -222,27 +245,41 @@ const TYPES: ReadonlySet<string> = new Set(['stdio', 'http', 'sse', 'streamable-
  * descriptions, not re-checked against each provider's current documentation; MCP-G7 measures false hits.
  */
 const KNOWN_FORMATS: readonly [id: string, re: RegExp][] = [
-  ['github-token', /(?<![A-Za-z0-9])(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,})/],
+  ['github-token', /(?<![A-Za-z0-9])(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]{36,}/],
   ['aws-access-key-id', /(?<![A-Za-z0-9])(?:AKIA|ASIA|AGPA|AIDA|AROA)[A-Z2-7]{16}(?![A-Za-z0-9])/],
   ['slack-token', /(?<![A-Za-z0-9])xox[abprs]-[A-Za-z0-9-]{10,}/],
   ['stripe-key', /(?<![A-Za-z0-9])[rs]k_live_[A-Za-z0-9]{16,}/],
   ['anthropic-key', /(?<![A-Za-z0-9])sk-ant-[A-Za-z0-9_-]{20,}/],
-  ['openai-key', /(?<![A-Za-z0-9])sk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{32,}/],
   ['google-api-key', /(?<![A-Za-z0-9])AIza[0-9A-Za-z_-]{35}/],
   ['npm-token', /(?<![A-Za-z0-9])npm_[A-Za-z0-9]{36}(?![A-Za-z0-9])/],
   ['gitlab-token', /(?<![A-Za-z0-9])glpat-[A-Za-z0-9_-]{20}/],
   ['private-key', /-----BEGIN (?:[A-Z]+ )*PRIVATE KEY-----/],
-  ['jwt', /(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/],
 ];
 const knownFormat = (value: string): string | undefined => {
   const head = value.length > MAX_VALUE ? value.slice(0, MAX_VALUE) : value;
   return KNOWN_FORMATS.find(([, re]) => re.test(head))?.[0];
 };
 
+/** A name that starts with the prefix of a token, even one too short for the whole format, or holds a whole token. */
+const KEY_PREFIX =
+  /^\s*(?:gh[pousr]_|github_pat_|AKIA|ASIA|AGPA|AIDA|AROA|xox[abprs]-|[rs]k_live_|sk-ant-|AIza|npm_|glpat-|-----BEGIN )/;
+const tokenish = (name: string): boolean => {
+  const head = name.slice(0, 256);
+  return KEY_PREFIX.test(head) || knownFormat(head) !== undefined;
+};
+
 /** A name from the file as it may be printed: not a token, escaped, bounded, and not a workflow command. */
 const safe = (name: string): string =>
-  noCommands(visible(knownFormat(name) === undefined ? name : '[key]', SHOWN_NAME));
+  noCommands(visible(tokenish(name) ? '[key]' : name, SHOWN_NAME));
 const safeText = (text: string): string => noCommands(visible(text, 400));
+/** A JSON Pointer of a snapshot text: each segment through the same mask as a name. */
+const safePointer = (pointer: string): string =>
+  noCommands(
+    pointer
+      .split('/')
+      .map((seg) => (tokenish(seg) ? '[key]' : seg))
+      .join('/'),
+  );
 
 type Part = string | number;
 /** `mcpServers.github.env.GITHUB_TOKEN`, `mcpServers["a.b"].url`, `args[1]`. */
@@ -332,14 +369,47 @@ function isLoopback(host: string): boolean {
 const programOf = (command: string): string =>
   (command.split(/[\\/]/).pop() ?? '').toLowerCase().replace(/\.(?:exe|cmd|bat)$/, '');
 const SHELLS: ReadonlySet<string> = new Set(['sh', 'bash', 'zsh', 'cmd', 'powershell', 'pwsh']);
-const SHELL_SCRIPT_FLAG = /^(?:-[a-z]*c[a-z]*|\/[ck]|-(?:command|c|encodedcommand|ec))$/i;
+/** `-c`, `-lc`, `/c`, `-Command`: linear, and a flag is never long. */
+const isScriptFlag = (s: string): boolean =>
+  s.length <= 40 &&
+  ((/^-[a-z]+$/.test(s) && s.includes('c')) ||
+    /^\/[ck]$/i.test(s) ||
+    /^-(?:command|c|encodedcommand|ec)$/i.test(s));
 const OPERATORS = /&&|\|\||\$\(|`|(?:^|\s)[;|](?:\s|$)|;\s/;
-const DOWNLOAD_TO_SHELL = [
-  /\b(?:curl|wget)\b[^|;&\n]*\|\s*(?:sudo\s+(?:-\S+\s+)*)?(?:ba|z|da|k)?sh\b/i,
-  /\b(?:ba|z|da)?sh\s+<\(\s*(?:curl|wget)\b/i,
-  /\$\(\s*(?:curl|wget)\b/i,
-  /\b(?:iwr|irm|invoke-webrequest|invoke-restmethod|curl|wget)\b[^|\n]*\|\s*(?:iex|invoke-expression)\b/i,
-];
+const DOWNLOADER = /\b(?:curl|wget|iwr|irm|invoke-webrequest|invoke-restmethod)\b/i;
+const SHELL_AFTER = /^\s*(?:sudo\s+(?:-\S+\s+)*)?(?:(?:ba|z|da|k)?sh|iex|invoke-expression)\b/i;
+const DOWNLOAD_NESTED = [/\b(?:ba|z|da)?sh\s+<\(\s*(?:curl|wget)\b/i, /\$\(\s*(?:curl|wget)\b/i];
+/**
+ * Where a download is piped into a shell or `iex`, as an offset in `text`: a segment with a downloader, a single `|`,
+ * a segment that starts with a shell. The text is cut at `|`, `||`, `&&`, `;`, `&` and line ends first, so every
+ * pattern runs over one segment and the whole is linear (a pattern that reaches from `curl` to `|` backtracks to
+ * every `curl`). The caller bounds `text`.
+ */
+function downloadToShell(text: string): number | undefined {
+  let start = 0;
+  let prev: { from: number; segment: string } | undefined;
+  const cuts = /\|\||&&|[|;&\n]/g;
+  const hit = (segment: string): number | undefined => {
+    if (prev !== undefined && SHELL_AFTER.test(segment)) {
+      const d = DOWNLOADER.exec(prev.segment);
+      if (d) return prev.from + d.index;
+    }
+    return undefined;
+  };
+  for (let m = cuts.exec(text); ; m = cuts.exec(text)) {
+    const end = m ? m.index : text.length;
+    const segment = text.slice(start, end);
+    const found = hit(segment);
+    if (found !== undefined) return found;
+    prev = m && m[0] === '|' ? { from: start, segment } : undefined;
+    if (!m) break;
+    start = end + m[0].length;
+  }
+  const nested = DOWNLOAD_NESTED.map((re) => re.exec(text)?.index).filter(
+    (i): i is number => i !== undefined,
+  );
+  return nested.length === 0 ? undefined : Math.min(...nested);
+}
 const BROAD_ROOT =
   /^(?:\/|~\/?|\$HOME[\\/]?|\$\{(?:env:)?HOME\}[\\/]?|%USERPROFILE%[\\/]?|[A-Za-z]:[\\/]?|\/(?:Users|home)\/[^/\\]+\/?|[A-Za-z]:[\\/]Users[\\/][^/\\]+[\\/]?)$/;
 
@@ -424,7 +494,7 @@ function pinnedOf(spec: string, kind: Kind): { name: string; pinned: boolean } |
       ? { name: spec, pinned: false }
       : { name: spec.slice(0, at), pinned: EXACT_SEMVER.test(spec.slice(at + 1)) };
   }
-  const m = /^([A-Za-z0-9][A-Za-z0-9._-]*)(?:\[[^\]]*\])?(.*)$/.exec(spec);
+  const m = /^([A-Za-z0-9][A-Za-z0-9._-]*)(?:\[[^\]]*\])?([\s\S]*)$/.exec(spec);
   const name = m?.[1] ?? spec;
   const rest = (m?.[2] ?? '').trim();
   return {
@@ -438,11 +508,11 @@ function pinnedOf(spec: string, kind: Kind): { name: string; pinned: boolean } |
 // ---- the scan --------------------------------------------------------------------------------------------------------
 
 interface Run {
-  options: ConfigOptions;
   cap: number;
   allowHosts: ReadonlySet<string> | undefined;
   allowPackages: ReadonlySet<string> | undefined;
   findings: ConfigFinding[];
+  notChecked: NotEvaluated[];
   truncated: boolean;
 }
 interface FileCtx {
@@ -460,6 +530,7 @@ function emit(
   at: number,
   message: string,
   level?: ScanLevel,
+  extra?: Partial<ConfigFinding>,
 ): void {
   if (full(fc.run)) {
     fc.run.truncated = true;
@@ -478,7 +549,64 @@ function emit(
     ...fc.locate(at),
     message: def.class === 'heuristic' ? `${message} (advice)` : message,
     fix: def.fix,
+    ...extra,
   });
+}
+
+/** A field whose value is too long for the token formats to read to its end: listed, never clean. */
+function notChecked(fc: FileCtx, parts: readonly Part[], at: number): void {
+  if (fc.run.notChecked.length >= fc.run.cap) {
+    fc.run.truncated = true;
+    return;
+  }
+  fc.run.notChecked.push({
+    rule: 'scan/cfg/secret-known-format',
+    reason: 'value too long to check',
+    file: safeText(fc.file),
+    path: pathOf(parts),
+    ...fc.locate(at),
+  });
+}
+
+/** The flag before the argument at `index`, when it looks like one (`--auth-token`); the catalog shows it, nothing else of the neighbours. */
+function flagBefore(nodes: readonly JsonNode[], index: number): string | undefined {
+  const prev = nodes[index - 1];
+  return isString(prev) && /^--?[a-z0-9-]{1,40}$/.test(prev.value) && !tokenish(prev.value)
+    ? prev.value
+    : undefined;
+}
+
+/** `scan/cfg/secret-known-format` over one value; the finding holds the id of the format, never the value. */
+function knownIn(
+  fc: FileCtx,
+  server: string,
+  parts: readonly Part[],
+  at: number,
+  text: string,
+  where: { key?: string; argIndex?: number; previousArg?: string } = {},
+): void {
+  if (text.length > MAX_VALUE) notChecked(fc, parts, at);
+  const format = knownFormat(text);
+  if (format === undefined) return;
+  const name =
+    where.key !== undefined && /^[A-Za-z_]\w*$/.test(where.key) && !tokenish(where.key)
+      ? where.key
+      : 'NAME';
+  emit(
+    fc,
+    'scan/cfg/secret-known-format',
+    server,
+    parts,
+    at,
+    `a literal value in the format of a known token (${format}); use \${${name}}`,
+    undefined,
+    {
+      format,
+      ...(where.key === undefined ? {} : { key: safe(where.key) }),
+      ...(where.argIndex === undefined ? {} : { argIndex: where.argIndex }),
+      ...(where.previousArg === undefined ? {} : { previousArg: where.previousArg }),
+    },
+  );
 }
 
 /** An entry of a server list: the rules over its fields. Returns whether it could be assessed. */
@@ -509,7 +637,7 @@ function scanEntry(
     isString(command?.value) && command.value.value !== '' ? command.value.value : undefined;
   const urlText = isString(url?.value) && url.value.value !== '' ? url.value.value : undefined;
   if (commandText === undefined && urlText === undefined) {
-    invalid(labelAt, parts, 'the entry has neither a command nor a url');
+    invalid(labelAt, parts, 'neither command nor url');
     return false;
   }
   const wrongType = (name: string, m: JsonMember | undefined, ok: boolean) => {
@@ -531,7 +659,7 @@ function scanEntry(
       server,
       [...parts, 'envFile'],
       envFile.value.at,
-      'envFile is not read; secrets in it were not checked',
+      'envFile: not read; secrets in it were not checked',
     );
   }
 
@@ -542,17 +670,8 @@ function scanEntry(
       if (!isString(entry.value)) continue;
       const at = [...parts, section, entry.key];
       const value = entry.value.value;
-      const format = knownFormat(value);
-      if (format !== undefined)
-        emit(
-          fc,
-          'scan/cfg/secret-known-format',
-          server,
-          at,
-          entry.value.at,
-          `a literal value in the format of a known token (${format}); keep it out of the file`,
-        );
-      if (CREDENTIAL_NAME.test(entry.key) && isLiteral(value))
+      knownIn(fc, server, at, entry.value.at, value, { key: entry.key });
+      if (CREDENTIAL_NAME.test(entry.key.slice(0, 1024)) && isLiteral(value.slice(0, MAX_VALUE)))
         emit(
           fc,
           'scan/cfg/secret-by-name',
@@ -560,20 +679,24 @@ function scanEntry(
           at,
           entry.value.at,
           'literal value under a credential name',
+          undefined,
+          { key: safe(entry.key) },
         );
     }
   }
 
   if (urlText !== undefined && isString(url?.value))
     scanUrl(fc, server, [...parts, 'url'], url.value.at, urlText);
-  if (
-    commandText !== undefined ||
-    Array.isArray((args?.value as { items?: unknown } | undefined)?.items)
-  ) {
-    const tokens: Token[] = [];
-    if (args?.value.t === 'array')
-      args.value.items.forEach((n, index) => isString(n) && tokens.push({ text: n.value, index }));
+  if (commandText !== undefined || args?.value.t === 'array') {
     const nodes = args?.value.t === 'array' ? args.value.items : [];
+    const tokens: Token[] = [];
+    nodes.forEach((n, index) => {
+      if (isString(n))
+        tokens.push({
+          text: n.value.length > MAX_TOKEN ? n.value.slice(0, MAX_TOKEN) : n.value,
+          index,
+        });
+    });
     scanCommand(fc, server, parts, command, commandText ?? '', tokens, nodes);
   }
   return true;
@@ -586,16 +709,7 @@ function scanUrl(
   at: number,
   raw: string,
 ): void {
-  const format = knownFormat(raw);
-  if (format !== undefined)
-    emit(
-      fc,
-      'scan/cfg/secret-known-format',
-      server,
-      parts,
-      at,
-      `a literal value in the format of a known token (${format}); keep it out of the file`,
-    );
+  knownIn(fc, server, parts, at, raw);
   const address = addressOf(raw);
   if (address === undefined) return;
   if (
@@ -609,6 +723,8 @@ function scanUrl(
       parts,
       at,
       'credentials in the userinfo part of the address',
+      undefined,
+      { urlPart: 'userinfo' },
     );
   }
   for (const pair of (address.query ?? '').split('&')) {
@@ -629,6 +745,8 @@ function scanUrl(
         parts,
         at,
         `query parameter "${key}" holds a literal value`,
+        undefined,
+        { urlPart: key },
       );
   }
   const judged = !address.host.includes('${') && address.host !== '';
@@ -641,7 +759,7 @@ function scanUrl(
       server,
       parts,
       at,
-      'the host of the address is not in the allowed list',
+      `host "${safe(address.host)}" is not in --allow-host`,
     );
   }
 }
@@ -651,40 +769,38 @@ function scanCommand(
   server: string,
   parts: readonly Part[],
   command: JsonMember | undefined,
-  commandText: string,
+  fullCommand: string,
   tokens: Token[],
   nodes: JsonNode[],
 ): void {
   const argPath = (t: Token): Part[] => [...parts, 'args', t.index];
   const argAt = (t: Token): number => nodes[t.index]!.at;
   const commandAt = command?.value.at ?? 0;
-  const knownIn = (path: readonly Part[], at: number, text: string) => {
-    const format = knownFormat(text);
-    if (format !== undefined)
-      emit(
-        fc,
-        'scan/cfg/secret-known-format',
-        server,
-        path,
-        at,
-        `a literal value in the format of a known token (${format}); keep it out of the file`,
-      );
-  };
-  if (commandText !== '') knownIn([...parts, 'command'], commandAt, commandText);
-  for (const t of tokens) knownIn(argPath(t), argAt(t), t.text);
+  if (fullCommand !== '') knownIn(fc, server, [...parts, 'command'], commandAt, fullCommand);
+  for (const t of tokens) {
+    const n = nodes[t.index];
+    const previousArg = flagBefore(nodes, t.index);
+    knownIn(fc, server, argPath(t), argAt(t), isString(n) ? n.value : t.text, {
+      argIndex: t.index,
+      ...(previousArg === undefined ? {} : { previousArg }),
+    });
+  }
 
+  // From here on every rule reads a clipped text: a flag, a package or a path is never as long as a megabyte.
+  const commandText = fullCommand.slice(0, MAX_TOKEN);
   const program = programOf(commandText);
-  if (SHELLS.has(program) && tokens.some((t) => SHELL_SCRIPT_FLAG.test(t.text))) {
+  const scriptFlag = SHELLS.has(program) ? tokens.find((t) => isScriptFlag(t.text)) : undefined;
+  if (scriptFlag !== undefined) {
     emit(
       fc,
       'scan/cfg/shell-command',
       server,
       [...parts, 'command'],
       commandAt,
-      'runs a shell with an inline script',
+      `runs "${program} ${scriptFlag.text}" with an inline script`,
     );
   } else {
-    const op = tokens.find((t) => OPERATORS.test(t.text.slice(0, MAX_VALUE)));
+    const op = tokens.find((t) => OPERATORS.test(t.text));
     if (op !== undefined)
       emit(
         fc,
@@ -704,12 +820,9 @@ function scanCommand(
     spans.push({ start: joined.length + 1, token: t });
     joined += ` ${t.text}`;
   }
-  const download = DOWNLOAD_TO_SHELL.map((re) => re.exec(joined)?.index).filter(
-    (i): i is number => i !== undefined,
-  );
-  if (download.length > 0) {
-    const start = Math.min(...download);
-    const span = [...spans].reverse().find((s) => s.start <= start)!;
+  const download = downloadToShell(joined);
+  if (download !== undefined) {
+    const span = [...spans].reverse().find((s) => s.start <= download)!;
     if (span.token === undefined)
       emit(
         fc,
@@ -745,7 +858,8 @@ function scanCommand(
         'package without an exact version',
       );
     if (fc.run.allowPackages !== undefined) {
-      const name = (spec?.name ?? launch.pkg.text).toLowerCase();
+      const written = spec?.name ?? launch.pkg.text;
+      const name = written.toLowerCase();
       const squeezed = name.replace(/[-_.]+/g, '-');
       if (
         !fc.run.allowPackages.has(name) &&
@@ -757,7 +871,7 @@ function scanCommand(
           server,
           argPath(launch.pkg),
           argAt(launch.pkg),
-          'the package is not in the allowed list',
+          `package "${safe(written)}" is not in --allow-package`,
         );
       }
     }
@@ -778,7 +892,7 @@ function scanCommand(
   }
 
   const everything = [commandText, ...tokens.map((t) => t.text)];
-  if (everything.some((s) => !BROAD_ROOT.test(s) && /filesystem/i.test(s.slice(0, MAX_VALUE)))) {
+  if (everything.some((s) => !BROAD_ROOT.test(s) && /filesystem/i.test(s))) {
     for (const t of tokens) {
       if (BROAD_ROOT.test(t.text))
         emit(
@@ -787,7 +901,7 @@ function scanCommand(
           server,
           argPath(t),
           argAt(t),
-          'a whole drive, the root or the home directory as the root of a file server',
+          `${/^(?:\/|[A-Za-z]:[\\/]?)$/.test(t.text) ? 'the root of a drive' : 'the home directory'} as the root`,
         );
     }
   }
@@ -831,8 +945,8 @@ function containers(
 
 function scanFile(run: Run, file: ConfigFile): FileResult {
   const result: FileResult = {
-    path: safeText(file.path),
-    client: file.client,
+    path: typeof file?.path === 'string' ? safeText(file.path) : '(unnamed)',
+    client: typeof file?.client === 'string' ? file.client : '(unknown)',
     status: 'nothing-to-scan',
     servers: [],
     problems: [],
@@ -842,6 +956,13 @@ function scanFile(run: Run, file: ConfigFile): FileResult {
     status: 'unreadable',
     problems: [problem],
   });
+  if (
+    typeof file !== 'object' ||
+    file === null ||
+    typeof file.text !== 'string' ||
+    typeof file.path !== 'string'
+  )
+    return unreadable({ kind: 'bad-input' });
   if (!CLIENTS.has(file.client)) return unreadable({ kind: 'unknown-client' });
   if (Buffer.byteLength(file.text, 'utf8') > MAX_FILE_BYTES)
     return unreadable({ kind: 'too-large' });
@@ -889,6 +1010,38 @@ function scanFile(run: Run, file: ConfigFile): FileResult {
   return result;
 }
 
+/** `scanFile` that cannot throw: what a crooked input trips over is a status of the file, not an exception. */
+function scanFileSafely(run: Run, file: ConfigFile): FileResult {
+  const before = { findings: run.findings.length, notChecked: run.notChecked.length };
+  try {
+    return scanFile(run, file);
+  } catch {
+    run.findings.length = before.findings;
+    run.notChecked.length = before.notChecked;
+    return {
+      path: typeof file?.path === 'string' ? safeText(file.path) : '(unnamed)',
+      client: typeof file?.client === 'string' ? file.client : '(unknown)',
+      status: 'unreadable',
+      servers: [],
+      problems: [{ kind: 'internal-error' }],
+    };
+  }
+}
+
+/** A snapshot the cross rules can read: an object whose tools, when it has any, are objects with a string name. */
+function readable(snapshot: unknown): snapshot is McpSnapshot {
+  if (typeof snapshot !== 'object' || snapshot === null) return false;
+  const tools = (snapshot as { tools?: unknown }).tools;
+  if (tools === undefined || tools === null) return true;
+  return (
+    Array.isArray(tools) &&
+    tools.every(
+      (t) =>
+        typeof t === 'object' && t !== null && typeof (t as { name?: unknown }).name === 'string',
+    )
+  );
+}
+
 /** The `scan/cross/*` rules over the snapshots of the servers of the file, by their labels. */
 function scanCross(
   run: Run,
@@ -915,7 +1068,7 @@ function scanCross(
       origin: 'snapshot',
       ...where(label),
       server: safe(label),
-      path: noCommands(path),
+      path: safePointer(path),
       message,
       fix: def.fix,
     });
@@ -969,45 +1122,75 @@ function scanCross(
 /**
  * Scan the configuration files of MCP clients with the `scan/cfg/*` rules and, given the snapshots of at least two of
  * their servers, the `scan/cross/*` rules. A file that holds no server, or cannot be read, is not clean: its status says
- * so. A rule that needs a list or snapshots the caller did not give is in `notEvaluated`. Never throws.
+ * so. A rule that needs a list or snapshots the caller did not give, or gave in a form that cannot be read, is in
+ * `notEvaluated`, and so is a value too long to check. Input of the wrong kind at any of the boundaries is a status
+ * or a `notEvaluated` row with fixed text, and the scan of a file or of the snapshots is guarded; nothing in it throws.
  */
 export function scanClientConfig(
   files: readonly ConfigFile[],
   options: ConfigOptions = {},
 ): ConfigScan {
-  const set = (list: readonly string[] | undefined) =>
-    list === undefined || list.length === 0
-      ? undefined
-      : new Set(list.map((s) => s.trim().toLowerCase()));
+  const opts: ConfigOptions = typeof options === 'object' && options !== null ? options : {};
+  /** The strings of a list, trimmed and lower-cased; `undefined` for no list, a list that is not one, or one with no string. */
+  const set = (list: unknown): ReadonlySet<string> | undefined => {
+    if (!Array.isArray(list)) return undefined;
+    const strings = list.filter((s): s is string => typeof s === 'string' && s.trim() !== '');
+    return strings.length === 0 ? undefined : new Set(strings.map((s) => s.trim().toLowerCase()));
+  };
+  const cap = opts.maxFindings;
   const run: Run = {
-    options,
-    cap: Math.max(1, options.maxFindings ?? DEFAULT_MAX_FINDINGS),
-    allowHosts: set(options.allowHosts),
-    allowPackages: set(options.allowPackages),
+    cap:
+      typeof cap === 'number' && Number.isFinite(cap) && cap >= 1
+        ? Math.floor(cap)
+        : DEFAULT_MAX_FINDINGS,
+    allowHosts: set(opts.allowHosts),
+    allowPackages: set(opts.allowPackages),
     findings: [],
+    notChecked: [],
     truncated: false,
   };
-  const results = files.map((f) => scanFile(run, f));
-  const notEvaluated: ConfigScan['notEvaluated'] = [];
-  const snapshots = options.snapshots;
-  if (snapshots !== undefined && snapshots.size >= 2) scanCross(run, snapshots, results);
-  else {
-    const reason = 'needs the snapshots of at least two servers of the file (--snapshot)';
+  const results = (Array.isArray(files) ? files : []).map((f) => scanFileSafely(run, f));
+  const notEvaluated: NotEvaluated[] = [];
+  const snapshots = opts.snapshots;
+  const crossReason = (reason: string) =>
     notEvaluated.push(
       { rule: 'scan/cross/duplicate-tool-name', reason },
       { rule: 'scan/cross/foreign-tool-reference', reason },
     );
+  if (!(snapshots instanceof Map) || snapshots.size < 2)
+    crossReason('needs the snapshots of at least two servers of the file (--snapshot)');
+  else if (
+    ![...snapshots.entries()].every(([label, s]) => typeof label === 'string' && readable(s))
+  )
+    crossReason('the snapshots could not be read');
+  else {
+    const before = run.findings.length;
+    try {
+      scanCross(run, snapshots, results);
+    } catch {
+      run.findings.length = before;
+      crossReason('the snapshots could not be read');
+    }
   }
   if (run.allowHosts === undefined)
     notEvaluated.push({
       rule: 'scan/cfg/foreign-host',
-      reason: 'no list of allowed hosts was given (--allow-host)',
+      reason:
+        opts.allowHosts === undefined
+          ? 'no list of allowed hosts was given (--allow-host)'
+          : 'the list of allowed hosts holds no usable host',
     });
   if (run.allowPackages === undefined)
     notEvaluated.push({
       rule: 'scan/cfg/package-not-allowed',
-      reason: 'no list of allowed packages was given (--allow-package)',
+      reason:
+        opts.allowPackages === undefined
+          ? 'no list of allowed packages was given (--allow-package)'
+          : 'the list of allowed packages holds no usable package',
     });
+  notEvaluated.push(
+    ...[...run.notChecked].sort((a, b) => a.line! - b.line! || a.column! - b.column!),
+  );
   return {
     status: results.some((r) => r.status === 'scanned') ? 'scanned' : 'nothing-to-scan',
     files: results,

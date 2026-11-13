@@ -358,12 +358,10 @@ describe('CLI · mcp scan · client config · each rule fires once, and not on a
       ['slack-token', 'xoxb-' + '1234567890-abcdefghij'],
       ['stripe-key', 'sk_live_' + 'a1B2c3D4e5F6g7H8'],
       ['anthropic-key', 'sk-ant-' + 'a1B2c3D4e5F6g7H8i9J0'],
-      ['openai-key', 'sk-' + 'a1B2c3D4e5'.repeat(4)],
       ['google-api-key', 'AIza' + 'a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R'],
       ['npm-token', 'npm_' + 'a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8'],
       ['gitlab-token', 'glpat-' + 'a1B2c3D4e5F6g7H8i9J0'],
       ['private-key', '-----BEGIN RSA PRIVATE KEY-----'],
-      ['jwt', 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4eHh4eHgifQ.c2lnbmF0dXJlLXRleHQ'],
     ];
     for (const [id, value] of formats) {
       const scan = run(json({ s: { command: 'node', args: ['--auth', `Bearer ${value}`] } }));
