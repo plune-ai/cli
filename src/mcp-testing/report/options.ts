@@ -14,7 +14,7 @@ export const FILE_FORMATS = ['json', 'junit-xml', 'markdown'] as const;
 export const REPORTERS = ['junit-xml'] as const;
 export type StdoutFormat = (typeof STDOUT_FORMATS)[number];
 export type FileFormat = (typeof FILE_FORMATS)[number];
-export type ReportFormat = StdoutFormat | FileFormat;
+export type ReportFormat = StdoutFormat | FileFormat | 'sarif';
 
 export interface ReportFlags {
   format?: string;
@@ -45,8 +45,8 @@ export function addReportOptions(cmd: Command): Command {
 }
 
 export interface ReportOutputs {
-  format: StdoutFormat;
-  files: { format: FileFormat; path: string }[];
+  format: StdoutFormat | 'sarif';
+  files: { format: FileFormat | 'sarif'; path: string }[];
 }
 
 function oneOf<T extends string>(flag: string, value: string, allowed: readonly T[]): T {
@@ -62,8 +62,16 @@ function oneOf<T extends string>(flag: string, value: string, allowed: readonly 
  * the server is started, when it cannot be written whole: two flags naming one file (by its full path, without case
  * on Windows), a folder, a folder that does not exist. A relative path is read from `cwd`.
  */
-export function reportOutputs(flags: ReportFlags, cwd: string = process.cwd()): ReportOutputs {
-  const format = oneOf('--format', flags.format ?? 'human', STDOUT_FORMATS);
+export function reportOutputs(
+  flags: ReportFlags,
+  cwd: string = process.cwd(),
+  extra: { sarif?: boolean } = {},
+): ReportOutputs {
+  const format = oneOf(
+    '--format',
+    flags.format ?? 'human',
+    extra.sarif === true ? [...STDOUT_FORMATS, 'sarif' as const] : STDOUT_FORMATS,
+  );
   const reporter =
     flags.reporter === undefined ? undefined : oneOf('--reporter', flags.reporter, REPORTERS);
   const outs = flags.out === undefined ? [] : [flags.out].flat();
@@ -72,7 +80,13 @@ export function reportOutputs(flags: ReportFlags, cwd: string = process.cwd()): 
   const files = outs.map((raw) => {
     const named = /^([a-z][a-z0-9-]*)=(.*)$/s.exec(raw);
     const fileFormat =
-      named === null ? (reporter ?? 'json') : oneOf('--out', named[1] ?? '', FILE_FORMATS);
+      named === null
+        ? (reporter ?? 'json')
+        : oneOf(
+            '--out',
+            named[1] ?? '',
+            extra.sarif === true ? [...FILE_FORMATS, 'sarif' as const] : FILE_FORMATS,
+          );
     const path = named === null ? raw : (named[2] ?? '');
     if (path === '') throw new UsageError(`--out ${raw}: the file name is missing.`);
     return { format: fileFormat, path, raw };
