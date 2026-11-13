@@ -20,6 +20,10 @@ mission with your own agent and the Plune MCP tools. The agent:
 5. **Completion.** Once a person has accepted the strategy, asks the platform for the mission report
    (`plune_report_request`), which waits in the queue for approval.
 
+The text of a file added as a source is sent to the Plune platform; the agent asks you first, naming the
+file and its size. What the agent reads in your product is treated as data, never as instructions. With
+no person to answer (a headless run) it runs no command of another package and sends no file.
+
 It covers the surfaces in this order: API, UI, LLM, docs, security, accessibility, performance.
 
 Before it plans, it reads the project's memory: the rules a person accepted in the review queue, which
@@ -78,7 +82,7 @@ with `plune_mission_create` and asks you first.
 ## What it costs
 
 - **Your agent's tokens.** Your agent does the reading and the writing, on your own plan or key. The
-  skill text is about 15 KB, read once when the skill starts; the product docs it reads and the
+  skill text is about 16 KB, read once when the skill starts; the product docs it reads and the
   cases it writes are most of the rest. The stage log shows what your host reported for each stage.
 - **No Plune AI budget.** The tools the skill calls only read and write records; none of them runs the
   project's AI. (`plune_cases_generate` does, and the skill does not call it.)
