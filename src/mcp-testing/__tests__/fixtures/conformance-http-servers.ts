@@ -16,7 +16,7 @@ export async function closeServed(): Promise<void> {
 export interface Opts {
   /** Session ids by number, or none at all. */
   sessions?: false | ((n: number) => string);
-  notification?: 'ok' | 'body' | 'body202' | 'refuse';
+  notification?: 'ok' | 'body' | 'body202' | 'refuse' | number;
   answer?: 'json' | 'text' | 'sse';
   badUtf8?: boolean;
   keepOpen?: boolean;
@@ -26,8 +26,20 @@ export interface Opts {
   wrongId?: boolean;
   /** No session required, no version checked, a DELETE that ends nothing. */
   lax?: boolean;
-  get?: 'sse' | 'json' | '405';
-  del?: 'ends' | '405';
+  get?: 'sse' | 'json' | '405' | 'flood' | number;
+  del?: 'ends' | '405' | number;
+  /** The status of every refusal (a foreign Origin or Host, no session, an ended one, a bad version) instead of its own: 429, 503... */
+  refuse?: number;
+  /** A `ping` is answered on an SSE stream that never ends: with one line of 200 KiB, or with events as fast as it can. */
+  flood?: 'line' | 'events' | 'noise';
+  /** A `ping` is answered with 1.1 MiB of valid JSON in which a two-byte character lies across the 1 MiB mark. */
+  bigJson?: boolean;
+  /** Every JSON answer carries the session id of the request in its body, too. */
+  echoSession?: boolean;
+  /** A `ping` that carries a session is answered with this status: a server whose valid request is refused too. */
+  pingStatus?: number;
+  /** A `ping` is answered with an SSE stream that sends no event and stays open. */
+  silent?: boolean;
   origin?: 'check' | 'ignore' | 'any403';
   host?: 'check' | 'ignore';
   broadcast?: boolean;
@@ -43,6 +55,8 @@ export interface Opts {
 export interface Served extends Fixture {
   url: string;
   bodies: { headers: IncomingMessage['headers']; body: string }[];
+  /** How many flooded streams the client has closed so far. */
+  closed(): number;
 }
 
 export async function serve(o: Opts = {}): Promise<Served> {
@@ -50,23 +64,31 @@ export async function serve(o: Opts = {}): Promise<Served> {
   const sessionIds = o.sessions === undefined ? (n: number) => `s-${n}` : o.sessions;
   let count = 0;
   let eventId = 0;
+  let notes = 0;
+  let closedStreams = 0;
   const requests: Served['requests'] = [];
   const bodies: Served['bodies'] = [];
   const server = createServer((req, res) => {
     requests.push({ method: req.method ?? '', path: req.url ?? '', headers: req.headers });
     const host = req.headers.host ?? '';
     if (o.host === 'check' && !/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host))
-      return res.writeHead(403).end();
+      return res.writeHead(o.refuse ?? 403).end();
     const origin = req.headers.origin;
     if (origin !== undefined) {
       if (o.origin === 'any403') return res.writeHead(403).end();
       if (o.origin !== 'ignore' && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin))
-        return res.writeHead(403).end();
+        return res.writeHead(o.refuse ?? 403).end();
     }
     const sid = req.headers['mcp-session-id'] as string | undefined;
     const state = sid === undefined ? undefined : sessions.get(sid);
     if (req.method === 'GET') {
       const get = o.get ?? '405';
+      if (typeof get === 'number') return res.writeHead(get).end();
+      if (get === 'flood') {
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        for (let i = 0; i < 150; i++) res.write(`data: m${i}\n\n`);
+        return;
+      }
       if (get === '405') return res.writeHead(405).end();
       if (get === 'json')
         return res.writeHead(200, { 'content-type': 'application/json' }).end('{}');
@@ -76,6 +98,7 @@ export async function serve(o: Opts = {}): Promise<Served> {
       return;
     }
     if (req.method === 'DELETE') {
+      if (typeof o.del === 'number') return res.writeHead(o.del).end();
       if ((o.del ?? 'ends') === '405') return res.writeHead(405).end();
       if (state !== undefined && o.lax !== true) state.alive = false;
       return res.writeHead(200).end();
@@ -109,19 +132,30 @@ export async function serve(o: Opts = {}): Promise<Served> {
           }),
         );
       }
+      if (msg.method === 'ping' && o.silent === true) {
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        return res.flushHeaders();
+      }
       if (o.noEndpoint === true && msg.id !== undefined && msg.method !== 'server/discover')
         return res.writeHead(404).end();
       if (o.redirect !== undefined && msg.id !== undefined)
         return res.writeHead(307, { location: `${o.redirect}${req.url ?? '/'}` }).end();
       if (sessionIds !== false && o.lax !== true) {
-        if (sid === undefined) return res.writeHead(400).end();
-        if (state?.alive !== true) return res.writeHead(404).end();
+        if (sid === undefined) return res.writeHead(o.refuse ?? 400).end();
+        if (state?.alive !== true) return res.writeHead(o.refuse ?? 404).end();
       }
+      if (
+        msg.method === 'ping' &&
+        o.pingStatus !== undefined &&
+        (sid !== undefined || sessionIds === false)
+      )
+        return res.writeHead(o.pingStatus).end();
       const version = req.headers['mcp-protocol-version'] as string | undefined;
       if (o.lax !== true && version !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(version))
-        return res.writeHead(400).end();
+        return res.writeHead(o.refuse ?? 400).end();
       if (msg.id === undefined) {
         const n = o.notification ?? 'ok';
+        if (typeof n === 'number') return res.writeHead(++notes > 1 ? n : 202).end();
         if (n === 'ok') return res.writeHead(202).end();
         // The modern notification (it carries Mcp-Method) is refused; the SDK client's own handshake is not.
         if (n === 'refuse' && req.headers['mcp-method'] !== undefined)
@@ -157,7 +191,35 @@ export async function serve(o: Opts = {}): Promise<Served> {
         jsonrpc: '2.0',
         id: o.wrongId === true ? 'not-yours' : msg.id,
         result,
+        ...(o.echoSession === true && sid !== undefined ? { session: sid } : {}),
       });
+      if (o.bigJson === true && msg.method === 'ping') {
+        const head = `{"jsonrpc":"2.0","id":${JSON.stringify(msg.id)},"result":{"pad":"`;
+        const pad =
+          ((1048576 - Buffer.byteLength(head)) % 2 === 0 ? 'a' : '') + 'é'.repeat(550_000);
+        return res.writeHead(200, { 'content-type': 'application/json' }).end(`${head}${pad}"}}`);
+      }
+      if (o.flood !== undefined && msg.method === 'ping') {
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        if (o.flood === 'noise') {
+          for (let i = 0; i < 150; i++) res.write('data: x\n\n');
+          res.write(`data: ${frame}\n\n`);
+          res.on('close', () => closedStreams++);
+          return;
+        }
+        if (o.flood === 'line') {
+          res.write(`data: ${'a'.repeat(200_000)}`);
+          res.on('close', () => closedStreams++);
+          return;
+        }
+        res.write(`data: ${frame}\n\n`);
+        const timer = setInterval(() => res.write('data: x\n\n'), 1);
+        res.on('close', () => {
+          clearInterval(timer);
+          closedStreams++;
+        });
+        return;
+      }
       const answer = o.answer ?? 'json';
       if (answer === 'json')
         return res.writeHead(200, { 'content-type': 'application/json' }).end(frame);
@@ -190,6 +252,7 @@ export async function serve(o: Opts = {}): Promise<Served> {
     url: `http://127.0.0.1:${port}/mcp`,
     requests,
     bodies,
+    closed: () => closedStreams,
     close: () =>
       new Promise<void>((resolve) => {
         server.closeAllConnections();

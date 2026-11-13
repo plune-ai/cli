@@ -31,6 +31,7 @@ import {
 } from '../../mcp-testing/conformance/checks/index.js';
 import { loadOauthConfig, type OauthConfig } from '../../mcp-testing/conformance/checks/auth-config.js';
 import type { OauthContext } from '../../mcp-testing/conformance/checks/auth.js';
+import { closeOwnSessions } from '../../mcp-testing/conformance/checks/transport.js';
 import { initializeProblems } from '../../mcp-testing/conformance/checks/lifecycle.js';
 import { modernMeta } from '../../mcp-testing/conformance/checks/modern/meta.js';
 import { answerOf, isObject, nextId, said, type Answer } from '../../mcp-testing/conformance/checks/wire.js';
@@ -378,6 +379,8 @@ async function measure(
   const transport = config.target.kind === 'stdio' ? 'stdio' : 'http';
   const results: ConformanceResult[] = [];
   let serverInfo: McpConformanceReport['server'] = null;
+  let ownSessions: McpConformanceReport['ownSessions'];
+  let ownCtx: ConformanceContext | undefined;
   const modern = plan.era === 'modern';
   let protocolVersion: string | null = plan.version ?? (modern ? MODERN : null);
   const sessionOptions = modern ? { modern: { version: protocolVersion ?? MODERN } } : {};
@@ -453,6 +456,7 @@ async function measure(
           return memos.get(key) as Promise<T>;
         },
       };
+      ownCtx = ctx;
       const prerequisite = modern ? DISCOVER_CHECK : HANDSHAKE_CHECK;
       let timeouts = 0;
       const run = async (entry: CatalogEntry): Promise<CheckOutcome> => {
@@ -475,7 +479,12 @@ async function measure(
       for (const entry of entries)
         results.push(result(entry, applicability(entry, { era, transport }) ?? (await run(entry)), clean));
     } finally {
-      await live.close();
+      try {
+        // Also when a check threw: what the run opened is closed, or counted as left open.
+        if (ownCtx !== undefined) ownSessions = await closeOwnSessions(ownCtx);
+      } finally {
+        await live.close();
+      }
     }
   }
 
@@ -501,6 +510,7 @@ async function measure(
     suites,
     checks: results,
     pendingCheckIds: summary.pending,
+    ...(ownSessions === undefined ? {} : { ownSessions }),
     bySuite,
     summary,
     exitCode: exitCodeOf(summary.verdict),
