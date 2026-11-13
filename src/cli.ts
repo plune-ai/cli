@@ -963,8 +963,12 @@ export function createProgram(): Command {
     .action(async (server: string[], options: import('./cli/commands/mcp-conformance.js').McpConformanceFlags, command: Command) => {
       const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
       const { handleMcpConformance } = await import('./cli/commands/mcp-conformance.js');
+      // The program has a global -c/--config (the plune.yaml of `plune run`), and commander gives a --config written
+      // after a subcommand to that global option: the file of the oauth suite arrives there, not in `options`.
+      const globalConfig = (command.optsWithGlobals() as { config?: string }).config;
+      const flags = options.config === undefined && globalConfig !== undefined ? { ...options, config: globalConfig } : options;
       try {
-        process.exitCode = await handleMcpConformance(options, server, {
+        process.exitCode = await handleMcpConformance(flags, server, {
           out: (s) => process.stdout.write(s),
           err: (s) => process.stderr.write(s),
           env: process.env,
