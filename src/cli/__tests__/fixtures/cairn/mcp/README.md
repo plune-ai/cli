@@ -28,3 +28,5 @@ cairn mcp-test --out runs/f6 --timeout 2 --allow-tools echo,hang -- node ./my-se
 
 15 cases: 3 passed, 9 could not run, 3 not sent. `hang` never answers, so 3 calls in a row got no answer and the
 run stopped; the other 6 `could-not-run` cases were never sent.
+
+`--timeout 2` bounds only the handshake and list requests, so those 3 calls waited the default 30 s `--call-timeout`; the command that bounds the calls is `--call-timeout 2`. The fixture was not re-captured.
