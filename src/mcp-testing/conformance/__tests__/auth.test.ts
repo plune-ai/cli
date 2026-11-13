@@ -128,6 +128,11 @@ describe('CLI · mcp conformance · oauth · a server that keeps its requirement
       ['oauth-as-https', 'not-applicable (not-offered)'],
       // This config has no narrowScopes: auth-scope.test.ts runs that check.
       ['oauth-neg-insufficient-scope', 'could-not-run (needs-input)'],
+      // The three checks of a code exchange need a signed-in code: this config has no auth: "headless"
+      // (auth-flow.test.ts runs them).
+      ['oauth-authz-response-iss', 'could-not-run (needs-input)'],
+      ['oauth-neg-pkce-wrong-verifier', 'could-not-run (needs-input)'],
+      ['oauth-neg-token-redirect-mismatch', 'could-not-run (needs-input)'],
       ['oauth-reg-dcr', 'not-applicable (not-offered)'],
       ['oauth-reg-dcr-http-redirect-rejected', 'not-applicable (not-offered)'],
       ['oauth-reg-cimd', 'not-applicable (not-offered)'],
