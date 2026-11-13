@@ -12,12 +12,17 @@
 // as `sync`: typed errors, actionable messages, never a stack trace, never the token. And the same job report:
 // the platform's queue shows the ingest from start to end, and the report never decides the exit code.
 
+import { promises as disk } from 'node:fs';
 import * as path from 'node:path';
+import { createClient } from '../../reporter-core/client.js';
+import { UPLOAD_RETRIES } from '../../reporter-core/env.js';
+import { fileSender, type Upload } from '../../reporter-core/session.js';
 import { resolveApiUrl } from '../api-url.js';
 import { loadToken } from '../credentials.js';
 import {
   findLatestCairnRun,
   readCairnRun,
+  readCairnSessionFiles,
   CairnArtifactShapeError,
   CairnEvidenceAmbiguousError,
   CairnRunNotFoundError,
@@ -81,6 +86,108 @@ export interface IngestResult {
   skipped: number;
   /** Why the platform's job queue did not take this ingest's report: the first refusal or error. The run is recorded. */
   jobProblem?: string;
+  /** What became of the run's recordings (videos, traces): a count, then a line per reason a file stayed behind. */
+  files?: string[];
+}
+
+/** What the ingest wrote for one case: the proposal it queued, or the result it attached. A skipped case has none. */
+interface IngestItem {
+  stableId: string;
+  reviewItemId?: string;
+  resultId?: string;
+}
+
+/** The most a session file may weigh; a bigger one stays behind with a line, and costs nothing else. */
+const SESSION_FILE_MAX = 100 * 1024 * 1024;
+/** Session files in flight at once: a few large files, so a few at a time. */
+const SESSION_UPLOADS_AT_ONCE = 4;
+const TYPE_BY_EXTENSION: Record<string, string> = { '.webm': 'video/webm', '.zip': 'application/zip' };
+
+/** `items` as the platform sends it, or `undefined` from a platform older than it. Entries without an id are left out. */
+function itemsOf(body: unknown): IngestItem[] | undefined {
+  const items = (body as { items?: unknown } | null)?.items;
+  if (!Array.isArray(items)) return undefined;
+  return items.flatMap((raw) => {
+    const i = (raw ?? {}) as Record<string, unknown>;
+    if (typeof i['stableId'] !== 'string') return [];
+    const reviewItemId = typeof i['reviewItemId'] === 'string' && i['reviewItemId'] !== '' ? i['reviewItemId'] : undefined;
+    const resultId = typeof i['resultId'] === 'string' && i['resultId'] !== '' ? i['resultId'] : undefined;
+    if (reviewItemId === undefined && resultId === undefined) return [];
+    return [{ stableId: i['stableId'], ...(reviewItemId !== undefined ? { reviewItemId } : {}), ...(resultId !== undefined ? { resultId } : {}) }];
+  });
+}
+
+/**
+ * The run's videos and traces, each to what its case became: the proposal in the review queue (a reviewer watches it before
+ * approving; approval moves it to the result), or the result of a case approved before. Through the reporter's own file
+ * machinery. A file that does not go is a line, and the ingest ends as it would have without it.
+ */
+async function sendSessionFiles(
+  dir: string,
+  sent: { items: IngestItem[] | undefined; repeat: boolean },
+  platform: { apiUrl: string; token: string; fetchImpl?: typeof fetch },
+): Promise<string[]> {
+  const session = await readCairnSessionFiles(dir);
+  if (session === undefined || (session.byCase.size === 0 && session.unmapped === 0)) return [];
+  if (sent.items === undefined) {
+    return ['session files not uploaded — this Plune is older than the routes that take them'];
+  }
+  // ponytail: the platform's one-file routes keep no hash, so a second send would be a second copy on the item.
+  if (sent.repeat) return ['session files not uploaded again — this run was ingested before'];
+
+  const lines: string[] = [];
+  const jobs: Upload[] = [];
+  let tooBig = 0;
+  let unplaced = session.unmapped;
+  const placed = new Set<string>();
+  for (const item of sent.items) {
+    const paths = session.byCase.get(item.stableId);
+    if (paths === undefined || placed.has(item.stableId)) continue;
+    placed.add(item.stableId);
+    for (const file of paths) {
+      const name = path.basename(file);
+      const size = await disk.stat(file).then((s) => s.size, () => undefined);
+      if (size !== undefined && size > SESSION_FILE_MAX) {
+        tooBig += 1;
+        lines.push(`"${name}" skipped — larger than the ${SESSION_FILE_MAX / (1024 * 1024)} MiB a session file may be`);
+        continue;
+      }
+      const type = TYPE_BY_EXTENSION[path.extname(file).toLowerCase()] ?? 'application/octet-stream';
+      jobs.push({
+        id: item.reviewItemId ?? (item.resultId as string),
+        ...(item.reviewItemId !== undefined ? { owner: 'review-items' as const } : {}),
+        kind: 'file',
+        name,
+        type,
+        path: file,
+      });
+    }
+  }
+  for (const stableId of session.byCase.keys()) if (!placed.has(stableId)) unplaced += 1;
+  if (unplaced > 0) lines.push(`${unplaced} recording(s) not uploaded — no proposal or result of this run to attach them to`);
+
+  const counts = { screenshots: { uploaded: 0, skipped: 0, failed: 0 }, textFiles: { uploaded: 0, skipped: 0, failed: 0 }, otherFiles: { uploaded: 0, skipped: 0, failed: 0 } };
+  if (jobs.length > 0) {
+    const notes: string[] = [];
+    const files = fileSender({
+      client: createClient({
+        apiUrl: platform.apiUrl,
+        token: platform.token,
+        uploadRetries: UPLOAD_RETRIES.default,
+        ...(platform.fetchImpl !== undefined ? { fetchImpl: platform.fetchImpl } : {}),
+      }),
+      log: (line) => notes.push(line.replace(/^plune: /, '')),
+      stats: counts,
+      uploadsAtOnce: SESSION_UPLOADS_AT_ONCE,
+      uploadRetries: UPLOAD_RETRIES.default,
+      without: 'the run is recorded without it',
+    });
+    await files.uploadEach(jobs);
+    lines.push(...notes.filter((n) => !n.startsWith('storage bucket found')));
+  }
+  const { uploaded, skipped, failed } = counts.otherFiles;
+  const total = `${uploaded} session file(s) uploaded` + (skipped + tooBig > 0 ? `, ${skipped + tooBig} skipped` : '') + (failed > 0 ? `, ${failed} failed to upload` : '');
+  return [total, ...lines];
 }
 
 /** Read a non-2xx body for its message, always draining it — an unread body leaves the socket open. */
@@ -117,9 +224,14 @@ export async function handleIngest(deps: IngestDeps): Promise<IngestResult> {
   const job = new JobReporter(doFetch, apiUrl, token, 'ingest');
   await job.open(path.basename(path.resolve(dir)), payload.cases.length);
   try {
-    const result = await upload();
+    const { result, ...sent } = await upload();
     // The run the ingest landed in is the job's subject, so the run's page lists it.
     await job.uploaded({ subjectId: result.runId || undefined });
+    // The run is recorded by now: nothing about its recordings may turn that into a failure.
+    const files = await sendSessionFiles(dir, sent, { apiUrl, token, ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}) }).catch(
+      () => ['session files not uploaded (an unexpected error) — the run is recorded'],
+    );
+    if (files.length > 0) result.files = files;
     await job.finish({ ok: true });
     if (job.problem !== undefined) result.jobProblem = job.problem;
     return result;
@@ -129,7 +241,7 @@ export async function handleIngest(deps: IngestDeps): Promise<IngestResult> {
     throw err;
   }
 
-  async function upload(): Promise<IngestResult> {
+  async function upload(): Promise<{ result: IngestResult; items: IngestItem[] | undefined; repeat: boolean }> {
     let res: Response;
     try {
       res = await doFetch(endpoint, {
@@ -148,12 +260,14 @@ export async function handleIngest(deps: IngestDeps): Promise<IngestResult> {
     }
 
     const body = (await res.json().catch(() => ({}))) as Partial<IngestResult>;
-    return {
+    const result = {
       runId: typeof body.runId === 'string' ? body.runId : '',
       linked: typeof body.linked === 'number' ? body.linked : 0,
       proposed: typeof body.proposed === 'number' ? body.proposed : 0,
       skipped: typeof body.skipped === 'number' ? body.skipped : 0,
     };
+    // A repeat of a run already recorded is answered 200 with the first answer; a new one is 201.
+    return { result, items: itemsOf(body), repeat: res.status === 200 };
   }
 }
 
@@ -191,6 +305,7 @@ export function formatIngestResult(r: IngestResult): string {
     `  ${r.linked} result(s) attached to existing cases`,
     `  ${r.proposed} case(s) proposed — review them in Plune to accept`,
     `  ${r.skipped} skipped (already queued, already rejected, repeated, or never executed)`,
+    ...(r.files ?? []).map((line, i) => (i === 0 ? `  ${line}` : `    ${line}`)),
   ];
   return `${lines.join('\n')}\n`;
 }
