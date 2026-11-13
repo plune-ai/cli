@@ -27,6 +27,7 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 ### Fixed
 
 - **`plune mcp serve` refuses an unsupported revision on every request, not only the first.** Over stdio the SDK checks the revision the opening message claims and then pins the connection, so a later `server/discover` or `tools/list` claiming `1900-01-01` was answered as if it were supported. It now gets `-32022` with `data.supported` and `data.requested`, as revision 2026-07-28 asks: «the server accepts or rejects each request independently».
+- **`plune mcp conformance`: `http-bind-loopback` keeps what each try got.** The verdict line now lists every outside address of this machine it tried, by family, with what the connection got (`open`, `refused`, `no answer in 500 ms` or the socket error), for example `(IPv4 refused, IPv6 refused)`. The addresses themselves still stay out of the report. The guide's `not-offered` reason now also names an SSE check on a server that answered every request as JSON.
 
 ## [0.37.0] - 2026-11-13
 

@@ -711,7 +711,7 @@ MUST NOT or REQUIRED about that behaviour of the server; without a keyword the l
 
 Each check is `passed`, `failed`, `not-applicable` (with a reason: `era`, `capability-not-declared`, `transport`,
 `no-auth`, `not-offered`: the capability is declared but the server offers nothing the check reads, such as no
-`outputSchema`; `not-local`: a check of a local server's protection, on another host), `could-not-run` (with a reason: `timeout`, `prerequisite-failed`, `needs-input`, `transport-error`,
+`outputSchema`, or no answer over SSE for a check that reads an SSE stream when every request was answered as JSON; `not-local`: a check of a local server's protection, on another host), `could-not-run` (with a reason: `timeout`, `prerequisite-failed`, `needs-input`, `transport-error`,
 `unsupported-dialect`) or `pending`. Each also lands in one bucket of the summary, so the buckets add up to the checks:
 
 | Bucket | Holds |

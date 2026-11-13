@@ -180,6 +180,13 @@ const states = (r: McpConformanceReport) =>
   );
 const byId = (r: McpConformanceReport, id: string) => r.checks.find((c) => c.id === id)!;
 const outside = outsideAddresses().length > 0;
+/** Each outside address tried, by its family and what the connection got; the address itself never in the report. */
+const triedEach = (actual: string | undefined, said: RegExp) => {
+  const tried = [...(actual ?? '').matchAll(/IPv[46] ([a-z0-9 ]+?)(?=[,)])/g)].map((m) => m[1]);
+  expect(tried, actual).toHaveLength(outsideAddresses().length);
+  for (const got of tried) expect(got).toMatch(said);
+  for (const a of outsideAddresses()) expect(actual).not.toContain(a);
+};
 
 describe('CLI · mcp conformance · Streamable HTTP on the wire', () => {
   it('a server that keeps every requirement passes every HTTP check that applies to a legacy run', async () => {
@@ -214,6 +221,7 @@ describe('CLI · mcp conformance · Streamable HTTP on the wire', () => {
     for (const id of ['http-notification-202', 'http-origin-invalid-403', 'http-session-terminated-404'])
       expect(byId(report!, id).details?.length, id).toBeGreaterThan(0);
     expect(byId(report!, 'http-origin-invalid-403').details?.[1]?.request.headers).toContainEqual(['Origin', 'https://evil.example']);
+    if (outside) triedEach(byId(report!, 'http-bind-loopback').actual, /^(refused|no answer in 500 ms)$/);
     // None of these is in the frozen profile yet: they show their verdict and stay out of the score.
     expect(report!.summary).toMatchObject({ failed: [], score: null });
     expect(code).toBe(3);
@@ -248,6 +256,7 @@ describe('CLI · mcp conformance · Streamable HTTP on the wire', () => {
     ])
       expect(got[id], id).toBe('failed');
     expect(got['http-bind-loopback']).toBe(outside ? 'failed' : 'could-not-run (needs-input)');
+    if (outside) triedEach(byId(report!, 'http-bind-loopback').actual, /^(open|refused|no answer in 500 ms)$/);
     expect(got['http-single-endpoint']).toBe('passed');
     for (const c of report!.checks.filter((c) => c.id.startsWith('http-') && c.state === 'failed')) {
       expect(c.actual, c.id).not.toBe('');

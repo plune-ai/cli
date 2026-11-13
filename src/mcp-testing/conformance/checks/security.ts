@@ -5,7 +5,7 @@
  * show that a 403 to a foreign Origin is a protection, not a server that refuses everything.
  */
 
-import { connect } from 'node:net';
+import { connect, isIPv6 } from 'node:net';
 import { networkInterfaces } from 'node:os';
 import type { CheckOutcome } from '../outcome.js';
 import { isLocal } from '../raw-http.js';
@@ -80,17 +80,17 @@ const originInvalid403: ConformanceCheck = async (ctx) => {
   };
 };
 
-/** Whether a TCP connection to host:port opens within CONNECT_MS. */
-const reachable = (host: string, p: number): Promise<boolean> =>
+/** What a TCP connection to host:port got within CONNECT_MS: `open`, `refused`, no answer, or the socket error's code. */
+const reach = (host: string, p: number): Promise<string> =>
   new Promise((resolve) => {
     const socket = connect({ host, port: p });
-    const done = (yes: boolean) => {
+    const done = (got: string) => {
       socket.destroy();
-      resolve(yes);
+      resolve(got);
     };
-    socket.setTimeout(CONNECT_MS, () => done(false));
-    socket.once('connect', () => done(true));
-    socket.once('error', () => done(false));
+    socket.setTimeout(CONNECT_MS, () => done(`no answer in ${CONNECT_MS} ms`));
+    socket.once('connect', () => done('open'));
+    socket.once('error', (e: NodeJS.ErrnoException) => done(e.code === 'ECONNREFUSED' ? 'refused' : (e.code ?? 'error').toLowerCase()));
   });
 
 /** The addresses of this machine outside loopback (link-local IPv6 left out: it needs a zone to connect). */
@@ -107,11 +107,14 @@ const bindLoopback: ConformanceCheck = async (ctx) => {
   if (addresses.length === 0)
     return { state: 'could-not-run', reason: 'needs-input', actual: 'This machine has no outside address to try the port at.' };
   const p = port(new URL(target(ctx).url));
-  const open = (await Promise.all(addresses.map((a) => reachable(a, p)))).filter(Boolean).length;
-  // The addresses themselves stay out of the report: they say where this machine is.
-  if (open === 0) return passed(`Port ${p} did not answer at any of ${addresses.length} outside address(es) of this machine.`);
+  const got = await Promise.all(addresses.map((a) => reach(a, p)));
+  const open = got.filter((g) => g === 'open').length;
+  // Each try is kept as the address's family and what it got; the addresses themselves stay out of the report: they say
+  // where this machine is. Not `details`: those are HTTP exchanges, and this is a bare TCP connect.
+  const tried = `(${addresses.map((a, i) => `${isIPv6(a) ? 'IPv6' : 'IPv4'} ${got[i]}`).join(', ')})`;
+  if (open === 0) return passed(`Port ${p} did not answer at any of ${addresses.length} outside address(es) of this machine ${tried}.`);
   return failed(
-    `Port ${p} answered at ${open} of ${addresses.length} outside address(es) of this machine.`,
+    `Port ${p} answered at ${open} of ${addresses.length} outside address(es) of this machine ${tried}.`,
     'Bind a local server to 127.0.0.1 (or ::1), not to 0.0.0.0 or every interface.',
   );
 };
