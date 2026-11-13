@@ -28,6 +28,25 @@ export interface AuthOpts {
    * `prm`, `as`, `token:own`, `token:other`.
    */
   force?: Record<string, number | string>;
+  /** Dynamic client registration (RFC 7591) and deletion (RFC 7592). The metadata names the endpoint when `as.registration`. */
+  dcr?: {
+    /**
+     * `ok`: a client is made, http redirects outside loopback refused; `accept-http`: those are accepted;
+     * `reject-all`: every registration is refused (400); `auth-required`: 401; `no-client-id`: 201 without client_id;
+     * `error`: 503.
+     */
+    mode?: 'ok' | 'accept-http' | 'reject-all' | 'auth-required' | 'no-client-id' | 'error';
+    /** `ok`: DELETE answers 204; `405`: DELETE is not supported; `none`: no registration_client_uri is returned. */
+    remove?: 'ok' | '405' | 'none';
+    /** The response carries a client_secret. */
+    secret?: boolean;
+  };
+  /** The authorization endpoint: `redirect` (default), `login` (a page, 200), `error-redirect` (access_denied), or a status. */
+  authorize?: 'redirect' | 'login' | 'error-redirect' | number;
+  /** A client_id URL whose document names another client_id: `reject` (default) or `accept` (the fault). */
+  cimdMismatch?: 'reject' | 'accept';
+  /** The token response: `ok` (default), `no-type`, `mac`, `bearer-lower`, `no-expires`, `no-token`. */
+  tokenResponse?: 'ok' | 'no-type' | 'mac' | 'bearer-lower' | 'no-expires' | 'no-token';
   /** The protected resource metadata is larger than a reader takes. */
   bigPrm?: boolean;
   /** The token endpoint hands out one token whatever resource is asked for. */
@@ -39,6 +58,8 @@ export interface AuthOpts {
     endpoints?: boolean;
     /** The token_endpoint member, as written. */
     tokenEndpoint?: string;
+    /** The metadata names a registration_endpoint: this server's, or the URL given. */
+    registration?: boolean | string;
     /** The base of every endpoint URL, instead of this server's origin. */
     base?: string;
     iss?: boolean;
@@ -69,11 +90,16 @@ export interface AuthFixture {
   /** The issuer: this server's origin. */
   origin: string;
   seen: Seen[];
+  /** client_ids made by registration, and those a DELETE removed. */
+  registered: string[];
+  deleted: string[];
   close(): Promise<void>;
 }
 
 export const CLIENT_ID = 'plune-test-client';
 export const CLIENT_SECRET = 'cs-8f3a91d27b4c46e5a0';
+export const DCR_SECRET = 'dcs-5e2b7a90c14d3f68';
+export const REG_TOKEN = /rat-\d+-91c7d2e4b6a8f035/;
 
 const json = (
   res: ServerResponse,
@@ -94,6 +120,9 @@ const readBody = (req: IncomingMessage): Promise<string> =>
 
 export async function authFixture(o: AuthOpts = {}, seen: Seen[] = []): Promise<AuthFixture> {
   const issued = new Map<string, string>();
+  const clients = new Map<string, { token: string }>();
+  const registered: string[] = [];
+  const deleted: string[] = [];
   let counter = 0;
   let origin = '';
   const resource = () => `${origin}/mcp`;
@@ -187,9 +216,80 @@ export async function authFixture(o: AuthOpts = {}, seen: Seen[] = []): Promise<
               code_challenge_methods_supported:
                 o.as?.pkce === 'plain' ? ['plain'] : o.as?.pkce === 'empty' ? [] : ['S256'],
             }),
+        ...(o.as?.registration === undefined || o.as.registration === false
+          ? {}
+          : {
+              registration_endpoint:
+                o.as.registration === true ? `${o.as?.base ?? origin}/register` : o.as.registration,
+            }),
         ...(o.as?.iss === true ? { authorization_response_iss_parameter_supported: true } : {}),
         ...(o.as?.cimd === true ? { client_id_metadata_document_supported: true } : {}),
       });
+    }
+    if (path === '/register' && req.method === 'POST') {
+      const mode = o.dcr?.mode ?? 'ok';
+      if (mode === 'error') return json(res, 503, {});
+      if (mode === 'auth-required') return json(res, 401, { error: 'invalid_token' });
+      if (mode === 'reject-all') return json(res, 400, { error: 'invalid_client_metadata' });
+      let meta: { redirect_uris?: unknown } = {};
+      try {
+        meta = JSON.parse(body) as typeof meta;
+      } catch {
+        return json(res, 400, { error: 'invalid_client_metadata' });
+      }
+      const uris = Array.isArray(meta.redirect_uris) ? (meta.redirect_uris as string[]) : [];
+      const loopback = (u: string) =>
+        /^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?(\/|$)/.test(u);
+      if (mode !== 'accept-http' && uris.some((u) => !u.startsWith('https://') && !loopback(u)))
+        return json(res, 400, { error: 'invalid_redirect_uri' });
+      if (mode === 'no-client-id') return json(res, 201, { client_name: 'x' });
+      const n = registered.length + 1;
+      const id = `dyn-${n}-3b8e`;
+      const token = `rat-${n}-91c7d2e4b6a8f035`;
+      clients.set(id, { token });
+      registered.push(id);
+      return json(res, 201, {
+        client_id: id,
+        ...(o.dcr?.secret === true ? { client_secret: DCR_SECRET } : {}),
+        ...(o.dcr?.remove === 'none'
+          ? {}
+          : {
+              registration_client_uri: `${origin}/register/${id}`,
+              registration_access_token: token,
+            }),
+      });
+    }
+    if (path.startsWith('/register/') && req.method === 'DELETE') {
+      const id = path.slice('/register/'.length);
+      const c = clients.get(id);
+      if (o.dcr?.remove === '405') return json(res, 405, {});
+      if (c === undefined || req.headers.authorization !== `Bearer ${c.token}`)
+        return json(res, 401, { error: 'invalid_token' });
+      clients.delete(id);
+      deleted.push(id);
+      res.writeHead(204).end();
+      return;
+    }
+    if (path === '/authorize' && req.method === 'GET') {
+      if (typeof o.authorize === 'number') return json(res, o.authorize, {});
+      const q = new URL(req.url ?? '/', origin).searchParams;
+      const id = q.get('client_id') ?? '';
+      const redirect = q.get('redirect_uri') ?? '';
+      const known =
+        id === CLIENT_ID ||
+        clients.has(id) ||
+        (id.startsWith('https://') &&
+          (!id.endsWith('mismatch.json') || o.cimdMismatch === 'accept'));
+      if (!known) return json(res, 400, { error: 'invalid_client' });
+      if (o.authorize === 'login') {
+        res.writeHead(200, { 'content-type': 'text/html' }).end('<html>sign in</html>');
+        return;
+      }
+      const to = new URL(redirect || `${origin}/cb`);
+      if (o.authorize === 'error-redirect') to.searchParams.set('error', 'access_denied');
+      else to.searchParams.set('code', 'plune-test-code');
+      res.writeHead(302, { location: to.href }).end();
+      return;
     }
     if (path === '/token' && req.method === 'POST') {
       const basic = req.headers.authorization?.startsWith('Basic ')
@@ -204,7 +304,14 @@ export async function authFixture(o: AuthOpts = {}, seen: Seen[] = []): Promise<
         return json(res, 400, { error: 'invalid_target' });
       const token = `at-${o.sameToken === true ? 1 : ++counter}-7c1d9e5b3f2a8064`;
       issued.set(token, o.sameToken === true ? resource() : wanted);
-      return json(res, 200, { access_token: token, token_type: 'Bearer', expires_in: 300 });
+      const t = o.tokenResponse ?? 'ok';
+      return json(res, 200, {
+        ...(t === 'no-token' ? {} : { access_token: token }),
+        ...(t === 'no-type'
+          ? {}
+          : { token_type: t === 'mac' ? 'mac' : t === 'bearer-lower' ? 'bearer' : 'Bearer' }),
+        ...(t === 'no-expires' ? {} : { expires_in: 300 }),
+      });
     }
     res.writeHead(404).end();
   });
@@ -216,6 +323,8 @@ export async function authFixture(o: AuthOpts = {}, seen: Seen[] = []): Promise<
     url: `${origin}/mcp`,
     origin,
     seen,
+    registered,
+    deleted,
     close: () =>
       new Promise((r) => {
         server.closeAllConnections();

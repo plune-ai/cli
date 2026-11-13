@@ -44,12 +44,12 @@ export interface OauthContext {
 }
 
 const SERVER_OTHER_RESOURCE = 'https://other-resource.plune-conformance.invalid';
-const needsInput = (actual: string): CheckOutcome => ({
+export const needsInput = (actual: string): CheckOutcome => ({
   state: 'could-not-run',
   reason: 'needs-input',
   actual,
 });
-const prerequisite = (actual: string, details?: Exchange[]): CheckOutcome => ({
+export const prerequisite = (actual: string, details?: Exchange[]): CheckOutcome => ({
   state: 'could-not-run',
   reason: 'prerequisite-failed',
   actual,
@@ -80,7 +80,7 @@ const isLoopbackUrl = (url: string): boolean => {
     return false;
   }
 };
-const isHttpUrl = (url: string): boolean => {
+export const isHttpUrl = (url: string): boolean => {
   try {
     const u = new URL(url);
     return u.protocol === 'https:' || u.protocol === 'http:';
@@ -94,12 +94,16 @@ const isHttpUrl = (url: string): boolean => {
  * server's own is no exception: a server that names itself the authorization server is still one the user has to
  * name), and only over https, or http on a loopback name.
  */
-function credentialRefusal(ctx: OauthContext, url: string): string | undefined {
+export function credentialRefusal(
+  ctx: OauthContext,
+  url: string,
+  what = 'client secret',
+): string | undefined {
   const u = new URL(url);
   if (!ctx.allowOrigins.has(u.origin))
-    return `The client secret goes only to an origin named with --allow-origin, and ${u.origin} is not one (the origin of the server is not exempt). Name it with --allow-origin ${u.origin} to send it there.`;
+    return `The ${what} goes only to an origin named with --allow-origin, and ${u.origin} is not one (the origin of the server is not exempt). Name it with --allow-origin ${u.origin} to send it there.`;
   if (u.protocol !== 'https:' && !isLoopbackHost(u.hostname))
-    return `${u.origin} is plain http outside loopback: the client secret is sent only over https.`;
+    return `${u.origin} is plain http outside loopback: the ${what} is sent only over https.`;
   return undefined;
 }
 
@@ -247,7 +251,7 @@ export function bearerParams(value: string | undefined): Record<string, string> 
 }
 
 /** An answer that says nothing about the requirement: a redirect (never followed), a rate limit or a server error. */
-const transient = (status: number): boolean =>
+export const transient = (status: number): boolean =>
   status === 429 || status >= 500 || (status >= 300 && status < 400);
 const transientNote = (status: number): string =>
   status === 429
@@ -256,7 +260,7 @@ const transientNote = (status: number): string =>
       ? 'a server error'
       : 'a redirect, which is not followed';
 
-const inconclusive = (what: string, status: number, details: Exchange[]): CheckOutcome => ({
+export const inconclusive = (what: string, status: number, details: Exchange[]): CheckOutcome => ({
   state: 'could-not-run',
   reason: 'transport-error',
   actual: `${what} got HTTP ${status}, ${transientNote(status)}: nothing can be said of the requirement.`,
@@ -268,7 +272,7 @@ const unauthenticated = (ctx: OauthContext): Promise<Probed> =>
   ctx.memo('oauth probe', () => probe(ctx));
 
 /** What the first probe says about the suite: the outcome every check but the first returns when it is not a 401. */
-async function needsAuth(ctx: OauthContext): Promise<Probed | CheckOutcome> {
+export async function needsAuth(ctx: OauthContext): Promise<Probed | CheckOutcome> {
   const p = await unauthenticated(ctx);
   if (p.status === 401) return p;
   if (p.status >= 200 && p.status < 300)
@@ -285,7 +289,7 @@ async function needsAuth(ctx: OauthContext): Promise<Probed | CheckOutcome> {
   );
 }
 
-const isOutcome = (v: Probed | CheckOutcome): v is CheckOutcome => !('status' in v);
+export const isOutcome = (v: Probed | CheckOutcome): v is CheckOutcome => !('status' in v);
 
 type Fetched =
   | { state: 'ok'; url: string; doc: Record<string, unknown>; detail: Exchange }
@@ -418,7 +422,7 @@ const fetchedDetails = (...f: (Fetched | undefined)[]): Exchange[] =>
     x !== undefined && x.state !== 'blocked' && x.detail !== undefined ? [x.detail] : [],
   );
 
-const blockedNote = (url: string): string =>
+export const blockedNote = (url: string): string =>
   `${originOf(url)} is not the origin of the server: it was not asked. Name it with --allow-origin ${originOf(url)} to ask it.`;
 
 /** The first authorization server of the metadata, when there is one. */
@@ -470,7 +474,7 @@ function discoverAs(ctx: OauthContext, issuer: string): Promise<As> {
 }
 
 /** What the checks of the authorization server's metadata start from: the metadata, or the outcome without it. */
-async function asMetadata(ctx: OauthContext): Promise<Meta | CheckOutcome> {
+export async function asMetadata(ctx: OauthContext): Promise<Meta | CheckOutcome> {
   const p = await needsAuth(ctx);
   if (isOutcome(p)) return p;
   const prm = await discoverPrm(ctx, p.challenge);
@@ -496,8 +500,8 @@ async function asMetadata(ctx: OauthContext): Promise<Meta | CheckOutcome> {
   return { as, doc: as.found.doc, detail: as.found.detail };
 }
 
-type Meta = { as: As; doc: Record<string, unknown>; detail: Exchange };
-const isMeta = (v: Meta | CheckOutcome): v is Meta => 'doc' in v;
+export type Meta = { as: As; doc: Record<string, unknown>; detail: Exchange };
+export const isMeta = (v: Meta | CheckOutcome): v is Meta => 'doc' in v;
 
 // ---- the checks ----
 
@@ -856,12 +860,12 @@ const invalidToken401: ConformanceCheck = async (c) => {
   };
 };
 
-type Token =
-  | { token: string; detail: Exchange }
-  | { error: string; status: number; detail: Exchange };
+export type Token =
+  | { token: string; doc: Record<string, unknown>; detail: Exchange }
+  | { error: string; status: number; doc: unknown; detail: Exchange };
 
 /** `{ access_token }` from a token response, else the error the authorization server gave. */
-async function requestToken(
+export async function requestToken(
   ctx: OauthContext,
   endpoint: string,
   clientId: string,
@@ -894,17 +898,18 @@ async function requestToken(
   const token = isObject(doc) ? doc['access_token'] : undefined;
   if (res.status === 200 && typeof token === 'string' && token !== '') {
     ctx.secrets.add(token);
-    return { token, detail: detail() };
+    return { token, doc: doc as Record<string, unknown>, detail: detail() };
   }
   const code = isObject(doc) && typeof doc['error'] === 'string' ? doc['error'] : undefined;
   return {
     error: `HTTP ${res.status}${code === undefined ? '' : ` ${code.slice(0, 60)}`}`,
     status: res.status,
+    doc,
     detail: detail(),
   };
 }
 
-const lostStatus = (what: string, error: string, details: Exchange[]): CheckOutcome => ({
+export const lostStatus = (what: string, error: string, details: Exchange[]): CheckOutcome => ({
   state: 'could-not-run',
   reason: 'transport-error',
   actual: `${what} (${error}): nothing can be said of the requirement.`,

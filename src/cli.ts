@@ -924,7 +924,7 @@ export function createProgram(): Command {
     .option('--list-checks', 'Print the check catalog and exit, without connecting to a server', false)
     .option('--explain <id>', 'Print the full catalog entry of one check and exit')
     .option('--fixture <file>', 'A JSON list of { tool, arguments }: the only tools the run calls, for the checks of tool results')
-    .option('--config <file>', 'The oauth suite: a JSON file of how the run may sign in (secrets by the name of an environment variable)')
+    .option('--config <file>', 'The oauth suite: a JSON file of how the run may sign in (secrets by the name of an environment variable). Dynamic registration makes a client on the authorization server and is off unless registration.allowClientCreation is true; the client is deleted afterwards when the server allows it, else the result names the client that remains')
     .option('--allow-origin <origin>', 'The oauth suite: ask this origin too, though it is not the origin of the server; repeatable', repeat)
     .action(async (server: string[], options: import('./cli/commands/mcp-conformance.js').McpConformanceFlags, command: Command) => {
       const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;

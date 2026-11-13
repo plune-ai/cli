@@ -121,9 +121,10 @@ describe('CLI · mcp conformance · oauth · a server that keeps its requirement
     const s = await serve({ as: { iss: true, cimd: true } });
     const { report } = await run(s.url, { config: credentials() });
     const v = verdicts(report);
-    expect(Object.entries(v).filter(([, state]) => state !== 'passed')).toEqual([
-      ['oauth-as-https', 'not-applicable (not-offered)'],
-    ]);
+    // The oauth-reg-* checks need a redirectUri or another registration method: auth-registration.test.ts has them.
+    expect(
+      Object.entries(v).filter(([id, state]) => state !== 'passed' && !id.startsWith('oauth-reg-')),
+    ).toEqual([['oauth-as-https', 'not-applicable (not-offered)']]);
     expect(report?.era).toBe('modern');
   });
 
