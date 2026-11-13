@@ -37,7 +37,7 @@ plune run [options]
 |--------|---------|
 | `--config <path>` | Use a specific config file (default: `plune.yaml` in the current directory). |
 | `--only <selector>` | Run a subset. `<selector>` is an eval `id` or `tag:<name>`. **Repeatable**: `--only a --only tag:rag`. |
-| `--dry-run` | Estimate cost/tokens without calling the model or touching the cache — so it needs no provider key. Exits `0` once the config loads (a config error is exit `2`, as for any run). It prints how many rows were priced and the estimated cost, and no verdict: no row counts as passed, failed or errored (in `--format json`: `"dry_run": true`, and every row has `"inconclusive": "skipped"`). It is not saved to `.plune/last-run.json`. |
+| `--dry-run` | Estimate cost/tokens without calling the model or touching the cache — so it needs no provider key. Exits `0` when the suite was priced; an error before that keeps its own exit code, as for any run (a config error is `2`). It prints how many rows were priced and the estimated cost, and no verdict: no row counts as passed, failed or errored (in `--format json`: `"dry_run": true`, and every row has `"inconclusive": "skipped"`). It is not saved to `.plune/last-run.json`. |
 | `--concurrency <n>` | Override how many rows run in parallel (default: the config's `provider.concurrency`, or 4). |
 | `--no-cache` | Ignore the cache for this run — always call the model, don't read or write cached completions. |
 | `--cache-strict` | Every row must come from the cache; no model call for completions. A miss ends the run with exit `5` and lists the rows with no entry. Cannot be combined with `--no-cache`. |

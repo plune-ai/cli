@@ -183,6 +183,12 @@ describe('CLI · diff · gates · a dry run measured nothing (#252)', () => {
     expect(r.exitCode).toBe(3);
   });
 
+  it('names the dry run first, even when the two files also differ in evals and have too few attempts', () => {
+    const r = gates(measured, dryRun([ev('a', 3, 3), ev('b', 3, 3)]), { maxPassRateDropPercent: 5 });
+    expect(gate(r, 'pass-rate').reason).toBe('the current run is a dry run: nothing was measured');
+    expect(gate(r, 'pass-rate').details).toBeUndefined();
+  });
+
   it('a waiver on the pass rate does not lift it', () => {
     const w = waiver({ gate: 'pass-rate', eval: undefined });
     const r = gates(measured, dryRun([ev('a', 10)]), { maxPassRateDropPercent: 5 }, [w]);
