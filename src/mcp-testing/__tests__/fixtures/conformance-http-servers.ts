@@ -30,6 +30,8 @@ export interface Opts {
   del?: 'ends' | '405' | number;
   /** The status of every refusal (a foreign Origin or Host, no session, an ended one, a bad version) instead of its own: 429, 503... */
   refuse?: number;
+  /** A `ping` is answered on an SSE stream that never ends: with one line of 200 KiB, or with events as fast as it can. */
+  flood?: 'line' | 'events';
   /** Every JSON answer carries the session id of the request in its body, too. */
   echoSession?: boolean;
   /** A `ping` that carries a session is answered with this status: a server whose valid request is refused too. */
@@ -51,6 +53,8 @@ export interface Opts {
 export interface Served extends Fixture {
   url: string;
   bodies: { headers: IncomingMessage['headers']; body: string }[];
+  /** How many flooded streams the client has closed so far. */
+  closed(): number;
 }
 
 export async function serve(o: Opts = {}): Promise<Served> {
@@ -59,6 +63,7 @@ export async function serve(o: Opts = {}): Promise<Served> {
   let count = 0;
   let eventId = 0;
   let notes = 0;
+  let closedStreams = 0;
   const requests: Served['requests'] = [];
   const bodies: Served['bodies'] = [];
   const server = createServer((req, res) => {
@@ -181,6 +186,21 @@ export async function serve(o: Opts = {}): Promise<Served> {
         result,
         ...(o.echoSession === true && sid !== undefined ? { session: sid } : {}),
       });
+      if (o.flood !== undefined && msg.method === 'ping') {
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        if (o.flood === 'line') {
+          res.write(`data: ${'a'.repeat(200_000)}`);
+          res.on('close', () => closedStreams++);
+          return;
+        }
+        res.write(`data: ${frame}\n\n`);
+        const timer = setInterval(() => res.write('data: x\n\n'), 1);
+        res.on('close', () => {
+          clearInterval(timer);
+          closedStreams++;
+        });
+        return;
+      }
       const answer = o.answer ?? 'json';
       if (answer === 'json')
         return res.writeHead(200, { 'content-type': 'application/json' }).end(frame);
@@ -213,6 +233,7 @@ export async function serve(o: Opts = {}): Promise<Served> {
     url: `http://127.0.0.1:${port}/mcp`,
     requests,
     bodies,
+    closed: () => closedStreams,
     close: () =>
       new Promise<void>((resolve) => {
         server.closeAllConnections();

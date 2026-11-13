@@ -7,7 +7,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { handleMcpConformance, type McpConformanceFlags } from '../../../cli/commands/mcp-conformance.js';
 import { closeServed, serve } from '../../__tests__/fixtures/conformance-http-servers.js';
 import { recorder } from '../../__tests__/fixtures/http-servers.js';
@@ -308,6 +308,41 @@ describe('CLI · mcp conformance · the raw HTTP layer', () => {
     expect(cut.ended).toBe(false);
   });
 
+  it('a line without an end, a flood of events and a flood of bytes each stop the reading, say why, and close the stream', async () => {
+    const closed: string[] = [];
+    const line = await stream((res) => {
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      res.write(`data: ${'a'.repeat(200_000)}`);
+      res.on('close', () => closed.push('line'));
+    });
+    const long = await rawRequest(targetOf(line), { method: 'GET', headers: [] });
+    expect(long).toMatchObject({ cut: 'line', events: [], ended: false });
+    const events = await stream((res) => {
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      const t = setInterval(() => res.write('data: x\n\n'), 1);
+      res.on('close', () => {
+        clearInterval(t);
+        closed.push('events');
+      });
+    });
+    const many = await rawRequest(targetOf(events), { method: 'GET', headers: [] });
+    expect(many).toMatchObject({ cut: 'events', ended: false });
+    expect(many.events).toHaveLength(100);
+    const bytes = await stream((res) => {
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      const t = setInterval(() => res.write(`: ${'k'.repeat(1000)}\n`), 1);
+      res.on('close', () => {
+        clearInterval(t);
+        closed.push('bytes');
+      });
+    });
+    const big = await rawRequest(targetOf(bytes), { method: 'GET', headers: [] }, { maxBytes: 20_000 });
+    expect(big).toMatchObject({ cut: 'bytes', events: [] });
+    await vi.waitFor(() => expect(closed.sort()).toEqual(['bytes', 'events', 'line']));
+    const whole = await stream((res) => res.writeHead(200, { 'content-type': 'text/event-stream' }).end('data: a\n\n'));
+    expect((await rawRequest(targetOf(whole), { method: 'GET', headers: [] })).cut).toBeUndefined();
+  });
+
   it('a stream that stays open is read until the time limit and returned, not thrown', async () => {
     const url = await stream((res) => {
       res.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -489,4 +524,27 @@ describe('CLI · mcp conformance · the sessions a run opens', () => {
     const { out } = await run({ url: s.url });
     expect(out).not.toContain('sess-abcdefgh');
   });
+});
+
+describe('CLI · mcp conformance · a stream that never ends is read within its limits and closed', () => {
+  it('one line of 200 KiB: the checks that read the stream are could-not-run (transport-error), and every stream is closed', async () => {
+    const s = await serve({ flood: 'line', answer: 'sse' });
+    const got = states(
+      (await run({ url: s.url, check: ['http-sse-event-ids-unique', 'http-sse-stream-closes', 'http-sse-no-server-requests'] })).report!,
+    );
+    expect(got).toEqual({
+      'http-sse-event-ids-unique': 'could-not-run (transport-error)',
+      'http-sse-stream-closes': 'could-not-run (transport-error)',
+      'http-sse-no-server-requests': 'not-applicable (era)',
+    });
+    await vi.waitFor(() => expect(s.closed()).toBeGreaterThanOrEqual(4));
+  }, 30_000);
+
+  it('events as fast as the server can: the reading stops at the event limit, nothing is judged from a part, every stream is closed', async () => {
+    const s = await serve({ flood: 'events', answer: 'sse' });
+    const got = states((await run({ url: s.url, check: ['http-sse-event-ids-unique', 'http-sse-stream-closes'] })).report!);
+    expect(got['http-sse-event-ids-unique']).toBe('could-not-run (transport-error)');
+    expect(got['http-sse-stream-closes']).toBe('failed');
+    await vi.waitFor(() => expect(s.closed()).toBeGreaterThanOrEqual(4));
+  }, 30_000);
 });

@@ -469,8 +469,19 @@ const concurrentMatched: ConformanceCheck = async (ctx) => {
 async function streams(ctx: ConformanceContext): Promise<Asked[] | CheckOutcome> {
   const got = await probed(ctx);
   if (isOutcome(got)) return got;
-  return [got.p, ...(await concurrent(ctx, got.s))].filter((a) => isSse(a.res));
+  const sse = [got.p, ...(await concurrent(ctx, got.s))].filter((a) => isSse(a.res));
+  // Judged from a part of a stream is not judged: a limit stopped the reading before the end.
+  const cut = sse.find((a) => a.res.cut !== undefined);
+  return cut === undefined ? sse : tooMuch(cut);
 }
+
+/** A stream stopped at one of the limits of the reading: the check could not read it whole. */
+const tooMuch = (a: Asked): CheckOutcome => ({
+  state: 'could-not-run',
+  reason: 'transport-error',
+  actual: `The SSE stream was stopped at a limit of the reading (${a.res.cut === 'line' ? 'a line longer than 64 KiB' : a.res.cut === 'events' ? 'more than 100 events' : 'more than 1 MiB'}): it was not read to its end.`,
+  details: [a.detail],
+});
 
 const noSse = (): CheckOutcome => notOffered('Every request was answered as application/json, none over SSE.');
 
@@ -497,6 +508,7 @@ const streamCloses: ConformanceCheck = async (ctx) => {
   const { res, frame, detail } = got.p;
   const details = [detail];
   if (!isSse(res)) return { ...noSse(), details };
+  if (frame === undefined && res.cut !== undefined) return tooMuch(got.p);
   if (frame === undefined)
     return { state: 'could-not-run', reason: 'timeout', actual: 'The response did not come on the SSE stream in time.', details };
   if (res.ended) return { ...passed('The SSE stream ended after the response.'), details };

@@ -52,6 +52,8 @@ export interface RawResponse {
   events: SseEvent[];
   /** The body ended (the server closed it) before a limit or `stopWhen` stopped the reading. */
   ended: boolean;
+  /** The reading stopped at a limit with more to come: too many bytes, too many events, or a line that does not end. */
+  cut?: 'bytes' | 'events' | 'line';
   ms: number;
 }
 
@@ -78,25 +80,59 @@ export const MAX_EVENTS = 100;
 /** What an exchange keeps of a body for the report. */
 const BODY_TEXT = 2000;
 
-/** One SSE event block (the lines between blank lines); undefined for a block with no field (a comment). */
-function eventOf(block: string): SseEvent | undefined {
-  const e: SseEvent = { data: '' };
-  const data: string[] = [];
+/** The longest line of an SSE stream that is read; a longer one stops the reading (`cut: 'line'`). */
+export const MAX_LINE = 64 * 1024;
+
+/**
+ * An SSE parser that reads each character once: lines end at \n, \r or \r\n, an empty line ends an event, a comment
+ * (a line that starts with a colon) is skipped. No pattern runs over the text, and no line is kept past MAX_LINE.
+ */
+function sseParser() {
+  let line = '';
+  let afterCr = false;
   let any = false;
-  for (const line of block.split(/\r\n|\r|\n/)) {
-    if (line === '' || line.startsWith(':')) continue;
-    const colon = line.indexOf(':');
-    const field = colon < 0 ? line : line.slice(0, colon);
-    const value = colon < 0 ? '' : line.slice(colon + 1).replace(/^ /, '');
+  let event: SseEvent = { data: '' };
+  let data: string[] = [];
+  const field = (l: string) => {
+    if (l.startsWith(':')) return;
+    const colon = l.indexOf(':');
+    const name = colon < 0 ? l : l.slice(0, colon);
+    const value = colon < 0 ? '' : l.slice(colon + 1).replace(/^ /, '');
     any = true;
-    if (field === 'data') data.push(value);
-    else if (field === 'id') e.id = value;
-    else if (field === 'event') e.event = value;
-    else if (field === 'retry' && /^\d+$/.test(value)) e.retry = Number(value);
-  }
-  if (!any) return undefined;
-  e.data = data.join('\n');
-  return e;
+    if (name === 'data') data.push(value);
+    else if (name === 'id') event.id = value;
+    else if (name === 'event') event.event = value;
+    else if (name === 'retry' && /^\d{1,15}$/.test(value)) event.retry = Number(value);
+  };
+  return {
+    /** The events this text completed, and whether a line passed MAX_LINE (the rest of the text is then not read). */
+    feed(text: string): { events: SseEvent[]; tooLong: boolean } {
+      const events: SseEvent[] = [];
+      for (const ch of text) {
+        if (ch === '\n' && afterCr) {
+          afterCr = false;
+          continue;
+        }
+        afterCr = ch === '\r';
+        if (ch === '\n' || ch === '\r') {
+          if (line === '') {
+            if (any) {
+              event.data = data.join('\n');
+              events.push(event);
+            }
+            event = { data: '' };
+            data = [];
+            any = false;
+          } else field(line);
+          line = '';
+          continue;
+        }
+        line += ch;
+        if (line.length > MAX_LINE) return { events, tooLong: true };
+      }
+      return { events, tooLong: false };
+    },
+  };
 }
 
 /** A fetch to the same address with a `Host` of its own, through node:http; no redirect is followed here either. */
@@ -163,7 +199,8 @@ export async function rawRequest(target: HttpTarget, req: RawRequest, limits: Li
   const events: SseEvent[] = [];
   let bytes = 0;
   let ended = false;
-  let pending = '';
+  let cut: RawResponse['cut'];
+  const parser = sseParser();
   const decoder = new TextDecoder();
   if (res.body !== null && limits.headersOnly !== true) {
     const reader = res.body.getReader();
@@ -177,22 +214,28 @@ export async function rawRequest(target: HttpTarget, req: RawRequest, limits: Li
         chunks.push(value);
         bytes += value.length;
         if (sse) {
-          pending += decoder.decode(value, { stream: true });
-          const blocks = pending.split(/\r\n\r\n|\n\n|\r\r/);
-          pending = blocks.pop() ?? '';
-          for (const block of blocks) {
-            const e = eventOf(block);
-            if (e === undefined) continue;
+          const fed = parser.feed(decoder.decode(value, { stream: true }));
+          for (const e of fed.events) {
             events.push(e);
-            if (events.length >= maxEvents) break read;
+            if (events.length >= maxEvents) {
+              cut = 'events';
+              break read;
+            }
             if (limits.stopWhen?.(e) === true) {
               if ((limits.lingerMs ?? 0) <= 0) break read;
               clearTimeout(timer);
               timer = setTimeout(() => abort.abort(), limits.lingerMs);
             }
           }
+          if (fed.tooLong) {
+            cut = 'line';
+            break;
+          }
         }
-        if (bytes >= maxBytes) break;
+        if (bytes >= maxBytes) {
+          cut = 'bytes';
+          break;
+        }
       }
     } catch {
       // The time ran out while the body was read: what came so far stands.
@@ -214,6 +257,7 @@ export async function rawRequest(target: HttpTarget, req: RawRequest, limits: Li
     utf8,
     events,
     ended,
+    ...(cut === undefined ? {} : { cut }),
     ms: Math.round(performance.now() - started),
   };
 }

@@ -866,7 +866,8 @@ answers in `details`, with `Authorization`, cookies and every `--header` value m
 under test only: the `--header` values are never sent to another origin and no redirect is followed. A check makes
 its own session with an `initialize` POST (the client's session is never touched); `http-session-terminated-404` and
 `http-sse-no-broadcast`, which change the server's state, each make one more and run last. An SSE stream is read for
-at most 5 seconds.
+at most 5 seconds, 100 events, 1 MiB, and a line of at most 64 KiB; a check that needed more of the stream than that
+is `could-not-run` (`transport-error`), never judged from a part, and the stream is closed.
 
 A status that says nothing of a requirement is never a verdict: a redirect (not followed), `429` or a server error
 to any of these requests is `could-not-run` (`transport-error`), and `401` is `could-not-run` (`prerequisite-failed`)
