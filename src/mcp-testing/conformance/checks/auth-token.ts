@@ -7,8 +7,10 @@
  * endpoint and one to the MCP endpoint. The token is masked in every output before it is written, and is not revoked.
  */
 
+import { ConnectError } from '../../connect/session.js';
 import {
   asMetadata,
+  challengesOf,
   credentialRefusal,
   inconclusive,
   isHttpUrl,
@@ -22,8 +24,28 @@ import {
   requestToken,
   transient,
 } from './auth.js';
+import type { CheckOutcome } from '../outcome.js';
 import type { ConformanceCheck } from './index.js';
-import { failed, passed } from './wire.js';
+import { failed, isObject, passed } from './wire.js';
+
+/** Said by every result after a token was issued. */
+const ISSUED = ' A token was issued and was not revoked.';
+
+/** The `aud` of a JWT access token, as a list; undefined when the token is not a JWT or has no aud (it is not verified). */
+function audiencesOf(token: string): string[] | undefined {
+  const parts = token.split('.');
+  if (parts.length !== 3) return undefined;
+  try {
+    const payload: unknown = JSON.parse(Buffer.from(parts[1]!, 'base64url').toString('utf8'));
+    if (!isObject(payload)) return undefined;
+    const aud = payload['aud'];
+    if (typeof aud === 'string') return [aud];
+    if (Array.isArray(aud) && aud.every((a) => typeof a === 'string')) return aud as string[];
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
 
 const tokenWorks: ConformanceCheck = async (c) => {
   const ctx = c.oauth!;
@@ -58,6 +80,11 @@ const tokenWorks: ConformanceCheck = async (c) => {
   const t = await requestToken(ctx, endpoint, reg.clientId, secret, resource);
   if ('error' in t) {
     const what = 'The token endpoint';
+    if (t.status === 200)
+      return prerequisite(
+        `${what} answered HTTP 200 with no access_token: there is no token to try.`,
+        [t.detail],
+      );
     return transient(t.status)
       ? lostStatus(what, t.error, [t.detail])
       : prerequisite(
@@ -65,32 +92,74 @@ const tokenWorks: ConformanceCheck = async (c) => {
           [t.detail],
         );
   }
-  // Masked from here on: the token is added to the secrets before the request that carries it is written down.
-  const sent = await probe(ctx, t.token);
+  // From here a token exists: every answer says so.
+  const issued = (o: CheckOutcome): CheckOutcome => ({
+    ...o,
+    actual: `${o.actual ?? ''}${ISSUED}`,
+  });
+  const type = t.doc['token_type'];
+  if (typeof type !== 'string' || type.toLowerCase() !== 'bearer')
+    return issued(
+      prerequisite(
+        `The token type ${typeof type === 'string' ? JSON.stringify(type.slice(0, 40)) : 'is missing'}, which this check does not support (it sends a Bearer token): the token was not sent.`,
+        [t.detail],
+      ),
+    );
+  let sent: Awaited<ReturnType<typeof probe>>;
+  try {
+    sent = await probe(ctx, t.token);
+  } catch (err) {
+    if (!(err instanceof ConnectError)) throw err;
+    return issued({
+      state: 'could-not-run',
+      reason: err.kind === 'timeout' ? 'timeout' : 'transport-error',
+      actual: `The MCP endpoint, asked with the token, ${err.kind === 'timeout' ? 'did not answer in time' : 'could not be reached'}: nothing can be said of the requirement.`,
+      details: [t.detail],
+    });
+  }
   const details = [t.detail, sent.detail];
   if (transient(sent.status))
-    return inconclusive('The MCP endpoint, asked with the token,', sent.status, details);
+    return issued(inconclusive('The MCP endpoint, asked with the token,', sent.status, details));
   if (sent.status >= 200 && sent.status < 300)
     return {
       ...passed(
-        `A token issued for ${resource} by the token endpoint was accepted (HTTP ${sent.status}). The token was issued and was not revoked.`,
+        `A token issued for ${resource} by the token endpoint was accepted (HTTP ${sent.status}).${ISSUED}`,
       ),
       details,
     };
-  if (sent.status === 401)
+  if (sent.status === 401) {
+    const scope = challengesOf(sent.challenge ?? '').some(
+      (ch) => ch.params['error'] === 'insufficient_scope',
+    );
+    if (scope)
+      return issued(
+        prerequisite(
+          'The MCP endpoint answered HTTP 401 with error="insufficient_scope": the token may lack a scope.',
+          details,
+        ),
+      );
+    // A 401 is a failure only if the server cannot be right: the token must be shown to be for this resource.
+    if (!(audiencesOf(t.token) ?? []).includes(resource))
+      return issued(
+        prerequisite(
+          `The MCP endpoint answered HTTP 401, but the audience of the issued token is not shown to be ${resource} (an opaque token, or a JWT whose aud does not hold it): the server may be right.`,
+          details,
+        ),
+      );
     return {
       ...failed(
-        'The MCP endpoint answered HTTP 401 to a token that its authorization server had just issued for it. The token was issued and was not revoked.',
+        `The MCP endpoint answered HTTP 401 to a JWT whose aud holds ${resource}, issued by its authorization server with token type Bearer.${ISSUED}`,
         'Accept an access token issued for this server by its authorization server (RFC 8707 audience, OAuth 2.1 section 5.2).',
       ),
       details,
     };
-  return {
-    ...prerequisite(
-      `The MCP endpoint answered HTTP ${sent.status} to the token, which is not a refusal of the token itself (it may lack a scope the endpoint needs). The token was issued and was not revoked.`,
+  }
+  return issued(
+    prerequisite(
+      `The MCP endpoint answered HTTP ${sent.status} to the token, which is not a refusal of the token itself (it may lack a scope the endpoint needs).`,
       details,
     ),
-  };
+  );
 };
 
 export const AUTH_TOKEN = {

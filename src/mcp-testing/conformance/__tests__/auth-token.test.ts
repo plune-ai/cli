@@ -52,7 +52,12 @@ const creds = (reg: Record<string, unknown> = {}, extra: Record<string, unknown>
 
 const ID = 'oauth-e2e-token-works';
 
-async function run(url: string, flags: Partial<McpConformanceFlags> = {}, only = true) {
+async function run(
+  url: string,
+  flags: Partial<McpConformanceFlags> = {},
+  only = true,
+  env: Record<string, string> = {},
+) {
   let out = '';
   let err = '';
   const code = await handleMcpConformance(
@@ -70,7 +75,7 @@ async function run(url: string, flags: Partial<McpConformanceFlags> = {}, only =
     {
       out: (s) => (out += s),
       err: (s) => (err += s),
-      env: { [SECRET_ENV]: CLIENT_SECRET },
+      env: { [SECRET_ENV]: CLIENT_SECRET, ...env },
       cwd: dir,
       clientVersion: '9.9.9',
     },
@@ -124,7 +129,7 @@ describe('CLI · mcp conformance · oauth token · a token the server issued for
   });
 
   it('refused by the server that issued it: failed', async () => {
-    const s = await serve({ force: { 'mcp:own': 401 } });
+    const s = await serve({ tokenShape: 'jwt', force: { 'mcp:own': 401 } });
     const { report } = await run(s.url, { config: creds() });
     expect(verdict(report)).toBe('failed');
     expect(actual(report)).toContain('401');
@@ -265,5 +270,144 @@ describe('CLI · mcp conformance · oauth token · nothing issued is printed', (
     expect(out + err).not.toContain(CLIENT_SECRET);
     expect(code).toBe(3);
     expect(report?.summary.pending).toContain(ID);
+  });
+});
+
+const ISSUED = /token was issued and was not revoked/i;
+
+describe('CLI · mcp conformance · oauth token · every path after a token was issued says so', () => {
+  const after: [string, AuthOpts, string][] = [
+    ['429 at the MCP endpoint', { force: { 'mcp:own': 429 } }, 'could-not-run (transport-error)'],
+    ['503 at the MCP endpoint', { force: { 'mcp:own': 503 } }, 'could-not-run (transport-error)'],
+    [
+      'a redirect at the MCP endpoint',
+      { force: { 'mcp:own': 'http://127.0.0.1:9/x' } },
+      'could-not-run (transport-error)',
+    ],
+    [
+      'a dropped connection at the MCP endpoint',
+      { force: { 'mcp:own': 'drop' } },
+      'could-not-run (transport-error)',
+    ],
+    [
+      '403 at the MCP endpoint',
+      { force: { 'mcp:own': 403 } },
+      'could-not-run (prerequisite-failed)',
+    ],
+    [
+      'a 401 for an opaque token',
+      { force: { 'mcp:own': 401 } },
+      'could-not-run (prerequisite-failed)',
+    ],
+  ];
+  for (const [name, opts, expected] of after)
+    it(`${name}: ${expected}, and the result says a token was issued and not revoked`, async () => {
+      const s = await serve(opts);
+      const { report } = await run(s.url, { config: creds() });
+      expect(verdict(report)).toBe(expected);
+      expect(actual(report)).toMatch(ISSUED);
+    });
+
+  it('no answer from the MCP endpoint before the timeout: could-not-run, and the result says so', async () => {
+    const s = await serve({ force: { 'mcp:own': 'hang' } });
+    const { report } = await run(s.url, { config: creds(), timeout: '1s' });
+    expect(verdict(report)).toMatch(/^could-not-run \((transport-error|timeout)\)$/);
+    expect(actual(report)).toMatch(ISSUED);
+  });
+
+  it('passed and failed say it too', async () => {
+    const ok = await serve({});
+    expect(actual((await run(ok.url, { config: creds() })).report)).toMatch(ISSUED);
+    const no = await serve({ tokenShape: 'jwt', force: { 'mcp:own': 401 } });
+    expect(actual((await run(no.url, { config: creds() })).report)).toMatch(ISSUED);
+  });
+});
+
+describe('CLI · mcp conformance · oauth token · a 401 is a failure only when the server cannot be right', () => {
+  it('a JWT whose aud lists the resource, in a list: failed', async () => {
+    const s = await serve({ tokenShape: 'jwt-aud-list', force: { 'mcp:own': 401 } });
+    const { report } = await run(s.url, { config: creds() });
+    expect(verdict(report)).toBe('failed');
+  });
+
+  const unshown: [string, AuthOpts][] = [
+    ['an opaque token', { force: { 'mcp:own': 401 } }],
+    ['a JWT for another audience', { tokenShape: 'jwt-other-aud', force: { 'mcp:own': 401 } }],
+    ['a JWT with no aud', { tokenShape: 'jwt-no-aud', force: { 'mcp:own': 401 } }],
+  ];
+  for (const [name, opts] of unshown)
+    it(`${name} and a 401: could-not-run (prerequisite-failed), the audience is not shown`, async () => {
+      const s = await serve(opts);
+      const { report } = await run(s.url, { config: creds() });
+      expect(verdict(report)).toBe('could-not-run (prerequisite-failed)');
+      expect(actual(report)).toMatch(/audience of the issued token is not shown/);
+    });
+
+  it('a 401 that names insufficient_scope: could-not-run (prerequisite-failed)', async () => {
+    const s = await serve({
+      tokenShape: 'jwt',
+      force: { 'mcp:own': 401 },
+      forceChallenge: 'Bearer error="insufficient_scope", scope="mcp:tools"',
+    });
+    const { report } = await run(s.url, { config: creds() });
+    expect(verdict(report)).toBe('could-not-run (prerequisite-failed)');
+    expect(actual(report)).toMatch(/insufficient_scope/);
+  });
+
+  it('a 401 with another challenge is still a failure when the audience is shown', async () => {
+    const s = await serve({
+      tokenShape: 'jwt',
+      force: { 'mcp:own': 401 },
+      forceChallenge: 'Bearer error="invalid_token"',
+    });
+    const { report } = await run(s.url, { config: creds() });
+    expect(verdict(report)).toBe('failed');
+  });
+
+  for (const shape of ['dpop', 'mac', 'no-type'] as const)
+    it(`a token response of type ${shape} is not Bearer: could-not-run (prerequisite-failed), and the token is not sent`, async () => {
+      const s = await serve({ tokenShape: 'jwt', tokenResponse: shape });
+      const { report } = await run(s.url, { config: creds() });
+      expect(verdict(report)).toBe('could-not-run (prerequisite-failed)');
+      expect(actual(report)).toMatch(/token type/);
+      expect(actual(report)).toMatch(ISSUED);
+      expect(bearer(s)).toHaveLength(0);
+    });
+
+  it('the type is read without regard to case', async () => {
+    const s = await serve({ tokenResponse: 'bearer-lower' });
+    const { report } = await run(s.url, { config: creds() });
+    expect(verdict(report)).toBe('passed');
+  });
+});
+
+describe('CLI · mcp conformance · oauth token · what the token endpoint says', () => {
+  it('a 200 with no access_token says the answer held no token, not that the client was refused', async () => {
+    const s = await serve({ tokenResponse: 'no-token' });
+    const { report } = await run(s.url, { config: creds() });
+    expect(verdict(report)).toBe('could-not-run (prerequisite-failed)');
+    expect(actual(report)).toMatch(/no access_token/);
+    expect(actual(report)).not.toMatch(/refused/);
+  });
+
+  it('a secret variable that is set to an empty string: could-not-run (needs-input), nothing is sent', async () => {
+    const s = await serve({});
+    const { report } = await run(
+      s.url,
+      { config: creds({ clientSecretEnv: 'PLUNE_TEST_EMPTY_SECRET' }) },
+      true,
+      { PLUNE_TEST_EMPTY_SECRET: '' },
+    );
+    expect(verdict(report)).toBe('could-not-run (needs-input)');
+    expect(tokens(s)).toHaveLength(0);
+    expect(bearer(s)).toHaveLength(0);
+  });
+
+  it('the resource of --config is the one asked for', async () => {
+    const s = await serve({ audience: 'lax' });
+    const resource = `${s.origin}/mcp/alt`;
+    const { report } = await run(s.url, { config: creds({}, { resource }) });
+    expect(verdict(report)).toBe('passed');
+    expect(new URLSearchParams(tokens(s)[0]!.body).get('resource')).toBe(resource);
   });
 });

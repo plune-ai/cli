@@ -101,7 +101,14 @@ export interface AuthOpts {
   /** A client_id URL whose document names another client_id: `reject` (default) or `accept` (the fault). */
   cimdMismatch?: 'reject' | 'accept';
   /** The token response: `ok` (default), `no-type`, `mac`, `bearer-lower`, `no-expires`, `no-token`. */
-  tokenResponse?: 'ok' | 'no-type' | 'mac' | 'bearer-lower' | 'no-expires' | 'no-token';
+  tokenResponse?: 'ok' | 'no-type' | 'mac' | 'dpop' | 'bearer-lower' | 'no-expires' | 'no-token';
+  /**
+   * What the access token is: `opaque` (default), or a JWT built when it is issued, without a signature, whose `aud`
+   * is the resource asked for (`jwt`), a list holding it (`jwt-aud-list`), another resource (`jwt-other-aud`), or absent.
+   */
+  tokenShape?: 'opaque' | 'jwt' | 'jwt-aud-list' | 'jwt-other-aud' | 'jwt-no-aud';
+  /** A `WWW-Authenticate` value on every status that `force` answers. */
+  forceChallenge?: string;
   /** The protected resource metadata is larger than a reader takes. */
   bigPrm?: boolean;
   /** The token endpoint hands out one token whatever resource is asked for. */
@@ -203,7 +210,13 @@ export async function authFixture(o: AuthOpts = {}, seen: Seen[] = []): Promise<
     const forced = (key: string): boolean => {
       const f = o.force?.[key];
       if (f === undefined) return false;
-      if (typeof f === 'number') json(res, f, {});
+      if (typeof f === 'number')
+        json(
+          res,
+          f,
+          {},
+          o.forceChallenge === undefined ? {} : { 'www-authenticate': o.forceChallenge },
+        );
       else if (f === 'drop') req.socket.destroy();
       else if (f === 'hang') return true;
       else res.writeHead(302, { location: f }).end();
@@ -457,14 +470,35 @@ export async function authFixture(o: AuthOpts = {}, seen: Seen[] = []): Promise<
       if (forced(wanted === resource() ? 'token:own' : 'token:other')) return;
       if (o.otherResource === 'refuse' && wanted !== resource())
         return json(res, 400, { error: 'invalid_target' });
-      const token = `at-${o.sameToken === true ? 1 : ++counter}-7c1d9e5b3f2a8064`;
+      const serial = o.sameToken === true ? 1 : ++counter;
+      const part = (v: unknown) => Buffer.from(JSON.stringify(v)).toString('base64url');
+      const shape = o.tokenShape ?? 'opaque';
+      const aud =
+        shape === 'jwt-other-aud'
+          ? 'https://elsewhere.example/mcp'
+          : shape === 'jwt-aud-list'
+            ? ['https://also.example/mcp', wanted]
+            : wanted;
+      const token =
+        shape === 'opaque'
+          ? `at-${serial}-7c1d9e5b3f2a8064`
+          : `${part({ alg: 'none', typ: 'JWT' })}.${part({ iss: origin, jti: `j${serial}`, ...(shape === 'jwt-no-aud' ? {} : { aud }) })}.sig`;
       issued.set(token, o.sameToken === true ? resource() : wanted);
       const t = o.tokenResponse ?? 'ok';
       return json(res, 200, {
         ...(t === 'no-token' ? {} : { access_token: token }),
         ...(t === 'no-type'
           ? {}
-          : { token_type: t === 'mac' ? 'mac' : t === 'bearer-lower' ? 'bearer' : 'Bearer' }),
+          : {
+              token_type:
+                t === 'mac'
+                  ? 'mac'
+                  : t === 'dpop'
+                    ? 'DPoP'
+                    : t === 'bearer-lower'
+                      ? 'bearer'
+                      : 'Bearer',
+            }),
         ...(t === 'no-expires' ? {} : { expires_in: 300 }),
         ...(o.tokenExtras === true
           ? { refresh_token: 'rt-9b2e47c1a8d03f65', id_token: 'idt-3c7a5e91f2b840d6' }
