@@ -6,7 +6,7 @@ import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   handleMcpConformance,
   type McpConformanceFlags,
@@ -20,6 +20,8 @@ import type { ConformanceResult, McpConformanceReport } from '../result.js';
 import { streamableServer, type Fixture } from './fixtures/http-servers.js';
 
 const FIXTURE = fileURLToPath(new URL('./fixtures/stdio-server.mjs', import.meta.url));
+// A run probes the server in more than one revision and starts a process for each: a few take longer than 5 s.
+vi.setConfig({ testTimeout: 60_000 });
 const STDIO = [process.execPath, FIXTURE];
 
 const servers: Fixture[] = [];
@@ -72,7 +74,7 @@ describe('CLI · mcp conformance · the catalog without a server', () => {
     expect(oauth.out).toContain(`${CATALOG.filter((e) => e.suite === 'oauth').length} checks.`);
     expect(oauth.out).not.toContain('life-initialize-result');
     const tasks = await run({ listChecks: true, suite: ['tasks'] });
-    expect(tasks.out).toContain('0 checks.');
+    expect(tasks.out).toContain(`${CATALOG.filter((e) => e.suite === 'tasks').length} checks.`);
   });
 
   it('--explain prints the whole entry; an unknown id is exit 2', async () => {
@@ -164,12 +166,14 @@ describe('CLI · mcp conformance · a run', () => {
     ]);
   });
 
-  it('a suite with no checks yet is an empty run: score null, incomplete, exit 3', async () => {
+  it('a suite that applies to nothing on this server is an empty run: every check not-applicable, score null, incomplete, exit 3', async () => {
     const { code, report: r } = await report({ suite: ['tasks'] });
     expect(code).toBe(3);
-    expect(r.checks).toEqual([]);
+    expect(r.checks.length).toBe(CATALOG.filter((e) => e.suite === 'tasks').length);
+    expect(r.checks.every((c) => c.state === 'not-applicable')).toBe(true);
     expect(r.summary).toMatchObject({ score: null, verdict: 'incomplete' });
   });
+
 
   it('the human report explains the score in one line per suite, and --out holds the same JSON', async () => {
     const out = join(mkdtempSync(join(tmpdir(), 'plune-conformance-')), 'r.json');

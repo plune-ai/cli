@@ -27,6 +27,14 @@ export const EXTENSION_REVISIONS = [
     status: 'Stable',
     checkedOn: '2026-11-13',
   },
+  // The text of io.modelcontextprotocol/tasks (tasks-catalog.ts): the table of
+  // https://modelcontextprotocol.io/extensions/overview.md lists MCP Tasks at the stage "Beta, to Core".
+  {
+    extension: 'io.modelcontextprotocol/tasks',
+    revision: '2026-07-28',
+    status: 'Beta, to Core',
+    checkedOn: '2026-11-13',
+  },
 ] as const;
 
 const BOTH: Era[] = ['legacy', 'modern'];
