@@ -1117,7 +1117,7 @@ selected is one case `run` that could not run.
 ## `plune mcp scan`
 
 Scans the data of MCP servers for what a model or a person cannot see. It is static: it reads files you name (or one
-server you start yourself) and sends no probe. It needs no Plune account.
+server you start yourself) and sends no probe unless you ask for [active probes](#active-probes-plune-mcp-scan---active). It needs no Plune account.
 
 ```bash
 plune mcp snapshot --out notes.snapshot.json -- node dist/server.js
@@ -1174,6 +1174,7 @@ only, run only with `--active`, send only the calls you wrote in a probe file, a
 
 ```json
 { "probes": [
+  { "id": "control", "tool": "export", "arguments": { "doc": "doc-1" }, "as": "account-a", "expect": "allow" },
   { "id": "p1", "tool": "export", "arguments": { "doc": "doc-1" }, "as": "none", "expect": "refuse" },
   { "id": "p2", "tool": "export", "arguments": { "doc": "doc-1" }, "as": "account-b", "expect": "refuse" }
 ] }
@@ -1203,12 +1204,36 @@ nothing.
 | `scan/probe/garbage-token-accepted` | `as: garbage` and the tool ran. Same levels. |
 | `scan/probe/cross-account-access` | `as: account-b` and the tool ran for an object you declared. Same levels. |
 
-A verdict of "violated" comes only from the answer of the server: a call that ran (a result without `isError`). A refusal is
-401 or 403, a JSON-RPC error, or `isError`. A timeout, 429, 5xx, a redirect or any other status decides nothing: the probe
-is "not run" with its reason, and the exit code is `3`. The table of the report lists every probe with what it expected, what
-the server did and why it did not run: no probe file, no consent, no token for account A or B, stdio, a spent budget, the
-transport stopped, the tool is not on the server, the tool is destructive, or an answer that decides nothing. A probe that
-did not run is never a pass. `wrong-audience` is checked by the oauth suite of `plune mcp conformance` and is not run here.
+How a refusal is read. A refusal is **HTTP 401 or 403** on the probe's own request, and nothing else is one by itself. A
+JSON-RPC error or a result with `isError: true` on the call is read as a refusal only when a **control** proves that the same
+call runs for the right account; the code and the text of an error are never read to guess that it is about authorization. A
+401 or 403 before the call (at `initialize` or `tools/list`) is still a refusal, and the row says at which step. Any other
+failure before the call decides nothing. Timeout, 429, 5xx, a redirect or any other status: "not run".
+
+The control. For every probe with `expect: refuse`, the file must hold a probe with the same tool and the same arguments,
+`as: account-a`, `expect: allow`. Controls run first. If there is no control, or it did not run, or it was refused, the probes
+that expect a refusal for that tool and those arguments are "not run: no control" and the exit code is `3` (this applies to
+a call that ran, too). The exception is an answer of HTTP 401 or 403, which stands alone; its row says it has no control.
+The table shows which probe was the control for which.
+
+```json
+{ "probes": [
+  { "id": "control", "tool": "export", "arguments": { "doc": "doc-1" }, "as": "account-a", "expect": "allow" },
+  { "id": "b-reads-a", "tool": "export", "arguments": { "doc": "doc-1" }, "as": "account-b", "expect": "refuse" }
+] }
+```
+
+A verdict of "violated" comes only from the answer of the server: a call that ran (a result without `isError`) for a probe
+that expects a refusal and has its control. The table of the report lists every probe with what it expected, what the server
+did and why it did not run: no probe file, no consent, no token for account A or B, stdio, a spent budget, the transport
+stopped, the tool is not on the server, the tool is destructive, no control, or an answer that decides nothing. A probe that
+did not run is never a pass. `--allow-partial` exits `0` although probes did not run: with probes, do not use it unless the
+unrun ones are in the table you read. `wrong-audience` is checked by the oauth suite of `plune mcp conformance` and is not
+run here.
+
+"This machine" means `localhost`, an address in `127.0.0.0/8` and `[::1]`, for consent and for a token over plain http. A
+name under `.localhost` is decided by its name and is not this machine here. Sessions that a probe opens on the server are
+not closed by the scan; the server drops them on its own timeout.
 
 Findings and the table hold the probe id, the rule, the tool name and the category: no response body, no error text and no
 argument value. Step 1 keeps no record of the frames beyond this table. Probes are for your own server only, and no finding

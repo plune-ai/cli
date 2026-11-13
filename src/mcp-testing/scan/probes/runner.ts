@@ -1,17 +1,18 @@
 import { randomBytes } from 'node:crypto';
 import type { ConnectTarget } from '../../connect/options.js';
 import { createRedactor, maskUrl } from '../../connect/redact.js';
-import { isLocal } from '../../conformance/raw-http.js';
 import {
   DEFAULT_MAX_CALLS,
   DEFAULT_MAX_REQUESTS,
   ProbeGuard,
+  canonical,
   type Credential,
   type Frame,
   type Refusal,
   type Reply,
 } from './guard.js';
 import { httpTransport } from './http.js';
+import { isThisMachine } from './local.js';
 import type { ProbeEntry, ProbeReason, ProbeRow } from './types.js';
 
 /**
@@ -67,10 +68,14 @@ const REASON_OF: Record<Refusal, ProbeReason> = {
   'transport-stopped': 'transport-stopped',
   destructive: 'destructive',
   undeclared: 'inconclusive',
+  'tools-unknown': 'inconclusive',
 };
 
 type Decision =
+  /** HTTP 401 or 403: the only answer that is a refusal by itself. */
   | { kind: 'refused' }
+  /** A JSON-RPC error: the server did not run it, but nothing says why. */
+  | { kind: 'rpc-error' }
   | { kind: 'ok'; message: unknown; sessionId?: string }
   | { kind: 'inconclusive' };
 
@@ -83,13 +88,22 @@ function decide(reply: Reply, expectMessage: boolean): Decision {
   if (!expectMessage) return { kind: 'ok', message: undefined };
   const message = reply.message as { error?: unknown; result?: unknown } | undefined;
   if (message === undefined) return { kind: 'inconclusive' };
-  if (message.error !== undefined) return { kind: 'refused' };
+  // The code and the text of an error are not read: whether it is about authorization is not guessed.
+  if (message.error !== undefined) return { kind: 'rpc-error' };
   return {
     kind: 'ok',
     message: message.result,
     ...(reply.sessionId === undefined ? {} : { sessionId: reply.sessionId }),
   };
 }
+
+/** What one probe came to, before the expectation and the control are applied. */
+type Attempt =
+  | { kind: 'allowed' }
+  | { kind: 'http-refused'; step: string }
+  /** A JSON-RPC error or `isError` on the declared call itself: a refusal only if a control proves the call can run. */
+  | { kind: 'errored' }
+  | { kind: 'not-run'; reason: ProbeReason };
 
 const notRun = (e: ProbeEntry, reason: ProbeReason): ProbeRow => ({
   id: e.id,
@@ -132,7 +146,7 @@ export async function runProbes(opts: ProbeRunOptions): Promise<ProbeSection> {
   }
   if (target.kind === 'sse') return all('no-target');
   const url = new URL(target.url);
-  if (!isLocal(target.url) && opts.confirmHost?.toLowerCase() !== url.host.toLowerCase())
+  if (!isThisMachine(target.url) && opts.confirmHost?.toLowerCase() !== url.host.toLowerCase())
     return all('no-consent');
   opts.announce(`probes will go to ${maskUrl(target.url)}`);
 
@@ -163,21 +177,17 @@ export async function runProbes(opts: ProbeRunOptions): Promise<ProbeSection> {
 
   let listed: Set<string> | undefined;
   /** One probe: the server's answer to the declared call, or why there is none. */
-  async function attempt(
-    entry: ProbeEntry,
-    credential: Credential,
-  ): Promise<{ answer: 'allowed' | 'refused' } | { reason: ProbeReason }> {
-    const step = async (
-      frame: Frame,
-      expectMessage: boolean,
-    ): Promise<
-      { stop: { answer: 'refused' } | { reason: ProbeReason } } | { ok: Decision & { kind: 'ok' } }
-    > => {
+  async function attempt(entry: ProbeEntry, credential: Credential): Promise<Attempt> {
+    type Step = { stop: Attempt } | { ok: Decision & { kind: 'ok' } };
+    const step = async (frame: Frame, name: string, expectMessage: boolean): Promise<Step> => {
       const sent = await guard.send(frame);
-      if (!sent.sent) return { stop: { reason: REASON_OF[sent.refusal] } };
+      if (!sent.sent) return { stop: { kind: 'not-run', reason: REASON_OF[sent.refusal] } };
       const d = decide(sent.reply, expectMessage);
-      if (d.kind === 'refused') return { stop: { answer: 'refused' } };
-      if (d.kind === 'inconclusive') return { stop: { reason: 'inconclusive' } };
+      if (d.kind === 'refused') return { stop: { kind: 'http-refused', step: name } };
+      // Before the call, any failure but 401/403 says nothing about the call: it is not run.
+      if (d.kind === 'inconclusive' || (d.kind === 'rpc-error' && name !== 'tools/call'))
+        return { stop: { kind: 'not-run', reason: 'inconclusive' } };
+      if (d.kind === 'rpc-error') return { stop: { kind: 'errored' } };
       return { ok: d };
     };
     const init = await step(
@@ -191,6 +201,7 @@ export async function runProbes(opts: ProbeRunOptions): Promise<ProbeSection> {
         },
         credential,
       },
+      'initialize',
       true,
     );
     if ('stop' in init) return init.stop;
@@ -204,17 +215,19 @@ export async function runProbes(opts: ProbeRunOptions): Promise<ProbeSection> {
         credential,
         ...withSession,
       },
+      'notifications/initialized',
       false,
     );
     if ('stop' in hello) return hello.stop;
     if (listed === undefined) {
       const list = await step(
         { type: 'rpc', method: 'tools/list', credential, ...withSession },
+        'tools/list',
         true,
       );
       if ('stop' in list) return list.stop;
       const tools = (list.ok.message as { tools?: unknown } | undefined)?.tools;
-      if (!Array.isArray(tools)) return { reason: 'inconclusive' };
+      if (!Array.isArray(tools)) return { kind: 'not-run', reason: 'inconclusive' };
       guard.setListedTools(tools);
       listed = new Set(
         tools.flatMap((t) =>
@@ -222,27 +235,34 @@ export async function runProbes(opts: ProbeRunOptions): Promise<ProbeSection> {
         ),
       );
     }
-    if (!listed.has(entry.tool)) return { reason: 'tool-missing' };
+    if (!listed.has(entry.tool)) return { kind: 'not-run', reason: 'tool-missing' };
     const call = await step(
       {
         type: 'rpc',
         method: 'tools/call',
         params: { name: entry.tool, arguments: entry.arguments },
+        probe: entry.id,
         credential,
         ...withSession,
       },
+      'tools/call',
       true,
     );
     if ('stop' in call) return call.stop;
-    return {
-      answer:
-        (call.ok.message as { isError?: unknown } | undefined)?.isError === true
-          ? 'refused'
-          : 'allowed',
-    };
+    return (call.ok.message as { isError?: unknown } | undefined)?.isError === true
+      ? { kind: 'errored' }
+      : { kind: 'allowed' };
   }
 
-  for (const entry of opts.entries) {
+  /** The controls that ran and were allowed, by tool and arguments: the id of the probe. */
+  const controls = new Map<string, string>();
+  const isControl = (e: ProbeEntry) => e.as === 'account-a' && e.expect === 'allow';
+  const keyOf = (e: ProbeEntry) => `${e.tool}
+${canonical(e.arguments)}`;
+
+  // Controls first: a probe that expects a refusal is read against what the control showed.
+  const order = [...opts.entries.filter(isControl), ...opts.entries.filter((e) => !isControl(e))];
+  for (const entry of order) {
     let credential: Credential | undefined;
     let missing: ProbeReason | undefined;
     switch (entry.as) {
@@ -269,28 +289,45 @@ export async function runProbes(opts: ProbeRunOptions): Promise<ProbeSection> {
       continue;
     }
     const got = await attempt(entry, credential);
-    if ('reason' in got) {
+    if (got.kind === 'not-run') {
       section.rows.push(notRun(entry, got.reason));
       continue;
     }
     const expect = entry.expect ?? 'none';
-    const base = {
-      id: entry.id,
-      tool: entry.tool,
-      as: entry.as,
-      expect,
-      answer: got.answer,
-    } as const;
-    if (got.answer === 'refused') {
-      section.rows.push({ ...base, outcome: expect === 'allow' ? 'observed' : 'as-expected' });
+    const proven = controls.get(keyOf(entry));
+    const base = { id: entry.id, tool: entry.tool, as: entry.as, expect } as const;
+    // A refuse probe is read against its control; HTTP 401 or 403 stands alone, and the row says it has none.
+    const withControl = expect === 'refuse' ? { control: proven ?? null } : {};
+    if (got.kind === 'http-refused') {
+      section.rows.push({
+        ...base,
+        answer: 'refused',
+        refusedAt: got.step,
+        outcome: expect === 'allow' ? 'observed' : 'as-expected',
+        ...withControl,
+      });
       continue;
     }
+    if (got.kind === 'errored') {
+      if (expect === 'refuse' && proven !== undefined)
+        section.rows.push({ ...base, answer: 'refused', outcome: 'as-expected', control: proven });
+      else section.rows.push(notRun(entry, expect === 'refuse' ? 'no-control' : 'inconclusive'));
+      continue;
+    }
+    // The call ran.
+    if (expect === 'refuse' && proven === undefined) {
+      section.rows.push(notRun(entry, 'no-control'));
+      continue;
+    }
+    if (isControl(entry)) controls.set(keyOf(entry), entry.id);
     const rule =
       entry.as in PROBE_RULE_OF ? PROBE_RULE_OF[entry.as as keyof typeof PROBE_RULE_OF] : undefined;
     if (rule === undefined || expect === 'allow') {
       section.rows.push({
         ...base,
+        answer: 'allowed',
         outcome: rule === undefined && expect === 'refuse' ? 'observed' : 'as-expected',
+        ...withControl,
       });
       continue;
     }
@@ -301,7 +338,12 @@ export async function runProbes(opts: ProbeRunOptions): Promise<ProbeSection> {
         : entry.as === 'garbage'
           ? 'with a random token'
           : 'for account B';
-    section.rows.push({ ...base, outcome: violated ? 'violated' : 'observed' });
+    section.rows.push({
+      ...base,
+      answer: 'allowed',
+      outcome: violated ? 'violated' : 'observed',
+      ...withControl,
+    });
     section.findings.push({
       rule,
       id: entry.id,
@@ -312,6 +354,8 @@ export async function runProbes(opts: ProbeRunOptions): Promise<ProbeSection> {
         : `probe ${entry.id}: tool "${entry.tool}" answered ${who}`,
     });
   }
+  const at = new Map(opts.entries.map((e, i) => [e.id, i]));
+  section.rows.sort((a, b) => (at.get(a.id) ?? 0) - (at.get(b.id) ?? 0));
   section.calls = guard.calls;
   section.requests = guard.requests;
   return section;

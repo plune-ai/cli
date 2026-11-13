@@ -37,6 +37,7 @@ export function parseProbeFile(text: string, name: string): ProbeEntry[] {
   )
     return bad('expected { "probes": [ ... ] } and nothing else.');
   const list = root['probes'] as unknown[];
+  if (list.length === 0) bad('the file declares nothing: add at least one probe.');
   if (list.length > MAX_PROBES) bad(`more than ${MAX_PROBES} probes.`);
   const seen = new Set<string>();
   const entries: ProbeEntry[] = [];

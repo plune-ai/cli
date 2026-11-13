@@ -31,6 +31,8 @@ export const PROBE_REASONS = {
   'transport-stopped': 'the probes were stopped after two transport failures in a row',
   'tool-missing': 'the server does not list this tool',
   destructive: 'the server marks this tool destructive and the probe does not set allowDestructive',
+  'no-control':
+    'no control: the file has no account-a probe with expect: allow for the same tool and arguments that ran and was allowed',
   inconclusive:
     'the server did not answer in a way that decides it (timeout, 429, 5xx, redirect or another status)',
   'wrong-audience':
@@ -48,4 +50,8 @@ export interface ProbeRow {
   answer: 'allowed' | 'refused' | null;
   outcome: 'as-expected' | 'violated' | 'observed' | 'not-run';
   reason?: ProbeReason;
+  /** The step at which HTTP 401 or 403 refused the probe's own request, when that is what refused it. */
+  refusedAt?: string;
+  /** For a probe with expect: refuse that was answered: the id of the control that ran, or null (HTTP 401 or 403 stands alone). */
+  control?: string | null;
 }

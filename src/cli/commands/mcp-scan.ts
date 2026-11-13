@@ -25,7 +25,7 @@ import { MAX_FILE_BYTES, safe, type ConfigFile } from '../../mcp-testing/scan/co
 import { parseScanExceptions } from '../../mcp-testing/scan/exceptions.js';
 import { parseProbeFile } from '../../mcp-testing/scan/probes/file.js';
 import { DEFAULT_MAX_CALLS, DEFAULT_MAX_REQUESTS } from '../../mcp-testing/scan/probes/guard.js';
-import { isLocal } from '../../mcp-testing/conformance/raw-http.js';
+import { isThisMachine } from '../../mcp-testing/scan/probes/local.js';
 import { runProbes, type ProbeRunOptions } from '../../mcp-testing/scan/probes/runner.js';
 import { GROUPS, renderScan, type FailOn, type ScanGroup } from '../../mcp-testing/scan/report.js';
 import { ALL_RULES, runScan, type ScanSnapshot } from '../../mcp-testing/scan/run.js';
@@ -445,7 +445,7 @@ function planProbes(
     target !== undefined &&
     target.kind !== 'stdio' &&
     new URL(target.url).protocol !== 'https:' &&
-    !isLocal(target.url)
+    !isThisMachine(target.url)
   )
     throw new UsageError(
       'A token goes only over https, or over http to this machine; this address is plain http to another host.',

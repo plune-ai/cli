@@ -20,6 +20,8 @@ export type Frame =
       method: string;
       params?: Record<string, unknown>;
       notification?: boolean;
+      /** The probe a `tools/call` is for: the guard checks that entry, not just any entry of the same tool. */
+      probe?: string;
       credential: Credential;
       sessionId?: string;
     }
@@ -30,7 +32,12 @@ export type Reply =
   | { kind: 'failure'; why: 'timeout' | 'network' }
   | { kind: 'http'; status: number; message?: unknown; sessionId?: string };
 
-export type Refusal = 'undeclared' | 'destructive' | 'budget' | 'transport-stopped';
+export type Refusal =
+  | 'undeclared'
+  | 'destructive'
+  | 'budget'
+  | 'transport-stopped'
+  | 'tools-unknown';
 export type Sent = { sent: true; reply: Reply } | { sent: false; refusal: Refusal };
 
 /** Transport failures in a row after which the remaining probes are not sent. */
@@ -58,6 +65,7 @@ export class ProbeGuard {
   #failures = 0;
   #stopped = false;
   #destructive = new Set<string>();
+  #listed = false;
   readonly #transport: (frame: Frame) => Promise<Reply>;
   readonly #declared: readonly ProbeEntry[];
   readonly #maxCalls: number;
@@ -68,6 +76,12 @@ export class ProbeGuard {
     limits: { maxCalls: number; maxRequests: number },
     transport: (frame: Frame) => Promise<Reply>,
   ) {
+    for (const [name, value] of [
+      ['maxCalls', limits.maxCalls],
+      ['maxRequests', limits.maxRequests],
+    ] as const)
+      if (!Number.isInteger(value) || value < 1)
+        throw new RangeError(`${name} must be a whole number of 1 or more.`);
     this.#declared = declared;
     this.#maxCalls = limits.maxCalls;
     this.#maxRequests = limits.maxRequests;
@@ -86,6 +100,7 @@ export class ProbeGuard {
 
   /** The tools the server listed: the names whose `destructiveHint` is exactly `true`. */
   setListedTools(tools: readonly unknown[]): void {
+    this.#listed = true;
     this.#destructive = new Set(
       tools.flatMap((t) => {
         const tool = t as { name?: unknown; annotations?: { destructiveHint?: unknown } } | null;
@@ -104,14 +119,16 @@ export class ProbeGuard {
         isCall = true;
         const name = frame.params?.['name'];
         const args = canonical(frame.params?.['arguments'] ?? {});
-        const matches = this.#declared.filter(
-          (e) => e.tool === name && canonical(e.arguments) === args,
+        const entry = this.#declared.find(
+          (e) => e.id === frame.probe && e.tool === name && canonical(e.arguments) === args,
         );
-        if (matches.length === 0) return { sent: false, refusal: 'undeclared' };
+        if (entry === undefined) return { sent: false, refusal: 'undeclared' };
+        // Until the server's tool list is known, a destructive tool cannot be told from any other: nothing is called.
+        if (!this.#listed) return { sent: false, refusal: 'tools-unknown' };
         if (
           typeof name === 'string' &&
           this.#destructive.has(name) &&
-          !matches.some((e) => e.allowDestructive === true)
+          entry.allowDestructive !== true
         )
           return { sent: false, refusal: 'destructive' };
       } else if (!METHODS.has(frame.method)) return { sent: false, refusal: 'undeclared' };

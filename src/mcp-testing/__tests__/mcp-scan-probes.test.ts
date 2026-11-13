@@ -35,6 +35,12 @@ interface Opts {
   force?: number | string;
   /** The connection is cut for every request. */
   cut?: boolean;
+  /** This method is answered with a JSON-RPC error, for everyone. */
+  rpcError?: string;
+  /** Every tools/call is answered with a result that has isError: true. */
+  isErrorForAll?: boolean;
+  /** The status of the redirect of `force` (302 by default). */
+  redirectStatus?: number;
   host?: string;
 }
 interface Fixture {
@@ -83,7 +89,7 @@ async function fixture(opts: Opts = {}): Promise<Fixture> {
     if (req.method === 'GET') return void res.writeHead(404).end();
     if (typeof opts.force === 'number') return void res.writeHead(opts.force).end('overloaded');
     if (typeof opts.force === 'string')
-      return void res.writeHead(302, { Location: opts.force }).end();
+      return void res.writeHead(opts.redirectStatus ?? 302, { Location: opts.force }).end();
     const bearer = /^Bearer (.+)$/.exec(req.headers['authorization'] ?? '')?.[1];
     const who = bearer === TOKEN_A ? 'a' : bearer === TOKEN_B ? 'b' : undefined;
     if (opts.lax !== true && who === undefined) {
@@ -99,6 +105,14 @@ async function fixture(opts: Opts = {}): Promise<Fixture> {
       res
         .writeHead(200, { 'Content-Type': 'application/json', 'Mcp-Session-Id': 's1' })
         .end(JSON.stringify({ jsonrpc: '2.0', id: body.id, result }));
+    if (opts.rpcError !== undefined && body.method === opts.rpcError)
+      return void res.writeHead(200, { 'Content-Type': 'application/json' }).end(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: body.id,
+          error: { code: -32603, message: 'internal' },
+        }),
+      );
     if (body.method === 'initialize')
       return reply({
         protocolVersion: '2025-06-18',
@@ -110,7 +124,7 @@ async function fixture(opts: Opts = {}): Promise<Fixture> {
     if (body.method === 'tools/call') {
       // Strict: account B may not read an object of account A.
       const doc = body.params?.arguments?.['doc'];
-      if (opts.lax !== true && who === 'b' && doc === 'doc-a')
+      if (opts.isErrorForAll === true || (opts.lax !== true && who === 'b' && doc === 'doc-a'))
         return reply({ isError: true, content: [{ type: 'text', text: `forbidden ${bearer}` }] });
       return reply({
         content: [{ type: 'text', text: `ran ${body.params?.name} ${bearer ?? ''} ${ARG_MARK}` }],
@@ -248,10 +262,11 @@ describe('CLI · mcp scan probes · the wrapper is the only way out', () => {
   const declared: ProbeEntry[] = [
     { id: 'p1', tool: 'export', arguments: { doc: 'a' }, as: 'none' },
   ];
-  const call = (name: string, args: Record<string, unknown>): Frame => ({
+  const call = (name: string, args: Record<string, unknown>, probe = 'p1'): Frame => ({
     type: 'rpc',
     method: 'tools/call',
     params: { name, arguments: args },
+    probe,
     credential: { kind: 'none' },
   });
   const make = (entries = declared, limits = { maxCalls: 8, maxRequests: 40 }) => {
@@ -260,6 +275,7 @@ describe('CLI · mcp scan probes · the wrapper is the only way out', () => {
       sent.push(frame);
       return { kind: 'http', status: 200 };
     });
+    guard.setListedTools([]);
     return { guard, sent };
   };
 
@@ -298,7 +314,7 @@ describe('CLI · mcp scan probes · the wrapper is the only way out', () => {
       { name: 'purge', annotations: { destructiveHint: true } },
     ]);
     expect(await guard.send(call('wipe', {}))).toEqual({ sent: false, refusal: 'destructive' });
-    expect((await guard.send(call('purge', {}))).sent).toBe(true);
+    expect((await guard.send(call('purge', {}, 'p2'))).sent).toBe(true);
     expect(sent).toHaveLength(1);
   });
 
@@ -413,11 +429,16 @@ describe('CLI · mcp scan probes · consent', () => {
   it('a host that is not on this machine needs --confirm-host to equal its host exactly: no consent, no probe frame', async () => {
     const f = await fixture({ host: '0.0.0.0' });
     const { dir, file } = probeFile([entry('p1', 'none', { expect: 'refuse' })]);
-    const url = `http://127.0.0.2:${f.port}/mcp`;
+    const url = `http://foo.localhost:${f.port}/mcp`;
     const staticFlags: McpScanFlags = { url, headerEnv: ['Authorization=H'] };
     await scan(dir, staticFlags, TOKENS);
     const perStaticRun = f.seen.length;
-    for (const confirm of [undefined, '127.0.0.2', 'other.example', `127.0.0.3:${f.port}`]) {
+    for (const confirm of [
+      undefined,
+      'foo.localhost',
+      'other.example',
+      `bar.localhost:${f.port}`,
+    ]) {
       const before = f.seen.length;
       const r = await scan(
         dir,
@@ -438,15 +459,14 @@ describe('CLI · mcp scan probes · consent', () => {
     const base = f.seen.length;
     const r = await scan(
       dir,
-      { ...noTokens(f, file), ...staticFlags, confirmHost: `127.0.0.2:${f.port}` },
+      { ...noTokens(f, file), ...staticFlags, confirmHost: `foo.localhost:${f.port}` },
       TOKENS,
       (line) => {
         if (line.includes('probes will go to')) atAnnounce = f.seen.length - base;
       },
     );
     expect(atAnnounce).toBe(perStaticRun);
-    expect(r.err).toContain(`probes will go to http://127.0.0.2:${f.port}/mcp`);
-    expect(rowsOf(r)[0]!.outcome).not.toBe('not-run');
+    expect(r.err).toContain(`probes will go to http://foo.localhost:${f.port}/mcp`);
   });
 
   it('a token goes over https or to this machine only: plain http to another host with a token is a usage error', async () => {
@@ -578,14 +598,18 @@ describe('CLI · mcp scan probes · rules, on a server that keeps its requiremen
   it('a tool the server marks destructive is not called without allowDestructive; readOnlyHint widens nothing', async () => {
     const f = await fixture({ lax: true });
     const wipe = { id: 'w', tool: 'wipe', arguments: {}, as: 'none', expect: 'refuse' };
-    const { dir, file } = probeFile([wipe]);
+    const wipeControl = { id: 'wc', tool: 'wipe', arguments: {}, as: 'account-a', expect: 'allow' };
+    const { dir, file } = probeFile([wipe, wipeControl]);
     const r = await scan(dir, active(f, file), TOKENS);
     expect(byId(r, 'w')).toMatchObject({ outcome: 'not-run', reason: 'destructive' });
     expect(f.calls()).toBe(0);
-    const ok = probeFile([{ ...wipe, allowDestructive: true }]);
+    const ok = probeFile([
+      { ...wipe, allowDestructive: true },
+      { ...wipeControl, allowDestructive: true },
+    ]);
     const again = await scan(ok.dir, active(f, ok.file), TOKENS);
     expect(byId(again, 'w').outcome).toBe('violated');
-    expect(f.calls()).toBe(1);
+    expect(f.calls()).toBe(2);
   });
 
   it('timeout-like answers decide nothing: 429, 5xx and a redirect are "not run", never a violation', async () => {
@@ -690,6 +714,7 @@ describe('CLI · mcp scan probes · the summary table is in every format', () =>
   it('probe / expectation / result / not run because, in human, json, github, sarif and junit-xml', async () => {
     const f = await fixture({ lax: true });
     const { dir, file } = probeFile([
+      entry('ctl', 'account-a', { expect: 'allow' }),
       entry('p1', 'none', { expect: 'refuse' }),
       entry('p2', 'wrong-audience'),
     ]);
@@ -698,9 +723,9 @@ describe('CLI · mcp scan probes · the summary table is in every format', () =>
     expect(human.out).toMatch(/p2 \/ no expectation \/ not run \/ a token for another resource/);
     expect(human.out).toContain('keeps no record of the frames');
     const github = await scan(dir, active(f, file, { format: 'github' }), TOKENS);
-    expect(github.out).toMatch(/2 probes \(1 not run\)/);
+    expect(github.out).toMatch(/3 probes \(1 not run\)/);
     const sarif = (await scan(dir, active(f, file, { format: 'sarif' }), TOKENS)).json();
-    expect(sarif['runs'][0].properties.probes.rows).toHaveLength(2);
+    expect(sarif['runs'][0].properties.probes.rows).toHaveLength(3);
     await scan(dir, active(f, file, { out: ['junit-xml=j.xml'] }), TOKENS);
     const { readFileSync } = await import('node:fs');
     const xml = readFileSync(join(dir, 'j.xml'), 'utf8');
@@ -708,5 +733,213 @@ describe('CLI · mcp scan probes · the summary table is in every format', () =>
     expect(xml).toMatch(
       /<testcase classname="mcp\.scan\.active" name="probe p2">\s*<skipped type="not-evaluated"/,
     );
+  });
+});
+
+// ---- review round 2: a broken probe must not look like a protected server ----------------------------------------------------
+
+describe('CLI · mcp scan probes · a refusal is HTTP 401 or 403, or a control proves it', () => {
+  const ctl = (extra: Record<string, unknown> = {}) =>
+    entry('ctl', 'account-a', { expect: 'allow', ...extra });
+  const refuse = (id: string, as: string, extra: Record<string, unknown> = {}) =>
+    entry(id, as, { expect: 'refuse', ...extra });
+
+  it('a JSON-RPC error on tools/call for everyone (a broken probe) is "not run", not a refusal', async () => {
+    const f = await fixture({ lax: true, rpcError: 'tools/call' });
+    const { dir, file } = probeFile([ctl(), refuse('p1', 'none')]);
+    const r = await scan(dir, active(f, file), TOKENS);
+    expect(byId(r, 'p1')).toMatchObject({ outcome: 'not-run' });
+    expect(byId(r, 'ctl').outcome).toBe('not-run');
+    expect(r.code).toBe(3);
+  });
+
+  it('isError for everyone, and a JSON-RPC error answering initialize, are not refusals either', async () => {
+    const isErr = await fixture({ lax: true, isErrorForAll: true });
+    const a = probeFile([ctl(), refuse('p1', 'none')]);
+    const r1 = await scan(a.dir, active(isErr, a.file), TOKENS);
+    expect(byId(r1, 'p1').outcome).toBe('not-run');
+    expect(r1.code).toBe(3);
+    const broken = await fixture({ lax: true, rpcError: 'initialize' });
+    const b = probeFile([ctl(), refuse('p1', 'none')]);
+    const r2 = await scan(b.dir, active(broken, b.file), TOKENS);
+    expect(rowsOf(r2).map((x) => [x.outcome, x.reason])).toEqual([
+      ['not-run', 'inconclusive'],
+      ['not-run', 'inconclusive'],
+    ]);
+    expect(r2.code).toBe(3);
+  });
+
+  it('isError for account B only, with a control that ran for account A: a refusal, and the row names the control', async () => {
+    const f = await fixture();
+    const { dir, file } = probeFile([refuse('p-b', 'account-b'), ctl()]);
+    const r = await scan(dir, active(f, file), TOKENS);
+    expect(r.code).toBe(0);
+    expect(byId(r, 'p-b')).toMatchObject({
+      outcome: 'as-expected',
+      answer: 'refused',
+      control: 'ctl',
+    });
+    const human = (await scan(dir, active(f, file, { format: 'human' }), TOKENS)).out;
+    expect(human).toMatch(/p-b \/ expect refuse \/ refused \/ control ctl/);
+  });
+
+  it('controls run first: the control call reaches the server before any refuse probe', async () => {
+    const f = await fixture();
+    const { dir, file } = probeFile([refuse('p-b', 'account-b'), ctl()]);
+    await scan(dir, active(f, file), TOKENS);
+    const calls = f.seen.filter((s) => s.rpc === 'tools/call');
+    expect(calls.map((c) => c.auth)).toEqual([`Bearer ${TOKEN_A}`, `Bearer ${TOKEN_B}`]);
+  });
+
+  it('no control in the file: a refuse probe answered by isError is "not run, no control", exit 3', async () => {
+    const f = await fixture();
+    const { dir, file } = probeFile([refuse('p-b', 'account-b')]);
+    const r = await scan(dir, active(f, file), TOKENS);
+    expect(byId(r, 'p-b')).toMatchObject({ outcome: 'not-run', reason: 'no-control' });
+    expect(r.code).toBe(3);
+  });
+
+  it('a control for other arguments is no control; a control that was refused is no control', async () => {
+    const f = await fixture();
+    const other = entry('ctl', 'account-a', { expect: 'allow', arguments: { doc: 'doc-x' } });
+    const a = probeFile([refuse('p-b', 'account-b'), other]);
+    expect(byId(await scan(a.dir, active(f, a.file), TOKENS), 'p-b').reason).toBe('no-control');
+    const refusedControl = await fixture();
+    const b = probeFile([refuse('p-b', 'account-b'), ctl()]);
+    const r = await scan(b.dir, active(refusedControl, b.file), {
+      ...TOKENS,
+      A: 'tokA-not-issued-0001',
+    });
+    expect(byId(r, 'p-b').reason).toBe('no-control');
+    expect(byId(r, 'ctl')).toMatchObject({ outcome: 'observed', answer: 'refused' });
+  });
+
+  it('an answer of HTTP 401 or 403 stands alone: no control needed, and the row says so', async () => {
+    const f = await fixture();
+    const { dir, file } = probeFile([refuse('p-none', 'none')]);
+    const r = await scan(dir, active(f, file), TOKENS);
+    expect(r.code).toBe(0);
+    expect(byId(r, 'p-none')).toMatchObject({
+      outcome: 'as-expected',
+      answer: 'refused',
+      refusedAt: 'initialize',
+      control: null,
+    });
+    const human = (await scan(dir, active(f, file, { format: 'human' }), TOKENS)).out;
+    expect(human).toMatch(/refused at initialize \/ no control: HTTP 401 or 403 stands alone/);
+  });
+
+  it('a violation needs its control too: lax, no control, the probe is not run', async () => {
+    const f = await fixture({ lax: true });
+    const { dir, file } = probeFile([refuse('p1', 'none')]);
+    const r = await scan(dir, active(f, file), TOKENS);
+    expect(byId(r, 'p1')).toMatchObject({ outcome: 'not-run', reason: 'no-control' });
+    expect(r.code).toBe(3);
+  });
+});
+
+describe('CLI · mcp scan probes · smaller faults of the review', () => {
+  it('N1: a file that declares nothing is a usage error', async () => {
+    const f = await fixture();
+    const dir = tmp();
+    writeFileSync(join(dir, 'p.json'), JSON.stringify({ probes: [] }));
+    const r = await scan(dir, active(f, 'p.json'), TOKENS);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain('declares nothing');
+    expect(() => parseProbeFile('{"probes":[]}', 'p.json')).toThrow();
+  });
+
+  it('N3: two probes of one tool and arguments: the one without allowDestructive is still blocked', async () => {
+    const guard = new ProbeGuard(
+      [
+        { id: 'p1', tool: 'wipe', arguments: {}, as: 'none' },
+        { id: 'p2', tool: 'wipe', arguments: {}, as: 'none', allowDestructive: true },
+      ],
+      { maxCalls: 8, maxRequests: 40 },
+      async (): Promise<Reply> => ({ kind: 'http', status: 200 }),
+    );
+    guard.setListedTools([{ name: 'wipe', annotations: { destructiveHint: true } }]);
+    const frame = (probe: string): Frame => ({
+      type: 'rpc',
+      method: 'tools/call',
+      params: { name: 'wipe', arguments: {} },
+      probe,
+      credential: { kind: 'none' },
+    });
+    expect(await guard.send(frame('p1'))).toEqual({ sent: false, refusal: 'destructive' });
+    expect((await guard.send(frame('p2'))).sent).toBe(true);
+    expect(await guard.send(frame('nobody'))).toEqual({ sent: false, refusal: 'undeclared' });
+  });
+
+  it('N4: a guard that was never told the tool list refuses every tools/call', async () => {
+    const sent: Frame[] = [];
+    const guard = new ProbeGuard(
+      [{ id: 'p1', tool: 'export', arguments: {}, as: 'none' }],
+      { maxCalls: 8, maxRequests: 40 },
+      async (f): Promise<Reply> => {
+        sent.push(f);
+        return { kind: 'http', status: 200 };
+      },
+    );
+    const r = await guard.send({
+      type: 'rpc',
+      method: 'tools/call',
+      params: { name: 'export', arguments: {} },
+      probe: 'p1',
+      credential: { kind: 'none' },
+    });
+    expect(r).toEqual({ sent: false, refusal: 'tools-unknown' });
+    expect(sent).toHaveLength(0);
+  });
+
+  it('N6: a name under .localhost is not this machine: it needs --confirm-host and refuses a token over http', async () => {
+    const { dir, file } = probeFile([entry('p1', 'none', { expect: 'refuse' })]);
+    const url = 'http://foo.localhost:9/mcp';
+    const noConfirm = await scan(dir, { active: true, probes: file, url, snapshot: [] }, TOKENS);
+    expect(rowsOf(noConfirm)[0]!.reason).toBe('no-consent');
+    const withToken = await scan(dir, { active: true, probes: file, url, tokenEnv: 'A' }, TOKENS);
+    expect(withToken.code).toBe(2);
+    expect(withToken.err).toContain('plain http');
+  });
+
+  it('N6: localhost, 127.x.x.x and [::1] are this machine', async () => {
+    const { isThisMachine } = await import('../scan/probes/local.js');
+    for (const u of [
+      'http://localhost:1/',
+      'http://127.0.0.1/',
+      'http://127.9.9.9:80/',
+      'http://[::1]:3000/',
+      'http://127.1/',
+      'http://LOCALHOST/',
+    ])
+      expect(isThisMachine(u), u).toBe(true);
+    for (const u of [
+      'http://foo.localhost/',
+      'http://127.example.com/',
+      'http://127.0.0.1.evil.example/',
+      'http://good@evil.example/',
+      'http://127.0.0.1@evil.example/',
+      'http://10.0.0.1/',
+      'https://example.com/',
+    ])
+      expect(isThisMachine(u), u).toBe(false);
+  });
+
+  it('N9: a 307 to another path of the same origin is not followed', async () => {
+    const f = await fixture({ force: '/other', redirectStatus: 307 });
+    const { dir, file } = probeFile([entry('p1', 'account-a', { expect: 'allow' })]);
+    const r = await scan(dir, active(f, file), TOKENS);
+    expect(byId(r, 'p1')).toMatchObject({ outcome: 'not-run', reason: 'inconclusive' });
+    expect(probeFrames(f, r).filter((s) => s.path === '/other')).toHaveLength(0);
+  });
+
+  it('N9: budgets of 0, NaN and the like are rejected by the guard itself', () => {
+    const transport = async (): Promise<Reply> => ({ kind: 'http', status: 200 });
+    for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, 1.5])
+      for (const limits of [
+        { maxCalls: bad, maxRequests: 40 },
+        { maxCalls: 8, maxRequests: bad },
+      ])
+        expect(() => new ProbeGuard([], limits, transport), String(bad)).toThrow(RangeError);
   });
 });

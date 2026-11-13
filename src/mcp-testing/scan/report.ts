@@ -137,7 +137,15 @@ export function exitLine(r: ScanReport): string {
 export const probeResult = (p: ProbeRow): string =>
   p.outcome === 'not-run'
     ? 'not run'
-    : `${p.answer}${p.outcome === 'violated' ? ' (VIOLATED)' : p.outcome === 'observed' ? ' (not as declared)' : ''}`;
+    : `${p.answer}${p.refusedAt === undefined ? '' : ` at ${p.refusedAt}`}${p.outcome === 'violated' ? ' (VIOLATED)' : p.outcome === 'observed' ? ' (not as declared)' : ''}`;
+
+/** The control column of a probe that expects a refusal. */
+const probeControl = (p: ProbeRow): string =>
+  p.control === undefined || p.outcome === 'not-run'
+    ? ''
+    : p.control === null
+      ? ' / no control: HTTP 401 or 403 stands alone'
+      : ` / control ${p.control}`;
 
 function human(r: ScanReport): string {
   const out: string[] = [];
@@ -166,7 +174,7 @@ function human(r: ScanReport): string {
     out.push('', 'Probes (probe / expectation / result / not run because):');
     for (const p of r.probes.rows)
       out.push(
-        `  ${p.id === '' ? '(none)' : p.id} / ${p.expect === 'none' ? 'no expectation' : `expect ${p.expect}`} / ${probeResult(p)}${p.reason === undefined ? '' : ` / ${PROBE_REASONS[p.reason]}`}`,
+        `  ${p.id === '' ? '(none)' : p.id} / ${p.expect === 'none' ? 'no expectation' : `expect ${p.expect}`} / ${probeResult(p)}${probeControl(p)}${p.reason === undefined ? '' : ` / ${PROBE_REASONS[p.reason]}`}`,
       );
     out.push(
       `  ${r.probes.calls} tools/call and ${r.probes.requests} requests sent. Step 1 keeps no record of the frames beyond this table.`,
