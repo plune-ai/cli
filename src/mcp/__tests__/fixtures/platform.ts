@@ -145,12 +145,15 @@ const WRITES: [method: string, path: RegExp, answer: (body: Item, url: URL) => A
   ['POST', /^\/v1\/ingest\/cairn$/, (b) => ok({ proposed: count(b['cases']), skipped: 0 })],
   ['POST', /^\/v1\/projects\/[^/]+\/case-generations$/, () => ok({ id: CREATED.generation, state: 'queued' }, 202)],
   ['POST', /^\/v1\/runs$/, () => ok({ id: CREATED.run }, 201)],
-  // Every result accepted: the counts and the per-result verdicts the CLI's reporter reads from this route.
+  // Every result accepted: the counts and the per-result verdicts the CLI's reporter reads from this route. As on the
+  // platform, a result without the case it is of (testCaseId) is a 400 for the whole batch; nothing else is checked.
   [
     'POST',
     /^\/v1\/runs\/[^/]+\/results$/,
     (b) => {
       const results = Array.isArray(b['results']) ? (b['results'] as unknown[]) : [];
+      const bare = results.findIndex((r) => typeof record(r)['testCaseId'] !== 'string' || record(r)['testCaseId'] === '');
+      if (bare !== -1) return { status: 400, body: { error: `validation failed — results.${bare}.testCaseId: Required` } };
       return ok({
         items: results.map((_, i) => ({ status: 'accepted', id: `result-${i + 1}` })),
         counts: { accepted: results.length, duplicate: 0, conflict: 0, rejected: 0 },

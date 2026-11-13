@@ -212,8 +212,11 @@ evals:
 
   - id: discover-results-writer
     description: Writing results needs a hidden tool, and the model looks for it rather than misusing a listed one.
+    # The prompt names two cases of the recorded project by their exact titles (one case each), so a model can find
+    # their ids: a result names its case by testCaseId, and a name that matches no case leaves nothing to write.
     prompt: >-
-      Record last night's results in run run-1: "Pay by card" passed and "Expired discount code" failed.
+      Record last night's results in run run-1: "Оплата карткою Mastercard проходить" passed and "Прострочена картка
+      відхиляється з поясненням" failed.
     dataset: { examples: [{ vars: {} }] }
     mcp: { server: plune }
     assertions:

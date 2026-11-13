@@ -98,9 +98,25 @@ const SCENARIOS: Record<string, { right: MockStep[]; wrong: Wrong[] }> = {
     wrong: [{ why: 'makes the mission up', script: [call('plune_mission_create', { name: 'New product' }), done], fails: ['tool-called', 'tool-not-called'] }],
   },
   'discover-results-writer': {
-    // The writer switched on in step 1 is offered from step 2, and its call runs.
-    right: [call('plune_discover_tools', { names: ['plune_results_write'] }), call('plune_results_write', { runId: 'run-1', results: [{ title: 'Pay by card', status: 'passed' }] }), done],
+    // The writer switched on in step 1 is offered from step 2, and its call runs. The results are what the platform takes:
+    // each names its case (the two the prompt names, by their ids in the recorded project), with a key and a status.
+    right: [
+      call('plune_discover_tools', { names: ['plune_results_write'] }),
+      call('plune_results_write', {
+        runId: 'run-1',
+        results: [
+          { testCaseId: 'e43e1a95-e2a2-42a1-93b6-62b04756fba6', resultKey: 'nightly-mastercard#0', status: 'passed' },
+          { testCaseId: 'df8d4a71-cdf7-47a1-9467-a8c7e4c7b834', resultKey: 'nightly-expired-card#0', status: 'failed' },
+        ],
+      }),
+      done,
+    ],
     wrong: [
+      {
+        why: 'writes results that name no case',
+        script: [call('plune_discover_tools', { names: ['plune_results_write'] }), call('plune_results_write', { runId: 'run-1', results: [{ title: 'Pay by card', status: 'passed' }] }), done],
+        fails: ['no-tool-errors'],
+      },
       {
         why: 'switches the writer on, then records the results as proposed cases',
         script: [call('plune_discover_tools', { names: ['plune_results_write'] }), call('plune_case_propose', { target: 'run-1', cases: [proposal] }), done],
