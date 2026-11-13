@@ -915,11 +915,11 @@ export async function requestToken(
   clientId: string,
   secret: string,
   resource: string,
+  scopes: string[] | undefined = ctx.config.scopes,
 ): Promise<Token> {
   ctx.secrets.add(secret);
   const form = new URLSearchParams({ grant_type: 'client_credentials', resource });
-  if (ctx.config.scopes !== undefined && ctx.config.scopes.length > 0)
-    form.set('scope', ctx.config.scopes.join(' '));
+  if (scopes !== undefined && scopes.length > 0) form.set('scope', scopes.join(' '));
   const basic = Buffer.from(
     `${encodeURIComponent(clientId)}:${encodeURIComponent(secret)}`,
   ).toString('base64');

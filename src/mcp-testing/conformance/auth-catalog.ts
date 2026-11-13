@@ -232,6 +232,22 @@ export const OAUTH_CATALOG: readonly CatalogEntry[] = [
     needsFixture: true,
   }),
   oauth({
+    id: 'oauth-neg-insufficient-scope',
+    title: 'A token with too narrow a scope gets 403 with insufficient_scope',
+    description:
+      'With the client-credentials grant and narrowScopes given in --config, a token with the full scopes is asked for first and must be accepted by the one request the suite uses to tell a protected server from an open one (the control). A token with narrowScopes, which the operator says is not enough for the endpoint, is then asked for and sent with the same request: 403 with a Bearer challenge that names error="insufficient_scope" is a pass; 401, or 403 without that error, is a failure of a SHOULD. A 2xx cannot be judged, because the request the suite makes may not need the wider scope: it is could-not-run, as is a token endpoint that does not issue a narrower token. Both tokens are masked in every output and are not revoked.',
+    level: 'SHOULD',
+    derived: true,
+    derivation:
+      'Runtime Insufficient Scope Errors says: "When a client makes a request with an access token with insufficient scope during runtime operations, the server SHOULD respond with: HTTP 403 Forbidden status code (per RFC 6750 Section 3.1)" and a WWW-Authenticate header with the Bearer scheme and the parameter error="insufficient_scope". The wording is the same in both revisions. That a token is insufficient is not known from outside: it is what narrowScopes says in --config, so the check asks for the narrow token only when the full-scope token is accepted and the authorization server has issued a narrower one, and takes the operator\'s word that the endpoint needs the wider scope. The level is that of the quoted SHOULD.',
+    specRefs: [
+      ref(L, AUTH, 'Runtime Insufficient Scope Errors'),
+      ref(M, AUTH, 'Runtime Insufficient Scope Errors'),
+    ],
+    eras: BOTH,
+    needsFixture: true,
+  }),
+  oauth({
     id: 'oauth-reg-prereg',
     title: 'A pre-registered client is accepted',
     description:

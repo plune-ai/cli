@@ -105,6 +105,21 @@ export interface AuthOpts {
   /** The token response: `ok` (default), `no-type`, `mac`, `bearer-lower`, `no-expires`, `no-token`. */
   /** The `token_type` of the token response, exactly as given (any JSON value). */
   tokenType?: unknown;
+  /**
+   * What the MCP endpoint answers to a token whose granted scope lacks `mcp:tools`: `require-full` is 403 with an
+   * insufficient_scope challenge; `unauthorized` is 401; `forbidden-plain` is 403 with no error. Without it any scope is taken.
+   */
+  scopeRule?: 'require-full' | 'unauthorized' | 'forbidden-plain' | Odd;
+  /**
+   * What the token endpoint does with the scope asked for: `echo` grants it and says so in the answer; `full` ignores it
+   * and grants `mcp:tools mcp:read`, saying so; `refuse-narrow` answers invalid_scope to a request without `mcp:tools`.
+   * Without it the scope is granted and the answer has no `scope` field.
+   */
+  tokenScope?: 'echo' | 'full' | 'refuse-narrow' | 'drop-narrow';
+  /** The `token_type` of a token asked for without `mcp:tools`, in place of Bearer. */
+  narrowTokenType?: string;
+  /** Where the token endpoint redirects a request for a token without `mcp:tools`. */
+  narrowRedirect?: string;
   tokenResponse?: 'ok' | 'no-type' | 'mac' | 'dpop' | 'bearer-lower' | 'no-expires' | 'no-token';
   /**
    * What the access token is: `opaque` (default), or a JWT built when it is issued, without a signature, whose `aud`
@@ -170,6 +185,8 @@ export interface AuthFixture {
 export type Odd = { status: number; location?: string } | 'drop' | 'hang';
 
 export const CLIENT_ID = 'plune-test-client';
+/** What `tokenScope: 'full'` grants, and the scope `scopeRule` asks for. */
+export const FULL_SCOPE = 'mcp:tools mcp:read';
 /** The authorization code and the state a redirect of this server carries (the state is not the one the suite sends). */
 export const AUTH_CODE = 'zq7Kx9mWv3RtLb5N';
 export const AUTH_STATE = 'st8Vn3Yb6HdQe2Ux';
@@ -196,6 +213,7 @@ const readBody = (req: IncomingMessage): Promise<string> =>
 
 export async function authFixture(o: AuthOpts = {}, seen: Seen[] = []): Promise<AuthFixture> {
   const issued = new Map<string, string>();
+  const granted = new Map<string, string>();
   const clients = new Map<string, { token: string }>();
   const registered: string[] = [];
   const deleted: string[] = [];
@@ -248,6 +266,31 @@ export async function authFixture(o: AuthOpts = {}, seen: Seen[] = []): Promise<
           : o.audience !== 'refuse-all' &&
             aud !== undefined &&
             (aud === resource() || o.audience === 'lax');
+      if (
+        fine &&
+        o.scopeRule !== undefined &&
+        !(granted.get(token ?? '') ?? '').split(' ').includes('mcp:tools')
+      ) {
+        if (typeof o.scopeRule === 'object') {
+          const v = o.scopeRule;
+          res.writeHead(v.status, v.location === undefined ? {} : { location: v.location }).end();
+          return;
+        }
+        if (o.scopeRule === 'drop') {
+          req.socket.destroy();
+          return;
+        }
+        if (o.scopeRule === 'hang') return;
+        if (o.scopeRule === 'unauthorized') return json(res, 401, { error: 'invalid_token' });
+        return json(
+          res,
+          403,
+          { error: 'insufficient_scope' },
+          o.scopeRule === 'require-full'
+            ? { 'www-authenticate': 'Bearer error="insufficient_scope", scope="mcp:tools"' }
+            : {},
+        );
+      }
       if (fine) return json(res, 200, { jsonrpc: '2.0', id: 'x', result: {} });
       const params = [
         ...(o.challenge === 'url' || o.challenge === undefined
@@ -477,6 +520,30 @@ export async function authFixture(o: AuthOpts = {}, seen: Seen[] = []): Promise<
       if (forced(wanted === resource() ? 'token:own' : 'token:other')) return;
       if (o.otherResource === 'refuse' && wanted !== resource())
         return json(res, 400, { error: 'invalid_target' });
+      const asked = form.get('scope');
+      if (
+        o.tokenScope === 'drop-narrow' &&
+        asked !== null &&
+        !asked.split(' ').includes('mcp:tools')
+      ) {
+        req.socket.destroy();
+        return;
+      }
+      if (
+        o.narrowRedirect !== undefined &&
+        asked !== null &&
+        !asked.split(' ').includes('mcp:tools')
+      ) {
+        res.writeHead(302, { location: o.narrowRedirect }).end();
+        return;
+      }
+      if (
+        o.tokenScope === 'refuse-narrow' &&
+        asked !== null &&
+        !asked.split(' ').includes('mcp:tools')
+      )
+        return json(res, 400, { error: 'invalid_scope' });
+      const scopeGranted = o.tokenScope === 'full' ? FULL_SCOPE : (asked ?? FULL_SCOPE);
       const serial = o.sameToken === true ? 1 : ++counter;
       const part = (v: unknown) => Buffer.from(JSON.stringify(v)).toString('base64url');
       const shape = o.tokenShape ?? 'opaque';
@@ -493,6 +560,7 @@ export async function authFixture(o: AuthOpts = {}, seen: Seen[] = []): Promise<
             ? `at-${serial}-7c1d9e5b3f2a8064`
             : `${part({ alg: 'none', typ: 'JWT' })}.${part({ iss: origin, jti: `j${serial}`, ...(shape === 'jwt-no-aud' ? {} : { aud }) })}.sig`;
       issued.set(token, o.sameToken === true ? resource() : wanted);
+      granted.set(token, scopeGranted);
       const t = o.tokenResponse ?? 'ok';
       return json(res, 200, {
         ...(t === 'no-token' ? {} : { access_token: token }),
@@ -500,17 +568,21 @@ export async function authFixture(o: AuthOpts = {}, seen: Seen[] = []): Promise<
           ? {}
           : {
               token_type:
-                o.tokenType !== undefined
-                  ? o.tokenType
-                  : t === 'mac'
-                    ? 'mac'
-                    : t === 'dpop'
-                      ? 'DPoP'
-                      : t === 'bearer-lower'
-                        ? 'bearer'
-                        : 'Bearer',
+                o.narrowTokenType !== undefined &&
+                !(asked ?? FULL_SCOPE).split(' ').includes('mcp:tools')
+                  ? o.narrowTokenType
+                  : o.tokenType !== undefined
+                    ? o.tokenType
+                    : t === 'mac'
+                      ? 'mac'
+                      : t === 'dpop'
+                        ? 'DPoP'
+                        : t === 'bearer-lower'
+                          ? 'bearer'
+                          : 'Bearer',
             }),
         ...(t === 'no-expires' ? {} : { expires_in: 300 }),
+        ...(o.tokenScope === 'echo' || o.tokenScope === 'full' ? { scope: scopeGranted } : {}),
         ...(o.tokenExtras === true
           ? { refresh_token: 'rt-9b2e47c1a8d03f65', id_token: 'idt-3c7a5e91f2b840d6' }
           : {}),
