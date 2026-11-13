@@ -1000,7 +1000,7 @@ export function createProgram(): Command {
     .option('--active', 'Active probes against a server that is yours: only the calls in --probes, with consent and a budget. Without --probes, or if one does not run, exit 3', false)
     .option('--probes <file>', 'With --active: the JSON file of the calls a probe may make (id, tool, arguments, as, expect)')
     .option('--confirm-host <host>', 'With --active: the host of a --url that is not on this machine, exactly as the URL has it; without it nothing is sent')
-    .option('--yes', 'With --active: accept the command printed for a stdio server (no probe of this version runs on stdio)', false)
+    .option('--yes', 'With --active: let a probe start the command of a stdio server (printed first, secrets masked); the authentication probes are not applicable on stdio, the malformed and fetch probes run, and the child is stopped on every way out', false)
     .option('--max-calls <n>', 'With --active: at most this many tools/call (default 8)')
     .option('--max-requests <n>', 'With --active: at most this many requests of any kind (default 40)')
     .option('--journal <file>', 'With --active: write every frame the probes send and every answer here, one JSON line each, with no token and no response body')
