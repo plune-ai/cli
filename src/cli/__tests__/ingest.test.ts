@@ -10,7 +10,7 @@ import {
   IngestNotLoggedInError,
   IngestTokenRejectedError,
 } from '../commands/ingest.js';
-import { readCairnRun } from '../commands/cairn-artifact.js';
+import { CairnArtifactShapeError, readCairnRun } from '../commands/cairn-artifact.js';
 import { jobCalls, jobRoutes, jobsFetch, platformJobs } from './job-platform.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -98,6 +98,22 @@ describe('handleIngest', () => {
     ).rejects.toThrow(/0\.7\.0/);
     expect(called).toBe(false);
   });
+
+  it('CLI · ingest · mcp run · uploads a cairn mcp-test run as mode mcp, with the verdicts it judged', async () => {
+    let body: { run?: { mode?: string }; cases?: { verdict?: string }[] } = {};
+    await handleIngest(
+      deps({
+        dir: path.join(fixture('mcp'), 'judged'),
+        fetchImpl: (async (_u: string, init: RequestInit) => {
+          body = JSON.parse(init.body as string) as typeof body;
+          return new Response('{}', { status: 201 });
+        }) as unknown as typeof fetch,
+      }),
+    );
+    expect(body.run?.mode).toBe('mcp');
+    expect(body.cases).toHaveLength(54);
+    expect(body.cases?.filter((c) => c.verdict !== undefined)).toHaveLength(5);
+  });
 });
 
 describe('reportIngestFailure — what the user can fix vs what they can retry', () => {
@@ -109,6 +125,7 @@ describe('reportIngestFailure — what the user can fix vs what they can retry',
   it.each([
     ['no token', new IngestNotLoggedInError(), 2],
     ['rejected token', new IngestTokenRejectedError(), 2],
+    ['unreadable mcp run', new CairnArtifactShapeError('mcp-evidence.json', '[0]', 'must be an object'), 2],
     ['unreachable api', new IngestNetworkError('https://api.test'), 1],
     ['server error', new IngestHttpError(500, 'boom'), 1],
   ])('%s exits %i with a message', (_label, err, code) => {

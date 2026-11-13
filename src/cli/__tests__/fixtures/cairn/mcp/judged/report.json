@@ -1,0 +1,1136 @@
+{
+  "schemaVersion": 1,
+  "runId": "f7",
+  "url": "node",
+  "mode": "mcp",
+  "mcp": {
+    "passed": 2,
+    "total": 6,
+    "toolCount": 6
+  },
+  "states": {
+    "passed": 2,
+    "failed": 3,
+    "not-sent": 48,
+    "could-not-run": 0,
+    "needs-review": 1
+  },
+  "guardrails": {
+    "policy": {
+      "allowTools": [
+        "echo",
+        "typed",
+        "plain"
+      ],
+      "allowReadOnlyHints": false,
+      "allowMutations": false,
+      "maxCalls": 100,
+      "rps": 2
+    },
+    "restsOnServerClaims": false,
+    "tools": [
+      {
+        "name": "crash",
+        "class": "unknown",
+        "readOnlyHint": true,
+        "destructiveName": false,
+        "unsafeName": false,
+        "ambiguous": false,
+        "claimClean": true,
+        "proposed": false,
+        "claimNote": "claims read-only; name does not start with a read verb"
+      },
+      {
+        "name": "echo",
+        "class": "unknown",
+        "readOnlyHint": true,
+        "destructiveName": false,
+        "unsafeName": false,
+        "ambiguous": false,
+        "claimClean": true,
+        "proposed": false,
+        "claimNote": "claims read-only; name does not start with a read verb"
+      },
+      {
+        "name": "hang",
+        "class": "unknown",
+        "readOnlyHint": true,
+        "destructiveName": false,
+        "unsafeName": false,
+        "ambiguous": false,
+        "claimClean": true,
+        "proposed": false,
+        "claimNote": "claims read-only; name does not start with a read verb"
+      },
+      {
+        "name": "plain",
+        "class": "unknown",
+        "readOnlyHint": true,
+        "destructiveName": false,
+        "unsafeName": false,
+        "ambiguous": false,
+        "claimClean": true,
+        "proposed": false,
+        "claimNote": "claims read-only; name does not start with a read verb"
+      },
+      {
+        "name": "shifty",
+        "class": "unknown",
+        "readOnlyHint": true,
+        "destructiveName": false,
+        "unsafeName": false,
+        "ambiguous": false,
+        "claimClean": true,
+        "proposed": false,
+        "claimNote": "claims read-only; name does not start with a read verb"
+      },
+      {
+        "name": "typed",
+        "class": "unknown",
+        "readOnlyHint": true,
+        "destructiveName": false,
+        "unsafeName": false,
+        "ambiguous": false,
+        "claimClean": true,
+        "proposed": false,
+        "claimNote": "claims read-only; name does not start with a read verb"
+      }
+    ],
+    "proposed": [],
+    "mismatches": [],
+    "changed": [
+      "shifty"
+    ],
+    "decisions": [
+      {
+        "tool": "crash",
+        "allowed": false,
+        "reason": "not allowed"
+      },
+      {
+        "tool": "crash",
+        "allowed": false,
+        "reason": "not allowed"
+      },
+      {
+        "tool": "crash",
+        "allowed": false,
+        "reason": "not allowed"
+      },
+      {
+        "tool": "echo",
+        "allowed": true,
+        "reason": "named in --allow-tools",
+        "basis": "named"
+      },
+      {
+        "tool": "echo",
+        "allowed": true,
+        "reason": "named in --allow-tools",
+        "basis": "named"
+      },
+      {
+        "tool": "echo",
+        "allowed": true,
+        "reason": "named in --allow-tools",
+        "basis": "named"
+      },
+      {
+        "tool": "hang",
+        "allowed": false,
+        "reason": "not allowed"
+      },
+      {
+        "tool": "hang",
+        "allowed": false,
+        "reason": "not allowed"
+      },
+      {
+        "tool": "hang",
+        "allowed": false,
+        "reason": "not allowed"
+      },
+      {
+        "tool": "shifty",
+        "allowed": false,
+        "reason": "changed since permission"
+      },
+      {
+        "tool": "shifty",
+        "allowed": false,
+        "reason": "changed since permission"
+      },
+      {
+        "tool": "shifty",
+        "allowed": false,
+        "reason": "changed since permission"
+      },
+      {
+        "tool": "typed",
+        "allowed": true,
+        "reason": "named in --allow-tools",
+        "basis": "named"
+      },
+      {
+        "tool": "typed",
+        "allowed": true,
+        "reason": "named in --allow-tools",
+        "basis": "named"
+      },
+      {
+        "tool": "typed",
+        "allowed": true,
+        "reason": "named in --allow-tools",
+        "basis": "named"
+      },
+      {
+        "tool": "crash",
+        "style": "psycho",
+        "allowed": false,
+        "reason": "mutations not allowed"
+      },
+      {
+        "tool": "crash",
+        "style": "psycho",
+        "allowed": false,
+        "reason": "mutations not allowed"
+      },
+      {
+        "tool": "crash",
+        "style": "psycho",
+        "allowed": false,
+        "reason": "mutations not allowed"
+      },
+      {
+        "tool": "crash",
+        "style": "psycho",
+        "allowed": false,
+        "reason": "mutations not allowed"
+      },
+      {
+        "tool": "crash",
+        "style": "psycho",
+        "allowed": false,
+        "reason": "mutations not allowed"
+      },
+      {
+        "tool": "crash",
+        "style": "hacker",
+        "allowed": false,
+        "reason": "mutations not allowed"
+      },
+      {
+        "tool": "crash",
+        "style": "hacker",
+        "allowed": false,
+        "reason": "mutations not allowed"
+      },
+      {
+        "tool": "crash",
+        "style": "hacker",
+        "allowed": false,
+        "reason": "mutations not allowed"
+      },
+      {
+        "tool": "crash",
+        "style": "hacker",
+        "allowed": false,
+        "reason": "mutations not allowed"
+      },
+      {
+        "tool": "echo",
+        "style": "psycho",
+        "allowed": false,
+        "reason": "mutations not allowed"
+      },
+      {
+        "tool": "echo",
+        "style": "psycho",
+        "allowed": false,
+        "reason": "mutations not allowed"
+      },
+      {
+        "tool": "echo",
+        "style": "psycho",
+        "allowed": false,
+        "reason": "mutations not allowed"
+      },
+      {
+        "tool": "echo",
+        "style": "psycho",
+        "allowed": false,
+        "reason": "mutations not allowed"
+      },
+      {
+        "tool": "echo",
+        "style": "psycho",
+        "allowed": false,
+        "reason": "mutations not allowed"
+      },
+      {
+        "tool": "echo",
+        "style": "hacker",
+        "allowed": false,
+        "reason": "mutations not allowed"
+      },
+      {
+        "tool": "echo",
+        "style": "hacker",
+        "allowed": false,
+        "reason": "mutations not allowed"
+      },
+      {
+        "tool": "echo",
+        "style": "hacker",
+        "allowed": false,
+        "reason": "mutations not allowed"
+      },
+      {
+        "tool": "echo",
+        "style": "hacker",
+        "allowed": false,
+        "reason": "mutations not allowed"
+      },
+      {
+        "tool": "hang",
+        "style": "psycho",
+        "allowed": false,
+        "reason": "mutations not allowed"
+      },
+      {
+        "tool": "hang",
+        "style": "psycho",
+        "allowed": false,
+        "reason": "mutations not allowed"
+      },
+      {
+        "tool": "hang",
+        "style": "psycho",
+        "allowed": false,
+        "reason": "mutations not allowed"
+      },
+      {
+        "tool": "hang",
+        "style": "psycho",
+        "allowed": false,
+        "reason": "mutations not allowed"
+      },
+      {
+        "tool": "hang",
+        "style": "psycho",
+        "allowed": false,
+        "reason": "mutations not allowed"
+      },
+      {
+        "tool": "hang",
+        "style": "hacker",
+        "allowed": false,
+        "reason": "mutations not allowed"
+      },
+      {
+        "tool": "hang",
+        "style": "hacker",
+        "allowed": false,
+        "reason": "mutations not allowed"
+      },
+      {
+        "tool": "hang",
+        "style": "hacker",
+        "allowed": false,
+        "reason": "mutations not allowed"
+      },
+      {
+        "tool": "hang",
+        "style": "hacker",
+        "allowed": false,
+        "reason": "mutations not allowed"
+      },
+      {
+        "tool": "shifty",
+        "style": "psycho",
+        "allowed": false,
+        "reason": "changed since permission"
+      },
+      {
+        "tool": "shifty",
+        "style": "psycho",
+        "allowed": false,
+        "reason": "changed since permission"
+      },
+      {
+        "tool": "shifty",
+        "style": "psycho",
+        "allowed": false,
+        "reason": "changed since permission"
+      },
+      {
+        "tool": "shifty",
+        "style": "psycho",
+        "allowed": false,
+        "reason": "changed since permission"
+      },
+      {
+        "tool": "shifty",
+        "style": "psycho",
+        "allowed": false,
+        "reason": "changed since permission"
+      },
+      {
+        "tool": "shifty",
+        "style": "hacker",
+        "allowed": false,
+        "reason": "changed since permission"
+      },
+      {
+        "tool": "shifty",
+        "style": "hacker",
+        "allowed": false,
+        "reason": "changed since permission"
+      },
+      {
+        "tool": "shifty",
+        "style": "hacker",
+        "allowed": false,
+        "reason": "changed since permission"
+      },
+      {
+        "tool": "shifty",
+        "style": "hacker",
+        "allowed": false,
+        "reason": "changed since permission"
+      },
+      {
+        "tool": "typed",
+        "style": "psycho",
+        "allowed": false,
+        "reason": "mutations not allowed"
+      },
+      {
+        "tool": "typed",
+        "style": "psycho",
+        "allowed": false,
+        "reason": "mutations not allowed"
+      },
+      {
+        "tool": "typed",
+        "style": "psycho",
+        "allowed": false,
+        "reason": "mutations not allowed"
+      }
+    ],
+    "sent": 6,
+    "denied": 48,
+    "budgetExhausted": false,
+    "notes": [
+      "The server changed some tools after they were shown; calls to them are refused."
+    ]
+  },
+  "cases": [
+    {
+      "name": "crash · valid · required",
+      "stableId": "f106cbd33445",
+      "tool": "crash",
+      "kind": "valid",
+      "type": "Positive",
+      "technique": "equivalence-partitioning",
+      "rationale": "Only the required arguments, with the simplest values the schema allows.",
+      "state": "not-sent"
+    },
+    {
+      "name": "crash · missing-required · q",
+      "stableId": "329bdf5622e8",
+      "tool": "crash",
+      "kind": "missing-required",
+      "type": "Negative",
+      "technique": "error-guessing",
+      "rationale": "A required argument is left out; the schema forbids it.",
+      "state": "not-sent"
+    },
+    {
+      "name": "crash · wrong-type · q",
+      "stableId": "cfe07c201ab3",
+      "tool": "crash",
+      "kind": "wrong-type",
+      "type": "Negative",
+      "technique": "error-guessing",
+      "rationale": "An argument has a value of a type the schema does not allow.",
+      "state": "not-sent"
+    },
+    {
+      "name": "echo · valid · required",
+      "stableId": "373475b991dd",
+      "tool": "echo",
+      "kind": "valid",
+      "type": "Positive",
+      "technique": "equivalence-partitioning",
+      "rationale": "Only the required arguments, with the simplest values the schema allows.",
+      "state": "needs-review"
+    },
+    {
+      "name": "echo · missing-required · q",
+      "stableId": "40ca7413d6ac",
+      "tool": "echo",
+      "kind": "missing-required",
+      "type": "Negative",
+      "technique": "error-guessing",
+      "rationale": "A required argument is left out; the schema forbids it.",
+      "state": "passed"
+    },
+    {
+      "name": "echo · wrong-type · q",
+      "stableId": "99db32296eee",
+      "tool": "echo",
+      "kind": "wrong-type",
+      "type": "Negative",
+      "technique": "error-guessing",
+      "rationale": "An argument has a value of a type the schema does not allow.",
+      "state": "passed"
+    },
+    {
+      "name": "hang · valid · required",
+      "stableId": "0d33cd2f442f",
+      "tool": "hang",
+      "kind": "valid",
+      "type": "Positive",
+      "technique": "equivalence-partitioning",
+      "rationale": "Only the required arguments, with the simplest values the schema allows.",
+      "state": "not-sent"
+    },
+    {
+      "name": "hang · missing-required · q",
+      "stableId": "fbbd22248901",
+      "tool": "hang",
+      "kind": "missing-required",
+      "type": "Negative",
+      "technique": "error-guessing",
+      "rationale": "A required argument is left out; the schema forbids it.",
+      "state": "not-sent"
+    },
+    {
+      "name": "hang · wrong-type · q",
+      "stableId": "dc2d8f052792",
+      "tool": "hang",
+      "kind": "wrong-type",
+      "type": "Negative",
+      "technique": "error-guessing",
+      "rationale": "An argument has a value of a type the schema does not allow.",
+      "state": "not-sent"
+    },
+    {
+      "name": "shifty · valid · required",
+      "stableId": "6363703e7d7a",
+      "tool": "shifty",
+      "kind": "valid",
+      "type": "Positive",
+      "technique": "equivalence-partitioning",
+      "rationale": "Only the required arguments, with the simplest values the schema allows.",
+      "state": "not-sent"
+    },
+    {
+      "name": "shifty · missing-required · q",
+      "stableId": "7986a4864ad9",
+      "tool": "shifty",
+      "kind": "missing-required",
+      "type": "Negative",
+      "technique": "error-guessing",
+      "rationale": "A required argument is left out; the schema forbids it.",
+      "state": "not-sent"
+    },
+    {
+      "name": "shifty · wrong-type · q",
+      "stableId": "586cbc7738c1",
+      "tool": "shifty",
+      "kind": "wrong-type",
+      "type": "Negative",
+      "technique": "error-guessing",
+      "rationale": "An argument has a value of a type the schema does not allow.",
+      "state": "not-sent"
+    },
+    {
+      "name": "typed · valid · required",
+      "stableId": "f5d9dcca4c8b",
+      "tool": "typed",
+      "kind": "valid",
+      "type": "Positive",
+      "technique": "equivalence-partitioning",
+      "rationale": "Only the required arguments, with the simplest values the schema allows.",
+      "state": "failed"
+    },
+    {
+      "name": "typed · missing-required · n",
+      "stableId": "fa66654ec9a5",
+      "tool": "typed",
+      "kind": "missing-required",
+      "type": "Negative",
+      "technique": "error-guessing",
+      "rationale": "A required argument is left out; the schema forbids it.",
+      "state": "failed"
+    },
+    {
+      "name": "typed · wrong-type · n",
+      "stableId": "0bba083e2f5e",
+      "tool": "typed",
+      "kind": "wrong-type",
+      "type": "Negative",
+      "technique": "error-guessing",
+      "rationale": "An argument has a value of a type the schema does not allow.",
+      "state": "failed"
+    },
+    {
+      "name": "crash · psycho · long-string · q",
+      "stableId": "425edae07880",
+      "tool": "crash",
+      "kind": "long-string",
+      "type": "Positive",
+      "technique": "boundary-value",
+      "rationale": "A string of 100000 characters.",
+      "adversarialStyle": "psycho",
+      "state": "not-sent"
+    },
+    {
+      "name": "crash · psycho · empty-string · q",
+      "stableId": "5fa06223781d",
+      "tool": "crash",
+      "kind": "empty-string",
+      "type": "Positive",
+      "technique": "boundary-value",
+      "rationale": "An empty string.",
+      "adversarialStyle": "psycho",
+      "state": "not-sent"
+    },
+    {
+      "name": "crash · psycho · null-byte · q",
+      "stableId": "49990fd38ed0",
+      "tool": "crash",
+      "kind": "null-byte",
+      "type": "Positive",
+      "technique": "error-guessing",
+      "rationale": "A string with a byte of zero inside.",
+      "adversarialStyle": "psycho",
+      "state": "not-sent"
+    },
+    {
+      "name": "crash · psycho · lone-surrogate · q",
+      "stableId": "291718a5c50d",
+      "tool": "crash",
+      "kind": "lone-surrogate",
+      "type": "Positive",
+      "technique": "error-guessing",
+      "rationale": "A string with an unpaired surrogate (not valid Unicode text).",
+      "adversarialStyle": "psycho",
+      "state": "not-sent"
+    },
+    {
+      "name": "crash · psycho · proto-key · (root)",
+      "stableId": "e281522f192b",
+      "tool": "crash",
+      "kind": "proto-key",
+      "type": "Positive",
+      "technique": "error-guessing",
+      "rationale": "An own key called __proto__ among the arguments.",
+      "adversarialStyle": "psycho",
+      "state": "not-sent"
+    },
+    {
+      "name": "crash · hacker · sql-injection · q",
+      "stableId": "79a7fe44269f",
+      "tool": "crash",
+      "kind": "sql-injection",
+      "type": "Positive",
+      "technique": "error-guessing",
+      "rationale": "A piece of SQL (WSTG-INPV-05): a harmless string that a careful server refuses or treats as plain text.",
+      "adversarialStyle": "hacker",
+      "state": "not-sent"
+    },
+    {
+      "name": "crash · hacker · script-injection · q",
+      "stableId": "93fe6d90b2e2",
+      "tool": "crash",
+      "kind": "script-injection",
+      "type": "Positive",
+      "technique": "error-guessing",
+      "rationale": "A script tag (WSTG-INPV-01): a harmless string that a careful server refuses or treats as plain text.",
+      "adversarialStyle": "hacker",
+      "state": "not-sent"
+    },
+    {
+      "name": "crash · hacker · command-substitution · q",
+      "stableId": "70707c701563",
+      "tool": "crash",
+      "kind": "command-substitution",
+      "type": "Positive",
+      "technique": "error-guessing",
+      "rationale": "A shell command substitution that names no real command (WSTG-INPV-12): a harmless string that a careful server refuses or treats as plain text.",
+      "adversarialStyle": "hacker",
+      "state": "not-sent"
+    },
+    {
+      "name": "crash · hacker · path-traversal · q",
+      "stableId": "9d4765361d49",
+      "tool": "crash",
+      "kind": "path-traversal",
+      "type": "Positive",
+      "technique": "error-guessing",
+      "rationale": "A path that goes up to a name that does not exist (WSTG-ATHZ-01): a harmless string that a careful server refuses or treats as plain text.",
+      "adversarialStyle": "hacker",
+      "state": "not-sent"
+    },
+    {
+      "name": "echo · psycho · long-string · q",
+      "stableId": "17c3c8054c2b",
+      "tool": "echo",
+      "kind": "long-string",
+      "type": "Positive",
+      "technique": "boundary-value",
+      "rationale": "A string of 100000 characters.",
+      "adversarialStyle": "psycho",
+      "state": "not-sent"
+    },
+    {
+      "name": "echo · psycho · empty-string · q",
+      "stableId": "71c44781743f",
+      "tool": "echo",
+      "kind": "empty-string",
+      "type": "Positive",
+      "technique": "boundary-value",
+      "rationale": "An empty string.",
+      "adversarialStyle": "psycho",
+      "state": "not-sent"
+    },
+    {
+      "name": "echo · psycho · null-byte · q",
+      "stableId": "9e758af9b4c7",
+      "tool": "echo",
+      "kind": "null-byte",
+      "type": "Positive",
+      "technique": "error-guessing",
+      "rationale": "A string with a byte of zero inside.",
+      "adversarialStyle": "psycho",
+      "state": "not-sent"
+    },
+    {
+      "name": "echo · psycho · lone-surrogate · q",
+      "stableId": "c844f7efe15a",
+      "tool": "echo",
+      "kind": "lone-surrogate",
+      "type": "Positive",
+      "technique": "error-guessing",
+      "rationale": "A string with an unpaired surrogate (not valid Unicode text).",
+      "adversarialStyle": "psycho",
+      "state": "not-sent"
+    },
+    {
+      "name": "echo · psycho · proto-key · (root)",
+      "stableId": "5871b3a5340d",
+      "tool": "echo",
+      "kind": "proto-key",
+      "type": "Positive",
+      "technique": "error-guessing",
+      "rationale": "An own key called __proto__ among the arguments.",
+      "adversarialStyle": "psycho",
+      "state": "not-sent"
+    },
+    {
+      "name": "echo · hacker · sql-injection · q",
+      "stableId": "975f736daf6a",
+      "tool": "echo",
+      "kind": "sql-injection",
+      "type": "Positive",
+      "technique": "error-guessing",
+      "rationale": "A piece of SQL (WSTG-INPV-05): a harmless string that a careful server refuses or treats as plain text.",
+      "adversarialStyle": "hacker",
+      "state": "not-sent"
+    },
+    {
+      "name": "echo · hacker · script-injection · q",
+      "stableId": "b1eb7b687669",
+      "tool": "echo",
+      "kind": "script-injection",
+      "type": "Positive",
+      "technique": "error-guessing",
+      "rationale": "A script tag (WSTG-INPV-01): a harmless string that a careful server refuses or treats as plain text.",
+      "adversarialStyle": "hacker",
+      "state": "not-sent"
+    },
+    {
+      "name": "echo · hacker · command-substitution · q",
+      "stableId": "a511dbad624e",
+      "tool": "echo",
+      "kind": "command-substitution",
+      "type": "Positive",
+      "technique": "error-guessing",
+      "rationale": "A shell command substitution that names no real command (WSTG-INPV-12): a harmless string that a careful server refuses or treats as plain text.",
+      "adversarialStyle": "hacker",
+      "state": "not-sent"
+    },
+    {
+      "name": "echo · hacker · path-traversal · q",
+      "stableId": "addfa42f1c35",
+      "tool": "echo",
+      "kind": "path-traversal",
+      "type": "Positive",
+      "technique": "error-guessing",
+      "rationale": "A path that goes up to a name that does not exist (WSTG-ATHZ-01): a harmless string that a careful server refuses or treats as plain text.",
+      "adversarialStyle": "hacker",
+      "state": "not-sent"
+    },
+    {
+      "name": "hang · psycho · long-string · q",
+      "stableId": "a536ca5f81b7",
+      "tool": "hang",
+      "kind": "long-string",
+      "type": "Positive",
+      "technique": "boundary-value",
+      "rationale": "A string of 100000 characters.",
+      "adversarialStyle": "psycho",
+      "state": "not-sent"
+    },
+    {
+      "name": "hang · psycho · empty-string · q",
+      "stableId": "1dcc40919927",
+      "tool": "hang",
+      "kind": "empty-string",
+      "type": "Positive",
+      "technique": "boundary-value",
+      "rationale": "An empty string.",
+      "adversarialStyle": "psycho",
+      "state": "not-sent"
+    },
+    {
+      "name": "hang · psycho · null-byte · q",
+      "stableId": "8d49aef080cf",
+      "tool": "hang",
+      "kind": "null-byte",
+      "type": "Positive",
+      "technique": "error-guessing",
+      "rationale": "A string with a byte of zero inside.",
+      "adversarialStyle": "psycho",
+      "state": "not-sent"
+    },
+    {
+      "name": "hang · psycho · lone-surrogate · q",
+      "stableId": "a94ea3d5edfc",
+      "tool": "hang",
+      "kind": "lone-surrogate",
+      "type": "Positive",
+      "technique": "error-guessing",
+      "rationale": "A string with an unpaired surrogate (not valid Unicode text).",
+      "adversarialStyle": "psycho",
+      "state": "not-sent"
+    },
+    {
+      "name": "hang · psycho · proto-key · (root)",
+      "stableId": "b61685c66a28",
+      "tool": "hang",
+      "kind": "proto-key",
+      "type": "Positive",
+      "technique": "error-guessing",
+      "rationale": "An own key called __proto__ among the arguments.",
+      "adversarialStyle": "psycho",
+      "state": "not-sent"
+    },
+    {
+      "name": "hang · hacker · sql-injection · q",
+      "stableId": "f9dc901cbebc",
+      "tool": "hang",
+      "kind": "sql-injection",
+      "type": "Positive",
+      "technique": "error-guessing",
+      "rationale": "A piece of SQL (WSTG-INPV-05): a harmless string that a careful server refuses or treats as plain text.",
+      "adversarialStyle": "hacker",
+      "state": "not-sent"
+    },
+    {
+      "name": "hang · hacker · script-injection · q",
+      "stableId": "06e63189406b",
+      "tool": "hang",
+      "kind": "script-injection",
+      "type": "Positive",
+      "technique": "error-guessing",
+      "rationale": "A script tag (WSTG-INPV-01): a harmless string that a careful server refuses or treats as plain text.",
+      "adversarialStyle": "hacker",
+      "state": "not-sent"
+    },
+    {
+      "name": "hang · hacker · command-substitution · q",
+      "stableId": "a021182e2582",
+      "tool": "hang",
+      "kind": "command-substitution",
+      "type": "Positive",
+      "technique": "error-guessing",
+      "rationale": "A shell command substitution that names no real command (WSTG-INPV-12): a harmless string that a careful server refuses or treats as plain text.",
+      "adversarialStyle": "hacker",
+      "state": "not-sent"
+    },
+    {
+      "name": "hang · hacker · path-traversal · q",
+      "stableId": "3218e21dc384",
+      "tool": "hang",
+      "kind": "path-traversal",
+      "type": "Positive",
+      "technique": "error-guessing",
+      "rationale": "A path that goes up to a name that does not exist (WSTG-ATHZ-01): a harmless string that a careful server refuses or treats as plain text.",
+      "adversarialStyle": "hacker",
+      "state": "not-sent"
+    },
+    {
+      "name": "shifty · psycho · long-string · q",
+      "stableId": "ad983f8fc91c",
+      "tool": "shifty",
+      "kind": "long-string",
+      "type": "Positive",
+      "technique": "boundary-value",
+      "rationale": "A string of 100000 characters.",
+      "adversarialStyle": "psycho",
+      "state": "not-sent"
+    },
+    {
+      "name": "shifty · psycho · empty-string · q",
+      "stableId": "3f4b2c5e8278",
+      "tool": "shifty",
+      "kind": "empty-string",
+      "type": "Positive",
+      "technique": "boundary-value",
+      "rationale": "An empty string.",
+      "adversarialStyle": "psycho",
+      "state": "not-sent"
+    },
+    {
+      "name": "shifty · psycho · null-byte · q",
+      "stableId": "87a1f034491c",
+      "tool": "shifty",
+      "kind": "null-byte",
+      "type": "Positive",
+      "technique": "error-guessing",
+      "rationale": "A string with a byte of zero inside.",
+      "adversarialStyle": "psycho",
+      "state": "not-sent"
+    },
+    {
+      "name": "shifty · psycho · lone-surrogate · q",
+      "stableId": "8da1f0e5840b",
+      "tool": "shifty",
+      "kind": "lone-surrogate",
+      "type": "Positive",
+      "technique": "error-guessing",
+      "rationale": "A string with an unpaired surrogate (not valid Unicode text).",
+      "adversarialStyle": "psycho",
+      "state": "not-sent"
+    },
+    {
+      "name": "shifty · psycho · proto-key · (root)",
+      "stableId": "1fafbb9e0df2",
+      "tool": "shifty",
+      "kind": "proto-key",
+      "type": "Positive",
+      "technique": "error-guessing",
+      "rationale": "An own key called __proto__ among the arguments.",
+      "adversarialStyle": "psycho",
+      "state": "not-sent"
+    },
+    {
+      "name": "shifty · hacker · sql-injection · q",
+      "stableId": "f53525248dfa",
+      "tool": "shifty",
+      "kind": "sql-injection",
+      "type": "Positive",
+      "technique": "error-guessing",
+      "rationale": "A piece of SQL (WSTG-INPV-05): a harmless string that a careful server refuses or treats as plain text.",
+      "adversarialStyle": "hacker",
+      "state": "not-sent"
+    },
+    {
+      "name": "shifty · hacker · script-injection · q",
+      "stableId": "d6467b756fb1",
+      "tool": "shifty",
+      "kind": "script-injection",
+      "type": "Positive",
+      "technique": "error-guessing",
+      "rationale": "A script tag (WSTG-INPV-01): a harmless string that a careful server refuses or treats as plain text.",
+      "adversarialStyle": "hacker",
+      "state": "not-sent"
+    },
+    {
+      "name": "shifty · hacker · command-substitution · q",
+      "stableId": "03ee0bfa8b23",
+      "tool": "shifty",
+      "kind": "command-substitution",
+      "type": "Positive",
+      "technique": "error-guessing",
+      "rationale": "A shell command substitution that names no real command (WSTG-INPV-12): a harmless string that a careful server refuses or treats as plain text.",
+      "adversarialStyle": "hacker",
+      "state": "not-sent"
+    },
+    {
+      "name": "shifty · hacker · path-traversal · q",
+      "stableId": "8409062e4ee3",
+      "tool": "shifty",
+      "kind": "path-traversal",
+      "type": "Positive",
+      "technique": "error-guessing",
+      "rationale": "A path that goes up to a name that does not exist (WSTG-ATHZ-01): a harmless string that a careful server refuses or treats as plain text.",
+      "adversarialStyle": "hacker",
+      "state": "not-sent"
+    },
+    {
+      "name": "typed · psycho · max-safe-integer · n",
+      "stableId": "4d592c8cf39b",
+      "tool": "typed",
+      "kind": "max-safe-integer",
+      "type": "Positive",
+      "technique": "boundary-value",
+      "rationale": "The largest integer a JSON number carries exactly, in a numeric parameter.",
+      "adversarialStyle": "psycho",
+      "state": "not-sent"
+    },
+    {
+      "name": "typed · psycho · negative-number · n",
+      "stableId": "bebde0385745",
+      "tool": "typed",
+      "kind": "negative-number",
+      "type": "Positive",
+      "technique": "boundary-value",
+      "rationale": "A negative number, in a place where a count or an index is often expected.",
+      "adversarialStyle": "psycho",
+      "state": "not-sent"
+    },
+    {
+      "name": "typed · psycho · proto-key · (root)",
+      "stableId": "06ba67c9a715",
+      "tool": "typed",
+      "kind": "proto-key",
+      "type": "Positive",
+      "technique": "error-guessing",
+      "rationale": "An own key called __proto__ among the arguments.",
+      "adversarialStyle": "psycho",
+      "state": "not-sent"
+    }
+  ],
+  "coverage": {
+    "toolCount": 6,
+    "coveredCount": 2,
+    "partialCount": 0,
+    "uncoveredCount": 4,
+    "ratio": 0.3333333333333333,
+    "tools": [
+      {
+        "tool": "crash",
+        "status": "uncovered",
+        "judged": 0,
+        "params": {
+          "sent": 0,
+          "total": 1
+        },
+        "enumValues": {
+          "sent": 0,
+          "total": 0
+        },
+        "branches": {
+          "sent": 0,
+          "total": 0
+        }
+      },
+      {
+        "tool": "echo",
+        "status": "covered",
+        "judged": 3,
+        "params": {
+          "sent": 1,
+          "total": 1
+        },
+        "enumValues": {
+          "sent": 0,
+          "total": 0
+        },
+        "branches": {
+          "sent": 0,
+          "total": 0
+        }
+      },
+      {
+        "tool": "hang",
+        "status": "uncovered",
+        "judged": 0,
+        "params": {
+          "sent": 0,
+          "total": 1
+        },
+        "enumValues": {
+          "sent": 0,
+          "total": 0
+        },
+        "branches": {
+          "sent": 0,
+          "total": 0
+        }
+      },
+      {
+        "tool": "plain",
+        "status": "uncovered",
+        "judged": 0,
+        "params": {
+          "sent": 0,
+          "total": 0
+        },
+        "enumValues": {
+          "sent": 0,
+          "total": 0
+        },
+        "branches": {
+          "sent": 0,
+          "total": 0
+        }
+      },
+      {
+        "tool": "shifty",
+        "status": "uncovered",
+        "judged": 0,
+        "params": {
+          "sent": 0,
+          "total": 1
+        },
+        "enumValues": {
+          "sent": 0,
+          "total": 0
+        },
+        "branches": {
+          "sent": 0,
+          "total": 0
+        }
+      },
+      {
+        "tool": "typed",
+        "status": "covered",
+        "judged": 3,
+        "params": {
+          "sent": 1,
+          "total": 1
+        },
+        "enumValues": {
+          "sent": 0,
+          "total": 0
+        },
+        "branches": {
+          "sent": 0,
+          "total": 0
+        }
+      }
+    ],
+    "notMeasured": [
+      "crash",
+      "hang",
+      "plain",
+      "shifty"
+    ]
+  },
+  "stdioSizeCounter": "active",
+  "advice": {
+    "internalErrorsOnHostileInput": 0
+  },
+  "findings": [],
+  "cost": {
+    "usd": 0,
+    "tokens": 0,
+    "model": false
+  }
+}
