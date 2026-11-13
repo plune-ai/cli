@@ -73,3 +73,15 @@ describe('CLI · mcp conformance · oauth --config through the program', () => {
     expect(report.matrix).toEqual({ revision: '2026-07-28', registration: 'preregistered' });
   });
 });
+
+describe('CLI · mcp conformance · --config help · says what the file may be', () => {
+  it('names YAML as well as JSON, as the loader accepts both', () => {
+    const conformance = createProgram()
+      .commands.find((c) => c.name() === 'mcp')!
+      .commands.find((c) => c.name() === 'conformance')!;
+    const text = conformance.options.find((o) => o.long === '--config')!.description;
+    expect(text).toMatch(/JSON file, or a YAML file/);
+    expect(text).toMatch(/\.yaml/);
+    expect(text).not.toMatch(/^The oauth suite: a JSON file of/);
+  });
+});
