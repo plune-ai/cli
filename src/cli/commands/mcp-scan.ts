@@ -3,8 +3,8 @@
 // src/mcp-testing/scan/; the report and its formats in src/mcp-testing/scan/report.ts; this file reads, connects,
 // prints and exits. It never runs a command that a configuration file holds: that text is only read.
 
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { basename, isAbsolute, relative, resolve } from 'node:path';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { ConnectError } from '../../mcp-testing/connect/session.js';
 import {
   connectionConfig,
@@ -183,6 +183,66 @@ export async function handleMcpScan(
   }
 }
 
+/** The file a path names, for comparing: real path where it exists (else of its folder), case-folded on Windows. */
+function fileKey(cwd: string, path: string): string {
+  const full = resolve(cwd, path);
+  let real = full;
+  try {
+    real = realpathSync(full);
+  } catch {
+    try {
+      real = join(realpathSync(dirname(full)), basename(full));
+    } catch {
+      /* neither exists: the resolved path stands */
+    }
+  }
+  return process.platform === 'win32' ? real.toLowerCase() : real;
+}
+
+/**
+ * A file the command writes is not a file it reads, and no two writes are one file: a journal named like the probe
+ * file would turn the probe file into a journal. Checked before anything is opened for writing and before any frame.
+ */
+function noSharedFiles(
+  flags: McpScanFlags,
+  outputs: { files: { path: string }[] },
+  cwd: string,
+): void {
+  const reads: [string, string][] = [
+    ...(flags.snapshot ?? []).map((spec): [string, string] => [
+      '--snapshot',
+      /^[A-Za-z0-9_.-]+=(.+)$/s.exec(spec)?.[1] ?? spec,
+    ]),
+    ...(flags.config ?? []).map((p): [string, string] => ['--config', p]),
+    ...(flags.pinFile === undefined ? [] : ([['--pin-file', flags.pinFile]] as [string, string][])),
+    ...(flags.ignoreFile === undefined
+      ? []
+      : ([['--ignore-file', flags.ignoreFile]] as [string, string][])),
+    ...(flags.probes === undefined ? [] : ([['--probes', flags.probes]] as [string, string][])),
+  ];
+  const writes: [string, string][] = [
+    ...(flags.journal === undefined ? [] : ([['--journal', flags.journal]] as [string, string][])),
+    ...outputs.files.map((f): [string, string] => ['--out', f.path]),
+    ...(flags.saveSnapshot === undefined
+      ? []
+      : ([['--save-snapshot', flags.saveSnapshot]] as [string, string][])),
+    ...((flags as { debugOut?: string }).debugOut === undefined
+      ? []
+      : ([['--debug-out', (flags as { debugOut: string }).debugOut]] as [string, string][])),
+  ];
+  const seen = new Map<string, string>();
+  for (const [flag, path] of reads) seen.set(fileKey(cwd, path), flag);
+  for (const [flag, path] of writes) {
+    const key = fileKey(cwd, path);
+    const other = seen.get(key);
+    if (other !== undefined && other !== flag + '#w')
+      throw new UsageError(
+        `${flag} and ${other.replace('#w', '')} name the same file; a file the scan writes must not be one it reads or writes elsewhere.`,
+      );
+    seen.set(key, flag + '#w');
+  }
+}
+
 async function scan(flags: McpScanFlags, server: string[], io: ScanIo): Promise<number> {
   const failOn = (flags.failOn ?? 'error') as FailOn;
   if (!['error', 'warn', 'never'].includes(failOn))
@@ -197,6 +257,7 @@ async function scan(flags: McpScanFlags, server: string[], io: ScanIo): Promise<
       throw new UsageError(
         `--out: ${f.format} is not written by scan (${FILE_FORMATS.join(', ')}).`,
       );
+  noSharedFiles(flags, outputs, io.cwd);
   if (flags.client !== undefined && !(CLIENTS as string[]).includes(flags.client))
     throw new UsageError(`--client must be one of ${CLIENTS.join(', ')} (got "${flags.client}").`);
   const only = groupsOf('--only', flags.only);

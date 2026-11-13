@@ -15,6 +15,10 @@ export const MAX_LEAK_TEXT = 64 * 1024;
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 
+/** The most names of `required` or `properties` that are walked, and the most bytes the derived arguments may hold. */
+export const MAX_SCHEMA_NAMES = 256;
+export const MAX_DERIVED_BYTES = 16 * 1024;
+
 const PLACEHOLDER: Record<string, unknown> = {
   string: '',
   number: 0,
@@ -24,6 +28,22 @@ const PLACEHOLDER: Record<string, unknown> = {
   object: {},
 };
 
+/** A schema with more names than are walked: no malformed call is derived from it. */
+export function schemaTooLarge(schema: unknown): boolean {
+  if (!isRecord(schema)) return false;
+  const required = schema['required'];
+  const properties = schema['properties'];
+  return (
+    (Array.isArray(required) && required.length > MAX_SCHEMA_NAMES) ||
+    (isRecord(properties) && Object.keys(properties).length > MAX_SCHEMA_NAMES)
+  );
+}
+
+/** Derived arguments over the size a declared call may have. */
+export function derivedTooLarge(args: Record<string, unknown>): boolean {
+  return Buffer.byteLength(JSON.stringify(args), 'utf8') > MAX_DERIVED_BYTES;
+}
+
 export function malformedArguments(schema: unknown): Record<string, unknown> | undefined {
   if (!isRecord(schema)) return undefined;
   const properties = isRecord(schema['properties']) ? schema['properties'] : {};
@@ -31,14 +51,17 @@ export function malformedArguments(schema: unknown): Record<string, unknown> | u
     ? (schema['required'] as unknown[]).filter((r): r is string => typeof r === 'string')
     : [];
   const typeOf = (name: string): unknown => {
-    const p = properties[name];
+    const p = Object.hasOwn(properties, name) ? properties[name] : undefined;
     return isRecord(p) ? p['type'] : undefined;
   };
   if (required.length > 0)
     return Object.fromEntries(
       required.slice(1).map((name) => {
         const t = typeOf(name);
-        return [name, typeof t === 'string' && t in PLACEHOLDER ? PLACEHOLDER[t] : null];
+        return [
+          name,
+          typeof t === 'string' && Object.hasOwn(PLACEHOLDER, t) ? PLACEHOLDER[t] : null,
+        ];
       }),
     );
   const first = Object.keys(properties)[0];

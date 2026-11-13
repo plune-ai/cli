@@ -42,6 +42,8 @@ export const PROBE_REASONS = {
     'the server did not answer in a way that decides it (timeout, 429, 5xx, redirect or another status)',
   'journal-failed':
     'the journal (--journal) could not be written: the probes were stopped, so that no frame is sent unrecorded',
+  'schema-too-large':
+    'the inputSchema of the tool is too large to derive a malformed call from (over 256 names, or over 16 KiB of arguments)',
   'no-schema':
     'the tool declares no inputSchema property to break, so no malformed call can be derived',
   'wrong-audience':

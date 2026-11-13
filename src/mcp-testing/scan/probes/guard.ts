@@ -1,5 +1,5 @@
 import { journalHeaders, type ProbeJournal } from './journal.js';
-import { malformedArguments } from './leak.js';
+import { derivedTooLarge, malformedArguments, schemaTooLarge } from './leak.js';
 import type { ProbeEntry } from './types.js';
 
 /**
@@ -131,7 +131,24 @@ export class ProbeGuard {
 
   /** The malformed arguments of a listed tool, derived from its `inputSchema`; undefined when it declares nothing to break. */
   malformedArgumentsFor(tool: string): Record<string, unknown> | undefined {
-    return malformedArguments(this.#schemas.get(tool));
+    const m = this.malformedFor(tool);
+    return 'args' in m ? m.args : undefined;
+  }
+
+  /** The derived call of a listed tool, or why there is none. */
+  malformedFor(
+    tool: string,
+  ): { args: Record<string, unknown> } | { reason: 'no-schema' | 'schema-too-large' } {
+    const schema = this.#schemas.get(tool);
+    if (schemaTooLarge(schema)) return { reason: 'schema-too-large' };
+    const args = malformedArguments(schema);
+    if (args === undefined) return { reason: 'no-schema' };
+    return derivedTooLarge(args) ? { reason: 'schema-too-large' } : { args };
+  }
+
+  /** A line of the journal could not be written, on any kind of line: the journal is incomplete. */
+  get journalFailed(): boolean {
+    return this.#journalFailed;
   }
 
   /** Writes a line; a journal that cannot be written stops everything that follows. */
@@ -178,7 +195,7 @@ export class ProbeGuard {
             e.id === frame.probe &&
             e.tool === name &&
             (e.malformed === true
-              ? derived !== undefined && canonical(derived) === args
+              ? e.as === 'account-a' && derived !== undefined && canonical(derived) === args
               : canonical(e.arguments) === args),
         );
         if (entry === undefined) return this.#refuse(frame, 'undeclared');

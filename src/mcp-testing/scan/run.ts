@@ -372,7 +372,7 @@ function runScanUncached(input: ScanInput, opts: ScanOptions): ScanReport {
             a !== null &&
             typeof a === 'object' &&
             a['readOnlyHint'] !== true &&
-            a['destructiveHint'] === undefined
+            typeof a['destructiveHint'] !== 'boolean'
           )
             drafts.push({
               rule: 'scan/hint/destructive-missing',
@@ -613,6 +613,8 @@ function runScanUncached(input: ScanInput, opts: ScanOptions): ScanReport {
     metadata: null,
   };
   if (asked.active) {
+    if (section.journalFailed === true)
+      couldNot('active', '', 'the journal (--journal) could not be written: it is incomplete');
     for (const row of section.rows)
       if (row.outcome === 'not-run')
         couldNot('active', safeText(row.id), PROBE_REASONS[row.reason!]);

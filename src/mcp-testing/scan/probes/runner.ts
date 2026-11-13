@@ -49,6 +49,8 @@ export interface ProbeSection {
   requests: number;
   /** Whether the public metadata of the target's origin answered (asked without a token); null when not asked. */
   metadata: 'found' | 'not-found' | 'unreachable' | null;
+  /** A line of the journal could not be written: the journal is incomplete. */
+  journalFailed?: boolean;
 }
 
 export interface ProbeRunOptions {
@@ -284,9 +286,12 @@ async function runProbesWith(opts: ProbeRunOptions): Promise<ProbeSection> {
     }
     if (!listed.has(entry.tool)) return { kind: 'not-run', reason: 'tool-missing' };
     // A malformed probe sends the derived arguments; the wrapper allows exactly those for it.
-    const args =
-      entry.malformed === true ? guard.malformedArgumentsFor(entry.tool) : entry.arguments;
-    if (args === undefined) return { kind: 'not-run', reason: 'no-schema' };
+    let args = entry.arguments;
+    if (entry.malformed === true) {
+      const m = guard.malformedFor(entry.tool);
+      if ('reason' in m) return { kind: 'not-run', reason: m.reason };
+      args = m.args;
+    }
     const call = await step(
       {
         type: 'rpc',
@@ -365,7 +370,12 @@ ${canonical(e.arguments)}`;
         ...base,
         answer: got.kind === 'errored' ? 'refused' : 'allowed',
         outcome: 'as-expected',
-        note: hit === undefined ? 'no pattern matched' : `pattern ${hit}`,
+        note:
+          got.kind === 'allowed'
+            ? 'ran; no error text to read'
+            : hit === undefined
+              ? 'no pattern matched'
+              : `pattern ${hit}`,
       });
       if (hit !== undefined)
         section.findings.push({
@@ -460,6 +470,7 @@ ${canonical(e.arguments)}`;
   }
   const at = new Map(opts.entries.map((e, i) => [e.id, i]));
   section.rows.sort((a, b) => (at.get(a.id) ?? 0) - (at.get(b.id) ?? 0));
+  if (guard.journalFailed) section.journalFailed = true;
   section.calls = guard.calls;
   section.requests = guard.requests;
   return section;

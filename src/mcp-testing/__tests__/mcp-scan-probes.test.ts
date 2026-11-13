@@ -2,7 +2,7 @@
 // that keeps what it is told (strict) and one that keeps nothing (lax), each recording what reached it, so a test can
 // say what was sent and what was not. The tokens are made-up strings.
 
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -12,6 +12,7 @@ import { handleMcpScan, type McpScanFlags } from '../../cli/commands/mcp-scan.js
 import { ProbeGuard, canonical, type Frame, type Reply } from '../scan/probes/guard.js';
 import { MAX_PROBE_FILE_BYTES, parseProbeFile } from '../scan/probes/file.js';
 import { runProbes } from '../scan/probes/runner.js';
+import { runScan, type ScanInput } from '../scan/run.js';
 import type { ProbeEntry } from '../scan/probes/types.js';
 import { buildSnapshot, serializeSnapshot } from '../snapshot/index.js';
 
@@ -1456,5 +1457,271 @@ describe('CLI · mcp scan · scan/hint/destructive-missing (static)', () => {
         ).rules,
         JSON.stringify(annotations),
       ).toEqual([]);
+  });
+});
+
+// ---- step 2, after review ---------------------------------------------------------------------------------------------------
+
+describe('CLI · mcp scan probes · the journal never overwrites a file the command reads or writes', () => {
+  const same = async (flags: (f: Fixture) => McpScanFlags, name: string) => {
+    const f = await fixture({ tools: STEP2_TOOLS });
+    const { dir } = probeFile(journalProbes);
+    writeFileSync(
+      join(dir, 's.json'),
+      serializeSnapshot(
+        buildSnapshot({
+          transport: 'stdio',
+          capabilities: { tools: {} },
+          tools: [{ name: 'a', description: 'd' }],
+        } as never),
+      ),
+    );
+    const before = readFileSync(join(dir, name), 'utf8');
+    const r = await scan(dir, flags(f), TOKENS);
+    expect(r.code, r.err).toBe(2);
+    expect(r.err).not.toContain(dir);
+    expect(readFileSync(join(dir, name), 'utf8')).toBe(before);
+    expect(f.seen.filter((s) => s.rpc === 'tools/call')).toEqual([]);
+    return r;
+  };
+
+  it('--journal equal to --probes is exit 2 and the probe file is untouched', async () => {
+    const r = await same(
+      (f) => active(f, 'probes.json', { journal: 'probes.json' }),
+      'probes.json',
+    );
+    expect(r.err).toContain('--journal');
+    expect(r.err).toContain('--probes');
+  });
+  it('the same file spelled another way (./, a folder that is left again, other case on Windows) is the same file', async () => {
+    await same((f) => active(f, 'probes.json', { journal: './sub/../probes.json' }), 'probes.json');
+    if (process.platform === 'win32')
+      await same((f) => active(f, 'probes.json', { journal: 'PROBES.JSON' }), 'probes.json');
+  });
+  it('through a link to the folder it is the same file as well', async () => {
+    const f = await fixture({ tools: STEP2_TOOLS });
+    const { dir } = probeFile(journalProbes);
+    symlinkSync(dir, join(dir, 'link'), 'junction');
+    const before = readFileSync(join(dir, 'probes.json'), 'utf8');
+    const r = await scan(dir, active(f, 'probes.json', { journal: 'link/probes.json' }), TOKENS);
+    expect(r.code).toBe(2);
+    expect(readFileSync(join(dir, 'probes.json'), 'utf8')).toBe(before);
+  });
+  it('--journal equal to a --snapshot, --out or --save-snapshot file is exit 2', async () => {
+    await same(
+      (f) => active(f, 'probes.json', { journal: 's.json', snapshot: ['s.json'] }),
+      's.json',
+    );
+    await same(
+      (f) => active(f, 'probes.json', { journal: 'probes.json', out: ['probes.json'] }),
+      'probes.json',
+    );
+    await same(
+      (f) => active(f, 'probes.json', { journal: 's.json', saveSnapshot: 's.json' }),
+      's.json',
+    );
+  });
+  it('the reverse pairs: --out equal to --probes or to a --snapshot is exit 2 too', async () => {
+    await same((f) => active(f, 'probes.json', { out: ['probes.json'] }), 'probes.json');
+    await same(
+      (f) => active(f, 'probes.json', { snapshot: ['s.json'], out: ['sarif=s.json'] }),
+      's.json',
+    );
+  });
+  it('a directory as the journal path is exit 2 with a plain message', async () => {
+    const f = await fixture({ tools: STEP2_TOOLS });
+    const { dir, file } = probeFile(journalProbes);
+    mkdirSync(join(dir, 'a-folder'));
+    const r = await scan(dir, active(f, file, { journal: 'a-folder' }), TOKENS);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain('--journal');
+    expect(r.err).not.toMatch(/EISDIR|EPERM|EACCES/);
+    expect(r.err).not.toContain(dir);
+  });
+});
+
+describe('CLI · mcp scan probes · a journal write that fails on any line marks the run', () => {
+  const failOn = (n: number) => {
+    let writes = 0;
+    return {
+      record: () => {
+        if (++writes === n) throw new Error('disk full');
+      },
+      close: () => {},
+    };
+  };
+  const one = async (n: number) => {
+    const f = await fixture({ lax: true, tools: STEP2_TOOLS });
+    return runProbes({
+      entries: [entry('p1', 'none')] as ProbeEntry[],
+      target: { kind: 'http', url: f.url, headers: {} } as never,
+      tokens: {},
+      timeoutMs: 5000,
+      announce: () => {},
+      journal: failOn(n),
+    });
+  };
+
+  it('a failure on the last "in" line (nothing left to stop) is still reported as an incomplete journal', async () => {
+    // lines: meta, then out/in for discovery, initialize, initialized, tools/list, tools/call = 1 + 2 * 5 = 11
+    const section = await one(11);
+    expect(section.journalFailed).toBe(true);
+  });
+  it('a failure on a "refused" line is reported too', async () => {
+    const f = await fixture({ lax: true, tools: STEP2_TOOLS });
+    let refusedWritten = 0;
+    const section = await runProbes({
+      entries: [entry('p1', 'none'), entry('p2', 'none')] as ProbeEntry[],
+      target: { kind: 'http', url: f.url, headers: {} } as never,
+      tokens: {},
+      maxCalls: 1,
+      timeoutMs: 5000,
+      announce: () => {},
+      journal: {
+        record: (line) => {
+          if (line['dir'] === 'refused' && ++refusedWritten === 1) throw new Error('disk full');
+        },
+      },
+    });
+    expect(section.journalFailed).toBe(true);
+  });
+  it('a clean journal is not marked', async () => {
+    expect((await one(1000)).journalFailed).toBeUndefined();
+  });
+  it('the report says the journal is incomplete and the exit code is 3, with no probe left to run', () => {
+    const input: ScanInput = {
+      snapshots: [],
+      unreadable: [],
+      configFiles: [],
+      configRequested: false,
+      active: true,
+      allowHosts: [],
+      allowPackages: [],
+      probes: {
+        rows: [
+          {
+            id: 'p1',
+            tool: 'export',
+            as: 'none',
+            expect: 'none',
+            answer: 'allowed',
+            outcome: 'observed',
+          },
+        ],
+        findings: [],
+        calls: 1,
+        requests: 5,
+        metadata: null,
+        journalFailed: true,
+      },
+    };
+    const report = runScan(input, { failOn: 'error', gateHeuristics: false, allowPartial: false });
+    expect(report.exitCode).toBe(3);
+    expect(JSON.stringify(report.notEvaluated)).toContain('journal');
+  });
+});
+
+describe('CLI · mcp scan probes · the derived malformed arguments are bounded', () => {
+  it('a giant required list, or a giant properties object, is "not run, schema too large": nothing is sent', async () => {
+    const names = Array.from({ length: 300 }, (_, i) => `p${i}`);
+    for (const schema of [
+      { type: 'object', properties: { doc: { type: 'string' } }, required: names },
+      { type: 'object', properties: Object.fromEntries(names.map((n) => [n, { type: 'string' }])) },
+    ]) {
+      const f = await fixture({ tools: [{ name: 'export', inputSchema: schema } as never] });
+      const { dir, file } = probeFile([
+        { id: 'm1', tool: 'export', arguments: {}, as: 'account-a', malformed: true },
+      ]);
+      const r = await scan(dir, active(f, file), TOKENS);
+      expect(byId(r, 'm1').reason).toBe('schema-too-large');
+      expect(probeFrames(f, r).filter((s) => s.rpc === 'tools/call')).toEqual([]);
+    }
+  });
+  it('arguments over 16 KiB once derived are "schema too large" too', async () => {
+    const { malformedArguments } = await import('../scan/probes/leak.js');
+    const big = { type: 'object', properties: { a: {}, b: {} }, required: ['a', 'b'] };
+    expect(malformedArguments(big)).toEqual({ b: null });
+    const { derivedTooLarge } = await import('../scan/probes/leak.js');
+    expect(derivedTooLarge({ x: 'y'.repeat(17 * 1024) })).toBe(true);
+    expect(derivedTooLarge({ x: 'y' })).toBe(false);
+  });
+  it('__proto__ and constructor as names are own keys: the prototype is not touched', async () => {
+    const { malformedArguments } = await import('../scan/probes/leak.js');
+    const schema = JSON.parse(
+      '{"properties":{"a":{},"__proto__":{"type":"string"},"constructor":{"type":"constructor"}},"required":["a","__proto__","constructor"]}',
+    );
+    const args = malformedArguments(schema)!;
+    expect(Object.getPrototypeOf(args)).toBe(Object.prototype);
+    expect(Object.keys(args)).toEqual(['__proto__', 'constructor']);
+    expect(Object.hasOwn(args, '__proto__')).toBe(true);
+    expect(args['constructor']).toBeNull();
+    expect(({} as Record<string, unknown>)['polluted']).toBeUndefined();
+    expect(args['__proto__']).toBe('');
+  });
+});
+
+describe('CLI · mcp scan probes · a malformed call that ran says so', () => {
+  const malformed = [{ id: 'm1', tool: 'export', arguments: {}, as: 'account-a', malformed: true }];
+  it('a result with no error is "ran; no error text to read", in every format that lists the rows; not "no pattern matched"', async () => {
+    const f = await fixture({ tools: STEP2_TOOLS });
+    const { dir, file } = probeFile(malformed);
+    for (const format of ['human', 'json', 'sarif'] as const) {
+      const r = await scan(dir, active(f, file, { format }), TOKENS);
+      expect(r.out, format).toContain('ran; no error text to read');
+      expect(r.out, format).not.toContain('no pattern matched');
+    }
+    const r = await scan(dir, active(f, file, { out: ['junit-xml=j.xml'] }), TOKENS);
+    expect(readFileSync(join(dir, 'j.xml'), 'utf8')).toContain('ran; no error text to read');
+    expect(r.code).toBe(0);
+  });
+  it('an error that was read and matched nothing is still "no pattern matched"', async () => {
+    const f = await fixture({ tools: STEP2_TOOLS, errorText: 'invalid arguments' });
+    const { dir, file } = probeFile(malformed);
+    const r = await scan(dir, active(f, file), TOKENS);
+    expect((byId(r, 'm1') as { note?: string }).note).toBe('no pattern matched');
+  });
+});
+
+describe('CLI · mcp scan · smaller points of the review of step 2', () => {
+  it('destructiveHint that is not a boolean is not "present" for scan/hint/destructive-missing', async () => {
+    for (const destructiveHint of [null, 'false', 0]) {
+      const dir = tmp();
+      writeFileSync(
+        join(dir, 's.json'),
+        serializeSnapshot(
+          buildSnapshot({
+            transport: 'stdio',
+            capabilities: { tools: {} },
+            tools: [{ name: 'update_page', description: 'x', annotations: { destructiveHint } }],
+          } as never),
+        ),
+      );
+      const r = await scan(dir, { snapshot: ['s.json'] });
+      expect(
+        (r.json()['findings'] as { rule: string }[]).map((x) => x.rule),
+        String(destructiveHint),
+      ).toEqual(['scan/hint/destructive-missing']);
+    }
+  });
+
+  it('the wrapper refuses a malformed frame whose entry is not account-a, called directly', async () => {
+    const entries: ProbeEntry[] = [
+      { id: 'm1', tool: 'export', arguments: {}, as: 'none', malformed: true },
+    ];
+    const sent: Frame[] = [];
+    const guard = new ProbeGuard(entries, { maxCalls: 8, maxRequests: 40 }, async (frame) => {
+      sent.push(frame);
+      return { kind: 'http', status: 200 } as Reply;
+    });
+    guard.setListedTools(STEP2_TOOLS);
+    const frame: Frame = {
+      type: 'rpc',
+      method: 'tools/call',
+      params: { name: 'export', arguments: guard.malformedArgumentsFor('export') },
+      probe: 'm1',
+      credential: { kind: 'none' },
+    };
+    expect(await guard.send(frame)).toEqual({ sent: false, refusal: 'undeclared' });
+    expect(sent).toHaveLength(0);
   });
 });

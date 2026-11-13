@@ -1194,7 +1194,7 @@ plune mcp scan --active --url http://127.0.0.1:3000/mcp --probes probes.json --t
 | `--token-env`, `--other-token-env` | The names of variables, never the tokens. A token goes only to the origin of `--url`, over https or to this machine, and a redirect is never followed. The `--header` values are not sent by a probe. |
 | `--confirm-host <host>` | For a `--url` that is not on this machine: the host of the URL exactly as written (with the port, if the URL has one). Without it nothing is sent, and the probes are "not run: no consent". The line `probes will go to <url>` is printed to stderr before the first probe frame. |
 | `--max-calls <n>`, `--max-requests <n>` | At most `n` `tools/call` (default 8) and `n` requests of any kind (default 40). A frame over a budget is refused before it is sent. |
-| `--journal <file>` | Writes one JSON line for every frame a probe sends, every answer and every frame the wrapper refuses, as it happens (so the file is there after a crash or a budget stop). The file is created `0600` and replaces an older one of the same name, like `--debug-out`. A file that cannot be opened is exit `2` before the first frame; a line that cannot be written stops the probes (the rest are "not run: journal"), because no frame is sent unrecorded. See [the journal](#the-journal). |
+| `--journal <file>` | Writes one JSON line for every frame a probe sends, every answer and every frame the wrapper refuses, as it happens (so the file is there after a crash or a budget stop). The file is created `0600` and replaces an older one of the same name, like `--debug-out`. A file that cannot be opened is exit `2` before the first frame; a line that cannot be written stops the probes (the rest are "not run: journal"), because no frame is sent unrecorded. The path must not be a file the scan reads (`--probes`, `--snapshot`, `--config`, `--pin-file`, `--ignore-file`) or writes elsewhere (`--out`, `--save-snapshot`, `--debug-out`): that is exit `2`, whatever the spelling, link or case. A line that cannot be written, on any kind of line, makes the scan exit `3` ("the journal is incomplete"). See [the journal](#the-journal). |
 | `--yes` | Accepts the command printed for a stdio server. No probe of this version runs on stdio (the authentication probes are "not applicable (stdio)"). |
 
 Every probe goes through one wrapper. It refuses a `tools/call` for a tool and arguments that are not an entry of the
@@ -1268,6 +1268,15 @@ entry are not sent, the call counts in both budgets, and a tool marked `destruct
 its first 64 KiB, is matched against five patterns: `stack-js`, `stack-py`, `abs-path`, `sql`, `internal-host`. A match is
 the advice finding `scan/probe/error-detail-leak` with the pattern id and the tool; the text is never printed or journaled.
 The patterns are heuristics: they have false hits and misses, and "no pattern matched" is not "safe".
+
+**A malformed call may run.** A server that does not check arguments against its own schema will execute it: the call goes
+to a real tool, with a missing or wrongly typed argument, and what the tool does with that is up to the tool. It is blocked
+for a tool marked `destructiveHint: true` unless the entry says `allowDestructive`, exactly like a declared probe, and
+`readOnlyHint` is not read (a server's own hint widens nothing). So name only tools that are safe to run on a test account.
+A row whose call returned a result and no error says `ran; no error text to read`; `no pattern matched` is only for an
+error that was read. Only JSON-RPC errors and `isError` results are searched: an HTTP 400 or 422 with a body is "not run"
+(an answer that decides nothing) and its body is not read. A tool whose schema has more than 256 `required` or property
+names, or whose derived arguments pass 16 KiB, is "not run: the inputSchema is too large".
 
 GitHub Actions (replace `X.Y.Z` with the version of `@plune-ai/cli` you have tested):
 

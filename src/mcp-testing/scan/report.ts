@@ -471,6 +471,8 @@ function junit(r: ScanReport): string {
             cases.push({ classname, name, kind: 'failure', type: f.severity, message: f.message });
           else if (f !== undefined)
             cases.push({ classname, name, kind: 'skipped', type: 'advisory', message: f.message });
+          else if (p.note !== undefined)
+            cases.push({ classname, name, kind: 'skipped', type: 'advisory', message: p.note });
           else cases.push({ classname, name, kind: 'pass', type: '', message: '' });
         }
       }
