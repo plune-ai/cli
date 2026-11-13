@@ -14,7 +14,7 @@
 
 import { promises as disk } from 'node:fs';
 import * as path from 'node:path';
-import { createClient } from '../../reporter-core/client.js';
+import { createClient, type PlatformClient } from '../../reporter-core/client.js';
 import { UPLOAD_RETRIES } from '../../reporter-core/env.js';
 import { fileSender, type Upload } from '../../reporter-core/session.js';
 import { resolveApiUrl } from '../api-url.js';
@@ -117,6 +117,51 @@ function itemsOf(body: unknown): IngestItem[] | undefined {
   });
 }
 
+/** The most pages of a run's results read to learn which files its results hold, before giving up on knowing. */
+const RESULT_PAGES_MAX = 100;
+
+const namesOf = (files: unknown): Set<string> =>
+  new Set(Array.isArray(files) ? files.flatMap((f) => (typeof (f as { name?: unknown })?.name === 'string' ? [(f as { name: string }).name] : [])) : []);
+
+/**
+ * What each target of a repeat already holds, by `<owner>/<id>`: the names of its files, or `undefined` when that could not be
+ * read. A review item answers with its `files`; a result's are on the run's results list, which is read page by page.
+ */
+async function heldBy(client: PlatformClient, runId: string, jobs: readonly Upload[]): Promise<Map<string, Set<string> | undefined>> {
+  const held = new Map<string, Set<string> | undefined>();
+  for (const job of jobs) {
+    const key = targetOf(job);
+    if (held.has(key) || job.owner !== 'review-items') continue;
+    const out = await client.get<{ files?: unknown }>(`/v1/review-items/${encodeURIComponent(job.id)}`);
+    held.set(key, out.ok ? namesOf(out.body?.files) : undefined);
+  }
+  const results = jobs.filter((j) => j.owner === undefined);
+  if (results.length === 0) return held;
+  let byResult: Map<string, Set<string>> | undefined = new Map();
+  let before: string | undefined;
+  for (let page = 0; ; page += 1) {
+    if (runId === '' || page >= RESULT_PAGES_MAX) {
+      byResult = undefined;
+      break;
+    }
+    const query = before === undefined ? '' : `?before=${encodeURIComponent(before)}`;
+    const out = await client.get<{ results?: unknown; next?: unknown }>(`/v1/runs/${encodeURIComponent(runId)}/results${query}`);
+    if (!out.ok || !Array.isArray(out.body?.results)) {
+      byResult = undefined;
+      break;
+    }
+    for (const r of out.body.results as { id?: unknown; files?: unknown }[]) {
+      if (typeof r?.id === 'string') byResult.set(r.id, namesOf(r.files));
+    }
+    if (typeof out.body.next !== 'string' || out.body.next === '') break;
+    before = out.body.next;
+  }
+  for (const job of results) held.set(targetOf(job), byResult === undefined ? undefined : (byResult.get(job.id) ?? new Set()));
+  return held;
+}
+
+const targetOf = (job: Upload): string => `${job.owner ?? 'results'}/${job.id}`;
+
 /**
  * The run's videos and traces, each to what its case became: the proposal in the review queue (a reviewer watches it before
  * approving; approval moves it to the result), or the result of a case approved before. Through the reporter's own file
@@ -124,21 +169,20 @@ function itemsOf(body: unknown): IngestItem[] | undefined {
  */
 async function sendSessionFiles(
   dir: string,
-  sent: { items: IngestItem[] | undefined; repeat: boolean },
+  sent: { items: IngestItem[] | undefined; repeat: boolean; runId: string },
   platform: { apiUrl: string; token: string; fetchImpl?: typeof fetch },
 ): Promise<string[]> {
   const session = await readCairnSessionFiles(dir);
-  if (session === undefined || (session.byCase.size === 0 && session.unmapped === 0)) return [];
+  if (session === undefined || (session.byCase.size === 0 && session.unmapped === 0 && session.outside === 0)) return [];
   if (sent.items === undefined) {
     return ['session files not uploaded — this Plune is older than the routes that take them'];
   }
-  // ponytail: the platform's one-file routes keep no hash, so a second send would be a second copy on the item.
-  if (sent.repeat) return ['session files not uploaded again — this run was ingested before'];
 
   const lines: string[] = [];
-  const jobs: Upload[] = [];
+  if (session.outside > 0) lines.push(`${session.outside} file(s) not uploaded — the path leaves the run directory`);
+  if (session.unmapped > 0) lines.push(`${session.unmapped} recording(s) name no case — not uploaded`);
+  let jobs: Upload[] = [];
   let tooBig = 0;
-  let unplaced = session.unmapped;
   const placed = new Set<string>();
   for (const item of sent.items) {
     const paths = session.byCase.get(item.stableId);
@@ -163,19 +207,38 @@ async function sendSessionFiles(
       });
     }
   }
-  for (const stableId of session.byCase.keys()) if (!placed.has(stableId)) unplaced += 1;
-  if (unplaced > 0) lines.push(`${unplaced} recording(s) not uploaded — no proposal or result of this run to attach them to`);
+  const unplaced = [...session.byCase.keys()].filter((stableId) => !placed.has(stableId)).length;
+  if (unplaced > 0) lines.push(`${unplaced} case(s) with recordings got no proposal or result in this run — not uploaded`);
+
+  const client = createClient({
+    apiUrl: platform.apiUrl,
+    token: platform.token,
+    uploadRetries: UPLOAD_RETRIES.default,
+    ...(platform.fetchImpl !== undefined ? { fetchImpl: platform.fetchImpl } : {}),
+  });
+  // A repeat (a first answer lost, or its uploads failed) sends what is missing: the one-file routes keep no hash, so a file
+  // sent again would be a second copy. Matched by name.
+  // ponytail: two recordings of one case with the same file name count as one; Cairn writes one test per case.
+  if (sent.repeat && jobs.length > 0) {
+    const held = await heldBy(client, sent.runId, jobs);
+    let already = 0;
+    let unknown = 0;
+    jobs = jobs.filter((job) => {
+      const names = held.get(targetOf(job));
+      if (names === undefined) unknown += 1;
+      else if (names.has(job.name)) already += 1;
+      else return true;
+      return false;
+    });
+    if (unknown > 0) lines.push(`${unknown} file(s) not sent again — what the platform holds could not be read`);
+    lines.push(`${already} file(s) already on the platform, ${jobs.length} sent`);
+  }
 
   const counts = { screenshots: { uploaded: 0, skipped: 0, failed: 0 }, textFiles: { uploaded: 0, skipped: 0, failed: 0 }, otherFiles: { uploaded: 0, skipped: 0, failed: 0 } };
   if (jobs.length > 0) {
     const notes: string[] = [];
     const files = fileSender({
-      client: createClient({
-        apiUrl: platform.apiUrl,
-        token: platform.token,
-        uploadRetries: UPLOAD_RETRIES.default,
-        ...(platform.fetchImpl !== undefined ? { fetchImpl: platform.fetchImpl } : {}),
-      }),
+      client,
       log: (line) => notes.push(line.replace(/^plune: /, '')),
       stats: counts,
       uploadsAtOnce: SESSION_UPLOADS_AT_ONCE,
@@ -228,7 +291,7 @@ export async function handleIngest(deps: IngestDeps): Promise<IngestResult> {
     // The run the ingest landed in is the job's subject, so the run's page lists it.
     await job.uploaded({ subjectId: result.runId || undefined });
     // The run is recorded by now: nothing about its recordings may turn that into a failure.
-    const files = await sendSessionFiles(dir, sent, { apiUrl, token, ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}) }).catch(
+    const files = await sendSessionFiles(dir, { ...sent, runId: result.runId }, { apiUrl, token, ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}) }).catch(
       () => ['session files not uploaded (an unexpected error) — the run is recorded'],
     );
     if (files.length > 0) result.files = files;

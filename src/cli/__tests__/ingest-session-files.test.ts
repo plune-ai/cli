@@ -1,4 +1,13 @@
-import { copyFile, mkdir, mkdtemp, rm, truncate, writeFile } from 'node:fs/promises';
+import {
+  copyFile,
+  mkdir,
+  mkdtemp,
+  rename,
+  rm,
+  symlink,
+  truncate,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -61,6 +70,8 @@ function fakePlatform(
     status?: number;
     bucket?: boolean;
     refuse?: (name: string, owner: string) => Answer | undefined;
+    /** What each target already holds, by `review-items/<id>` or `results/<id>`: the names of its files. */
+    held?: Record<string, string[]>;
   } = {},
 ) {
   const calls: string[] = [];
@@ -118,6 +129,23 @@ function fakePlatform(
       return json(201, { id: 'f-direct' });
     }
     if (/^\/v1\/files\/[^/]+\/complete$/.test(url.pathname)) return json(200, {});
+    const filesOf = (key: string) =>
+      (opts.held?.[key] ?? []).map((name, i) => ({ id: `h-${i}`, name }));
+    const item = /^\/v1\/review-items\/([^/]+)$/.exec(url.pathname);
+    if (method === 'GET' && item !== null)
+      return json(200, { id: item[1], files: filesOf(`review-items/${item[1]}`) });
+    if (method === 'GET' && url.pathname === '/v1/runs/run-1/results') {
+      // One result a page, `next` while more remain: the reader must follow it.
+      const ids = Object.keys(opts.held ?? {})
+        .filter((k) => k.startsWith('results/'))
+        .map((k) => k.slice('results/'.length));
+      const at = Number(url.searchParams.get('before') ?? '0');
+      const id = ids[at];
+      return json(200, {
+        results: id === undefined ? [] : [{ id, files: filesOf(`results/${id}`) }],
+        ...(at + 1 < ids.length ? { next: String(at + 1) } : {}),
+      });
+    }
     return json(500, { error: `unexpected ${method} ${url.pathname}` });
   }) as unknown as typeof fetch;
   return { fetchImpl, calls, puts, direct };
@@ -169,7 +197,8 @@ describe('plune ingest · the run’s recordings go with its proposals', () => {
     expect(p.puts).toEqual(['/review-items/ri-1/video.webm']);
     expect(result.files).toEqual([
       '1 session file(s) uploaded',
-      '2 recording(s) not uploaded — no proposal or result of this run to attach them to',
+      '1 recording(s) name no case — not uploaded',
+      '1 case(s) with recordings got no proposal or result in this run — not uploaded',
     ]);
   });
 
@@ -268,13 +297,64 @@ describe('plune ingest · the run’s recordings go with its proposals', () => {
     });
   });
 
-  it('a repeat ingest (200, the same answer) does not send the files a second time', async () => {
-    const dir = await recordedRun([{ stableId: A, test: 'cart' }]);
-    const p = fakePlatform({ items: [{ stableId: A, reviewItemId: 'ri-1' }], status: 200 });
+  it('a repeat ingest (200) sends only the files its review item does not hold yet', async () => {
+    const dir = await recordedRun([{ stableId: A, test: 'cart', trace: true }]);
+    const p = fakePlatform({
+      items: [{ stableId: A, reviewItemId: 'ri-1' }],
+      status: 200,
+      held: { 'review-items/ri-1': ['video.webm'] },
+    });
     const result = await ingest(dir, p.fetchImpl);
-    expect(p.calls).toEqual(['POST /v1/ingest/cairn']);
+    expect(p.calls).toContain('GET /v1/review-items/ri-1');
+    expect(p.puts).toEqual(['/review-items/ri-1/trace.zip']);
     expect(result.files).toEqual([
-      'session files not uploaded again — this run was ingested before',
+      '1 session file(s) uploaded',
+      '1 file(s) already on the platform, 1 sent',
+    ]);
+  });
+
+  it('a repeat ingest whose files are all there sends none; a result is read from the run’s results, page by page', async () => {
+    const dir = await recordedRun([
+      { stableId: A, test: 'cart', trace: true },
+      { stableId: B, test: 'login' },
+    ]);
+    const p = fakePlatform({
+      items: [
+        { stableId: A, reviewItemId: 'ri-1' },
+        { stableId: B, resultId: 'res-9' },
+      ],
+      status: 200,
+      held: {
+        'review-items/ri-1': ['video.webm', 'trace.zip'],
+        'results/res-0': [],
+        'results/res-9': ['video.webm'],
+      },
+    });
+    const result = await ingest(dir, p.fetchImpl);
+    expect(p.calls).toContain('GET /v1/runs/run-1/results');
+    expect(p.puts).toEqual([]);
+    expect(result.files).toEqual([
+      '0 session file(s) uploaded',
+      '3 file(s) already on the platform, 0 sent',
+    ]);
+  });
+
+  it('a repeat ingest that cannot read what a target holds sends nothing there, and says so', async () => {
+    const dir = await recordedRun([{ stableId: A, test: 'cart' }]);
+    const p = fakePlatform({ items: [{ stableId: A, reviewItemId: 'ri-gone' }], status: 200 });
+    const base = p.fetchImpl;
+    const fetchImpl = (async (input: string, init?: RequestInit) =>
+      new URL(input).pathname === '/v1/review-items/ri-gone' && (init?.method ?? 'GET') === 'GET'
+        ? new Response(JSON.stringify({ error: "review item 'ri-gone' not found" }), {
+            status: 404,
+          })
+        : base(input, init)) as unknown as typeof fetch;
+    const result = await ingest(dir, fetchImpl);
+    expect(p.puts).toEqual([]);
+    expect(result.files).toEqual([
+      '0 session file(s) uploaded',
+      '1 file(s) not sent again — what the platform holds could not be read',
+      '0 file(s) already on the platform, 0 sent',
     ]);
   });
 
@@ -303,6 +383,56 @@ describe('plune ingest · the run’s recordings go with its proposals', () => {
     const p = fakePlatform({ items: [{ stableId: A, reviewItemId: 'ri-1' }] });
     const result = await ingest(dir, p.fetchImpl);
     expect(p.puts).toEqual([]);
-    expect(result).not.toHaveProperty('files');
+    expect(result.files).toEqual([
+      '0 session file(s) uploaded',
+      '2 file(s) not uploaded — the path leaves the run directory',
+    ]);
+  });
+
+  /** A link (a symlink, or a junction for a directory where Windows refuses symlinks), or `false` where the OS refuses both. */
+  async function link(target: string, at: string, kind: 'file' | 'dir'): Promise<boolean> {
+    for (const type of kind === 'dir' ? (['dir', 'junction'] as const) : (['file'] as const)) {
+      try {
+        await symlink(target, at, type);
+        return true;
+      } catch {
+        // EPERM: no symlink privilege here (Windows without developer mode); try the next kind
+      }
+    }
+    return false;
+  }
+
+  it('a recording that is a link to a file outside the run directory is not uploaded', async (ctx) => {
+    const dir = await recordedRun([{ stableId: A, test: 'cart', trace: true }]);
+    const outside = await mkdtemp(path.join(tmpdir(), 'plune-outside-'));
+    dirs.push(outside);
+    await writeFile(path.join(outside, 'secret.webm'), 'not the run’s');
+    const video = path.join(dir, 'screencasts', 'cart', 'video.webm');
+    await rm(video);
+    // Skipped only where this OS refuses this user a file symlink (Windows without developer mode).
+    if (!(await link(path.join(outside, 'secret.webm'), video, 'file'))) ctx.skip();
+    const p = fakePlatform({ items: [{ stableId: A, reviewItemId: 'ri-1' }] });
+    const result = await ingest(dir, p.fetchImpl);
+    expect(p.puts).toEqual(['/review-items/ri-1/trace.zip']);
+    expect(result.files).toEqual([
+      '1 session file(s) uploaded',
+      '1 file(s) not uploaded — the path leaves the run directory',
+    ]);
+  });
+
+  it('a `screencasts` directory that is a link (or junction) to a directory outside the run uploads nothing from it', async (ctx) => {
+    const dir = await recordedRun([{ stableId: A, test: 'cart', trace: true }]);
+    const outside = await mkdtemp(path.join(tmpdir(), 'plune-outside-'));
+    dirs.push(outside);
+    await rename(path.join(dir, 'screencasts'), path.join(outside, 'screencasts'));
+    if (!(await link(path.join(outside, 'screencasts'), path.join(dir, 'screencasts'), 'dir')))
+      ctx.skip();
+    const p = fakePlatform({ items: [{ stableId: A, reviewItemId: 'ri-1' }] });
+    const result = await ingest(dir, p.fetchImpl);
+    expect(p.puts).toEqual([]);
+    expect(result.files).toEqual([
+      '0 session file(s) uploaded',
+      '2 file(s) not uploaded — the path leaves the run directory',
+    ]);
   });
 });
