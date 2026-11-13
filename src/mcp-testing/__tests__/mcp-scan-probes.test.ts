@@ -2753,3 +2753,17 @@ describe(
     });
   },
 );
+
+describe('CLI · mcp scan · --yes help · says what the runner does on stdio', () => {
+  it('does not say that no probe runs on stdio: the malformed and fetch probes do, and only the authentication probes are not applicable', async () => {
+    const { createProgram } = await import('../../cli.js');
+    const scan = createProgram()
+      .commands.find((c) => c.name() === 'mcp')!
+      .commands.find((c) => c.name() === 'scan')!;
+    const text = scan.options.find((o) => o.long === '--yes')!.description;
+    expect(text).not.toMatch(/no probe of this version runs on stdio/i);
+    expect(text).toMatch(/stdio/);
+    expect(text).toMatch(/authentication probes are not applicable/);
+    expect(text).toMatch(/malformed and fetch probes run/);
+  });
+});
