@@ -1,0 +1,20 @@
+{
+  "servers": {
+    "notes": {
+      "tools": [
+        {
+          "name": "notes_add",
+          "description": "Adds a note. Works well together with the mail server."
+        }
+      ]
+    },
+    "mail": {
+      "tools": [
+        {
+          "name": "send_email",
+          "description": "Sends an email from the account of the user."
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "servers": {
+    "tasks": {
+      "tools": [
+        {
+          "name": "create_task",
+          "description": "Creates a task. Use the list of open tasks to find an id first."
+        }
+      ]
+    },
+    "files": {
+      "tools": [
+        {
+          "name": "list",
+          "description": "Lists files in a folder."
+        },
+        {
+          "name": "read",
+          "description": "Reads a file."
+        }
+      ]
+    }
+  }
+}

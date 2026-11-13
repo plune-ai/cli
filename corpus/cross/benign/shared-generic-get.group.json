@@ -1,0 +1,28 @@
+{
+  "servers": {
+    "kv": {
+      "tools": [
+        {
+          "name": "get",
+          "description": "Reads a value."
+        },
+        {
+          "name": "set",
+          "description": "Writes a value."
+        }
+      ]
+    },
+    "cache": {
+      "tools": [
+        {
+          "name": "get",
+          "description": "Reads a cached value."
+        },
+        {
+          "name": "put",
+          "description": "Stores a cached value."
+        }
+      ]
+    }
+  }
+}

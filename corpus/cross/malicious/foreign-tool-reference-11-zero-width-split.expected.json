@@ -1,0 +1,23 @@
+{
+  "origin": "synthetic",
+  "expected": [
+    {
+      "rule": "scan/cross/foreign-tool-reference",
+      "server": "notes",
+      "path": "/tools/0/description",
+      "designedMiss": "a zero-width character inside the name splits it"
+    }
+  ],
+  "provenance": {
+    "catalogClass": "shadowing",
+    "mechanism": "A tool or prompt text of one server names a tool of another server, so the model is steered to use the other server's tool.",
+    "concealment": "zero-width-split",
+    "source": "not verified",
+    "catalogRefs": [
+      "INV",
+      "DOC-LSS"
+    ],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-13"
+  }
+}
