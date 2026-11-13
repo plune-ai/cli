@@ -10,8 +10,12 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { handleRun } from '../run.js';
+import { handleReport } from '../report.js';
 import { createProgram } from '../../../cli.js';
+import { exitCodeFor } from '../../../orchestrator/index.js';
 import { PRICE_TABLE } from '../../../providers/prices.js';
+import { renderMarkdown } from '../../../reporters/index.js';
+import type { RunResult } from '../../../types/results.js';
 
 /** One row, prompt `Tell me about cheese` (20 characters → 5 estimated input tokens), max_tokens 1024. */
 function config(provider: string, model: string, extra = ''): string {
@@ -117,6 +121,63 @@ describe('handleRun --dry-run with no provider key', () => {
   });
 });
 
+// plune-ai/cli#244 — a dry run ran no assertion, and "every assertion of an empty list passed" made
+// each row a pass: `1 passed`, `PASS e1`, and that result saved over the last measured run, so
+// `plune report` then said `All evals passed.` A dry run gives a price and no verdict, and it is
+// not the last run.
+describe('handleRun --dry-run gives no verdict and saves nothing', () => {
+  const lastRun = (): string => path.join(tmpDir, '.plune', 'last-run.json');
+
+  it('counts no row as passed, failed or errored, and marks the result as a dry run', async () => {
+    const result = await handleRun({
+      dryRun: true,
+      configPath: writeConfig(config('openai', 'gpt-4o-mini')),
+    });
+
+    expect(result.dry_run).toBe(true);
+    expect(result.summary).toMatchObject({
+      total: 1,
+      passed: 0,
+      failed: 0,
+      errored: 0,
+      blocked: 0,
+      skipped: 1,
+    });
+    expect(result.evals[0]!.passed).toBe(false);
+    expect(result.evals[0]!.rows[0]).toMatchObject({
+      output: null,
+      assertions: [],
+      inconclusive: 'skipped',
+    });
+    expect(exitCodeFor(result)).toBe(0);
+  });
+
+  it('writes no file into a folder with no earlier run', async () => {
+    await handleRun({ dryRun: true, configPath: writeConfig(config('openai', 'gpt-4o-mini')) });
+
+    expect(fs.existsSync(lastRun())).toBe(false);
+    // Not the saved run and not a cache file either: `.plune` holds nothing.
+    const dir = path.dirname(lastRun());
+    expect(fs.existsSync(dir) ? fs.readdirSync(dir) : []).toEqual([]);
+  });
+
+  it('leaves the last measured run byte for byte as it was, and plune report still shows it', async () => {
+    const configPath = writeConfig(config('openai', 'gpt-4o-mini'));
+    // A measured run on the built-in mock: it answers "mock response", the eval wants "cheese".
+    vi.stubEnv('PLUNE_MOCK_PROVIDER', '1');
+    const measured = await handleRun({ dryRun: false, configPath });
+    vi.stubEnv('PLUNE_MOCK_PROVIDER', '');
+    expect(measured.summary).toMatchObject({ passed: 0, failed: 1 });
+    const before = fs.readFileSync(lastRun());
+
+    await handleRun({ dryRun: true, configPath });
+
+    expect(fs.readFileSync(lastRun()).equals(before)).toBe(true);
+    expect(handleReport({ cwd: tmpDir }).summary).toMatchObject({ passed: 0, failed: 1 });
+    expect(renderMarkdown(handleReport({ cwd: tmpDir }))).not.toContain('All evals passed.');
+  });
+});
+
 describe('plune run --dry-run through the real parser', () => {
   it('exits clean and prints the estimate, with no key anywhere', async () => {
     const stdout: string[] = [];
@@ -150,5 +211,87 @@ describe('plune run --dry-run through the real parser', () => {
       (INPUT_TOKENS / 1000) * price.input_per_1k_usd +
       (OUTPUT_TOKENS / 1000) * price.output_per_1k_usd;
     expect(stdout.join('')).toContain(`$${cost.toFixed(4)}`);
+  });
+
+  // plune-ai/cli#244 — what each format prints for a dry run: a price, and no word of a verdict.
+  /** `plune run --dry-run --no-color <args>` on the one-row config: stdout, and the exit code it ended with. */
+  async function dryRun(...args: string[]): Promise<{ stdout: string; code: number }> {
+    const stdout: string[] = [];
+    vi.spyOn(process.stdout, 'write').mockImplementation((c: string | Uint8Array): boolean => {
+      stdout.push(typeof c === 'string' ? c : Buffer.from(c).toString());
+      return true;
+    });
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    let exited: number | undefined;
+    vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      exited ??= code ?? 0;
+    }) as (code?: string | number | null | undefined) => never);
+    process.exitCode = undefined;
+    await createProgram().parseAsync([
+      'node',
+      'plune',
+      '--no-color',
+      'run',
+      '--dry-run',
+      '--config',
+      writeConfig(config('anthropic', 'claude-3-5-haiku-latest')),
+      ...args,
+    ]);
+    const code = exited ?? (process.exitCode as number | undefined) ?? 0;
+    process.exitCode = undefined;
+    return { stdout: stdout.join(''), code };
+  }
+  const price = PRICE_TABLE['claude-3-5-haiku-latest']!;
+  const COST = (
+    (INPUT_TOKENS / 1000) * price.input_per_1k_usd +
+    (OUTPUT_TOKENS / 1000) * price.output_per_1k_usd
+  ).toFixed(4);
+
+  it('the console says the row was priced, with no verdict, and the exit code is 0', async () => {
+    const r = await dryRun();
+
+    expect(r.code).toBe(0);
+    expect(r.stdout).toBe(
+      `Plune dry run\n1 row(s) priced, none measured · estimated $${COST}\n\nPRICED e1\n  1 row(s) priced\n`,
+    );
+    expect(r.stdout).not.toMatch(/PASS|FAIL|passed|failed|errored/);
+  });
+
+  it('--format json marks the dry run and counts the row as neither passed, failed nor errored', async () => {
+    const r = await dryRun('--format', 'json');
+
+    expect(r.code).toBe(0);
+    const json = JSON.parse(r.stdout) as RunResult;
+    expect(json.dry_run).toBe(true);
+    expect(json.summary).toMatchObject({
+      total: 1,
+      passed: 0,
+      failed: 0,
+      errored: 0,
+      blocked: 0,
+      skipped: 1,
+    });
+    expect(json.evals.map((ev) => ev.passed)).toEqual([false]);
+    expect(json.evals[0]!.rows.map((row) => row.inconclusive)).toEqual(['skipped']);
+  });
+
+  it('--format markdown says the row was priced, and never "All evals passed."', async () => {
+    const r = await dryRun('--format', 'markdown');
+
+    expect(r.code).toBe(0);
+    expect(r.stdout).toBe(
+      [
+        '# Plune dry run',
+        '',
+        'Nothing was measured: the rows were priced, not run.',
+        '',
+        '| Metric | Value |',
+        '| --- | --- |',
+        '| Rows priced | 1 |',
+        `| Estimated cost (USD) | ${COST} |`,
+        '',
+      ].join('\n'),
+    );
+    expect(r.stdout).not.toMatch(/All evals passed|Passed|Failed|Errored/);
   });
 });

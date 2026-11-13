@@ -4,7 +4,7 @@
 
 import type { RunResult, RowResult } from '../types/results.js';
 import { adviceOf, rowStatus } from '../types/results.js';
-import { truncate } from './helpers.js';
+import { repeatsText, truncate } from './helpers.js';
 
 const DEFAULT_MAX_OUTPUT = 500;
 const TICK = String.fromCharCode(96); // backtick
@@ -25,6 +25,27 @@ export function renderMarkdown(result: RunResult, opts: MarkdownOptions = {}): s
   const maxOut = opts.maxOutputChars ?? DEFAULT_MAX_OUTPUT;
   const { summary } = result;
   const out: string[] = [];
+
+  if (result.dry_run === true) {
+    // Nothing ran: a price and no verdict, so none of the words of a measured run (plune-ai/cli#244).
+    out.push('# Plune dry run');
+    out.push('');
+    out.push('Nothing was measured: the rows were priced, not run.');
+    out.push('');
+    out.push('| Metric | Value |');
+    out.push('| --- | --- |');
+    out.push(`| Rows priced | ${summary.total} |`);
+    out.push(`| Estimated cost (USD) | ${summary.cost_usd.toFixed(4)} |`);
+    // Only a repeated row is named: its estimate is one run times `runs`.
+    const repeated = result.evals.flatMap((ev) =>
+      ev.rows.flatMap((row) => {
+        const repeats = repeatsText(row);
+        return repeats === undefined ? [] : [`- ${ev.id} ${JSON.stringify(row.vars)}: ${repeats}`];
+      }),
+    );
+    if (repeated.length > 0) out.push('', ...repeated);
+    return out.join('\n');
+  }
 
   out.push('# Plune run');
   out.push('');

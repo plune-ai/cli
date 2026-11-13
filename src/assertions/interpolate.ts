@@ -8,6 +8,17 @@ type InterpolationCtx = Pick<AssertionContext<unknown>, 'vars' | 'row'>;
 
 const PLACEHOLDER = /\{\{\s*([\w.]+)\s*\}\}/g;
 
+const EXPECTED = /\{\{\s*expected\s*\}\}/;
+
+/** True when any string in `params`, at any depth, refers to `{{expected}}`. */
+export function usesExpected(params: unknown): boolean {
+  if (typeof params === 'string') return EXPECTED.test(params);
+  if (Array.isArray(params)) return params.some(usesExpected);
+  if (params !== null && typeof params === 'object')
+    return Object.values(params).some(usesExpected);
+  return false;
+}
+
 export function interpolate(template: string, ctx: InterpolationCtx): string {
   return template.replace(PLACEHOLDER, (match, key: string) => {
     if (key === 'expected') {

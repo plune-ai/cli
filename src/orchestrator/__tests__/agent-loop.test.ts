@@ -19,7 +19,7 @@ import type { CallAnswer } from '../../mcp-testing/connect/tools.js';
 import type { Cache } from '../../cache/cache.js';
 import type { Config, McpLimits } from '../../types/config.js';
 import type { CostEstimate, Provider, StepRequest, StepResponse } from '../../types/provider.js';
-import type { RowResult } from '../../types/results.js';
+import { rowStatus, type RowResult } from '../../types/results.js';
 
 const ok = (text: string): CallAnswer => ({
   kind: 'result',
@@ -661,6 +661,16 @@ describe('CLI · run · agent loop · run shape', () => {
     expect(connect).not.toHaveBeenCalled();
     expect(r.usage).toMatchObject({ output_tokens: 400, cost_usd: 0.4, priced: true });
     expect(r.agent).toBeUndefined();
+  });
+
+  // plune-ai/cli#244 — the loop never ran, so the row is priced and not judged.
+  it('CLI · run · agent loop · a dry run gives the row no verdict', async () => {
+    const r = await row(
+      config(),
+      { ...deps(scripted([{ text: 'x' }]), fakeServer({})), connectMcp: vi.fn() },
+      { dryRun: true },
+    );
+    expect(rowStatus(r)).toBe('skipped');
   });
 
   it('CLI · run · agent loop · with runs above 1 the row carries the loop of the attempt it shows', async () => {

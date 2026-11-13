@@ -18,7 +18,10 @@ writes the file in the current directory.
 plune init
 ```
 
-- Requires an interactive terminal (TTY). In a non-interactive shell it exits with an error — write
+- `--yes` skips the questions and writes a default `plune.yaml`, a sample dataset and `.env.example`;
+  it needs no terminal. It ends by naming what the first `plune run` needs: the key of the provider it wrote (in
+  `.env`), or `PLUNE_MOCK_PROVIDER=1` for a run with no key. `--force` overwrites existing files.
+- Without `--yes`, it requires an interactive terminal (TTY). In a non-interactive shell it exits with an error — write
   the `plune.yaml` by hand instead (see [Configuration](./configuration.md)).
 
 ---
@@ -37,7 +40,7 @@ plune run [options]
 |--------|---------|
 | `--config <path>` | Use a specific config file (default: `plune.yaml` in the current directory). |
 | `--only <selector>` | Run a subset. `<selector>` is an eval `id` or `tag:<name>`. **Repeatable**: `--only a --only tag:rag`. |
-| `--dry-run` | Estimate cost/tokens without calling the model or touching the cache — so it needs no provider key. Always exits `0`. |
+| `--dry-run` | Estimate cost/tokens without calling the model or touching the cache — so it needs no provider key. Always exits `0`. It prints how many rows were priced and the estimated cost, and no verdict: no row counts as passed, failed or errored (in `--format json`: `"dry_run": true`, and every row has `"inconclusive": "skipped"`). It is not saved to `.plune/last-run.json`. |
 | `--concurrency <n>` | Override how many rows run in parallel (default: the config's `provider.concurrency`, or 4). |
 | `--no-cache` | Ignore the cache for this run — always call the model, don't read or write cached completions. |
 | `--cache-strict` | Every row must come from the cache; no model call for completions. A miss ends the run with exit `5` and lists the rows with no entry. Cannot be combined with `--no-cache`. |
@@ -77,8 +80,10 @@ plune run --format json                    # the raw RunResult, for scripts
 plune run --format markdown -o report.md   # a Markdown report (great for PR comments)
 ```
 
-The full machine-readable result is always written to **`.plune/last-run.json`** (a `RunResult` — see
+The full machine-readable result is written to **`.plune/last-run.json`** (a `RunResult` — see
 [How it works](./concepts.md#the-runresult)); `plune report` re-renders it without re-running.
+A `--dry-run` measures nothing and leaves that file as it was, so `plune report` still shows the
+last measured run.
 
 If `--only` matches nothing, Plune prints `No evals matched the selector.` and exits `0`.
 
