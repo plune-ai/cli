@@ -1041,8 +1041,47 @@ It asks for two tokens (one for the server itself, one for `https://other-resour
 first gets a `2xx` and the second a `401`. A server that refuses the first, an authorization server that gives the
 same token for both, and a `429`, a `5xx` or a redirect on any of the requests prove nothing, and the check is then
 `could-not-run`. A token, a client secret or an `Authorization` value never reaches the output, `--out`
-files, JUnit or an error message. Not in this version: the browser and headless sign-in, registration (`dcr`, `cimd`),
-the checks of the authorization endpoint and of the token endpoint, and a result per registration method.
+files, JUnit or an error message.
+
+#### Registration and the token response
+
+`registration.method` of `--config` says which registration the run checks (`preregistered`, `dcr` or `cimd`); a check
+for another method is `not-applicable`.
+
+| Check | What it needs from `--config` |
+|-------|-------------------------------|
+| `oauth-reg-prereg` | `registration.clientId` and `redirectUri`. Sends one GET to the authorization endpoint with the `client_id`, the redirect URI and a PKCE challenge, never a secret, and reads the redirect without following it; then the same with a made-up `client_id`. It passes only when the real client is not refused and the made-up one is. A server that sends both to a sign-in is `could-not-run`: it cannot be told from an error page. |
+| `oauth-reg-dcr`, `oauth-reg-dcr-http-redirect-rejected` | `registration.allowClientCreation: true`. |
+| `oauth-reg-cimd` | `registration.clientIdMetadataUrl` (an https URL of a client metadata document you host), `redirectUri` that the document lists, and `registration.clientIdMetadataMismatchUrl` (a document whose `client_id` is not its own URL). Without the last, only the first half is seen and the check is `could-not-run`. |
+| `oauth-token-format` | `auth: "client-credentials"` and a preregistered client, as for `oauth-neg-wrong-audience`. A missing `expires_in` is said in the result and does not fail the check. A `token_type` other than `Bearer` (for example `DPoP`) is `failed`: the text of MCP has the token sent as `Authorization: Bearer`. |
+
+**Dynamic registration creates a client on the authorization server, which is not yours, and the client may stay
+there.** It is off unless `registration.allowClientCreation` is `true`, and it is sent only to a registration endpoint on
+an origin named with `--allow-origin` (https, or http on a loopback name). `oauth-reg-dcr` registers one client with a
+correct body (`application_type: "native"`, a loopback redirect URI). `oauth-reg-dcr-http-redirect-rejected` registers a
+second one, with an `http` redirect URI that is not loopback, which the server must refuse; a server that accepts it has
+created a client with that redirect. After each registration the run deletes the client (`DELETE` on the
+`registration_client_uri` with the `registration_access_token`, RFC 7592) when the server returned both. When it did not,
+or the delete failed (a server may answer 405), the result says so in plain words with the `client_id`
+(`Client dyn-1 remains on the authorization server`): remove it in the server's own console. The deletion goes only to
+a `registration_client_uri` on the origin of the registration endpoint.
+
+**There is no guarantee that no client is left.** Every result of a registration says one of three things: the client was
+removed, it remains with its `client_id`, or "A client may have been created and could not be named". The last is said
+when the POST got no answer (a timeout, a lost connection), when it got a `3xx` or a `5xx`, when a `2xx` had no
+`client_id` and no means to delete it, and when the `2xx` body was too large to read. A run that is interrupted (Ctrl-C)
+between a registration and its deletion leaves the client, and says nothing: that window is known and not closed.
+
+One run registers at most 2 clients per revision (the control and the probe with the `http` redirect), so at most 4 in
+a run of both revisions. They are named `plune-conformance-test`. The control uses the `redirectUri` of `--config` when it
+is a loopback URL, else `http://127.0.0.1:8765/callback`, and the result says which.
+
+Everything the server issues is masked in every output: any string under a key that names a secret, token, key,
+password, assertion or credential (`client_secret`, `registration_access_token`, `initial_access_token`, `refresh_token`,
+`id_token`, ...) at any depth, and `registration_client_uri` whole, because it often carries a secret.
+
+Not in this version: the browser and headless sign-in, the checks of the authorization endpoint that refuse a wrong
+request, and a result per registration method.
 
 ### Exit codes
 

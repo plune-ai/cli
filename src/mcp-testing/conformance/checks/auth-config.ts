@@ -19,6 +19,12 @@ export interface OauthConfig {
     /** The name of the environment variable that holds the client secret. */
     clientSecretEnv?: string;
     clientIdMetadataUrl?: string;
+    /** The URL of a document whose client_id is not its own URL: the server must refuse it. */
+    clientIdMetadataMismatchUrl?: string;
+    /**
+     * Dynamic registration creates a client on the authorization server, and the client may stay there. Off unless true.
+     */
+    allowClientCreation?: boolean;
   };
   scopes?: string[];
   redirectUri?: string;
@@ -35,7 +41,14 @@ const TOP = new Set([
   'auth',
   'resource',
 ]);
-const REGISTRATION = new Set(['method', 'clientId', 'clientSecretEnv', 'clientIdMetadataUrl']);
+const REGISTRATION = new Set([
+  'method',
+  'clientId',
+  'clientSecretEnv',
+  'clientIdMetadataUrl',
+  'clientIdMetadataMismatchUrl',
+  'allowClientCreation',
+]);
 const METHODS: readonly RegistrationMethod[] = ['preregistered', 'dcr', 'cimd'];
 const MODES: readonly AuthMode[] = ['interactive', 'headless', 'client-credentials'];
 /** A key that says it holds a secret, other than the name of the variable that does. */
@@ -115,6 +128,32 @@ export function parseOauthConfig(source: string): OauthConfig {
           'registration.clientIdMetadataUrl',
           value['clientIdMetadataUrl'],
         );
+      if (value['clientIdMetadataMismatchUrl'] !== undefined)
+        reg.clientIdMetadataMismatchUrl = text(
+          'registration.clientIdMetadataMismatchUrl',
+          value['clientIdMetadataMismatchUrl'],
+        );
+      for (const k of ['clientIdMetadataUrl', 'clientIdMetadataMismatchUrl'] as const) {
+        const u = reg[k];
+        if (u === undefined) continue;
+        let parsed: URL | undefined;
+        try {
+          parsed = new URL(u);
+        } catch {
+          parsed = undefined;
+        }
+        if (parsed === undefined || parsed.protocol !== 'https:' || parsed.pathname === '/')
+          throw new UsageError(
+            `--config: "registration.${k}" must be an https URL with a path, such as https://example.com/client.json.`,
+          );
+      }
+      if (value['allowClientCreation'] !== undefined) {
+        if (typeof value['allowClientCreation'] !== 'boolean')
+          throw new UsageError(
+            '--config: "registration.allowClientCreation" must be true or false.',
+          );
+        reg.allowClientCreation = value['allowClientCreation'];
+      }
       if (value['clientSecretEnv'] !== undefined) {
         const name = text('registration.clientSecretEnv', value['clientSecretEnv']);
         if (!ENV_NAME.test(name))

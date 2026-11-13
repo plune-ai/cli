@@ -47,11 +47,25 @@ function writeReport(text: string, outputPath: string | undefined): void {
 // Stack traces are opt-in via --verbose (constitution §5: "fail loud, exit clean" — a clean
 // message by default, the stack only when the user asks for it). `maybeStack` appends the stack
 // after an already-printed message (used by the exit-2 config paths); `failUnexpected` handles an
-// unclassified error: message-or-stack, then exit 1.
+// unclassified error: message-or-stack, then exit 1 (exit 2 with advice for a file-system error on a path).
 function maybeStack(err: unknown, verbose: boolean): void {
   if (verbose && err instanceof Error && err.stack !== undefined) {
     process.stderr.write(err.stack + '\n');
   }
+}
+
+/**
+ * A file-system error that names a path on this machine. A network error has a `code` and no `path`. A
+ * command that could not be started has both and is not one: its `syscall` starts with `spawn`.
+ */
+export function isFileSystemError(err: unknown): boolean {
+  const e = err as NodeJS.ErrnoException;
+  return (
+    err instanceof Error &&
+    typeof e.code === 'string' &&
+    typeof e.path === 'string' &&
+    e.syscall?.startsWith('spawn') !== true
+  );
 }
 
 function failUnexpected(err: unknown, verbose: boolean): void {
@@ -59,6 +73,16 @@ function failUnexpected(err: unknown, verbose: boolean): void {
     process.stderr.write((verbose && err.stack !== undefined ? err.stack : err.message) + '\n');
   } else {
     process.stderr.write(String(err) + '\n');
+  }
+  if (isFileSystemError(err)) {
+    // A folder that is not there, no permission, a file where a folder is expected (#258): the user's to
+    // fix, like a config error. So no request for a report, and exit 2, not the 1 that means a failed
+    // assertion or a failed gate.
+    process.stderr.write(
+      'This is a file or folder on this machine: check the path in the message and that you may read and write it.\n',
+    );
+    process.exit(2);
+    return;
   }
   // The one branch with no advice of its own: every classified failure above ends in an
   // instruction, and this is where somebody lands holding an error nobody wrote a sentence for
@@ -934,7 +958,7 @@ export function createProgram(): Command {
     .option('--list-checks', 'Print the check catalog and exit, without connecting to a server', false)
     .option('--explain <id>', 'Print the full catalog entry of one check and exit')
     .option('--fixture <file>', 'A JSON list of { tool, arguments }: the only tools the run calls, for the checks of tool results')
-    .option('--config <file>', 'The oauth suite: a JSON file of how the run may sign in (secrets by the name of an environment variable)')
+    .option('--config <file>', 'The oauth suite: a JSON file of how the run may sign in (secrets by the name of an environment variable). Dynamic registration makes a client on the authorization server and is off unless registration.allowClientCreation is true; the client is deleted afterwards when the server allows it, else the result names the client that remains, or says that a client may have been created and could not be named. Nothing guarantees that no client is left: up to 2 are made per revision, up to 4 in a run of both. An interrupted run (Ctrl-C) leaves the client it was making')
     .option('--allow-origin <origin>', 'The oauth suite: ask this origin too, though it is not the origin of the server; repeatable', repeat)
     .action(async (server: string[], options: import('./cli/commands/mcp-conformance.js').McpConformanceFlags, command: Command) => {
       const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
