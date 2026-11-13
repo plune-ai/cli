@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "api": {
+      "url": "https://mcp.example.net/m",
+      "headers": {
+        "Authorization": "Bearer ${env:API_TOKEN}",
+        "X-Api-Key": "${env:API_KEY}"
+      }
+    },
+    "local": {
+      "url": "http://127.0.0.1:8080/mcp"
+    },
+    "loopback6": {
+      "url": "http://[::1]:3000/mcp"
+    }
+  }
+}

@@ -117,6 +117,11 @@ describe('CLI · mcp scan · corpus · coverage of the catalog', () => {
 describe('CLI · mcp scan · corpus · what the files may hold', () => {
   const files = ['malicious', 'benign']
     .flatMap((d) => readdirSync(join(DIR, d)).map((f) => join(DIR, d, f)))
+    .concat(
+      ['malicious', 'benign'].flatMap((d) =>
+        readdirSync(join(DIR, 'config', d)).map((f) => join(DIR, 'config', d, f)),
+      ),
+    )
     .concat(join(DIR, 'SOURCES.json'));
 
   it('no raw tag character, bidi control, zero-width character or control character is stored: they are escapes', () => {

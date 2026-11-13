@@ -1,0 +1,8 @@
+{
+  "origin": "synthetic",
+  "description": "Project folders as the root of a file server, and a path package.",
+  "client": "cursor",
+  "path": ".cursor/mcp.json",
+  "author": "Maievskyi Leonid",
+  "date": "2026-11-13"
+}

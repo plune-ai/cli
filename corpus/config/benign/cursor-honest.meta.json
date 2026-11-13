@@ -1,0 +1,16 @@
+{
+  "origin": "synthetic",
+  "description": "A Cursor file with env references.",
+  "client": "cursor",
+  "path": ".cursor/mcp.json",
+  "options": {
+    "allowHosts": [
+      "mcp.example.net",
+      "localhost",
+      "127.0.0.1",
+      "::1"
+    ]
+  },
+  "author": "Maievskyi Leonid",
+  "date": "2026-11-13"
+}

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "s": {
+      "command": "node",
+      "args": "s.js"
+    }
+  }
+}

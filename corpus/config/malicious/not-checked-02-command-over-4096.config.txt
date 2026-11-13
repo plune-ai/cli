@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "s": {
+      "command": "node{{repeat:x:5000}}",
+      "args": []
+    }
+  }
+}

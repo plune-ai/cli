@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "s": {
+      "url": "https://mcp-example.net/mcp"
+    }
+  }
+}

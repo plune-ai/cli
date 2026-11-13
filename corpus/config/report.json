@@ -1,0 +1,378 @@
+{
+  "rules": {
+    "scan/cfg/auto-confirm": {
+      "status": "measured",
+      "fixtures": 3,
+      "detected": 3,
+      "missed": [],
+      "benign": {
+        "real": {
+          "servers": 0,
+          "fields": 0,
+          "falsePositives": [],
+          "wilsonUpper95Servers": null
+        },
+        "synthetic": {
+          "servers": 39,
+          "fields": 124,
+          "falsePositives": [
+            {
+              "set": "bash-c-honest",
+              "pointer": "mcpServers.win.args[2]"
+            },
+            {
+              "set": "claude-code-honest",
+              "pointer": "mcpServers.github.args[0]"
+            },
+            {
+              "set": "claude-code-honest",
+              "pointer": "mcpServers.files.args[0]"
+            },
+            {
+              "set": "desktop-honest",
+              "pointer": "mcpServers.filesystem.args[0]"
+            },
+            {
+              "set": "env-file-honest",
+              "pointer": "mcpServers.tool.args[0]"
+            },
+            {
+              "set": "env-file-honest",
+              "pointer": "mcpServers.tool2.args[0]"
+            },
+            {
+              "set": "project-paths",
+              "pointer": "mcpServers.src.args[0]"
+            },
+            {
+              "set": "project-paths",
+              "pointer": "mcpServers.data.args[0]"
+            },
+            {
+              "set": "project-paths",
+              "pointer": "mcpServers.shallow.args[0]"
+            },
+            {
+              "set": "user-file",
+              "pointer": "projects[\"/Users/john/app\"].mcpServers.files.args[0]"
+            }
+          ],
+          "wilsonUpper95Servers": 0.41082
+        }
+      },
+      "gateEligible": false,
+      "gateReason": "not enough real units (0 of 385)"
+    },
+    "scan/cfg/broad-filesystem-root": {
+      "status": "measured",
+      "fixtures": 6,
+      "detected": 5,
+      "missed": [
+        {
+          "fixture": "broad-filesystem-root-06-parent-of-homes",
+          "pointer": "mcpServers.s.args[2]"
+        }
+      ],
+      "benign": {
+        "real": {
+          "servers": 0,
+          "fields": 0,
+          "falsePositives": [],
+          "wilsonUpper95Servers": null
+        },
+        "synthetic": {
+          "servers": 39,
+          "fields": 124,
+          "falsePositives": [],
+          "wilsonUpper95Servers": 0.08967
+        }
+      },
+      "gateEligible": false,
+      "gateReason": "class heuristic; not enough real units (0 of 385); missed fixtures"
+    },
+    "scan/cfg/download-to-shell": {
+      "status": "measured",
+      "fixtures": 6,
+      "detected": 5,
+      "missed": [
+        {
+          "fixture": "download-to-shell-06-two-steps",
+          "pointer": "mcpServers.s.args[1]"
+        }
+      ],
+      "benign": {
+        "real": {
+          "servers": 0,
+          "fields": 0,
+          "falsePositives": [],
+          "wilsonUpper95Servers": null
+        },
+        "synthetic": {
+          "servers": 39,
+          "fields": 124,
+          "falsePositives": [],
+          "wilsonUpper95Servers": 0.08967
+        }
+      },
+      "gateEligible": false,
+      "gateReason": "class heuristic; not enough real units (0 of 385); missed fixtures"
+    },
+    "scan/cfg/env-file-not-read": {
+      "status": "measured",
+      "fixtures": 3,
+      "detected": 3,
+      "missed": [],
+      "benign": {
+        "real": {
+          "servers": 0,
+          "fields": 0,
+          "falsePositives": [],
+          "wilsonUpper95Servers": null
+        },
+        "synthetic": {
+          "servers": 39,
+          "fields": 124,
+          "falsePositives": [
+            {
+              "set": "env-file-honest",
+              "pointer": "mcpServers.app.envFile"
+            }
+          ],
+          "wilsonUpper95Servers": 0.131813
+        }
+      },
+      "gateEligible": false,
+      "gateReason": "not enough real units (0 of 385)"
+    },
+    "scan/cfg/foreign-host": {
+      "status": "measured",
+      "fixtures": 4,
+      "detected": 4,
+      "missed": [],
+      "benign": {
+        "real": {
+          "servers": 0,
+          "fields": 0,
+          "falsePositives": [],
+          "wilsonUpper95Servers": null
+        },
+        "synthetic": {
+          "servers": 5,
+          "fields": 10,
+          "falsePositives": [],
+          "wilsonUpper95Servers": 0.434491
+        }
+      },
+      "gateEligible": false,
+      "gateReason": "not enough real units (0 of 385)"
+    },
+    "scan/cfg/http-plaintext": {
+      "status": "measured",
+      "fixtures": 4,
+      "detected": 4,
+      "missed": [],
+      "benign": {
+        "real": {
+          "servers": 0,
+          "fields": 0,
+          "falsePositives": [],
+          "wilsonUpper95Servers": null
+        },
+        "synthetic": {
+          "servers": 39,
+          "fields": 124,
+          "falsePositives": [],
+          "wilsonUpper95Servers": 0.08967
+        }
+      },
+      "gateEligible": false,
+      "gateReason": "not enough real units (0 of 385)"
+    },
+    "scan/cfg/invalid-entry": {
+      "status": "measured",
+      "fixtures": 6,
+      "detected": 6,
+      "missed": [],
+      "benign": {
+        "real": {
+          "servers": 0,
+          "fields": 0,
+          "falsePositives": [],
+          "wilsonUpper95Servers": null
+        },
+        "synthetic": {
+          "servers": 39,
+          "fields": 124,
+          "falsePositives": [],
+          "wilsonUpper95Servers": 0.08967
+        }
+      },
+      "gateEligible": false,
+      "gateReason": "not enough real units (0 of 385)"
+    },
+    "scan/cfg/package-not-allowed": {
+      "status": "measured",
+      "fixtures": 4,
+      "detected": 4,
+      "missed": [],
+      "benign": {
+        "real": {
+          "servers": 0,
+          "fields": 0,
+          "falsePositives": [],
+          "wilsonUpper95Servers": null
+        },
+        "synthetic": {
+          "servers": 3,
+          "fields": 8,
+          "falsePositives": [],
+          "wilsonUpper95Servers": 0.561506
+        }
+      },
+      "gateEligible": false,
+      "gateReason": "not enough real units (0 of 385)"
+    },
+    "scan/cfg/secret-by-name": {
+      "status": "measured",
+      "fixtures": 5,
+      "detected": 4,
+      "missed": [
+        {
+          "fixture": "secret-by-name-05-unlisted-name",
+          "pointer": "mcpServers.s.env.SESSION_COOKIE"
+        }
+      ],
+      "benign": {
+        "real": {
+          "servers": 0,
+          "fields": 0,
+          "falsePositives": [],
+          "wilsonUpper95Servers": null
+        },
+        "synthetic": {
+          "servers": 39,
+          "fields": 124,
+          "falsePositives": [
+            {
+              "set": "lookalike-names",
+              "pointer": "mcpServers.desk-lamp-tools.env.MAX_TOKENS"
+            },
+            {
+              "set": "lookalike-names",
+              "pointer": "mcpServers.desk-lamp-tools.env.TOKEN_LIMIT"
+            }
+          ],
+          "wilsonUpper95Servers": 0.168859
+        }
+      },
+      "gateEligible": false,
+      "gateReason": "class heuristic; not enough real units (0 of 385); missed fixtures"
+    },
+    "scan/cfg/secret-in-url": {
+      "status": "measured",
+      "fixtures": 5,
+      "detected": 5,
+      "missed": [],
+      "benign": {
+        "real": {
+          "servers": 0,
+          "fields": 0,
+          "falsePositives": [],
+          "wilsonUpper95Servers": null
+        },
+        "synthetic": {
+          "servers": 39,
+          "fields": 124,
+          "falsePositives": [],
+          "wilsonUpper95Servers": 0.08967
+        }
+      },
+      "gateEligible": false,
+      "gateReason": "not enough real units (0 of 385)"
+    },
+    "scan/cfg/secret-known-format": {
+      "status": "measured",
+      "fixtures": 12,
+      "detected": 12,
+      "missed": [],
+      "benign": {
+        "real": {
+          "servers": 0,
+          "fields": 0,
+          "falsePositives": [],
+          "wilsonUpper95Servers": null
+        },
+        "synthetic": {
+          "servers": 39,
+          "fields": 124,
+          "falsePositives": [],
+          "wilsonUpper95Servers": 0.08967
+        }
+      },
+      "gateEligible": false,
+      "gateReason": "not enough real units (0 of 385)"
+    },
+    "scan/cfg/shell-command": {
+      "status": "measured",
+      "fixtures": 6,
+      "detected": 6,
+      "missed": [],
+      "benign": {
+        "real": {
+          "servers": 0,
+          "fields": 0,
+          "falsePositives": [],
+          "wilsonUpper95Servers": null
+        },
+        "synthetic": {
+          "servers": 39,
+          "fields": 124,
+          "falsePositives": [
+            {
+              "set": "bash-c-honest",
+              "pointer": "mcpServers.app.command"
+            },
+            {
+              "set": "bash-c-honest",
+              "pointer": "mcpServers.win.command"
+            },
+            {
+              "set": "bash-c-honest",
+              "pointer": "mcpServers.lc.command"
+            }
+          ],
+          "wilsonUpper95Servers": 0.203214
+        }
+      },
+      "gateEligible": false,
+      "gateReason": "not enough real units (0 of 385)"
+    },
+    "scan/cfg/unpinned-package": {
+      "status": "measured",
+      "fixtures": 6,
+      "detected": 6,
+      "missed": [],
+      "benign": {
+        "real": {
+          "servers": 0,
+          "fields": 0,
+          "falsePositives": [],
+          "wilsonUpper95Servers": null
+        },
+        "synthetic": {
+          "servers": 39,
+          "fields": 124,
+          "falsePositives": [],
+          "wilsonUpper95Servers": 0.08967
+        }
+      },
+      "gateEligible": false,
+      "gateReason": "not enough real units (0 of 385)"
+    }
+  },
+  "notChecked": {
+    "expected": 8,
+    "detected": 8,
+    "missed": []
+  }
+}

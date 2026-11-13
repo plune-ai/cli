@@ -1,0 +1,198 @@
+{
+  "measuredAt": "2026-11-13",
+  "commit": "9a5ee9c",
+  "corpusSha256": "79e99a7138cc3dc7bd27cb60e9833812fd260edc7f232cb65c43c316f005a6be",
+  "rules": {
+    "scan/cfg/auto-confirm": {
+      "fixtures": 3,
+      "missed": [],
+      "falsePositives": {
+        "real": [],
+        "synthetic": [
+          {
+            "set": "bash-c-honest",
+            "pointer": "mcpServers.win.args[2]"
+          },
+          {
+            "set": "claude-code-honest",
+            "pointer": "mcpServers.github.args[0]"
+          },
+          {
+            "set": "claude-code-honest",
+            "pointer": "mcpServers.files.args[0]"
+          },
+          {
+            "set": "desktop-honest",
+            "pointer": "mcpServers.filesystem.args[0]"
+          },
+          {
+            "set": "env-file-honest",
+            "pointer": "mcpServers.tool.args[0]"
+          },
+          {
+            "set": "env-file-honest",
+            "pointer": "mcpServers.tool2.args[0]"
+          },
+          {
+            "set": "project-paths",
+            "pointer": "mcpServers.src.args[0]"
+          },
+          {
+            "set": "project-paths",
+            "pointer": "mcpServers.data.args[0]"
+          },
+          {
+            "set": "project-paths",
+            "pointer": "mcpServers.shallow.args[0]"
+          },
+          {
+            "set": "user-file",
+            "pointer": "projects[\"/Users/john/app\"].mcpServers.files.args[0]"
+          }
+        ]
+      }
+    },
+    "scan/cfg/broad-filesystem-root": {
+      "fixtures": 6,
+      "missed": [
+        {
+          "fixture": "broad-filesystem-root-06-parent-of-homes",
+          "pointer": "mcpServers.s.args[2]"
+        }
+      ],
+      "falsePositives": {
+        "real": [],
+        "synthetic": []
+      }
+    },
+    "scan/cfg/download-to-shell": {
+      "fixtures": 6,
+      "missed": [
+        {
+          "fixture": "download-to-shell-06-two-steps",
+          "pointer": "mcpServers.s.args[1]"
+        }
+      ],
+      "falsePositives": {
+        "real": [],
+        "synthetic": []
+      }
+    },
+    "scan/cfg/env-file-not-read": {
+      "fixtures": 3,
+      "missed": [],
+      "falsePositives": {
+        "real": [],
+        "synthetic": [
+          {
+            "set": "env-file-honest",
+            "pointer": "mcpServers.app.envFile"
+          }
+        ]
+      }
+    },
+    "scan/cfg/foreign-host": {
+      "fixtures": 4,
+      "missed": [],
+      "falsePositives": {
+        "real": [],
+        "synthetic": []
+      }
+    },
+    "scan/cfg/http-plaintext": {
+      "fixtures": 4,
+      "missed": [],
+      "falsePositives": {
+        "real": [],
+        "synthetic": []
+      }
+    },
+    "scan/cfg/invalid-entry": {
+      "fixtures": 6,
+      "missed": [],
+      "falsePositives": {
+        "real": [],
+        "synthetic": []
+      }
+    },
+    "scan/cfg/package-not-allowed": {
+      "fixtures": 4,
+      "missed": [],
+      "falsePositives": {
+        "real": [],
+        "synthetic": []
+      }
+    },
+    "scan/cfg/secret-by-name": {
+      "fixtures": 5,
+      "missed": [
+        {
+          "fixture": "secret-by-name-05-unlisted-name",
+          "pointer": "mcpServers.s.env.SESSION_COOKIE"
+        }
+      ],
+      "falsePositives": {
+        "real": [],
+        "synthetic": [
+          {
+            "set": "lookalike-names",
+            "pointer": "mcpServers.desk-lamp-tools.env.MAX_TOKENS"
+          },
+          {
+            "set": "lookalike-names",
+            "pointer": "mcpServers.desk-lamp-tools.env.TOKEN_LIMIT"
+          }
+        ]
+      }
+    },
+    "scan/cfg/secret-in-url": {
+      "fixtures": 5,
+      "missed": [],
+      "falsePositives": {
+        "real": [],
+        "synthetic": []
+      }
+    },
+    "scan/cfg/secret-known-format": {
+      "fixtures": 12,
+      "missed": [],
+      "falsePositives": {
+        "real": [],
+        "synthetic": []
+      }
+    },
+    "scan/cfg/shell-command": {
+      "fixtures": 6,
+      "missed": [],
+      "falsePositives": {
+        "real": [],
+        "synthetic": [
+          {
+            "set": "bash-c-honest",
+            "pointer": "mcpServers.app.command"
+          },
+          {
+            "set": "bash-c-honest",
+            "pointer": "mcpServers.win.command"
+          },
+          {
+            "set": "bash-c-honest",
+            "pointer": "mcpServers.lc.command"
+          }
+        ]
+      }
+    },
+    "scan/cfg/unpinned-package": {
+      "fixtures": 6,
+      "missed": [],
+      "falsePositives": {
+        "real": [],
+        "synthetic": []
+      }
+    }
+  },
+  "notChecked": {
+    "expected": 8,
+    "missed": []
+  }
+}

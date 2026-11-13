@@ -1,0 +1,42 @@
+{
+  "mcpServers": {
+    "src": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem@2.0.1",
+        ".",
+        "./src"
+      ]
+    },
+    "data": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem@2.0.1",
+        "/srv/app/data"
+      ]
+    },
+    "shallow": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem@2.0.1",
+        "/srv/app",
+        "/opt/data"
+      ]
+    },
+    "local": {
+      "command": "npx",
+      "args": [
+        "./tools/server.js"
+      ]
+    },
+    "git": {
+      "command": "npx",
+      "args": [
+        "git+https://example.test/team/server.git"
+      ]
+    }
+  }
+}

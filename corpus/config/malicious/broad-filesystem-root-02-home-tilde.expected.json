@@ -1,0 +1,22 @@
+{
+  "client": "claude-code",
+  "path": ".mcp.json",
+  "expected": [
+    {
+      "rule": "scan/cfg/broad-filesystem-root",
+      "path": "mcpServers.s.args[2]"
+    }
+  ],
+  "notChecked": [],
+  "provenance": {
+    "catalogClass": "excess rights",
+    "mechanism": "A file server is given a whole drive or the home folder as its root.",
+    "concealment": "home-tilde",
+    "source": "not verified",
+    "catalogRefs": [
+      "DOC-LSS"
+    ],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-13"
+  }
+}

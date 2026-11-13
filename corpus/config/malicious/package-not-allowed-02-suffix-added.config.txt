@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "s": {
+      "command": "uvx",
+      "args": [
+        "mcp-server-fetch-x==1.0.0"
+      ]
+    }
+  }
+}

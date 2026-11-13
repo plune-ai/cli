@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "a": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "mcp-server-git==0.9.1",
+        "mcp-server-git"
+      ]
+    },
+    "b": {
+      "command": "uvx",
+      "args": [
+        "mcp-server-time===1.0.0"
+      ]
+    },
+    "c": {
+      "command": "bunx",
+      "args": [
+        "cowsay@1.6.0"
+      ]
+    }
+  }
+}

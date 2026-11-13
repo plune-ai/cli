@@ -1,0 +1,20 @@
+{
+  "client": "claude-code",
+  "path": ".mcp.json",
+  "expected": [],
+  "notChecked": [
+    {
+      "kind": "unreadable",
+      "problem": "parse-error"
+    }
+  ],
+  "provenance": {
+    "catalogClass": "reading the file",
+    "mechanism": "Input past a limit of the scanner: it must report that it did not check, not that the file is clean.",
+    "concealment": "unterminated-string",
+    "source": "not verified",
+    "catalogRefs": [],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-13"
+  }
+}
