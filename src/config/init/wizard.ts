@@ -102,6 +102,6 @@ export async function runInitWizard(cwd: string): Promise<void> {
   spin.stop('plune.yaml created!');
 
   // Just the file. What to do next is printed by initCommand once the dataset and .env.example
-  // exist too, so the three steps are not split across two places (#331).
+  // exist too, so the three steps are not split across two places.
   clack.outro('plune.yaml is ready.');
 }

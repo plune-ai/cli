@@ -47,7 +47,7 @@ describe('PLUNE_TOKEN comes before the saved login (#44)', () => {
   });
 });
 
-describe('credentials store (#48)', () => {
+describe('credentials store', () => {
   it('save → load round-trips the token, isolated to the config dir', () => {
     saveToken('plune_abc123');
     expect(loadToken()).toBe('plune_abc123');

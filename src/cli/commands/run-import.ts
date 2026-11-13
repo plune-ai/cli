@@ -29,7 +29,7 @@ export interface ImportOptions extends RunCommandDeps {
   minScores?: Record<string, number>;
   /** `--name`: the run's title in the list, over `PLUNE_RUN_TITLE` and the default made from the folder. */
   name?: string;
-  /** Offer tests that resolved to nothing to the review queue (the `PLUNE_CREATE=1` switch, D14). */
+  /** Offer tests that resolved to nothing to the review queue (the `PLUNE_CREATE=1` switch). */
   create?: boolean;
   /** `--upload-concurrency`: files in flight at once, over `PLUNE_UPLOAD_CONCURRENCY`. */
   uploadConcurrency?: number;
@@ -171,7 +171,7 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
       ...(options.create === true ? { offerDiscovered: true } : {}),
       ...(options.uploadConcurrency !== undefined ? { uploadConcurrency: options.uploadConcurrency } : {}),
       kind: 'automated',
-      // The CI run the report names, never this machine's: whoever imports may be another job (#790).
+      // The CI run the report names, never this machine's: whoever imports may be another job.
       // The commit and branch likewise, where the report names a commit; a report that names none —
       // JUnit's never does — takes this job's own, which is where the tests ran when import follows
       // them in one job.
@@ -288,8 +288,8 @@ function describe(result: ImportResult, apiUrl: string): string[] {
     // `Read`, not `Imported`: the verb describes the FILE, which was read whatever happened next.
     // «Imported 555 result(s): 0 accepted, 0 already there, 0 unmatched» was a sentence whose two
     // halves disagreed, and readers stop at the verb — a run that reached nobody read as one that
-    // worked (#622).
-    // `not delivered` always, zero included (#790): a number that only appears when it is bad is one
+    // worked.
+    // `not delivered` always, zero included: a number that only appears when it is bad is one
     // nobody learns to look for. The `[0-9]+ unmatched` the workflows read stays whole.
     `Read ${result.parsed} result(s) from ${result.format === 'allure' ? 'an' : 'a'} ${result.format} report: ` +
       `${result.accepted} accepted, ${result.duplicate} already there, ${result.unresolved} unmatched, ` +
@@ -338,7 +338,7 @@ function describe(result: ImportResult, apiUrl: string): string[] {
   // still to do. A first import of a mature suite is bigger than the queue holds, so it stops
   // partway — and the number alone is not the message. Without the second sentence a person reads
   // "some did not fit", empties the queue, and never learns that the rest are waiting on a second
-  // import they were never asked for (#627). What that sentence says is what refused them: advice
+  // import they were never asked for. What that sentence says is what refused them: advice
   // about a queue, said over a project at its case limit, sent people to empty a queue that was not
   // the problem (cli#71).
   if (result.unoffered > 0) {

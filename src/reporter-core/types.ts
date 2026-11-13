@@ -118,7 +118,7 @@ export interface PendingResult {
   /** What the author expected — `test.fail()` and friends. Absent means a pass was expected. */
   expectedStatus?: ResultStatus;
   /**
-   * What to call this test, and where it lives — read ONLY when nothing resolved it (D14).
+   * What to call this test, and where it lives — read ONLY when nothing resolved it.
    *
    * A result that found its case needs neither: the case already has a title and a spec. These are
    * for the other path, where the reporter offers the test to the review queue and the queue needs a
@@ -132,7 +132,7 @@ export interface PendingResult {
   specRef?: string;
   execution?: Execution;
   errorContext?: string;
-  /** What failed and where, for a failed attempt (#790); a pass carries none. Built by `failureOf`. */
+  /** What failed and where, for a failed attempt; a pass carries none. Built by `failureOf`. */
   failure?: FailureDetail;
   params?: Record<string, unknown>;
   attachments?: Attachment[];
@@ -147,7 +147,7 @@ export interface PendingResult {
 }
 
 /**
- * What a failed attempt says about itself on the run page (#790, platform ADR-0002): every field
+ * What a failed attempt says about itself on the run page: every field
  * optional — a field the runner could not supply is absent, never guessed. Nothing here is cut: the
  * platform bounds the fields after its own cleaning, and a cut before that could halve a credential.
  */
@@ -189,7 +189,7 @@ export interface DeclaredStep {
 
 /**
  * One failed attempt, as both roads reduce their runner's data to it before anything is derived —
- * `plune run import` from the JSON report, the adapter from the reporter API (#790 ADR-0001). The same
+ * `plune run import` from the JSON report, the adapter from the reporter API. The same
  * shape in, so the same detail and the same text out.
  */
 export interface FailedAttempt {
@@ -216,7 +216,7 @@ export interface ResultSubmission extends Omit<PendingResult, 'keys' | 'testCase
 }
 
 /**
- * A test this project runs and the platform has no case for (D14).
+ * A test this project runs and the platform has no case for.
  *
  * Deliberately NOT a proposed case. A proposal carries steps and an expected result, and a reporter
  * has neither — it sees a `TestResult`, never the test's source. This says the test exists and where
@@ -294,7 +294,7 @@ export interface RunStats extends SubmitCounts {
   /** Results whose keys matched no case — never sent, because inventing an id would write into
    * somebody else's history. Rung 6 of C2's ladder is what to do about them: see `offered`. */
   unresolved: number;
-  /** Unresolved tests offered to the review queue under `PLUNE_CREATE=1` (D14). Counted separately
+  /** Unresolved tests offered to the review queue under `PLUNE_CREATE=1`. Counted separately
    * from `unresolved` because they are the same tests seen twice, not a second population. */
   offered: number;
   /**
@@ -307,7 +307,7 @@ export interface RunStats extends SubmitCounts {
    */
   created: number;
   /**
-   * Unmatched tests that were NOT offered, because the queue would not take them (#627).
+   * Unmatched tests that were NOT offered, because the queue would not take them.
    *
    * Separate from `offered` rather than a shortfall computed against `unresolved`: the reason a
    * test went unoffered is the caller's next action, and a subtraction cannot carry a reason. A
@@ -321,7 +321,7 @@ export interface RunStats extends SubmitCounts {
    */
   unofferedWhy?: UnofferedWhy;
   /**
-   * Results not delivered, written to the fallback file instead of the platform (#790): a batch
+   * Results not delivered, written to the fallback file instead of the platform: a batch
    * refused for any reason — its size, the network, the token, a closed run — or a result whose keys
    * the platform could not be asked about. Apart from `rejected` and `unresolved`, which it did answer.
    */
@@ -376,7 +376,7 @@ export interface ReporterConfig {
   /** Where unsent batches go. Defaults beside the run file the CLI already writes. */
   fallbackPath?: string;
   /**
-   * Offer tests that resolved to nothing to the platform's review queue (`PLUNE_CREATE=1`, D14).
+   * Offer tests that resolved to nothing to the platform's review queue (`PLUNE_CREATE=1`).
    *
    * Off by default, and that is the product decision rather than caution: a reporter that filled a
    * stranger's review queue on first run would teach the team to ignore the queue. Turning it on is
@@ -384,7 +384,7 @@ export interface ReporterConfig {
    */
   offerDiscovered?: boolean;
   /**
-   * This run is the whole suite (`PLUNE_FULL_RUN=1`, D20).
+   * This run is the whole suite (`PLUNE_FULL_RUN=1`).
    *
    * Sent as `configuration.full` beside `expected`. When such a run finishes having reported
    * everything it expected, the platform moves the cases this source used to report and did not

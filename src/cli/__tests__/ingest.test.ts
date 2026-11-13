@@ -180,7 +180,7 @@ describe('CLI · ingest · job reporting, held to the platform contract', () => 
     const [open, progress, state] = jobCalls(calls);
     // `ingest` is a kind the panel has words for (`app/src/i18n/en.json`: `queue.kind.ingest`).
     expect(open?.body).toEqual({ kind: 'ingest', subjectName: 'design', progress: { done: 0, total: cases } });
-    // The run id the ingest answered is the job's subject: the run page lists the jobs naming it (#1279).
+    // The run id the ingest answered is the job's subject: the run page lists the jobs naming it.
     expect(progress?.body).toEqual({ done: cases, total: cases, subjectId: 'run-1' });
     expect(state?.body).toEqual({ state: 'completed' });
   });

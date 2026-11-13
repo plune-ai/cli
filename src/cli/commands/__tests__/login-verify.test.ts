@@ -12,7 +12,7 @@ import {
 } from '../login.js';
 
 /**
- * Checking the token at the moment it is pasted (#329).
+ * Checking the token at the moment it is pasted.
  *
  * Before this, `plune login` accepted anything. A wrong token surfaced two commands later, on
  * `plune sync`, as a failure that looks like something else — and by then the person has also spent
@@ -149,7 +149,7 @@ describe('the token never appears in anything printed', () => {
   });
 });
 
-describe('the messages say where a token comes from (#330)', () => {
+describe('the messages say where a token comes from', () => {
   it('names the dashboard for the deployment we know', () => {
     // Derived from the api url, not hard-coded three times: someone self-hosting must not be sent to
     // our beta, and the rule for turning one host into the other lives in exactly one place.

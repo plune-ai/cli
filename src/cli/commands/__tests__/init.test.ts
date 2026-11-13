@@ -42,7 +42,7 @@ afterEach(() => {
 });
 
 describe('initCommand', () => {
-  it('ends by naming the next three commands, in order (#331)', async () => {
+  it('ends by naming the next three commands, in order', async () => {
     // It used to end at "Created .env.example." — complete, and a dead end for anyone who does not
     // already know what comes next.
     await initCommand({ cwd: tmp, force: false, yes: true });

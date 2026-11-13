@@ -14,7 +14,7 @@ export default defineConfig({
       include: ['src/**'],
       exclude: ['src/**/__tests__/**', 'src/**/*.test.ts'],
       thresholds: {
-        // Per-file gating (ADR-P04 / ADR-0005): a single uncovered file fails CI,
+        // Per-file gating: a single uncovered file fails CI,
         // not just the directory aggregate.
         perFile: true,
         // Existing pure-logic layers (Sprint 00).

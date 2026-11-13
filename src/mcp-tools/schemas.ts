@@ -29,7 +29,7 @@ export const dryRun = z
   .optional()
   .describe('true: answer what would be sent, and send nothing');
 
-// --- Missions (#2188) ---------------------------------------------------------------------------
+// --- Missions ---------------------------------------------------------------------------
 
 export const MISSION_STATES = ['draft', 'active', 'done'] as const;
 export const MISSION_DOCUMENTATION = ['unknown', 'provided', 'none'] as const;
@@ -78,7 +78,7 @@ export const fileSource = z.strictObject({
   dry_run: dryRun,
 });
 
-// --- Questions (#2189) --------------------------------------------------------------------------
+// --- Questions --------------------------------------------------------------------------
 
 export const ACCESS_KINDS = ['openapi', 'repo', 'staging', 'har'] as const;
 const questionText = z.string().trim().min(1).max(2_000);
@@ -106,7 +106,7 @@ export const questionInput = z.strictObject({
   dry_run: dryRun,
 });
 
-// --- Strategy (#2190) ---------------------------------------------------------------------------
+// --- Strategy ---------------------------------------------------------------------------
 
 export const STRATEGY_SOURCE_KINDS = ['mission-source', 'doc-section', 'screen', 'endpoint', 'requirement', 'url'] as const;
 export const TEST_LEVELS = ['component', 'component-integration', 'system', 'system-integration', 'acceptance'] as const;
@@ -236,7 +236,7 @@ export const caseGenerationBody = {
     .describe('true: go ahead although cases or proposals from this text exist (the platform answers 409 duplicate_source first)'),
 };
 
-// --- API catalog proposals (#2192) --------------------------------------------------------------
+// --- API catalog proposals --------------------------------------------------------------
 
 export const API_METHODS = ['GET', 'PUT', 'POST', 'DELETE', 'OPTIONS', 'HEAD', 'PATCH', 'TRACE'] as const;
 

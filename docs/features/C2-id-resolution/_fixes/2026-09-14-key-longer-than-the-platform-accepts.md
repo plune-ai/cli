@@ -25,7 +25,7 @@ plune: 0 accepted · 1861 written to .plune/pending-results.jsonl
 — і в CI fallback-файл гине разом із джобом. Масштаб: **кожен** CI-прогін платформи з мержу
 12.09 і локальні гейти гілки з 11.09;
 на беті `GET /v1/runs` акаунта `+dogfood-platform` показує 16 прогонів 09.09, 6 — 10.09, далі нуль
-(доказ: лог CI PR #664, run `34695873210`). Крок звітування `continue-on-error`, тож збірка
+(доказ: лог CI). Крок звітування `continue-on-error`, тож збірка
 лишалася зеленою, а календар епіка стояв.
 
 Ім'я тестів — `Plune/src/contracts/__tests__/suite.test.ts:57-64`: шаблон `'%s → accepted: %s'`

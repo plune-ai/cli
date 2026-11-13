@@ -168,7 +168,7 @@ export async function handleRunFinish(id: string, options: FinishOptions = {}, r
 }
 
 /**
- * `plune run delete <id>` — undo an import from the surface the import happened on (D17).
+ * `plune run delete <id>` — undo an import from the surface the import happened on.
  *
  * The command exists because the CLI is where the mistake is made. Onboarding a suite is a loop of
  * `plune run import`, and the person doing it for the first time will point it at the wrong file,

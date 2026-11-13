@@ -30,7 +30,7 @@ const SOURCE = 'playwright';
 /** `@P<id>` anywhere in a title — the same token the adapter reads, and the same non-stripping. */
 const TOKEN = /@P([A-Za-z0-9_-]+)/;
 
-/** The statuses of an attempt that has no failure detail (#790 AC-02b). */
+/** The statuses of an attempt that has no failure detail. */
 const NOT_FAILED = new Set(['passed', 'skipped']);
 
 /** As much of Playwright's report as this reads. Everything optional: it is another tool's file. */
@@ -85,7 +85,7 @@ interface JsonReport {
 interface ReportContext {
   /** Where the runner ran — spec files are relative to it. */
   rootDir?: string;
-  /** Found only when `rootDir` is on this machine: a report from elsewhere names no place (#790). */
+  /** Found only when `rootDir` is on this machine: a report from elsewhere names no place. */
   repoRoot?: string;
   buildHref?: string;
 }
@@ -108,7 +108,7 @@ function statedIdOf(test: JsonTest, title: string): string | undefined {
   return TOKEN.exec(title)?.[1];
 }
 
-/** The attempt as the core reads it (#790 ADR-0001) — the same shape the adapter builds from its events. */
+/** The attempt as the core reads it — the same shape the adapter builds from its events. */
 function attemptOf(result: JsonResult, file: string, ctx: ReportContext): FailedAttempt {
   const steps = (list: JsonStep[] | undefined): DeclaredStep[] =>
     (list ?? []).map((s) => ({ title: s.title ?? '', failed: s.error !== undefined, steps: steps(s.steps) }));
@@ -217,7 +217,7 @@ function walk(suite: JsonSuite, describes: string[], depth: number, ctx: ReportC
 /**
  * Read a Playwright JSON report: its results, and the CI run that wrote it (`metadata.ci.buildHref`,
  * an http(s) address or nothing) for the run to open with — from the report, never from the machine
- * that imports it (#790 AC-04b). Its `metadata.ci` goes up as written, for the commit and branch the
+ * that imports it. Its `metadata.ci` goes up as written, for the commit and branch the
  * run opens with: the record is Playwright's, and `ciCommit` reads what it needs.
  */
 export function readPlaywrightJson(
@@ -258,7 +258,7 @@ export function readPlaywrightJson(
 /**
  * Does this text look like a Playwright JSON report? Read by the detector, never by a parser. The whole
  * text, not a head of it: Playwright writes `config` first — argv, every project, each reporter's
- * options — and a real report put "suites" past its first 7 KB (#790 T18).
+ * options — and a real report put "suites" past its first 7 KB.
  */
 export function looksLikePlaywrightJson(source: string): boolean {
   return /^\s*\{/.test(source) && source.includes('"suites"');

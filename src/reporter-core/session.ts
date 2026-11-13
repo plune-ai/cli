@@ -286,8 +286,8 @@ export interface RunSession {
 }
 
 /**
- * What one results call may weigh, as serialized JSON — under the 10 MiB the route admits (#790,
- * ADR-0006 of that feature) with room for the envelope. The CLI's own transport limit, not a copy of
+ * What one results call may weigh, as serialized JSON — under the 10 MiB the route admits,
+ * with room for the envelope. The CLI's own transport limit, not a copy of
  * the platform's cap: the two can differ and nothing breaks.
  */
 const BATCH_BYTES = 8 * 1024 * 1024;
@@ -338,7 +338,8 @@ interface RunEcho {
 /**
  * Say so when a deployment took the run's description and kept none of it.
  *
- * This is the failure D13 exists to end, and it is the one the client can see and the server cannot:
+ * This is the failure the run's title, environment and label fields exist to end, and it is the
+ * one the client can see and the server cannot:
  * a deployment older than those columns validates the body, stores what it knows, and answers 201.
  * Nothing about that is distinguishable from success — which is exactly why the reporter refused
  * these variables out loud before there was anywhere to put them.
@@ -426,7 +427,7 @@ export async function startRun(
   const resolved = new Map<KeyId, string | null>();
   let buffer: PendingResult[] = [];
   /**
-   * Tests that resolved to nothing, held until the run ends (D14).
+   * Tests that resolved to nothing, held until the run ends.
    *
    * Accumulated rather than offered per batch for one reason: a retried test appears several times,
    * and a queue that grew a row per attempt would be unusable by the second flaky suite. Keyed by
@@ -516,14 +517,14 @@ export async function startRun(
         '/v1/test-cases/resolve',
         { keys: part },
       );
-      // A 2xx without its list is no answer either (#790 re-review C5).
+      // A 2xx without its list is no answer either.
       if (!out.ok || !Array.isArray(out.body?.results)) {
         // Not fatal: an unresolved key defers its result rather than losing it.
         log(`plune: could not look up test cases (${out.ok ? 'the answer had no results' : out.detail || out.kind}).`);
         return;
       }
       for (const row of out.body.results) {
-        // A row with no key names no test: its result stays unanswered, and so deferred (#790 re-review C7).
+        // A row with no key names no test: its result stays unanswered, and so deferred.
         if (typeof row?.key?.value === 'string') resolved.set(keyId(row.key), row.testCaseId);
       }
     }
@@ -553,7 +554,7 @@ export async function startRun(
               // count it, but the run still declares how many tests it meant to run.
               return keys[0] === undefined ? [] : [{ externalKey: keys[0] }];
             }),
-            // The claim travels with the list it is about (D20). A runner that could not enumerate
+            // The claim travels with the list it is about. A runner that could not enumerate
             // its tests has no list, and a claim without one is nothing the platform can check —
             // so it is not sent, rather than sent and silently meaningless.
             ...(cfg.full === true ? { full: true } : {}),
@@ -562,7 +563,7 @@ export async function startRun(
       log(`plune: ${expected.length} tests is more than the run configuration holds — reporting the first ${EXPECTED_MAX}.`);
     }
 
-    // D13. Sent as they are — the platform states the limits and refuses what exceeds them by
+    // Sent as they are — the platform states the limits and refuses what exceeds them by
     // name, and its refusal costs no results: the run fails to start, this says why, and every
     // result goes to the fallback file. A second copy of the caps here would only drift.
     const described = {
@@ -589,7 +590,7 @@ export async function startRun(
     // list of expected tests is nearly all of a start's bytes: over the 1 MiB a run keeps, 9 512 results of the
     // platform's own CI went to a fallback file the job then deleted. Without the list the run still takes every
     // result; what it loses is said here — no not-run count, and no full-run claim, which travels with the list.
-    // The limit stays the platform's to state (D13): this reacts to its refusal rather than copying the number.
+    // The limit stays the platform's to state: this reacts to its refusal rather than copying the number.
     if (!start.ok && start.status === 413 && configuration !== undefined) {
       log(
         `plune: the platform refused the run's list of expected tests as too large (${start.detail || start.kind}) — ` +
@@ -673,12 +674,12 @@ export async function startRun(
         discovered: batch,
         runId,
       });
-      // A 2xx without its list is no answer either (#790 re-review C7).
+      // A 2xx without its list is no answer either.
       if (!out.ok || !Array.isArray(out.body?.results)) {
         // The number that matters is not the batch that was refused — it is everything still
         // unoffered, which is that batch plus every one behind it, because this loop stops here.
         // Naming only the batch understates the work left by however many batches remain, and the
-        // reader has no way to see the difference: the rest were never mentioned at all (#627).
+        // reader has no way to see the difference: the rest were never mentioned at all.
         stats.unoffered = batches.slice(index).reduce((n, rest) => n + rest.length, 0);
         stats.unofferedWhy = whyUnoffered(out);
         log(
@@ -1291,7 +1292,7 @@ export async function startRun(
         { results: part, ...(configuration !== undefined ? { configuration } : {}) },
       );
       // A success with no counts says nothing about what was stored: kept for a replay, not guessed —
-      // and counts with no number in them say no more (#790 re-review C7).
+      // and counts with no number in them say no more.
       const counts = out.ok ? out.body?.counts : undefined;
       const told = COUNTED.filter((k) => typeof counts?.[k] === 'number');
       if (told.length > 0) {
@@ -1319,7 +1320,7 @@ export async function startRun(
   }
 
   /**
-   * Movement, but only where its absence would be ambiguous (#627).
+   * Movement, but only where its absence would be ambiguous.
    *
    * A suite that fits in one batch reports once and is done; a line about it would be noise. A
    * mature suite is a dozen or more silent round trips, and a person watching a first import has
@@ -1380,8 +1381,8 @@ export async function startRun(
       );
     }
     log(`plune: ${parts.join(' · ')}`);
-    // Where a GitHub run shows it without anyone opening the log — for every road, from here (#790).
-    // Said and nothing more: a reporting failure is not the build's failure (#788).
+    // Where a GitHub run shows it without anyone opening the log — for every road, from here.
+    // Said and nothing more: a reporting failure is not the build's failure.
     if (stats.deferred > 0 && process.env['GITHUB_ACTIONS'] === 'true') {
       log(`::warning::${stats.deferred} result(s) were not delivered to Plune — see the reporting step's log.`);
     }
@@ -1421,7 +1422,7 @@ export async function startRun(
         else {
           // Handed back as it came: what it means for an exit code is the gate's to say.
           frozen = out.body?.summary ?? undefined;
-          // The one thing a full run does outside itself (D20). Said when it happened and only then:
+          // The one thing a full run does outside itself. Said when it happened and only then:
           // a `0 detached` on every ordinary run would teach people to stop reading the line.
           if (typeof out.body?.detached === 'number' && out.body.detached > 0) {
             log(`plune: ${out.body.detached} test case(s) marked detached — this full run no longer reports them.`);

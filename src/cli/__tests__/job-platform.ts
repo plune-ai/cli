@@ -24,7 +24,7 @@ const jobCreateSchema = z.strictObject({
     .optional(),
   cursor: cursor.unwrap().optional(),
 });
-// `subjectId` (#1279): what the job works on, learnt after it opened — taken while the job names none.
+// `subjectId`: what the job works on, learnt after it opened — taken while the job names none.
 const jobProgressReportSchema = z
   .strictObject({ done: count.nullable(), total: count.min(1).nullable(), cursor: cursor.optional(), attempt, subjectId })
   .refine((p) => (p.done === null) === (p.total === null))

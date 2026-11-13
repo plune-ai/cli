@@ -58,7 +58,7 @@ function writeRun(dir: string, result: ParsedRunResult = runResult()): void {
   writeFileSync(join(dir, '.plune', 'last-run.json'), JSON.stringify(result));
 }
 
-describe('handleSync (#49)', () => {
+describe('handleSync', () => {
   it('uploads the latest run and returns the id + read-back URL', async () => {
     writeRun(tmp);
     const { fn, calls } = stubFetch(201, { id: 'run_123' });
@@ -286,7 +286,7 @@ describe('handleSync --fail-on-failures', () => {
   });
 });
 
-describe('reportSyncFailure (#49)', () => {
+describe('reportSyncFailure', () => {
   it('maps auth/file errors to exit 2, network/http to exit 1, and passes unknown through as null', () => {
     const out: string[] = [];
     const w = (s: string): void => void out.push(s);

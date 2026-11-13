@@ -39,7 +39,7 @@ function reportWrite(cwd: string, rel: string, content: string, force: boolean):
 }
 
 /**
- * What to do with the files that were just written (#331).
+ * What to do with the files that were just written.
  *
  * `init` used to end at "Created .env.example." and stop — technically complete, and a dead
  * end for anyone who does not already know the next command. Three steps, in the order they happen.

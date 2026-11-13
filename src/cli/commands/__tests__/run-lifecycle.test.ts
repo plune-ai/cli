@@ -698,7 +698,7 @@ describe('plune run report', () => {
 });
 
 /**
- * `plune run delete` (D17).
+ * `plune run delete`.
  *
  * Its own fetch fake rather than the shared `platform()` above, because the two things worth
  * asserting are exactly the two that helper hides: the METHOD, which it never records, and a 204,

@@ -205,7 +205,7 @@ describe('reading a Playwright JSON report', () => {
 
   it('recognises a report whose config runs long before its suites', () => {
     // Playwright writes `config` first — argv, every project, every reporter's options, the CI
-    // metadata; a pinned 1.63 run of the adapter's e2e fixture put "suites" at byte 7 632 (#790 T18).
+    // metadata; a pinned 1.63 run of the adapter's e2e fixture put "suites" at byte 7 632.
     const config = { argv: ['node', 'playwright', 'test'], projects: [{ name: 'x'.repeat(8_000) }] };
     expect(looksLikePlaywrightJson(JSON.stringify({ config, suites: [] }, null, 2))).toBe(true);
     expect(looksLikePlaywrightJson(JSON.stringify({ config, testResults: [] }, null, 2))).toBe(false);
@@ -214,12 +214,12 @@ describe('reading a Playwright JSON report', () => {
 });
 
 /**
- * #790 T16 — the import road reduces each attempt of the report to the normalized attempt the core
+ * The import road reduces each attempt of the report to the normalized attempt the core
  * reads, so it says what failed, where and in which CI run exactly as the reporter does. The report is
  * the shape Playwright 1.63 wrote in a trial: `errors[i]` is `formatError` of each error, `steps` are
  * already only the declared ones, `config.metadata.ci.buildHref` is the CI run.
  */
-describe('a failed attempt in the report carries its failure detail (#790)', () => {
+describe('a failed attempt in the report carries its failure detail', () => {
   let root = '';
   beforeEach(() => {
     root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plune-json-')));
@@ -332,7 +332,7 @@ describe('a failed attempt in the report carries its failure detail (#790)', () 
   });
 
   /**
-   * #790 T18. The trial run the adapter's tests replay as reporter events
+   * The trial run the adapter's tests replay as reporter events
    * (`packages/playwright/src/__tests__/fixtures/trial-790`), read here as its JSON report; both roads
    * answer to the one `expected.json` beside it, since neither can import the other's code.
    */

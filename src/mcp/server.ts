@@ -86,7 +86,7 @@ export function createPluneMcpServer(opts: PluneMcpServerOptions, era: ProtocolE
   };
 
   for (const tool of PLUNE_TOOLS) {
-    // A known `read` token never sees a writer (#1283 AC-03: a forbidden tool is not listed rather than failing).
+    // A known `read` token never sees a writer (a forbidden tool is not listed rather than failing).
     if (opts.scope === 'read' && tool.write) continue;
     const handle = server.registerTool(
       tool.name,

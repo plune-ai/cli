@@ -101,7 +101,7 @@ describe('the variables that have nowhere to go yet', () => {
     expect(readEnv(env({ PLUNE_RUN: 'x' })).ignored).toEqual([]);
   });
 
-  // The three that left this list did so because D13 gave a run somewhere to put them. A name that
+  // The three that left this list did so because the platform gave a run somewhere to put them. A name that
   // is both accepted and listed here would print a refusal for a setting that did arrive.
   it('no longer refuses what the platform now stores', () => {
     expect([...UNSUPPORTED_VARS]).toEqual(['PLUNE_GROUP']);
@@ -109,7 +109,7 @@ describe('the variables that have nowhere to go yet', () => {
   });
 });
 
-describe('PLUNE_CREATE — offering tests the platform has no case for (D14)', () => {
+describe('PLUNE_CREATE — offering tests the platform has no case for', () => {
   it('is read by value, so one matrix cell can turn it off', () => {
     expect(readEnv(env({ PLUNE_CREATE: '1' })).config.offerDiscovered).toBe(true);
     expect(readEnv(env({ PLUNE_CREATE: '0' })).config.offerDiscovered).toBeUndefined();
@@ -122,7 +122,7 @@ describe('PLUNE_CREATE — offering tests the platform has no case for (D14)', (
   });
 });
 
-describe('PLUNE_FULL_RUN — the claim that this run is the whole suite (D20)', () => {
+describe('PLUNE_FULL_RUN — the claim that this run is the whole suite', () => {
   it('is read by value, and says nothing when unset', () => {
     expect(readEnv(env({ PLUNE_FULL_RUN: '1' })).config.full).toBe(true);
     expect(readEnv(env({ PLUNE_FULL_RUN: 'true' })).config.full).toBe(true);

@@ -1,4 +1,4 @@
-// Reading a Cairn run directory into the payload `plune ingest` uploads (Plune #10 / #86, ADR-CI-01).
+// Reading a Cairn run directory into the payload `plune ingest` uploads (ADR-CI-01).
 //
 // The direction of this dependency is the whole point: Plune reads Cairn's output, Cairn knows nothing
 // about Plune. So this file parses Cairn's PUBLISHED artifact rather than importing its package — that

@@ -367,7 +367,7 @@ describe('plune run import', () => {
   });
 
   /**
-   * The verb has to survive a run where nothing landed (#622).
+   * The verb has to survive a run where nothing landed.
    *
    * When the platform is unreachable the line read «Imported 555 result(s) … 0 accepted, 0 already
    * there, 0 unmatched» — the first half announcing success, the second half three zeros. A reader
@@ -385,7 +385,7 @@ describe('plune run import', () => {
   });
 
   /**
-   * A queue that fills up mid-import (#627).
+   * A queue that fills up mid-import.
    *
    * The review queue holds at most 1000 waiting items. A mature suite arriving for the first time
    * is bigger than that — this repository's own is 2029 — so the offer stops partway, and what the
@@ -587,11 +587,11 @@ describe('plune run import', () => {
   });
 
   /**
-   * #790 T16. What did not reach Plune is said on the line people and workflows already read, and in
+   * What did not reach Plune is said on the line people and workflows already read, and in
    * GitHub Actions once more where a run's annotations show it; the CI run comes from the report the
    * runner wrote, never from the machine that happens to import it.
    */
-  describe('what was not delivered, and the CI run (#790)', () => {
+  describe('what was not delivered, and the CI run', () => {
     const BUILD = 'https://github.com/acme/shop/actions/runs/42';
     const playwrightReport = (buildHref: string) =>
       JSON.stringify({

@@ -167,7 +167,7 @@ describe('handleRunGrep (plune-ai/cli#85) — a run’s automated cases as one -
   });
 
   it('--failed asks the platform for the cases whose latest result is a counted failure — it does not count them itself', async () => {
-    // The platform answers only failed and broken, a muted failure left out (#1247): whatever it sends is what is taken.
+    // The platform answers only failed and broken, a muted failure left out: whatever it sends is what is taken.
     const { fn, calls } = stubFetchSeq({ status: 200, body: { cases: [RUN_CASES.cases[0]], count: 1 } });
     const out = await handleRunGrep({ ...deps(fn), run: RUN_ID, failed: true });
 

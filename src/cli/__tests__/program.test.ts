@@ -57,7 +57,7 @@ afterEach(() => {
 /**
  * `run` has a --format of its own (console | json | markdown), and commander gives a parent every
  * option it knows wherever the option stands — so the import's --format never arrived, and the advice
- * «Say which with --format» could not be followed (#790 T18).
+ * «Say which with --format» could not be followed.
  */
 describe('run import takes its own --format', () => {
   it('hands the format typed after the file to the import', async () => {

@@ -112,7 +112,7 @@ function keyOf(classname: string, name: string, playwright: PlaywrightTest | und
 }
 
 /**
- * A name a reviewer can judge, for the queue entry an unknown test becomes (D14).
+ * A name a reviewer can judge, for the queue entry an unknown test becomes.
  *
  * `classname › name`, except when the class already ends with the name — Playwright's own JUnit
  * writer puts the whole path in `classname`, and `a › b › b` reads like a bug in us.

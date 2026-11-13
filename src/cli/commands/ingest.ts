@@ -1,4 +1,4 @@
-// `plune ingest <dir>` — record a Cairn run in Plune (Plune #10 / #86, ADR-CI-01).
+// `plune ingest <dir>` — record a Cairn run in Plune (ADR-CI-01).
 //
 // Cairn writes its runs to disk and knows nothing about Plune; this command is the thing that carries
 // one across. That direction is deliberate: a Cairn user who has never heard of Plune should not find
@@ -118,7 +118,7 @@ export async function handleIngest(deps: IngestDeps): Promise<IngestResult> {
   await job.open(path.basename(path.resolve(dir)), payload.cases.length);
   try {
     const result = await upload();
-    // The run the ingest landed in is the job's subject, so the run's page lists it (#1279).
+    // The run the ingest landed in is the job's subject, so the run's page lists it.
     await job.uploaded({ subjectId: result.runId || undefined });
     await job.finish({ ok: true });
     if (job.problem !== undefined) result.jobProblem = job.problem;

@@ -86,8 +86,8 @@ function failUnexpected(err: unknown, verbose: boolean): void {
     return;
   }
   // The one branch with no advice of its own: every classified failure above ends in an
-  // instruction, and this is where somebody lands holding an error nobody wrote a sentence for
-  // (#334). `--verbose` is named too, because the stack is what makes the report useful.
+  // instruction, and this is where somebody lands holding an error nobody wrote a sentence for.
+  // `--verbose` is named too, because the stack is what makes the report useful.
   process.stderr.write(
     `This one is on us. Run again with --verbose and send the output: ${FEEDBACK_URL}\n`,
   );
@@ -100,7 +100,7 @@ function failUnexpected(err: unknown, verbose: boolean): void {
 async function readTokenFromStdin(): Promise<string> {
   if (process.stdin.isTTY === true) {
     // Where the token comes from, said at the moment someone is looking for one — not only in the
-    // error they get for guessing wrong (#330). Derived, so a self-hosted deployment is not sent to
+    // error they get for guessing wrong. Derived, so a self-hosted deployment is not sent to
     // our beta.
     const { resolveApiUrl, whereToGetAToken } = await import('./cli/api-url.js');
     process.stderr.write(`${whereToGetAToken(resolveApiUrl())}\n`);

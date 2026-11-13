@@ -304,7 +304,7 @@ describe('a foreign Playwright project reports to Plune (AC-01)', () => {
     expect(fs.existsSync(delivered.fallback)).toBe(false);
   });
 
-  it('says what failed and on which line of the test, from the repository root (#790)', () => {
+  it('says what failed and on which line of the test, from the repository root', () => {
     const results = bodiesFor('/results').flatMap(
       (b) => (b['results'] ?? []) as { rawStatus: string; failure?: { headline?: string; location?: unknown } }[],
     );
@@ -316,7 +316,7 @@ describe('a foreign Playwright project reports to Plune (AC-01)', () => {
   });
 });
 
-describe('a refused batch changes nothing about the test run (#790, #788)', () => {
+describe('a refused batch changes nothing about the test run', () => {
   // On Windows too (cli#58): through `fetch`, V8's background compile of undici's WASM parser against
   // Playwright's `process.exit` could abort a green run with 0xC0000409, whatever the platform answered.
   it('leaves a green run green', () => {
@@ -330,11 +330,11 @@ describe('a refused batch changes nothing about the test run (#790, #788)', () =
 });
 
 /**
- * #790 review F4, on the real runner and the real core: a hundred results in batches of two against a
+ * On the real runner and the real core: a hundred results in batches of two against a
  * platform that answers each batch 100 ms later. The run closes only after the last batch is answered,
  * or `notRun` freezes without them and the batches behind the close are refused.
  */
-describe('a slow platform has every result before the run closes (#790 AC-15)', () => {
+describe('a slow platform has every result before the run closes', () => {
   let slow: FixtureRun;
 
   beforeAll(async () => {
@@ -453,12 +453,12 @@ describe('a JSON and a log a test kept reach its result', () => {
 });
 
 /**
- * #790 T18, the CI link's contract on the pinned runner. Under GitHub's variables Playwright writes
+ * The CI link's contract on the pinned runner. Under GitHub's variables Playwright writes
  * `metadata.ci` itself (`ciInfo()` in playwright 1.63 `lib/runner/index.js`), and both roads link the
  * run and its failure to that CI run: the reporter live, and `plune run import` of the JSON report of
  * the same run, from a later job whose own variables name another run (AC-04b).
  */
-describe('both roads link the run and its failure to the CI run that ran the tests (#790)', () => {
+describe('both roads link the run and its failure to the CI run that ran the tests', () => {
   const LINK = 'https://github.com/acme/shop/actions/runs/42';
   const SHA = '0123456789abcdef0123456789abcdef01234567';
   const CI_RUN = {

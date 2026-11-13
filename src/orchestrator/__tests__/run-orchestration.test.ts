@@ -53,7 +53,7 @@ describe('runOrchestration', () => {
     expect(r.config_hash).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it('defaults.assertions run on every eval, before its own (#2415)', async () => {
+  it('defaults.assertions run on every eval, before its own', async () => {
     const cfg: Config = {
       ...config([evalPass, { ...evalPass, id: 'e2' }]),
       defaults: { assertions: [{ type: 'contains', value: 'NEVER-IN-THE-REPLY' }] },

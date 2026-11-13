@@ -431,7 +431,7 @@ describe('batch writes report how many were applied', () => {
   });
 });
 
-describe('plune_review_decide — preview, then confirm (#1280)', () => {
+describe('plune_review_decide — preview, then confirm', () => {
   it('passes the server preview through, then repeats with ?confirm', async () => {
     const { exec, seen } = executor((r) =>
       r.url.searchParams.get('confirm') === null
