@@ -1,0 +1,594 @@
+[
+  {
+    "name": "crash · valid · required",
+    "stableId": "f106cbd33445",
+    "tool": "crash",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: not allowed",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "crash · missing-required · q",
+    "stableId": "329bdf5622e8",
+    "tool": "crash",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: not allowed",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "crash · wrong-type · q",
+    "stableId": "cfe07c201ab3",
+    "tool": "crash",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: not allowed",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "echo · valid · required",
+    "stableId": "373475b991dd",
+    "tool": "echo",
+    "passed": false,
+    "state": "needs-review",
+    "reason": "isError on a synthesised value: the server may refuse it for a business reason",
+    "durationMs": 8,
+    "request": "{\"q\":\"a\"}",
+    "response": "{\"content\":[{\"type\":\"text\",\"text\":\"not found\"}],\"isError\":true}",
+    "responseBytes": 63,
+    "observations": [
+      "answer 63 bytes in 8 ms"
+    ],
+    "advice": []
+  },
+  {
+    "name": "echo · missing-required · q",
+    "stableId": "40ca7413d6ac",
+    "tool": "echo",
+    "passed": true,
+    "state": "passed",
+    "reason": "refused with an error result (isError)",
+    "durationMs": 3,
+    "request": "{}",
+    "response": "{\"content\":[{\"type\":\"text\",\"text\":\"not found\"}],\"isError\":true}",
+    "responseBytes": 63,
+    "observations": [
+      "answer 63 bytes in 3 ms"
+    ],
+    "advice": []
+  },
+  {
+    "name": "echo · wrong-type · q",
+    "stableId": "99db32296eee",
+    "tool": "echo",
+    "passed": true,
+    "state": "passed",
+    "reason": "refused with an error result (isError)",
+    "durationMs": 4,
+    "request": "{\"q\":12345}",
+    "response": "{\"content\":[{\"type\":\"text\",\"text\":\"not found\"}],\"isError\":true}",
+    "responseBytes": 63,
+    "observations": [
+      "answer 63 bytes in 4 ms"
+    ],
+    "advice": []
+  },
+  {
+    "name": "hang · valid · required",
+    "stableId": "0d33cd2f442f",
+    "tool": "hang",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: not allowed",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "hang · missing-required · q",
+    "stableId": "fbbd22248901",
+    "tool": "hang",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: not allowed",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "hang · wrong-type · q",
+    "stableId": "dc2d8f052792",
+    "tool": "hang",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: not allowed",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "shifty · valid · required",
+    "stableId": "6363703e7d7a",
+    "tool": "shifty",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: changed since permission",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "shifty · missing-required · q",
+    "stableId": "7986a4864ad9",
+    "tool": "shifty",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: changed since permission",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "shifty · wrong-type · q",
+    "stableId": "586cbc7738c1",
+    "tool": "shifty",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: changed since permission",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "typed · valid · required",
+    "stableId": "f5d9dcca4c8b",
+    "tool": "typed",
+    "passed": false,
+    "state": "failed",
+    "reason": "structuredContent does not match the tool's outputSchema",
+    "durationMs": 6,
+    "request": "{\"n\":0}",
+    "response": "{\"content\":[],\"structuredContent\":{\"n\":\"x\"}}",
+    "responseBytes": 44,
+    "observations": [
+      "answer 44 bytes in 6 ms"
+    ],
+    "advice": []
+  },
+  {
+    "name": "typed · missing-required · n",
+    "stableId": "fa66654ec9a5",
+    "tool": "typed",
+    "passed": false,
+    "state": "failed",
+    "reason": "the server accepted a value that violates its schema",
+    "durationMs": 4,
+    "request": "{}",
+    "response": "{\"content\":[],\"structuredContent\":{\"n\":\"x\"}}",
+    "responseBytes": 44,
+    "observations": [
+      "answer 44 bytes in 4 ms"
+    ],
+    "advice": []
+  },
+  {
+    "name": "typed · wrong-type · n",
+    "stableId": "0bba083e2f5e",
+    "tool": "typed",
+    "passed": false,
+    "state": "failed",
+    "reason": "the server accepted a value that violates its schema",
+    "durationMs": 47,
+    "request": "{\"n\":\"text\"}",
+    "response": "{\"content\":[],\"structuredContent\":{\"n\":\"x\"}}",
+    "responseBytes": 44,
+    "observations": [
+      "answer 44 bytes in 47 ms"
+    ],
+    "advice": []
+  },
+  {
+    "name": "crash · psycho · long-string · q",
+    "stableId": "425edae07880",
+    "tool": "crash",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: mutations not allowed",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "crash · psycho · empty-string · q",
+    "stableId": "5fa06223781d",
+    "tool": "crash",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: mutations not allowed",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "crash · psycho · null-byte · q",
+    "stableId": "49990fd38ed0",
+    "tool": "crash",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: mutations not allowed",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "crash · psycho · lone-surrogate · q",
+    "stableId": "291718a5c50d",
+    "tool": "crash",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: mutations not allowed",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "crash · psycho · proto-key · (root)",
+    "stableId": "e281522f192b",
+    "tool": "crash",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: mutations not allowed",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "crash · hacker · sql-injection · q",
+    "stableId": "79a7fe44269f",
+    "tool": "crash",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: mutations not allowed",
+    "observations": [],
+    "advice": [],
+    "humanOracle": true
+  },
+  {
+    "name": "crash · hacker · script-injection · q",
+    "stableId": "93fe6d90b2e2",
+    "tool": "crash",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: mutations not allowed",
+    "observations": [],
+    "advice": [],
+    "humanOracle": true
+  },
+  {
+    "name": "crash · hacker · command-substitution · q",
+    "stableId": "70707c701563",
+    "tool": "crash",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: mutations not allowed",
+    "observations": [],
+    "advice": [],
+    "humanOracle": true
+  },
+  {
+    "name": "crash · hacker · path-traversal · q",
+    "stableId": "9d4765361d49",
+    "tool": "crash",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: mutations not allowed",
+    "observations": [],
+    "advice": [],
+    "humanOracle": true
+  },
+  {
+    "name": "echo · psycho · long-string · q",
+    "stableId": "17c3c8054c2b",
+    "tool": "echo",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: mutations not allowed",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "echo · psycho · empty-string · q",
+    "stableId": "71c44781743f",
+    "tool": "echo",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: mutations not allowed",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "echo · psycho · null-byte · q",
+    "stableId": "9e758af9b4c7",
+    "tool": "echo",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: mutations not allowed",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "echo · psycho · lone-surrogate · q",
+    "stableId": "c844f7efe15a",
+    "tool": "echo",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: mutations not allowed",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "echo · psycho · proto-key · (root)",
+    "stableId": "5871b3a5340d",
+    "tool": "echo",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: mutations not allowed",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "echo · hacker · sql-injection · q",
+    "stableId": "975f736daf6a",
+    "tool": "echo",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: mutations not allowed",
+    "observations": [],
+    "advice": [],
+    "humanOracle": true
+  },
+  {
+    "name": "echo · hacker · script-injection · q",
+    "stableId": "b1eb7b687669",
+    "tool": "echo",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: mutations not allowed",
+    "observations": [],
+    "advice": [],
+    "humanOracle": true
+  },
+  {
+    "name": "echo · hacker · command-substitution · q",
+    "stableId": "a511dbad624e",
+    "tool": "echo",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: mutations not allowed",
+    "observations": [],
+    "advice": [],
+    "humanOracle": true
+  },
+  {
+    "name": "echo · hacker · path-traversal · q",
+    "stableId": "addfa42f1c35",
+    "tool": "echo",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: mutations not allowed",
+    "observations": [],
+    "advice": [],
+    "humanOracle": true
+  },
+  {
+    "name": "hang · psycho · long-string · q",
+    "stableId": "a536ca5f81b7",
+    "tool": "hang",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: mutations not allowed",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "hang · psycho · empty-string · q",
+    "stableId": "1dcc40919927",
+    "tool": "hang",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: mutations not allowed",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "hang · psycho · null-byte · q",
+    "stableId": "8d49aef080cf",
+    "tool": "hang",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: mutations not allowed",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "hang · psycho · lone-surrogate · q",
+    "stableId": "a94ea3d5edfc",
+    "tool": "hang",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: mutations not allowed",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "hang · psycho · proto-key · (root)",
+    "stableId": "b61685c66a28",
+    "tool": "hang",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: mutations not allowed",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "hang · hacker · sql-injection · q",
+    "stableId": "f9dc901cbebc",
+    "tool": "hang",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: mutations not allowed",
+    "observations": [],
+    "advice": [],
+    "humanOracle": true
+  },
+  {
+    "name": "hang · hacker · script-injection · q",
+    "stableId": "06e63189406b",
+    "tool": "hang",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: mutations not allowed",
+    "observations": [],
+    "advice": [],
+    "humanOracle": true
+  },
+  {
+    "name": "hang · hacker · command-substitution · q",
+    "stableId": "a021182e2582",
+    "tool": "hang",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: mutations not allowed",
+    "observations": [],
+    "advice": [],
+    "humanOracle": true
+  },
+  {
+    "name": "hang · hacker · path-traversal · q",
+    "stableId": "3218e21dc384",
+    "tool": "hang",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: mutations not allowed",
+    "observations": [],
+    "advice": [],
+    "humanOracle": true
+  },
+  {
+    "name": "shifty · psycho · long-string · q",
+    "stableId": "ad983f8fc91c",
+    "tool": "shifty",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: changed since permission",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "shifty · psycho · empty-string · q",
+    "stableId": "3f4b2c5e8278",
+    "tool": "shifty",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: changed since permission",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "shifty · psycho · null-byte · q",
+    "stableId": "87a1f034491c",
+    "tool": "shifty",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: changed since permission",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "shifty · psycho · lone-surrogate · q",
+    "stableId": "8da1f0e5840b",
+    "tool": "shifty",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: changed since permission",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "shifty · psycho · proto-key · (root)",
+    "stableId": "1fafbb9e0df2",
+    "tool": "shifty",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: changed since permission",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "shifty · hacker · sql-injection · q",
+    "stableId": "f53525248dfa",
+    "tool": "shifty",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: changed since permission",
+    "observations": [],
+    "advice": [],
+    "humanOracle": true
+  },
+  {
+    "name": "shifty · hacker · script-injection · q",
+    "stableId": "d6467b756fb1",
+    "tool": "shifty",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: changed since permission",
+    "observations": [],
+    "advice": [],
+    "humanOracle": true
+  },
+  {
+    "name": "shifty · hacker · command-substitution · q",
+    "stableId": "03ee0bfa8b23",
+    "tool": "shifty",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: changed since permission",
+    "observations": [],
+    "advice": [],
+    "humanOracle": true
+  },
+  {
+    "name": "shifty · hacker · path-traversal · q",
+    "stableId": "8409062e4ee3",
+    "tool": "shifty",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: changed since permission",
+    "observations": [],
+    "advice": [],
+    "humanOracle": true
+  },
+  {
+    "name": "typed · psycho · max-safe-integer · n",
+    "stableId": "4d592c8cf39b",
+    "tool": "typed",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: mutations not allowed",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "typed · psycho · negative-number · n",
+    "stableId": "bebde0385745",
+    "tool": "typed",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: mutations not allowed",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "typed · psycho · proto-key · (root)",
+    "stableId": "06ba67c9a715",
+    "tool": "typed",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: mutations not allowed",
+    "observations": [],
+    "advice": []
+  }
+]

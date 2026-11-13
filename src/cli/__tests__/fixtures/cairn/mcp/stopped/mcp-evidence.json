@@ -1,0 +1,176 @@
+[
+  {
+    "name": "crash · valid · required",
+    "stableId": "f106cbd33445",
+    "tool": "crash",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: not allowed",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "crash · missing-required · q",
+    "stableId": "329bdf5622e8",
+    "tool": "crash",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: not allowed",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "crash · wrong-type · q",
+    "stableId": "cfe07c201ab3",
+    "tool": "crash",
+    "passed": false,
+    "state": "not-sent",
+    "reason": "the call guard refused it: not allowed",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "echo · valid · required",
+    "stableId": "373475b991dd",
+    "tool": "echo",
+    "passed": true,
+    "state": "passed",
+    "reason": "the server answered a success",
+    "durationMs": 5,
+    "request": "{\"q\":\"a\"}",
+    "response": "{\"content\":[{\"type\":\"text\",\"text\":\"ok 1\"}]}",
+    "responseBytes": 43,
+    "observations": [
+      "answer 43 bytes in 5 ms",
+      "text only, no structuredContent"
+    ],
+    "advice": []
+  },
+  {
+    "name": "echo · missing-required · q",
+    "stableId": "40ca7413d6ac",
+    "tool": "echo",
+    "passed": true,
+    "state": "passed",
+    "reason": "refused with a JSON-RPC error (-32602)",
+    "durationMs": 7,
+    "request": "{}",
+    "response": "{\"code\":-32602,\"message\":\"MCP error -32602: MCP error -32602: q must be a string\"}",
+    "rpcCode": -32602,
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "echo · wrong-type · q",
+    "stableId": "99db32296eee",
+    "tool": "echo",
+    "passed": true,
+    "state": "passed",
+    "reason": "refused with a JSON-RPC error (-32602)",
+    "durationMs": 3,
+    "request": "{\"q\":12345}",
+    "response": "{\"code\":-32602,\"message\":\"MCP error -32602: MCP error -32602: q must be a string\"}",
+    "rpcCode": -32602,
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "hang · valid · required",
+    "stableId": "0d33cd2f442f",
+    "tool": "hang",
+    "passed": false,
+    "state": "could-not-run",
+    "reason": "no answer within the call timeout",
+    "error": "no answer within the call timeout",
+    "durationMs": 30013,
+    "request": "{\"q\":\"a\"}",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "hang · missing-required · q",
+    "stableId": "fbbd22248901",
+    "tool": "hang",
+    "passed": false,
+    "state": "could-not-run",
+    "reason": "no answer within the call timeout; the server was not answering before this case",
+    "error": "no answer within the call timeout",
+    "durationMs": 30008,
+    "request": "{}",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "hang · wrong-type · q",
+    "stableId": "dc2d8f052792",
+    "tool": "hang",
+    "passed": false,
+    "state": "could-not-run",
+    "reason": "no answer within the call timeout; the server was not answering before this case",
+    "error": "no answer within the call timeout",
+    "durationMs": 30007,
+    "request": "{\"q\":12345}",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "shifty · valid · required",
+    "stableId": "6363703e7d7a",
+    "tool": "shifty",
+    "passed": false,
+    "state": "could-not-run",
+    "reason": "3 cases in a row got no answer; the run was stopped",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "shifty · missing-required · q",
+    "stableId": "7986a4864ad9",
+    "tool": "shifty",
+    "passed": false,
+    "state": "could-not-run",
+    "reason": "3 cases in a row got no answer; the run was stopped",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "shifty · wrong-type · q",
+    "stableId": "586cbc7738c1",
+    "tool": "shifty",
+    "passed": false,
+    "state": "could-not-run",
+    "reason": "3 cases in a row got no answer; the run was stopped",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "typed · valid · required",
+    "stableId": "f5d9dcca4c8b",
+    "tool": "typed",
+    "passed": false,
+    "state": "could-not-run",
+    "reason": "3 cases in a row got no answer; the run was stopped",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "typed · missing-required · n",
+    "stableId": "fa66654ec9a5",
+    "tool": "typed",
+    "passed": false,
+    "state": "could-not-run",
+    "reason": "3 cases in a row got no answer; the run was stopped",
+    "observations": [],
+    "advice": []
+  },
+  {
+    "name": "typed · wrong-type · n",
+    "stableId": "0bba083e2f5e",
+    "tool": "typed",
+    "passed": false,
+    "state": "could-not-run",
+    "reason": "3 cases in a row got no answer; the run was stopped",
+    "observations": [],
+    "advice": []
+  }
+]

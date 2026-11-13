@@ -10,6 +10,8 @@
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { safe, safeText } from '../../mcp-testing/scan/config/config.js';
+import { redactSecrets } from '../../providers/errors.js';
 
 /** The artifact format this reader understands. Cairn stamps it from 0.7.0 onward. */
 const SUPPORTED_ARTIFACT_VERSION = 1;
@@ -17,7 +19,7 @@ const SUPPORTED_ARTIFACT_VERSION = 1;
 /** The payload version the Plune ingest endpoint validates — ours, not Cairn's. */
 const INGEST_SCHEMA_VERSION = 1;
 
-export type CairnRunMode = 'explore' | 'design' | 'api';
+export type CairnRunMode = 'explore' | 'design' | 'api' | 'mcp';
 export type CairnExecution = 'auto' | 'manual';
 /**
  * `blocked` (plune-ai/plune#1327): the case's request got no answer — Cairn's evidence records a transport error
@@ -125,6 +127,20 @@ export class CairnRunPartialError extends Error {
   }
 }
 
+/**
+ * A file of the run does not have the shape this reader needs, or is too big to read. Names the file and the field,
+ * and never prints the value found there: an artifact is input from outside, and a value in it may be a token or an
+ * escape sequence. (exit 2)
+ */
+export class CairnArtifactShapeError extends Error {
+  constructor(file: string, field: string, problem: string) {
+    super(
+      `Cannot read this Cairn run: ${file}${field === '' ? '' : field.startsWith('[') ? field : ` ${field}`} ${problem}. Nothing was uploaded.`,
+    );
+    this.name = 'CairnArtifactShapeError';
+  }
+}
+
 /** Evidence cannot be joined to cases unambiguously. (exit 2) */
 export class CairnEvidenceAmbiguousError extends Error {
   constructor(name: string) {
@@ -154,12 +170,255 @@ const asRecord = (v: unknown): Record<string, unknown> =>
 const str = (v: unknown, fallback = ''): string =>
   typeof v === 'string' && v !== '' ? v : fallback;
 
+/** An own property only: a key like `constructor` or `__proto__` in a file must not reach the prototype chain. */
+const own = (rec: Record<string, unknown>, key: string): unknown =>
+  Object.hasOwn(rec, key) ? rec[key] : undefined;
+
+/** The most a Cairn JSON file may weigh, checked from the file's size before a byte of it is read. */
+const MAX_ARTIFACT_BYTES = 32 * 1024 * 1024;
+/** The most cases of one `mcp` run this reader maps. */
+const MAX_MCP_CASES = 5000;
+
+/** Refuses a file over the limit, from `stat`. Returns false when the file is not there. */
+async function checkSize(dir: string, file: string): Promise<boolean> {
+  let size: number;
+  try {
+    const st = await fs.stat(path.join(dir, file));
+    if (!st.isFile()) throw new CairnArtifactShapeError(file, '', 'is not a regular file');
+    size = st.size;
+  } catch (e) {
+    if (e instanceof CairnArtifactShapeError) throw e;
+    return false;
+  }
+  if (size > MAX_ARTIFACT_BYTES) {
+    throw new CairnArtifactShapeError(
+      file,
+      '',
+      `is larger than ${MAX_ARTIFACT_BYTES / (1024 * 1024)} MiB`,
+    );
+  }
+  return true;
+}
+
 async function readJson(file: string): Promise<unknown | undefined> {
   try {
     return JSON.parse(await fs.readFile(file, 'utf8')) as unknown;
   } catch {
     return undefined;
   }
+}
+
+const ARGS_CHARS = 200;
+const SECRET_NAME = /key|token|secret|password|passwd|auth|cookie|credential/i;
+const maskNamed = (v: unknown, depth = 0): unknown => {
+  if (depth > 16) return '[deep]';
+  if (Array.isArray(v)) return v.slice(0, 50).map((x) => maskNamed(x, depth + 1));
+  if (typeof v === 'object' && v !== null) {
+    const out: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(v).slice(0, 50)) {
+      out[k] = SECRET_NAME.test(k) ? '***' : maskNamed(x, depth + 1);
+    }
+    return out;
+  }
+  return v;
+};
+
+/**
+ * The arguments of a call as a masked, bounded text. Masked first and cut after: a token that straddles the cut
+ * would otherwise leave its head in the text. Cairn masks what it writes, but this file is input, so it is masked
+ * again here: by the name of an argument that says it is a credential, by the look of a token, and a Bearer value.
+ */
+function describeMcpArgs(request: string): string {
+  let text = request.slice(0, 4096);
+  try {
+    text = JSON.stringify(maskNamed(JSON.parse(text) as unknown));
+  } catch {
+    // Cut mid-value or not JSON: the text is masked by its look below.
+  }
+  const masked = safeText(redactSecrets(text));
+  return masked.length > ARGS_CHARS ? `${masked.slice(0, ARGS_CHARS)} (cut)` : masked;
+}
+
+type McpState = 'passed' | 'failed' | 'not-sent' | 'could-not-run' | 'needs-review';
+const MCP_STATES: ReadonlySet<string> = new Set([
+  'passed',
+  'failed',
+  'not-sent',
+  'could-not-run',
+  'needs-review',
+]);
+
+interface McpEvidence {
+  /** The call went out: Cairn timed it. */
+  sent: boolean;
+  request?: string;
+}
+
+/** `mcp-evidence.json`, strictly: a list of objects, each with an own stableId; `undefined` when the file is absent. */
+async function readMcpEvidence(
+  dir: string,
+  states: Map<string, string>,
+): Promise<Map<string, McpEvidence> | undefined> {
+  const file = 'mcp-evidence.json';
+  if (!(await checkSize(dir, file))) return undefined;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(await fs.readFile(path.join(dir, file), 'utf8')) as unknown;
+  } catch {
+    throw new CairnArtifactShapeError(file, '', 'is not valid JSON');
+  }
+  if (!Array.isArray(raw)) throw new CairnArtifactShapeError(file, '', 'must be a list');
+  if (raw.length > MAX_MCP_CASES) {
+    throw new CairnArtifactShapeError(file, '', `lists more than ${MAX_MCP_CASES} entries`);
+  }
+  const byId = new Map<string, McpEvidence>();
+  raw.forEach((item: unknown, i) => {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+      throw new CairnArtifactShapeError(file, `[${i}]`, 'must be an object');
+    }
+    const rec = item as Record<string, unknown>;
+    const id = own(rec, 'stableId');
+    if (typeof id !== 'string' || !states.has(id)) {
+      throw new CairnArtifactShapeError(
+        file,
+        `[${i}].stableId`,
+        'does not name a case of report.json',
+      );
+    }
+    if (byId.has(id)) {
+      throw new CairnArtifactShapeError(file, `[${i}].stableId`, 'appears more than once');
+    }
+    if (own(rec, 'state') !== states.get(id)) {
+      throw new CairnArtifactShapeError(
+        file,
+        `[${i}].state`,
+        'does not agree with the state in report.json',
+      );
+    }
+    const request = own(rec, 'request');
+    if (request !== undefined && typeof request !== 'string') {
+      throw new CairnArtifactShapeError(file, `[${i}].request`, 'must be text');
+    }
+    const durationMs = own(rec, 'durationMs');
+    if (durationMs !== undefined && typeof durationMs !== 'number') {
+      throw new CairnArtifactShapeError(file, `[${i}].durationMs`, 'must be a number');
+    }
+    byId.set(id, {
+      sent: typeof durationMs === 'number',
+      ...(request !== undefined ? { request } : {}),
+    });
+  });
+  return byId;
+}
+
+/** What each kind of case is expected to do, in plain words: it is what a reviewer reads. */
+function expectedOfMcp(type: 'Positive' | 'Negative', adversarial: boolean): string {
+  if (type === 'Positive') {
+    return "The call finishes without an error, and the answer fits the tool's outputSchema when it has one.";
+  }
+  return adversarial
+    ? 'The server rejects the call, or handles the value without harm.'
+    : "The server rejects the call: it does not act on a value the tool's inputSchema forbids.";
+}
+
+/**
+ * Cases a `cairn mcp-test` run wrote. `report.json` lists the cases with a state each; `mcp-evidence.json`
+ * (optional) holds the call text and whether the call went out.
+ *
+ *   passed        -> passed
+ *   failed        -> failed
+ *   could-not-run -> blocked when the call went out and got no answer; no verdict when it was never sent
+ *                    (the run stopped first), because "no answer" would blame a call nobody made
+ *   not-sent      -> no verdict: the guard refused it, the server never saw it
+ *   needs-review  -> no verdict: an answer a rule cannot judge, a person must; passed or failed would be a guess
+ */
+async function casesFromMcp(
+  dir: string,
+  report: Record<string, unknown>,
+): Promise<CairnIngestCase[]> {
+  const list = own(report, 'cases');
+  if (!Array.isArray(list))
+    throw new CairnArtifactShapeError('report.json', 'cases', 'must be a list');
+  if (list.length > MAX_MCP_CASES) {
+    throw new CairnArtifactShapeError(
+      'report.json',
+      'cases',
+      `lists more than ${MAX_MCP_CASES} cases`,
+    );
+  }
+
+  const states = new Map<string, string>();
+  const parsed = list.map((raw: unknown, i) => {
+    const at = `cases[${i}]`;
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+      throw new CairnArtifactShapeError('report.json', at, 'must be an object');
+    }
+    const c = raw as Record<string, unknown>;
+    const text = (key: string): string => {
+      const v = own(c, key);
+      if (typeof v !== 'string' || v === '') {
+        throw new CairnArtifactShapeError('report.json', `${at}.${key}`, 'must be text');
+      }
+      return v;
+    };
+    const stableId = text('stableId');
+    const name = text('name');
+    const tool = text('tool');
+    const type = text('type');
+    const state = text('state');
+    if (type !== 'Positive' && type !== 'Negative') {
+      throw new CairnArtifactShapeError(
+        'report.json',
+        `${at}.type`,
+        `is "${safe(type)}", not Positive or Negative`,
+      );
+    }
+    if (!MCP_STATES.has(state)) {
+      throw new CairnArtifactShapeError(
+        'report.json',
+        `${at}.state`,
+        `is "${safe(state)}", a state this CLI does not know`,
+      );
+    }
+    if (states.has(stableId)) {
+      throw new CairnArtifactShapeError('report.json', `${at}.stableId`, 'appears more than once');
+    }
+    states.set(stableId, state);
+    const kind: 'Positive' | 'Negative' = type;
+    const technique = own(c, 'technique');
+    return {
+      stableId,
+      name,
+      tool,
+      type: kind,
+      state: state as McpState,
+      adversarial: own(c, 'adversarialStyle') !== undefined,
+      ...(typeof technique === 'string' ? { technique } : {}),
+    };
+  });
+
+  const evidence = await readMcpEvidence(dir, states);
+  return parsed.map((c): CairnIngestCase => {
+    const e = evidence?.get(c.stableId);
+    const verdict: CairnVerdict | undefined =
+      c.state === 'passed'
+        ? 'passed'
+        : c.state === 'failed'
+          ? 'failed'
+          : c.state === 'could-not-run' && e?.sent === true
+            ? 'blocked'
+            : undefined;
+    const args = e?.request !== undefined ? ` ${describeMcpArgs(e.request)}` : '';
+    return {
+      stableId: c.stableId,
+      title: safeText(c.name),
+      execution: 'auto',
+      steps: [`tools/call ${safe(c.tool)}${args}`],
+      expected: expectedOfMcp(c.type, c.adversarial),
+      ...(verdict !== undefined ? { verdict } : {}),
+      ...(c.technique !== undefined ? { technique: safeText(c.technique) } : {}),
+    };
+  });
 }
 
 async function defaultReadEvidence(dir: string): Promise<EvidenceRecord[] | undefined> {
@@ -234,6 +493,7 @@ export async function readCairnRun(
   dir: string,
   deps: ReadCairnRunDeps = {},
 ): Promise<CairnIngestPayload> {
+  await checkSize(dir, 'report.json');
   const raw = await readJson(path.join(dir, 'report.json'));
   if (raw === undefined) throw new CairnRunNotFoundError(dir);
 
@@ -246,7 +506,7 @@ export async function readCairnRun(
   }
 
   const mode = report['mode'];
-  if (mode !== 'design' && mode !== 'explore' && mode !== 'api') {
+  if (mode !== 'design' && mode !== 'explore' && mode !== 'api' && mode !== 'mcp') {
     // Every artifact states its kind from 0.7.0 on, so reaching here means a kind newer than this
     // reader. Inferring it from which keys happen to be present is exactly the guess FR-1a forbids.
     throw new CairnRunVersionError(
@@ -264,6 +524,8 @@ export async function readCairnRun(
       verdicts.set(e.name, e.error !== undefined ? 'blocked' : e.passed ? 'passed' : 'failed');
     }
     cases = casesFromApi(report, verdicts);
+  } else if (mode === 'mcp') {
+    cases = await casesFromMcp(dir, report);
   } else {
     cases = casesFromDesign(report);
   }
