@@ -74,6 +74,7 @@ export class ProbeGuard {
   #destructive = new Set<string>();
   #listed = false;
   #seq = 0;
+  #pageUrl: string | undefined;
   #journalFailed = false;
   readonly #schemas = new Map<string, unknown>();
   readonly #journal: ProbeJournal | undefined;
@@ -146,6 +147,17 @@ export class ProbeGuard {
     return derivedTooLarge(args) ? { reason: 'schema-too-large' } : { args };
   }
 
+  /** The address of the page the scan serves: the one value a fetches probe may put in its URL argument. */
+  setPageUrl(url: string): void {
+    this.#pageUrl = url;
+  }
+
+  /** The arguments of a fetches entry: the declared ones, and the page address in the argument the entry names. */
+  fetchArgumentsFor(entry: ProbeEntry): Record<string, unknown> | undefined {
+    if (this.#pageUrl === undefined || entry.urlArgument === undefined) return undefined;
+    return { ...entry.arguments, [entry.urlArgument]: this.#pageUrl };
+  }
+
   /** A line of the journal could not be written, on any kind of line: the journal is incomplete. */
   get journalFailed(): boolean {
     return this.#journalFailed;
@@ -196,7 +208,11 @@ export class ProbeGuard {
             e.tool === name &&
             (e.malformed === true
               ? e.as === 'account-a' && derived !== undefined && canonical(derived) === args
-              : canonical(e.arguments) === args),
+              : e.fetches === true
+                ? e.as === 'account-a' &&
+                  this.fetchArgumentsFor(e) !== undefined &&
+                  canonical(this.fetchArgumentsFor(e)) === args
+                : canonical(e.arguments) === args),
         );
         if (entry === undefined) return this.#refuse(frame, 'undeclared');
         // Until the server's tool list is known, a destructive tool cannot be told from any other: nothing is called.

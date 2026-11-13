@@ -88,6 +88,11 @@ export interface Session {
    */
   raw(body: string, id: string | number | null, options?: RawOptions): Promise<RawReply>;
   /**
+   * Writes a message that has no answer (a notification) to a stdio server as one line, as written. Rejects with a
+   * `ConnectError` when the process is gone or its stdin is closed. Not for HTTP.
+   */
+  notify(body: string): Promise<void>;
+  /**
    * Every JSON-RPC message the server sent that the raw layer saw, in order: each line of a stdio server's stdout, and
    * each message of a raw POST's answer (its SSE events included). A response carries the method of the raw request
    * whose id it holds. Not masked: what is printed of it goes through `redact`.
@@ -668,6 +673,18 @@ export async function openSession(config: ConnectConfig, options: SessionOptions
       }
       journal.write('in', frame !== undefined ? { frame } : { status, raw: clean(text).slice(0, RAW_TEXT) });
       return { frame, status, text: clean(text).slice(0, RAW_TEXT) };
+    },
+    async notify(body) {
+      if (target.kind !== 'stdio')
+        throw new ConnectError('protocol', 'notify is for a stdio server.', []);
+      const stdin = (transport as unknown as { _process?: { stdin?: Writable | null } })._process?.stdin;
+      if (stdin === null || stdin === undefined || stdin.writableEnded)
+        throw spawnError !== undefined
+          ? await toConnectError(spawnError)
+          : new ConnectError('exited-early', `${LEAD['exited-early'][0]}.`, [...tail]);
+      journal.write('out', { raw: body });
+      stdin.write(`${body}
+`);
     },
     traffic: () => traffic,
     stdoutNoise: () => ({ count: noise.count, first: [...noise.first] }),

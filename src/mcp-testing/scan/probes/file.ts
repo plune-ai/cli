@@ -13,7 +13,7 @@ export const MAX_PROBE_FILE_BYTES = 256 * 1024;
 export const MAX_PROBES = 64;
 const MAX_ARGUMENT_BYTES = 16 * 1024;
 const ID = /^[A-Za-z0-9._-]{1,64}$/;
-const KEYS = new Set(['id', 'tool', 'arguments', 'as', 'expect', 'allowDestructive', 'malformed']);
+const KEYS = new Set(['id', 'tool', 'arguments', 'as', 'expect', 'allowDestructive', 'malformed', 'fetches', 'urlArgument']);
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -74,6 +74,19 @@ export function parseProbeFile(text: string, name: string): ProbeEntry[] {
       return bad(
         `${at} (${id}): a malformed probe is sent as account-a and takes no expect; its arguments are derived from the tool, not read from the file.`,
       );
+    const fetches = raw['fetches'];
+    if (fetches !== undefined && typeof fetches !== 'boolean')
+      return bad(`${at} (${id}): fetches must be true or false.`);
+    const urlArgument = raw['urlArgument'];
+    if (fetches === true) {
+      if (typeof urlArgument !== 'string' || !/^[A-Za-z0-9_.-]{1,64}$/.test(urlArgument))
+        return bad(`${at} (${id}): a fetches probe names the argument that takes the address: urlArgument.`);
+      if (as !== 'account-a' || expect !== undefined || malformed === true)
+        return bad(
+          `${at} (${id}): a fetches probe is sent as account-a, takes no expect and is not malformed.`,
+        );
+    } else if (urlArgument !== undefined)
+      return bad(`${at} (${id}): urlArgument is for a probe with fetches: true.`);
     entries.push({
       id,
       tool,
@@ -82,6 +95,7 @@ export function parseProbeFile(text: string, name: string): ProbeEntry[] {
       ...(expect === undefined ? {} : { expect: expect as ProbeExpect }),
       ...(destructive === true ? { allowDestructive: true } : {}),
       ...(malformed === true ? { malformed: true } : {}),
+      ...(fetches === true ? { fetches: true, urlArgument: urlArgument as string } : {}),
     });
   });
   return entries;
