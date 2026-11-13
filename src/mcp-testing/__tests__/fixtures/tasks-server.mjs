@@ -15,6 +15,8 @@
 //   -32021 without data.requiredCapabilities;
 // - `no-result-type`, `bad-status`, `no-created`, `float-ttl`: tasks/get without resultType, with a status the
 //   specification does not have, without createdAt, with ttlMs 1.5 and a string pollIntervalMs;
+// - `short-date`, `bad-date`: createdAt without seconds (valid ISO 8601), createdAt that is no date;
+// - `get-expired`: tasks/get for a task the server made answers -32602 (expired);
 // - `no-result`, `no-error`, `no-input-requests`: completed without result, failed without error, input_required without
 //   inputRequests; `failing-no-message`: failed without statusMessage;
 // - `unknown-ok`, `unknown-code`: tasks/get for an unknown id is served, or answers -32603; `unknown-update-ok`: tasks/update
@@ -86,7 +88,16 @@ export function answer(mode, state, msg, emit) {
   const base = (t, status) => ({
     taskId: t.id,
     status,
-    ...(mode === 'no-created' ? {} : { createdAt: '2026-11-13T10:00:00Z' }),
+    ...(mode === 'no-created'
+      ? {}
+      : {
+          createdAt:
+            mode === 'short-date'
+              ? '2026-11-13T10:00Z'
+              : mode === 'bad-date'
+                ? 'yesterday'
+                : '2026-11-13T10:00:00Z',
+        }),
     lastUpdatedAt: '2026-11-13T10:00:01Z',
     ttlMs: mode === 'float-ttl' ? 1.5 : 60000,
     pollIntervalMs: mode === 'float-ttl' ? '10' : 10,
@@ -184,6 +195,7 @@ export function answer(mode, state, msg, emit) {
         if (mode === 'unknown-ok') return ok(base({ id: String(params.taskId) }, 'working'));
         return mode === 'unknown-code' ? fail(-32603, 'Internal error') : unknown();
       }
+      if (mode === 'get-expired') return fail(-32602, 'Failed to retrieve task: Task has expired');
       const status = statusOf(t);
       const body = detail(t, status);
       t.polls += 1;

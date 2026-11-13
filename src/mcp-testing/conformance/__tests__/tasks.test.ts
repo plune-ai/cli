@@ -353,6 +353,29 @@ describe('CLI · mcp conformance · tasks · each requirement broken on its own'
     );
   });
 
+  it('the controls: a task the server made that tasks/get then refuses leaves every must-refuse check could-not-run', async () => {
+    const { report } = await withFixture('get-expired');
+    for (const id of ['tasks-unknown-id-get', 'tasks-undeclared-capability-error'])
+      expect.soft(states(report)[id], id).toBe('could-not-run (prerequisite-failed)');
+    expect(byId(report, 'tasks-unknown-id-get').actual).toContain('control');
+    expect(states(report)['tasks-get-status-shape']).toBe('failed');
+  });
+
+  it('the controls: tasks/cancel that fails for the own task of the run leaves the unknown-id check could-not-run', async () => {
+    const { report } = await withFixture('cancel-error');
+    expect(states(report)['tasks-unknown-id-update-cancel']).toBe(
+      'could-not-run (prerequisite-failed)',
+    );
+    expect(byId(report, 'tasks-unknown-id-update-cancel').actual).toContain('controls');
+  });
+
+  it('createdAt is ISO 8601: without seconds it passes, a word is a failure', async () => {
+    expect(states((await withFixture('short-date')).report)['tasks-get-status-shape']).toBe(
+      'passed',
+    );
+    expect(states((await withFixture('bad-date')).report)['tasks-get-status-shape']).toBe('failed');
+  });
+
   it('tasks/update that is an error says nothing about the acknowledgement: could-not-run', async () => {
     const { report } = await withFixture('update-error');
     expect(states(report)['tasks-update-ack']).toBe('could-not-run (prerequisite-failed)');

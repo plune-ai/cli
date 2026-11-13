@@ -44,7 +44,9 @@ const MAX_KEYS = 64;
 const MAX_JSON = 65_536;
 const UNKNOWN_ID = 'plune-conformance-no-such-task';
 // No nested quantifier and a length checked first: a date-time a server chooses cannot make this backtrack.
-const DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+// ISO 8601, which the text names (not RFC 3339): seconds, a fraction and the zone are optional.
+const DATE_TIME =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}(?::?\d{2})?)?$/;
 
 /** A task the run made: ended says tasks/get showed it finished. */
 interface Made {
