@@ -12,6 +12,7 @@ import type {
   HealthCheckId,
   McpCheckReport,
   McpConformanceReport,
+  McpConformanceReportSet,
   McpDiffReport,
   McpReport,
 } from '../result.js';
@@ -344,6 +345,22 @@ export function conformanceRun(report: McpConformanceReport): McpRun {
     document: report,
     cases: report.checks.map((r) => ({ id: r.id, title: catalogEntry(r.id)?.title ?? r.id, suite: r.suite })),
     checks: checks.map(clean),
+    nothing: 'no check of the catalog is in the selected suites',
+    showInfo: false,
+  };
+}
+
+/**
+ * `--protocol-version both`: the cases of each era's run, each id and suite under its era (`modern/mod-discover-result`,
+ * `mcp.conformance.protocol.modern`), so one JUnit file holds both and no case of one era stands for the other.
+ */
+export function conformanceSetRun(set: McpConformanceReportSet): McpRun {
+  const runs = set.reports.map((r) => ({ era: r.era ?? 'legacy', run: conformanceRun(r) }));
+  return {
+    command: 'conformance',
+    document: set,
+    cases: runs.flatMap(({ era, run }) => run.cases.map((c) => ({ ...c, id: `${era}/${c.id}`, suite: `${c.suite ?? 'protocol'}.${era}` }))),
+    checks: runs.flatMap(({ era, run }) => run.checks.map((c) => ({ ...c, id: `${era}/${c.id}` }))),
     nothing: 'no check of the catalog is in the selected suites',
     showInfo: false,
   };

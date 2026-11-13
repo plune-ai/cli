@@ -196,8 +196,12 @@ export interface McpConformanceReport {
   manifestDigest: string;
   /** The revision the checks ran for: `--protocol-version`, else the one the server answered with; null without either. */
   protocolVersion: string | null;
-  /** `auto` or the revision `--protocol-version` named. */
+  /** `auto`, `both` or the revision `--protocol-version` named. */
   protocolVersionRequested: string;
+  /** The era the checks ran for: `legacy` (the initialize handshake) or `modern` (2026-07-28, server/discover). */
+  era?: import('./conformance/catalog.js').Era;
+  /** How the era was chosen: by `--protocol-version`, or what the server/discover probe of `auto` got. */
+  eraDetection?: string;
   server: { name: string; version: string } | null;
   transport: 'stdio' | 'http' | 'sse';
   suites: import('./conformance/catalog.js').Suite[];
@@ -208,5 +212,17 @@ export interface McpConformanceReport {
   bySuite: Partial<Record<import('./conformance/catalog.js').Suite, import('./conformance/score.js').Summary>>;
   /** Every selected check: the counts of all suites added up, not an average of their scores. */
   summary: import('./conformance/score.js').Summary;
+  exitCode: 0 | 1 | 3;
+}
+
+/**
+ * `--protocol-version both`: one full report per era, each with its own score, never mixed; the exit code is the worst
+ * of the two (1 before 3 before 0).
+ */
+export interface McpConformanceReportSet {
+  kind: 'mcp-conformance-report-set';
+  schemaVersion: 1;
+  command: 'conformance';
+  reports: McpConformanceReport[];
   exitCode: 0 | 1 | 3;
 }

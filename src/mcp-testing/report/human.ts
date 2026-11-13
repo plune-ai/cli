@@ -6,6 +6,7 @@ import type {
   CheckLevel,
   McpCheckReport,
   McpConformanceReport,
+  McpConformanceReportSet,
   McpDiffReport,
   McpReport,
 } from '../result.js';
@@ -260,13 +261,17 @@ const WHY: Record<Summary['verdict'], (s: Summary) => string> = {
     s.applicable === 0 ? 'nothing was measured, so nothing is proven' : 'a scored check could not run',
 };
 
+/** `--protocol-version both`: the report of each era in turn, and the exit code of the two. */
+export function conformanceSetHuman(set: McpConformanceReportSet): string {
+  const blocks = set.reports.map((r) => conformanceHuman(r));
+  return `${blocks.join('\n')}\nBoth eras, each scored on its own: exit ${set.exitCode}.\n`;
+}
+
 /** `plune mcp conformance`: a line per check, a score line per suite, and the verdict with its exit code. */
 export function conformanceHuman(r: McpConformanceReport): string {
   const server = r.server === null ? 'a server without serverInfo' : `${r.server.name} ${r.server.version}`;
-  const version =
-    r.protocolVersion === null
-      ? 'protocol version unknown'
-      : `protocol ${r.protocolVersion} (${r.protocolVersionRequested === 'auto' ? 'from the handshake' : 'from --protocol-version'})`;
+  const how = r.eraDetection ?? (r.protocolVersionRequested === 'auto' ? 'from the handshake' : 'from --protocol-version');
+  const version = `${r.protocolVersion === null ? 'protocol version unknown' : `protocol ${r.protocolVersion}`}${r.era === undefined ? '' : `, ${r.era} era`} (${how})`;
   const lines = [
     `plune mcp conformance · ${server} · ${r.transport} · ${version}`,
     `Profile ${r.profileId} ${r.profileVersion} · sha256 ${r.manifestDigest.slice(0, 12)}`,

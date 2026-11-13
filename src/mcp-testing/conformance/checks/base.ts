@@ -5,7 +5,7 @@
 
 import { ConnectError } from '../../connect/session.js';
 import type { ConformanceCheck } from './index.js';
-import { answerOf, call, declares, failed, nextId, notDeclared, passed, said } from './wire.js';
+import { answerOf, call, declares, eraParams, failed, nextId, notDeclared, passed, said } from './wire.js';
 
 /** A method no revision defines: what the server says to it is what it says to any unknown method. */
 export const UNKNOWN_METHOD = 'plune-conformance/no-such-method';
@@ -65,7 +65,8 @@ function responseProblems(frame: Record<string, unknown> | undefined, id: string
 // A string id and an integer id, each on a request that succeeds and on one that fails. On stdio an answer is
 // matched by its id, so a wrong id there is a request that is never answered (could-not-run, timeout).
 const responseId: ConformanceCheck = async (ctx) => {
-  const ok = ctx.era === 'legacy' ? 'ping' : 'tools/list';
+  // A method every server of the era has: ping before 2026-07-28, server/discover from then on.
+  const ok = ctx.era === 'legacy' ? 'ping' : 'server/discover';
   const probes: [string | number, string][] = [
     [nextId(), ok],
     [900_000_000 + Math.floor(Math.random() * 1_000_000), ok],
@@ -73,7 +74,8 @@ const responseId: ConformanceCheck = async (ctx) => {
   ];
   const problems: string[] = [];
   for (const [id, method] of probes) {
-    const reply = await ctx.session.raw(JSON.stringify({ jsonrpc: '2.0', id, method }), id);
+    const params = eraParams(ctx);
+    const reply = await ctx.session.raw(JSON.stringify({ jsonrpc: '2.0', id, method, ...(params === undefined ? {} : { params }) }), id);
     for (const p of responseProblems(reply.frame, id)) problems.push(`${method} with id ${JSON.stringify(id)}: ${p}`);
   }
   if (problems.length > 0)
