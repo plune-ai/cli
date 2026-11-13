@@ -61,7 +61,7 @@ evals:
 
 ```bash
 plune run
-# → 1/1 passed · 0 failed · 0 errored · $0.0013
+# → 1 passed · 0 failed · 0 errored · 1 total · $0.0013 · 1240ms
 ```
 
 ## Where to next

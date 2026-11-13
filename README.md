@@ -42,7 +42,7 @@ echo 'ANTHROPIC_API_KEY=sk-ant-...' >> .env
 
 # 3. Run the assertions
 plune run
-# → 1/1 passed · 0 failed · 0 errored · $0.0008
+# → 3 passed · 0 failed · 0 errored · 3 total · $0.0008 · 1840ms
 
 # 4. Re-render the last run, or diff two runs to catch regressions
 plune report --format markdown

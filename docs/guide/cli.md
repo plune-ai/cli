@@ -70,7 +70,7 @@ By default Plune prints a **console report**: a summary line, each eval's pass/f
 details for the **failed/errored** rows (passing rows are collapsed). The summary line looks like:
 
 ```
-12/15 passed · 2 failed · 1 errored · $0.0431
+12 passed · 2 failed · 1 errored · 15 total · $0.0431 · 9300ms
 ```
 
 Use `--format` to choose the shape and `-o` to write it to a file:
