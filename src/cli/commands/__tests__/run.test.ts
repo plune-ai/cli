@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { handleRun } from '../run.js';
-import { createProgram } from '../../../cli.js';
+import { createProgram, isFileSystemError } from '../../../cli.js';
 import { loadDataset, type RunDeps } from '../../../orchestrator/index.js';
 import type { Config } from '../../../types/config.js';
 import type { Provider } from '../../../types/provider.js';
@@ -168,4 +168,40 @@ describe('run command — config errors (exit 2)', () => {
       expect(stderr.join('')).not.toContain('This one is on us');
     },
   );
+});
+
+// #258: a file-system error on a path of the user's was reported as an internal error (exit 1).
+describe('run command — a file-system error on a path is the user’s to fix (exit 2)', () => {
+  it('--output into a folder that does not exist: exit 2 with advice, and no request for a report', async () => {
+    const cfgPath = path.join(tmpDir, 'plune.yaml');
+    fs.writeFileSync(cfgPath, CONFIG);
+    const stderr: string[] = [];
+    vi.spyOn(process.stderr, 'write').mockImplementation((c: string | Uint8Array) => {
+      stderr.push(typeof c === 'string' ? c : Buffer.from(c).toString());
+      return true;
+    });
+    const exitSpy = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => {}) as (code?: string | number | null | undefined) => never);
+    const out = path.join(tmpDir, 'nodir', 'report.md');
+    const argv = ['node', 'plune', 'run', '--dry-run', '--config', cfgPath, '--output', out];
+    await createProgram().parseAsync(argv);
+    expect(exitSpy).toHaveBeenCalledWith(2);
+    expect(exitSpy).not.toHaveBeenCalledWith(1);
+    expect(stderr.join('')).toContain('ENOENT');
+    expect(stderr.join('')).toContain('check the path in the message');
+    expect(stderr.join('')).not.toContain('This one is on us');
+  });
+
+  it('tells a file-system error on a path from every other error', () => {
+    const onPath = Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT', path: 'x' });
+    const network = Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' });
+    // A command that could not be started carries a code and a path as well; it is not a path to fix.
+    const spawn = Object.assign(new Error('spawn x ENOENT'), { ...onPath, syscall: 'spawn x' });
+    expect(isFileSystemError(onPath)).toBe(true);
+    expect(isFileSystemError(network)).toBe(false);
+    expect(isFileSystemError(spawn)).toBe(false);
+    expect(isFileSystemError(new Error('boom'))).toBe(false);
+    expect(isFileSystemError('boom')).toBe(false);
+  });
 });
