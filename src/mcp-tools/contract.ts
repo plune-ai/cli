@@ -94,12 +94,12 @@ export const PLUNE_TOOLS = [
     name: 'plune_cases_search',
     title: 'Find test cases',
     description:
-      'Find test cases of the project by filter — suite, state, tag, priority, text and the other filters of the case list — one page at a time, with the total and how many match.',
+      'Find test cases of the project by filter — free text in q, suite, state, tag, priority and the other filters of the case list — one page at a time, with the total and how many match.',
     input: z.strictObject({
       filters: z
         .record(z.string(), z.union([z.string(), z.array(z.string())]))
         .optional()
-        .describe('Query filters of GET /v1/test-cases: a list is OR inside one key, keys are AND-ed (e.g. {"suiteId": "s1", "tag": ["smoke"]})'),
+        .describe('Query filters of GET /v1/test-cases: free text is the key q, and a key the list does not know is ignored, so all cases come back; a list is OR inside one key, keys are AND-ed (e.g. {"q": "card", "tag": ["smoke"]})'),
       ...listPage,
     }),
     output: z.object({
@@ -196,7 +196,7 @@ export const PLUNE_TOOLS = [
     name: 'plune_mission_create',
     title: 'Create a mission',
     description:
-      'Create a testing mission for a product: its name, a short description of what the product is, where it runs, and whether documentation exists. It starts as a draft you fill in.',
+      'Create a testing mission for a product the user has named: its name, a short description of what the product is, where it runs, and whether documentation exists. It starts as a draft. Do not guess a mission from an unclear request, not even as a placeholder draft: when the user has not said which product, ask with plune_question_ask first.',
     input: z.strictObject({ ...missionFields, dry_run: dryRun }),
     output: writeOutput,
     write: true,
@@ -267,7 +267,7 @@ export const PLUNE_TOOLS = [
     name: 'plune_question_ask',
     title: 'Ask a person',
     description:
-      'Ask a person what you do not know instead of guessing: a plain question with up to three options, or a request for access to an API description, the code, staging or a HAR file.',
+      'Ask a person what you do not know instead of guessing. When the request leaves the target or scope unclear (which product, which cases), call this first, before any write, rather than only asking in your reply: it needs no mission, waits in the review queue, and its answer is read with plune_question_list. A plain question takes up to three options; an access question asks for an API description, the code, staging or a HAR file.',
     input: questionInput.superRefine((b, ctx) => {
       if (b.template === 'plain' && b.access !== undefined) ctx.addIssue({ code: 'custom', message: 'access belongs to an access question' });
       if (b.template === 'access' && b.options !== undefined) ctx.addIssue({ code: 'custom', message: 'options belong to a plain question' });
@@ -317,7 +317,7 @@ export const PLUNE_TOOLS = [
     description:
       'Look for a capability that is not in your tool list — editing cases, writing results, starting runs, cataloguing API endpoints, a raw API call — and switch the ones you need on for this session.',
     input: z.strictObject({
-      query: z.string().trim().min(1).max(200).optional().describe('Words of the task, e.g. "write results"'),
+      query: z.string().trim().min(1).max(200).optional().describe('Two or three words of the task, e.g. "write results": a tool is listed only when every word is in its name, title or description'),
       names: z.array(z.string().min(1)).min(1).max(MAX_VISIBLE_TOOLS).optional().describe('Tools to switch on'),
     }),
     output: z.object({
@@ -369,10 +369,10 @@ export const PLUNE_TOOLS = [
     name: 'plune_results_write',
     title: 'Write results into a run',
     description:
-      'Record up to 100 test results into an open run in one request — passed, failed, skipped, with their keys and evidence — and learn how many the platform accepted.',
+      'Record up to 100 test results into an open run in one request — passed, failed, skipped, with their keys and evidence — and learn how many the platform accepted. The run id is enough: the run need not be read first. Each result names its case by testCaseId, found with plune_cases_search; when no case matches a name, ask the person instead of searching on.',
     input: z.strictObject({
       runId: id('The run id'),
-      results: z.array(z.record(z.string(), z.unknown())).min(1).max(BATCH_MAX).describe('Results as POST /v1/runs/:id/results takes them'),
+      results: z.array(z.record(z.string(), z.unknown())).min(1).max(BATCH_MAX).describe('Results as POST /v1/runs/:id/results takes them: each with testCaseId, a resultKey of your own and a status'),
       combination: z.number().int().min(0).optional(),
       configuration: z.record(z.string(), z.string()).optional(),
       dry_run: dryRun,

@@ -222,6 +222,19 @@ describe('plune mcp serve, modern era: a fixed tool list', () => {
     expect(c.platform.calls.map((call) => `${call.method} ${call.url.pathname}`)).toEqual(['POST /v1/runs']);
   });
 
+  it('CLI · mcp serve · results: the stub refuses a result without testCaseId, as the platform does, and takes one with it', async () => {
+    const c = await connect('modern', { answer: platformAnswer });
+    const bare = await c.callTool('plune_results_write', { runId: CREATED.run, results: [{ title: 'Pay by card', status: 'passed' }] });
+    expect(bare.isError).toBe(true);
+    expect(bare.structuredContent).toMatchObject({ error: { status: 400 } });
+    const named = await c.callTool('plune_results_write', {
+      runId: CREATED.run,
+      results: [{ testCaseId: 'e43e1a95-e2a2-42a1-93b6-62b04756fba6', resultKey: 'pay-by-card#0', status: 'passed' }],
+    });
+    expect(named.isError).toBeFalsy();
+    expect(named.structuredContent).toMatchObject({ applied: 1 });
+  });
+
   it('CLI · mcp serve · 2026-07-28 · a read token: a hidden writer called by name is refused as a listed one is, nothing reaches the platform', async () => {
     const c = await connect('modern', { scope: 'read' });
     await expect(c.callTool('plune_run_create', { run: { name: 'x' } })).rejects.toThrow(/-32602 .*plune_run_create/);
