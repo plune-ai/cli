@@ -14,9 +14,9 @@ import {
   describeCalls,
   fail,
   pass,
-  sameJson,
   transcriptOf,
 } from './transcript.js';
+import { isIdenticalCall } from '../../util/tool-calls.js';
 
 /** `tools` as a subsequence of `names`: each one found after the one before it. */
 function inOrder(names: string[], tools: string[]): boolean {
@@ -66,7 +66,7 @@ export const noRepeatedCall = check<NoRepeatedCallAssertion>((ctx) => {
   for (let i = 1; i < calls.length; i++) {
     const [prev, cur] = [calls[i - 1]!, calls[i]!];
     if (tool !== undefined && cur.call.name !== tool) continue;
-    if (prev.call.name === cur.call.name && sameJson(prev.call.args, cur.call.args))
+    if (isIdenticalCall(prev.call, cur.call))
       return fail(
         `expected no call repeated right after itself; got ${describeCall(prev)} then ${describeCall(cur)}; ` +
           `check whether the first answer told the model what it needed`,

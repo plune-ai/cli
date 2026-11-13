@@ -4,6 +4,7 @@
 // Never cached: a stored answer about a call does not show that the server still answers so, which is what is tested.
 
 import type {
+  AgentAdvice,
   AgentCall,
   AgentRecord,
   AgentStep,
@@ -27,6 +28,8 @@ import {
   type RowParams,
 } from './run.js';
 import { wireNames } from './tool-names.js';
+import { frictionAdvice, scanIds, type FrictionCall, type IdScan } from './friction.js';
+import { sha256 } from '../util/hash.js';
 
 /** The most of one result's or step's text kept in the transcript, in UTF-8 bytes. */
 export const EXCERPT_BYTES = 4 * 1024;
@@ -53,6 +56,11 @@ export interface AgentRowParams extends RowParams {
   allowedTools?: string[];
   limits: Required<McpLimits>;
   connect: AgentConnect;
+  /**
+   * `--tool-description`: tool name to the text the model is shown in its place. Only the request to the model
+   * changes; the server is asked nothing different and its own list is what the transcript keeps.
+   */
+  toolDescriptions?: Record<string, string>;
 }
 
 type Limit = NonNullable<AgentTranscript['stop']['limit']>;
@@ -166,6 +174,11 @@ export async function runAgentRow(p: AgentRowParams): Promise<RowResult> {
   let output = '';
   let error: RunError | undefined;
   let session: AgentServer | undefined;
+  /** What each executed call's answer held in identifiers, read while the whole answer is at hand. */
+  const scanned = new Map<AgentCall, IdScan>();
+  const overrides = p.toolDescriptions ?? {};
+  /** The tools whose description the model was shown in place of the server's. */
+  const replaced = new Set<string>();
 
   try {
     // Starting a server is not a tool call: it has the row's time, not tool_timeout_ms.
@@ -218,11 +231,16 @@ export async function runAgentRow(p: AgentRowParams): Promise<RowResult> {
       const removed = offeredNames.filter((n) => !now.includes(n));
       offeredNames = now;
       names = wireNames(now);
-      tools = offered.map((t) => ({
-        name: names.toWire.get(t.name as string)!,
-        ...(typeof t.description === 'string' ? { description: t.description } : {}),
-        input_schema: isRecord(t.inputSchema) ? t.inputSchema : { type: 'object' },
-      }));
+      tools = offered.map((t) => {
+        const swap = overrides[t.name as string];
+        if (swap !== undefined) replaced.add(t.name as string);
+        const description = swap ?? (typeof t.description === 'string' ? t.description : undefined);
+        return {
+          name: names.toWire.get(t.name as string)!,
+          ...(description !== undefined ? { description } : {}),
+          input_schema: isRecord(t.inputSchema) ? t.inputSchema : { type: 'object' },
+        };
+      });
       return added.length + removed.length > 0 ? { added, removed } : undefined;
     };
     await list();
@@ -318,6 +336,7 @@ export async function runAgentRow(p: AgentRowParams): Promise<RowResult> {
         else if (isRecord(got.result) && got.result.isError === true)
           Object.assign(rec, { is_error: true, error_kind: 'content' });
         succeeded ||= !rec.is_error;
+        if (got.kind === 'result' && !rec.is_error) scanned.set(rec, scanIds(got.result));
         rec.result = kept.cut(text);
         // The model gets the whole answer; only the transcript keeps an excerpt.
         answer(rec, c, text);
@@ -344,8 +363,31 @@ export async function runAgentRow(p: AgentRowParams): Promise<RowResult> {
   }
 
   if (transcript.stop.reason !== 'complete' || kept.any) transcript.collection = 'partial';
+  // Read before the transcript is masked and cut: only names, steps, counts and key paths come out of it.
+  const friction =
+    error === undefined
+      ? frictionAdvice(
+          transcript.steps.flatMap((s) =>
+            s.calls.map(
+              (c): FrictionCall => ({
+                step: s.index,
+                name: c.name,
+                args: c.args,
+                executed: c.executed,
+                is_error: c.is_error,
+                ...(scanned.has(c) ? { ids: scanned.get(c)! } : {}),
+              }),
+            ),
+          ),
+        )
+      : [];
   const mask = session?.redact;
   const agent = (mask?.value(transcript) ?? transcript) as AgentTranscript;
+  if (replaced.size > 0)
+    (agent as AgentRecord).description_overrides = [...replaced].sort().map((tool) => ({
+      tool,
+      sha256: sha256(overrides[tool]!),
+    }));
   const spent = usages.length > 0 ? { usage: sumUsage(usages) } : {};
   if (error !== undefined) {
     return {
@@ -366,7 +408,17 @@ export async function runAgentRow(p: AgentRowParams): Promise<RowResult> {
     output,
     agent,
   );
-  if (advice.length > 0) (agent as AgentRecord).advice = advice;
+  // `no-repeated-call` already tells a repeat of the tools it covers: one advice for one finding.
+  const covered = p.assertions.filter((x) => x.type === 'no-repeated-call') as { tool?: string }[];
+  const signals = ((mask?.value(friction) ?? friction) as AgentAdvice[]).filter(
+    (f) =>
+      !(
+        f.type === 'identical-retry' &&
+        covered.some((c) => c.tool === undefined || c.tool === f.tool)
+      ),
+  );
+  const findings = [...advice, ...signals];
+  if (findings.length > 0) (agent as AgentRecord).advice = findings;
   const usage = sumUsage(usages);
   return {
     vars: p.row.vars,
