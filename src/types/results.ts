@@ -297,6 +297,12 @@ export interface EvalResult {
   provider?: { type: string; model: string };
 }
 
+/** The eval id of a cell result: the result id without its `@<model>` suffix. */
+export function baseEvalId(ev: EvalResult): string {
+  const suffix = ev.provider === undefined ? '' : `@${ev.provider.model}`;
+  return suffix !== '' && ev.id.endsWith(suffix) ? ev.id.slice(0, -suffix.length) : ev.id;
+}
+
 export interface RunResult {
   schemaVersion: 1;
   plune_version: string;

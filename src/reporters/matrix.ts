@@ -3,7 +3,7 @@
 // Rows are evals and columns are models, both in the order the config lists them.
 
 import type { EvalResult, RunResult } from '../types/results.js';
-import { rowStatus } from '../types/results.js';
+import { baseEvalId, rowStatus } from '../types/results.js';
 
 export type CellState = 'pass' | 'fail' | 'error' | 'unmeasured';
 
@@ -22,12 +22,6 @@ export interface MatrixCell {
 export interface Matrix {
   models: { type: string; model: string }[];
   rows: { eval: string; cells: (MatrixCell | null)[] }[];
-}
-
-/** The eval id of a cell result: the result id without its `@<model>` suffix. */
-export function baseEvalId(ev: EvalResult): string {
-  const suffix = ev.provider === undefined ? '' : `@${ev.provider.model}`;
-  return suffix !== '' && ev.id.endsWith(suffix) ? ev.id.slice(0, -suffix.length) : ev.id;
 }
 
 const STATE_ORDER: CellState[] = ['error', 'fail', 'unmeasured', 'pass'];

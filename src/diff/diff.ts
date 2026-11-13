@@ -7,7 +7,7 @@
 // the stdout of `plune diff`, not this TS type.
 
 import type { RunResult, EvalResult } from '../types/results.js';
-import { rowStatus } from '../types/results.js';
+import { baseEvalId, rowStatus } from '../types/results.js';
 import type { GatesReport } from './gates.js';
 import type { DiffAdvice } from './advice.js';
 
@@ -31,6 +31,15 @@ export interface EvalDiff {
   status: EvalDiffStatus;
   baseline: EvalPresence;
   current: EvalPresence;
+  /** Only for a cell of a run that listed several models: the eval id without `@<model>`, and the model it ran on. */
+  eval?: string;
+  provider?: { type: string; model: string };
+}
+
+/** The model x eval grid of a diff of runs that listed several models: evals and models in config order, null where a cell is in neither run. */
+export interface DiffMatrix {
+  models: { type: string; model: string }[];
+  rows: { eval: string; cells: (EvalDiff | null)[] }[];
 }
 
 export interface RunDiffSummary {
@@ -62,6 +71,8 @@ export interface RunDiff {
    * else in the diff, no gate and no exit code reads it. Absent when there is nothing to say.
    */
   advice?: DiffAdvice;
+  /** Only when a run listed several models: an added field, so a diff of one model is unchanged. */
+  matrix?: DiffMatrix;
 }
 
 // Eval-level status, lifted from its rows with the same precedence as exit-code.ts:
@@ -92,10 +103,21 @@ export function diffRuns(baseline: RunResult, current: RunResult): RunDiff {
   const curMap = new Map<string, EvalStatus>(current.evals.map((e) => [e.id, evalStatus(e)]));
   const ids = [...new Set([...baseMap.keys(), ...curMap.keys()])];
 
+  // A cell knows its model from whichever run has it; the current run's word wins.
+  const cellOf = new Map<string, EvalResult>();
+  for (const e of [...baseline.evals, ...current.evals]) if (e.provider !== undefined) cellOf.set(e.id, e);
+
   const evals: EvalDiff[] = ids.map((id) => {
     const baselineP: EvalPresence = baseMap.get(id) ?? 'absent';
     const currentP: EvalPresence = curMap.get(id) ?? 'absent';
-    return { id, status: classify(baselineP, currentP), baseline: baselineP, current: currentP };
+    const cell = cellOf.get(id);
+    return {
+      id,
+      status: classify(baselineP, currentP),
+      baseline: baselineP,
+      current: currentP,
+      ...(cell?.provider !== undefined ? { eval: baseEvalId(cell), provider: cell.provider } : {}),
+    };
   });
 
   const count = (s: EvalDiffStatus): number => evals.filter((e) => e.status === s).length;
@@ -112,5 +134,24 @@ export function diffRuns(baseline: RunResult, current: RunResult): RunDiff {
     hasRegression: count('regression') > 0,
   };
 
-  return { evals, summary };
+  const matrix = diffMatrix(evals);
+  return { evals, summary, ...(matrix !== undefined ? { matrix } : {}) };
+}
+
+function diffMatrix(evals: EvalDiff[]): DiffMatrix | undefined {
+  const cells = evals.filter((e) => e.provider !== undefined && e.eval !== undefined);
+  if (cells.length === 0) return undefined;
+  const models: DiffMatrix['models'] = [];
+  const rows = new Map<string, EvalDiff[]>();
+  for (const c of cells) {
+    if (!models.some((m) => m.model === c.provider!.model)) models.push(c.provider!);
+    rows.set(c.eval!, [...(rows.get(c.eval!) ?? []), c]);
+  }
+  return {
+    models,
+    rows: [...rows].map(([name, cs]) => ({
+      eval: name,
+      cells: models.map((m) => cs.find((c) => c.provider!.model === m.model) ?? null),
+    })),
+  };
 }
