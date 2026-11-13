@@ -22,6 +22,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 - **`plune diff --fail-on-regression` on a current run with no evals exits `3`, not `0`.** Nothing was measured, so the gate has no verdict.
 
+### Fixed
+
+- **`plune mcp conformance`: `http-bind-loopback` keeps what each try got.** The verdict line now lists every outside address of this machine it tried, by family, with what the connection got (`open`, `refused`, `no answer in 500 ms` or the socket error), for example `(IPv4 refused, IPv6 refused)`. The addresses themselves still stay out of the report. The guide's `not-offered` reason now also names an SSE check on a server that answered every request as JSON.
+
 ## [0.37.0] - 2026-11-13
 
 ### Added
