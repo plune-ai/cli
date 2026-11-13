@@ -113,7 +113,7 @@ You'll see a **console report** — a summary line plus details for anything tha
 line looks like:
 
 ```
-1/1 passed · 0 failed · 0 errored · $0.0008
+3 passed · 0 failed · 0 errored · 3 total · $0.0008 · 1840ms
 ```
 
 - **passed** — the row's output met every assertion.
@@ -145,7 +145,7 @@ Change an assertion and run again — Plune reuses the cached model output (same
 cache hit), so you pay nothing for the model call the second time:
 
 ```
-1/1 passed · 0 failed · 0 errored · $0.0000   # cached
+3 passed · 0 failed · 0 errored · 3 total · $0.0000 · 12ms   # cached
 ```
 
 Changed the prompt or model? That's a new cache key, so Plune calls the model again. Want to force a
