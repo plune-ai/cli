@@ -585,12 +585,26 @@ export function createProgram(): Command {
       'Exit 1 when a pass→fail regression is detected, 3 when none is but an eval was not measured',
       false,
     )
+    .option('--max-pass-rate-drop-percent <n>', 'Gate: the overall pass rate may drop at most n percentage points')
+    .option('--max-cost-usd <n>', 'Gate: the current run may cost at most n USD')
+    .option('--max-cost-increase-percent <n>', 'Gate: the cost may grow at most n percent over the baseline')
+    .option('--max-tokens <n>', 'Gate: the current run may use at most n tokens (input + output)')
+    .option('--waivers <file>', 'YAML file of waivers for measured gate failures')
     .option('-o, --output <path>', 'Write the diff to a file instead of stdout')
     .action(
       async (
         baseline: string,
         current: string,
-        options: { format: string; failOnRegression: boolean; output?: string },
+        options: {
+          format: string;
+          failOnRegression: boolean;
+          output?: string;
+          maxPassRateDropPercent?: string;
+          maxCostUsd?: string;
+          maxCostIncreasePercent?: string;
+          maxTokens?: string;
+          waivers?: string;
+        },
         command: Command,
       ) => {
         const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
@@ -599,16 +613,14 @@ export function createProgram(): Command {
           import('./reporters/diff.js'),
         ]);
         try {
-          const diff = handleDiff({ baselinePath: baseline, currentPath: current });
+          const { format: _format, output: _output, ...gateFlags } = options;
+          const diff = handleDiff({ baselinePath: baseline, currentPath: current, ...gateFlags });
           writeReport(renderDiff(diff, toFormat(options.format)), options.output);
-          // Regression gating is opt-in (AC-4): the diff is always reported; only
-          // --fail-on-regression turns a pass→fail regression into a non-zero exit (→ 1, like a
-          // failed run). With no regression, an eval that was never measured (errored, or no row judged) gives 3:
-          // the gate has no verdict, so it is not green either (plune#2414, plune#2497). Input errors take the
-          // exit-2 path below.
-          process.exitCode = 0;
-          if (options.failOnRegression && diff.summary.hasRegression) process.exitCode = 1;
-          else if (options.failOnRegression && diff.summary.unmeasured > 0) process.exitCode = 3;
+          // Gating is opt-in (AC-4): the diff is always reported, and without --fail-on-regression or a gate
+          // limit the exit is 0. With them: 1 for a measured failure (a regression first of all), 3 when
+          // something was not measured, so there is no verdict and the run is not green either
+          // (plune#2414, plune#2497). A waiver lifts a measured failure only. Input errors take the exit-2 path below.
+          process.exitCode = diff.gates?.exitCode ?? 0;
         } catch (err) {
           if (err instanceof DiffInputError) {
             process.stderr.write(err.message + '\n');

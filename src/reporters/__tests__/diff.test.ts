@@ -97,3 +97,83 @@ describe('renderDiff dispatch', () => {
     expect(renderDiff(clean, 'console')).toMatch(/no regressions/i);
   });
 });
+
+// MCP-D5 — the «Gates» section.
+const w = { gate: 'regression' as const, eval: 'reg', reason: 'known | flake\nfix soon', granted: '2026-11-10', expires: '2026-11-20' };
+const gated: RunDiff = {
+  ...withRegression,
+  gates: {
+    exitCode: 3,
+    gates: [
+      { gate: 'regression', state: 'waived', reason: 'passed → failed, waived: reg', value: 1, threshold: 0 },
+      {
+        gate: 'pass-rate',
+        state: 'unmeasured',
+        reason: 'the two runs did not measure the same population',
+        threshold: 5,
+        details: ['eval "x" added'],
+      },
+      { gate: 'cost', state: 'passed', reason: 'cost of the current run', value: 0.1234, threshold: 1 },
+      { gate: 'cost-increase', state: 'failed', reason: 'cost against the baseline', value: 12.5, threshold: 10 },
+      { gate: 'tokens', state: 'passed', reason: 'input + output tokens', value: 2000, threshold: 5000 },
+    ],
+    waivers: {
+      applied: [w],
+      expired: [{ ...w, eval: 'old', expires: '2026-11-12' }],
+      unused: [{ gate: 'cost', reason: 'spare', granted: '2026-11-10', expires: '2026-11-20' }],
+    },
+  },
+};
+
+describe('CLI · diff · gates · report', () => {
+  it('markdown: a Gates table with state, value, threshold and reason, and every waiver', () => {
+    const md = renderDiffMarkdown(gated);
+    expect(md).toContain('### Gates');
+    expect(md).toContain('| regression | 🟡 waived | 1 | 0 | passed → failed, waived: reg |');
+    expect(md).toContain('| pass-rate | ⚠️ not measured | — | 5 pp | the two runs did not measure the same population |');
+    expect(md).toContain('| cost | ✅ passed | $0.1234 | $1 |');
+    expect(md).toContain('| cost-increase | ❌ failed | 12.5% | 10% |');
+    expect(md).toContain('| tokens | ✅ passed | 2000 | 5000 |');
+    expect(md).toContain('- pass-rate: eval "x" added');
+    expect(md).toContain('Waived: regression of `reg` until 2026-11-20: known | flake fix soon');
+    expect(md).toContain('Expired: regression of `old` on 2026-11-12');
+    expect(md).toContain('Unused: cost until 2026-11-20: spare');
+  });
+
+  it('the headline follows the gates: a waived regression is not red, a failed gate is', () => {
+    expect(renderDiffMarkdown(gated)).toContain('### ❌ Gate failed: cost-increase');
+    const notMeasured: RunDiff = {
+      ...clean,
+      gates: { exitCode: 3, gates: [gated.gates!.gates[1]!], waivers: { applied: [], expired: [], unused: [] } },
+    };
+    expect(renderDiffMarkdown(notMeasured)).toContain('### ⚠️ Not measured: pass-rate');
+    const allWaived: RunDiff = {
+      ...withRegression,
+      summary: { ...withRegression.summary, unmeasured: 0 },
+      gates: { exitCode: 0, gates: [gated.gates!.gates[0]!], waivers: { applied: [w], expired: [], unused: [] } },
+    };
+    expect(renderDiffMarkdown(allWaived)).toContain('### ✅ Gates passed (1 waived)');
+    const allPassed: RunDiff = {
+      ...clean,
+      gates: { exitCode: 0, gates: [gated.gates!.gates[2]!], waivers: { applied: [], expired: [], unused: [] } },
+    };
+    expect(renderDiffMarkdown(allPassed)).toContain('### ✅ No regressions');
+  });
+
+  it('console: one line per gate and per waiver', () => {
+    const text = renderDiff(gated, 'console');
+    expect(text).toMatch(/^Plune eval diff: gate failed: cost-increase/);
+    expect(text).toContain('Gates:');
+    expect(text).toContain('  pass-rate: not measured, the two runs did not measure the same population (limit 5 pp)');
+    expect(text).toContain('    eval "x" added');
+    expect(text).toContain('  cost-increase: failed, cost against the baseline: 12.5% (limit 10%)');
+    expect(text).toContain('  waived: regression of reg until 2026-11-20: known | flake fix soon');
+    expect(text).toContain('  expired waiver: regression of old on 2026-11-12');
+    expect(text).toContain('  unused waiver: cost until 2026-11-20');
+  });
+
+  it('json: the gates are an added field; without gates the RunDiff has only evals and summary', () => {
+    expect(JSON.parse(renderDiff(gated, 'json'))).toEqual(gated);
+    expect(Object.keys(JSON.parse(renderDiff(clean, 'json')) as object)).toEqual(['evals', 'summary']);
+  });
+});
