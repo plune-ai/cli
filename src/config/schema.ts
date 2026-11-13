@@ -14,6 +14,16 @@ const providerConfigSchema = z.object({
   reasoning_effort: z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
 });
 
+// The root `provider`: one object, or a non-empty list of them. Checked by hand rather than as a union so a wrong
+// object reports the field that is wrong (`provider.type: ...`), exactly as it did before the list existed.
+const providerListSchema = z.array(providerConfigSchema).min(1);
+const providerField = z.any().transform((value, ctx) => {
+  const r = (Array.isArray(value) ? providerListSchema : providerConfigSchema).safeParse(value);
+  if (r.success) return r.data;
+  for (const issue of r.error.issues) ctx.addIssue({ code: 'custom', message: issue.message, path: issue.path });
+  return z.NEVER;
+});
+
 // --- Pricing override (ADR-PRV04) ---
 
 const modelPriceSchema = z.object({
@@ -280,7 +290,7 @@ export const pluneConfigSchema = z
   .object({
     version: z.literal(1),
     // One object, or a non-empty list of models to run every eval against (a one-element list is the object).
-    provider: z.union([providerConfigSchema, z.array(providerConfigSchema).min(1)]),
+    provider: providerField,
     defaults: z
       .object({ assertions: z.array(assertionConfigSchema).optional() })
       .optional(),

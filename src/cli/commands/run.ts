@@ -6,6 +6,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { loadConfig } from '../../config/loader.js';
 import { mcpSecretWarnings, resolveMcpServer } from '../../config/mcp.js';
+import { selfJudgeWarnings } from '../../config/model-matrix.js';
 import { getProvider } from '../../providers/index.js';
 import { makeEstimateProvider } from '../../providers/estimate.js';
 import { makeMockProvider, parseMockScript, type MockStep } from '../../providers/mock.js';
@@ -173,7 +174,8 @@ export async function handleRun(
       ? path.dirname(path.resolve(options.configPath))
       : process.cwd();
   // Advice, never a gate: it does not change the exit code.
-  for (const warning of mcpSecretWarnings(config)) process.stderr.write(`warning: ${warning}\n`);
+  for (const warning of [...mcpSecretWarnings(config), ...selfJudgeWarnings(config)])
+    process.stderr.write(`warning: ${warning}\n`);
 
   const toolDescriptions =
     options.toolDescription !== undefined && options.toolDescription.length > 0

@@ -81,7 +81,7 @@ error. The provider API key is read from the environment based on `provider.type
 | OpenAI     | `openai`        | `OPENAI_API_KEY`     |
 | OpenRouter | `openrouter`    | `OPENROUTER_API_KEY` |
 
-`model` is any id the provider serves; `plune init` starts you on `claude-sonnet-5-5`. A run's cost
+`provider` may also be a list of models: every eval then runs on each, and `plune run` and `plune report` show a model × eval table (see the [configuration guide](docs/guide/configuration.md#several-models-a-model--eval-matrix)). `model` is any id the provider serves; `plune init` starts you on `claude-sonnet-5-5`. A run's cost
 is priced from a built-in table of current models — a model it does not list costs `0`, with a
 warning, until you add its rates under `pricing:` (`input_per_1k_usd`, `output_per_1k_usd`). Leave
 `temperature` out for Claude models released after Opus 4.6: they take none, and the API answers 400
@@ -117,7 +117,7 @@ the last resort, used only when `PLUNE_TOKEN` is set nowhere else. Nothing write
 
 | Command | Summary |
 | ------- | ------- |
-| `plune run` | Run the suite. Flags: `--dry-run` (price the run from the model's rates — no provider key, no network; it prints the estimate with no verdict and does not replace the last run), `--only <id\|tag>` (repeatable), `--bail`, `--no-cache`, `--cache-strict`, `--cache-max-age <duration>`, `--concurrency <n>`, `--format console\|json\|markdown`, `-o, --output <file>`. |
+| `plune run` | Run the suite. Flags: `--dry-run` (price the run from the model's rates — no provider key, no network; it prints the estimate with no verdict and does not replace the last run; with a [list of models](docs/guide/configuration.md#several-models-a-model--eval-matrix) each is priced at its own rates), `--only <id\|tag>` (repeatable; an eval id selects its cells on every model), `--bail`, `--no-cache`, `--cache-strict`, `--cache-max-age <duration>`, `--concurrency <n>`, `--format console\|json\|markdown`, `-o, --output <file>`. |
 | `plune report` | Re-render the most recent run. Flags: `--format`, `-o`. |
 | `plune diff <baseline> <current>` | Compare two `plune run --format json` outputs and report pass→fail regressions. Flags: `--fail-on-regression` (exit `1` on a regression, `3` when none but an eval was not measured), `--format`, `-o`. |
 | `plune init` | Scaffold `plune.yaml`, a sample dataset, and `.env.example`. Flags: `--yes` (non-interactive), `--force`. |

@@ -87,6 +87,26 @@ last measured run.
 
 If `--only` matches nothing, Plune prints `No evals matched the selector.` and exits `0`.
 
+#### Several models
+
+When the config's `provider` is a [list of models](./configuration.md#several-models-a-model--eval-matrix), the
+console and Markdown reports add a **Model matrix**: a row per eval, a column per model, both in config order.
+A cell shows its state, the share of passing runs, the cost and the median latency:
+
+```
+Model matrix
+Eval   claude-sonnet-5-5               gpt-4o
+greet  PASS 7/10 · $0.0210 · 840ms     FAIL 3/10 · $0.0190 · 2.1s
+strict PASS 3/3 · $0.0060 · 70ms       —
+```
+
+`7/10` is passing runs over runs (an eval without repeats counts one run per row, so `3/3` is three rows). A
+cell with an error reads `ERROR`, one that was never judged `NOT MEASURED`, and a cell that was not run
+(`--bail`, `--only`) is a dash. `plune report` draws the same table from the saved run. `--format json` is the
+result as for one model, with the added `provider` field on each cell; the structured matrix is only in
+`plune diff --format json`. `--dry-run` prices each cell at its own model's rates and the summary says how many
+models it covers.
+
 ### Exit codes
 
 `plune run` sets the process exit code so it slots into CI and shell scripts:
@@ -180,6 +200,21 @@ summary's `unmeasured` field holds the count, and the report's headline names it
 regressions». An eval with at least one failed row counts as failed even if other rows errored.
 An eval in which no row was judged — every row blocked or skipped, or an empty dataset — counts as
 not measured too (exit `3`), never as a pass.
+
+### Several models in `plune diff`
+
+Cells compare like evals, by their ids (`greet@gpt-4o`), so a cell that passed and now fails is a regression
+of that cell alone. A baseline run from before the config listed several models has no cells to match, so
+its evals read as removed and the cells as new. In `--format json` the diff gains a `matrix` field: `models`
+and `rows` (evals) in config order, each row a list of cells in model order, each cell the same
+`{id, status, baseline, current, eval, provider}` object as in `evals`, or `null` where a cell is in neither run.
+A diff of one model has no `matrix`.
+
+The Markdown diff shows a matrix of the cells that changed or still fail, errored or were not measured. The stable
+passes collapse into one line with a count. The comment stays within a budget of 60,000 characters (a GitHub
+comment body is limited to 65,536 according to the tracker issue; that figure is not confirmed by documentation).
+Over the budget, whole table rows are dropped, least important first, and the last line says `N more cells in the
+job summary`. The hidden marker that lets the Action find its comment is always the first line.
 
 ### Advice in `plune diff`
 
