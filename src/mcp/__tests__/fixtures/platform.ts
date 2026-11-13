@@ -11,7 +11,7 @@ import * as http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { LIVE, SYNTHETIC_MISSION } from '../../../mcp-testing/__tests__/plune-budget.fixtures.js';
+import { LIVE, LIVE_MISSION } from '../../../mcp-testing/__tests__/plune-budget.fixtures.js';
 
 export type Answer = { status: number; body?: unknown };
 export type AnswerFn = (method: string, url: URL, headers: Headers, body?: unknown) => Answer | undefined;
@@ -117,7 +117,7 @@ function read(url: URL): Answer {
   };
   if (p.startsWith('/v1/test-cases/')) return one(CASES.testCases, 'test case');
   if (p.startsWith('/v1/review-items/')) return one(QUEUE.items, 'review item');
-  if (p.startsWith('/v1/missions/')) return one([SYNTHETIC_MISSION], 'mission');
+  if (p.startsWith('/v1/missions/')) return one([LIVE_MISSION], 'mission');
   if (p.startsWith('/v1/runs/')) return one([{ id: CREATED.run, name: 'Nightly checkout', state: 'open' }], 'run');
   if (/^\/v1\/projects\/[^/]+\/case-generations\//.test(p)) return one([{ id: CREATED.generation, state: 'done', proposed: 3, skipped: 0 }], 'case generation');
   return notFound(p);

@@ -23,13 +23,14 @@ const PLUNE_BUDGET = {
   /** The biggest single tool, plune_strategy_propose, measured 2177. */
   largestTool: 2395,
   /**
-   * The text content of an answer, measured 2026-11-10 on live answers of the beta demo project recorded in
-   * plune-budget.fixtures.ts (cases in Ukrainian): plune_project_context with 3 projects, 3 suites, no missions 548 (543 before its empty memoryRules);
-   * plune_cases_search 10521 for the whole project of 48 cases (a page of 100 is not reached, ~219 per case);
-   * plune_review_list of 7 pending entries 895. The demo has no missions, so plune_mission_get with 5 sources, 476, is
-   * measured on a synthetic mission.
+   * The text content of an answer, on live answers recorded in plune-budget.fixtures.ts, measured 2026-11-14 with the
+   * text unindented (before, with a two-space indent): the beta demo project of 2026-11-10 (cases in Ukrainian) gives
+   * plune_project_context with 3 projects, 3 suites, no missions 387 (548); plune_cases_search 7678 (10509) for the
+   * whole project of 48 cases (a page of 100 is not reached); plune_review_list of 7 pending entries 695 (895). The demo
+   * has no missions, so plune_mission_get reads a mission with 5 sources captured live on a beta test project on
+   * 2026-11-14: 455 (585; the synthetic mission it replaced measured 476 indented, under its limit of 524).
    */
-  answers: { plune_project_context: 603, plune_cases_search: 11574, plune_review_list: 985, plune_mission_get: 524 },
+  answers: { plune_project_context: 426, plune_cases_search: 8446, plune_review_list: 765, plune_mission_get: 501 },
 } as const;
 
 /**

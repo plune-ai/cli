@@ -15,6 +15,7 @@ import {
   FIXTURE_SUITES,
   fixturePlatform,
   LIVE,
+  LIVE_MISSION,
 } from './plune-budget.fixtures.js';
 
 const B = LINT_THRESHOLDS.size.budget;
@@ -104,12 +105,15 @@ describe('CLI · mcp budget · Plune tools list', () => {
     expect(overrun(`${a.tool} answer`, tokens, B.answers[a.tool])).toEqual([]);
   });
 
-  it('the recorded answers hold no address, token or user id but the sample ones', () => {
-    const text = JSON.stringify(LIVE);
+  it.each([
+    { name: 'demo project', answers: LIVE as unknown, user: 'u-john-doe' },
+    { name: 'mission', answers: LIVE_MISSION as unknown, user: '00000000-0000-4000-8000-000000000003' },
+  ])('the recorded $name answers hold no address, token or user id but the sample ones', ({ answers, user }) => {
+    const text = JSON.stringify(answers);
     expect(text.match(/[\w.%+-]+@[\w.-]+\.[a-z]{2,}/gi) ?? []).toEqual([]);
     expect(text).not.toMatch(/Bearer|plt_\w|plune_[\w-]{20,}/);
-    const users = new Set([...text.matchAll(/"(?:createdBy|updatedBy|userId|ownerId|authorId)":"([^"]*)"/g)].map((m) => m[1]));
-    expect([...users]).toEqual(['u-john-doe']);
+    const users = new Set([...text.matchAll(/"(?:createdBy|updatedBy|addedBy|userId|ownerId|authorId)":"([^"]*)"/g)].map((m) => m[1]));
+    expect([...users]).toEqual([user]);
   });
 
   it('the over and too-loose checks fire', () => {

@@ -1,0 +1,61 @@
+{
+  "id": "00000000-0000-4000-8000-000000000001",
+  "projectId": "00000000-0000-4000-8000-000000000002",
+  "name": "Live check: checkout (throwaway)",
+  "summary": "An online shop where a signed-in user fills a cart, pays by card and follows the order. The mission covers the way from the cart to the confirmation, the refusals of payment and the e-mails sent. Throwaway mission for a live size measurement; removed after.",
+  "url": "https://shop.example.com",
+  "state": "active",
+  "documentation": "provided",
+  "createdBy": "00000000-0000-4000-8000-000000000003",
+  "createdAt": "2026-11-13T22:55:44.995Z",
+  "updatedAt": "2026-11-13T22:55:45.339Z",
+  "sources": [
+    {
+      "id": "00000000-0000-4000-8000-000000000011",
+      "kind": "url",
+      "ref": "https://shop.example.com/checkout",
+      "title": "Checkout page",
+      "version": null,
+      "addedBy": "00000000-0000-4000-8000-000000000003",
+      "createdAt": "2026-11-13T22:55:45.087Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000012",
+      "kind": "openapi",
+      "ref": "https://shop.example.com/openapi.json",
+      "title": "Shop API",
+      "version": "v1.2",
+      "addedBy": "00000000-0000-4000-8000-000000000003",
+      "createdAt": "2026-11-13T22:55:45.156Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000013",
+      "kind": "repo",
+      "ref": "https://github.com/example/shop",
+      "title": "Shop code",
+      "version": null,
+      "addedBy": "00000000-0000-4000-8000-000000000003",
+      "createdAt": "2026-11-13T22:55:45.210Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000014",
+      "kind": "ticket",
+      "ref": "https://example.atlassian.net/browse/SHOP-42",
+      "title": "Card refusals",
+      "version": null,
+      "addedBy": "00000000-0000-4000-8000-000000000003",
+      "createdAt": "2026-11-13T22:55:45.277Z"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000015",
+      "kind": "file",
+      "ref": "checkout-notes.md",
+      "title": "Checkout notes",
+      "version": null,
+      "addedBy": "00000000-0000-4000-8000-000000000003",
+      "createdAt": "2026-11-13T22:55:45.339Z",
+      "bytes": 120,
+      "mediaType": "text/markdown"
+    }
+  ]
+}
