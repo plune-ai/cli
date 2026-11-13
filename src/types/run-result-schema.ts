@@ -169,6 +169,16 @@ const evalResultSchema = z.object({
   tags: z.array(z.string()),
   rows: z.array(rowResultSchema),
   passed: z.boolean(),
+  /** What the eval measured, for the pass-rate gate of `plune diff`. Optional and additive. */
+  measured: z
+    .object({
+      runs: z.number(),
+      rows: z.number(),
+      rows_hash: z.string(),
+      assertions_hash: z.string(),
+      model: z.string().optional(),
+    })
+    .optional(),
 });
 
 export const runResultSchema = z.object({

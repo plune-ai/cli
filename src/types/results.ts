@@ -270,6 +270,14 @@ export interface EvalResult {
   tags: string[];
   rows: RowResult[];
   passed: boolean;
+  /**
+   * What the eval measured, so `plune diff` compares an overall pass rate only between runs that
+   * measured the same thing. `rows_hash` is over the rows' canonical `vars`, order aside;
+   * `assertions_hash` over the checks with their parameters; `model` is `<provider type>/<model>`.
+   * The prompt text is left out on purpose. Optional and additive: absent in older runs, which the
+   * diff reads as an unknown population. `schemaVersion` stays 1.
+   */
+  measured?: { runs: number; rows: number; rows_hash: string; assertions_hash: string; model?: string };
 }
 
 export interface RunResult {

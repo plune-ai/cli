@@ -105,14 +105,68 @@ case $code in
 esac
 ```
 
-`plune diff <baseline> <current>` always prints the comparison. With `--fail-on-regression` it sets:
+`plune diff <baseline> <current>` always prints the comparison. Each gate below is off until its flag
+is given; with none of them the exit is always `0`.
+
+| Flag | Gate | Fails when |
+|------|------|------------|
+| `--fail-on-regression` | `regression` | an eval went from passed to failed. Not measured when an eval of the current run was not measured, or the current run has no evals. |
+| `--max-pass-rate-drop-percent <n>` | `pass-rate` | the overall pass rate (passed attempts of all attempts, every repeat counted) dropped by more than `n` percentage points. Measured only when both runs measured the same population and each side has at least 10 attempts. |
+| `--max-cost-usd <n>` | `cost` | the current run cost more than `n` USD. |
+| `--max-cost-increase-percent <n>` | `cost-increase` | the current run cost more than `n` percent over the baseline. Not measured when the baseline cost is `0`. |
+| `--max-tokens <n>` | `tokens` | the current run used more than `n` tokens, input plus output. |
+| `--waivers <file>` | | Waivers for measured failures; see below. |
+
+With any of these flags it sets:
 
 | Exit | Meaning |
 |------|---------|
-| `0` | No regression, and every eval of the current run was measured. Without the flag, always `0`. |
-| `1` | At least one eval went from passed to failed — a regression. |
-| `2` | An input file is missing or is not a `plune run --format json` result. |
-| `3` | No regression, but at least one eval was **not measured**: it errored in the current run, none of its rows was judged, or it errored in the baseline and fails now, so there was nothing to compare. Re-run it. |
+| `0` | Every gate was measured and none failed (a failure lifted by a waiver does not count). |
+| `1` | A measured failure: a regression, or a gate over its limit. It wins over `3`. |
+| `2` | An input file is missing or is not a `plune run --format json` result, a limit is not a number of 0 or more, or the waivers file is malformed. |
+| `3` | Something was **not measured**: an eval errored in the current run, none of its rows was judged, or it errored in the baseline and fails now; or a gate's value is missing. Re-run, or record what is missing. |
+
+**Cost.** The cost of a run is what it spent plus what its cache hits saved (`cost_usd` plus
+`cache_saved.cost_usd` of each row), so a run replayed from the cache is not free. The cost gates are
+measured only when every row of the run they read (the current run for `--max-cost-usd`, both runs for
+`--max-cost-increase-percent`) has `usage` with `priced: true`. A model with no known price, and the
+`PLUNE_MOCK_PROVIDER=1` stand-in, write no price, so the gate says «not measured» (`3`) rather than
+pass on `0`. Prefer `--max-cost-increase-percent` to `--max-cost-usd`: an absolute limit goes stale with
+every change of prompt or model. `--max-tokens` needs `usage` on every row.
+
+**Same population.** The overall pass rate of two runs is compared only when they measured the same
+thing. `plune run` records it per eval in `measured`: the number of repeats, the number of rows, a hash
+of the rows' `vars` (order aside), a hash of the checks with their parameters, and the model. The diff
+names each difference on its own line: an eval added or removed, other dataset rows, another number of
+repeats, another model, another set of checks, or a result with no `measured` (written by an older
+plune). The prompt text is not part of it: for an eval of a product's prompt, changing the prompt is the
+very change the pull request is checked for. Weakening a check changes the set of checks, so it does
+not get a clean rate comparison. A per-eval regression gates whatever changed around it.
+
+**Waivers.** `--waivers <file>` reads a YAML file from your repository:
+
+```yaml
+waivers:
+  - gate: regression          # regression | pass-rate | cost | tokens (cost covers both cost gates)
+    eval: checkout-flow       # required for regression, not allowed for the other gates
+    reason: "Upstream search is down, fix tracked upstream"   # required, at most 200 characters
+    granted: "2026-11-13"
+    expires: "2026-11-30"     # after granted, at most 30 days after it; holds to the end of that day, UTC
+```
+
+A waiver lifts a measured failure only: never «not measured» (`3`) and never an input error (`2`). An
+expired waiver no longer applies and is listed as expired; a waiver whose gate did not fail is listed as
+unused. A malformed file (an unknown gate or key, no `expires`, more than 30 days, reversed dates, a
+`granted` date in the future, a reason over the limit) is exit `2`, naming each entry. Expiry is read
+against the system clock: no flag, variable or file field moves it. The file changes through pull
+requests like any other, so a reviewer sees each waiver; consider assigning it to code owners. In a pull
+request the file is read from the pull request's own branch, so its author can add a waiver in the same
+change: it is visible in the diff and in the comment.
+
+The report has a «Gates» section in every format: for each gate its state (`passed`, `failed`,
+`unmeasured` or `waived`), the reason, the value and the limit, then each waiver applied (what it lifted,
+why, until when), expired and unused. In `--format json` it is the added `gates` field, with `exitCode`;
+without a gate flag the JSON is unchanged.
 
 An eval new in the current run that fails is reported (`new-fail`) and does not gate. An eval that
 errored in the baseline and fails now is reported as `unmeasured`, not as a pre-existing fail. The

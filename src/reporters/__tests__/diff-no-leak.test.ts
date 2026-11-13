@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { renderDiff } from '../diff.js';
 import { diffRuns } from '../../diff/diff.js';
+import { evaluateGates } from '../../diff/gates.js';
 import type { RunResult, EvalResult } from '../../types/results.js';
 
 // NFR-2 / AC-5.3 guard: the diff reporter renders only eval ids + pass/fail transitions — never
@@ -44,6 +45,27 @@ describe('diff output never leaks secrets (NFR-2, AC-5.3)', () => {
     const d = diffRuns(baseline, current);
     for (const fmt of ['console', 'json', 'markdown'] as const) {
       expect(renderDiff(d, fmt)).not.toContain(SECRET);
+    }
+  });
+
+  it('CLI · diff · gates · the Gates section shows values and ids, never row content or the environment', () => {
+    process.env['OPENROUTER_API_KEY'] = SECRET;
+    const baseline = run([ev('a', true, 'fine')]);
+    const current = run([ev('a', false, `leaked ${SECRET}`), ev('b', true, SECRET)]);
+    const d = diffRuns(baseline, current);
+    const gated = {
+      ...d,
+      gates: evaluateGates(
+        baseline,
+        current,
+        d,
+        { failOnRegression: true, maxPassRateDropPercent: 1, maxCostUsd: 1, maxCostIncreasePercent: 1, maxTokens: 1 },
+        [],
+        new Date('2026-11-13T00:00:00Z'),
+      ),
+    };
+    for (const fmt of ['console', 'json', 'markdown'] as const) {
+      expect(renderDiff(gated, fmt)).not.toContain(SECRET);
     }
   });
 });
