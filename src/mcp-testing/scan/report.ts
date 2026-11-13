@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { noCommands, noCommandsJson } from '../report/human.js';
 import type { ScanClass, ScanLevel } from './descriptions.js';
+import { PROBE_REASONS, type ProbeRow } from './probes/types.js';
 
 /**
  * The one report of `plune mcp scan` (MCP-G6): the shape of a finding is fixed here once, and every format below only
@@ -88,6 +89,13 @@ export interface ScanReport {
     notAffectingExit: number;
   };
   findings: ScanFinding[];
+  /** The summary of the active probes: one row for each probe of the probe file, and what was spent. */
+  probes: {
+    rows: ProbeRow[];
+    calls: number;
+    requests: number;
+    metadata: 'found' | 'not-found' | 'unreachable' | null;
+  };
   notEvaluated: NotEvaluatedRow[];
   exceptions: { file: string | null; expired: number; unused: number };
   /** Findings that have no place in a file, which SARIF cannot show. */
@@ -125,6 +133,20 @@ export function exitLine(r: ScanReport): string {
     : 'Exit 0: no finding at --fail-on that gates; the others do not change the exit code.';
 }
 
+/** The result column of the probe table. */
+export const probeResult = (p: ProbeRow): string =>
+  p.outcome === 'not-run'
+    ? 'not run'
+    : `${p.answer}${p.refusedAt === undefined ? '' : ` at ${p.refusedAt}`}${p.outcome === 'violated' ? ' (VIOLATED)' : p.outcome === 'observed' ? ' (not as declared)' : ''}`;
+
+/** The control column of a probe that expects a refusal. */
+const probeControl = (p: ProbeRow): string =>
+  p.control === undefined || p.outcome === 'not-run'
+    ? ''
+    : p.control === null
+      ? ' / no control: HTTP 401 or 403 stands alone'
+      : ` / control ${p.control}`;
+
 function human(r: ScanReport): string {
   const out: string[] = [];
   const c = r.counts;
@@ -147,6 +169,16 @@ function human(r: ScanReport): string {
       out.push(
         `  ${n.group}${n.rule === undefined ? '' : ` ${n.rule}`}${n.target === '' ? '' : ` ${n.target}`}${n.path === undefined ? '' : ` ${n.path}`}: ${n.reason}${n.kind === 'could-not-run' ? '' : ' [an input was not given]'}`,
       );
+  }
+  if (r.probes.rows.length > 0) {
+    out.push('', 'Probes (probe / expectation / result / not run because):');
+    for (const p of r.probes.rows)
+      out.push(
+        `  ${p.id === '' ? '(none)' : p.id} / ${p.expect === 'none' ? 'no expectation' : `expect ${p.expect}`} / ${probeResult(p)}${probeControl(p)}${p.reason === undefined ? '' : ` / ${PROBE_REASONS[p.reason]}`}${p.note === undefined ? '' : ` (${p.note})`}`,
+      );
+    out.push(
+      `  ${r.probes.calls} tools/call and ${r.probes.requests} requests sent. Step 1 keeps no record of the frames beyond this table.`,
+    );
   }
   const live = r.findings.filter((f) => f.suppressed === undefined);
   if (live.length > 0) {
@@ -248,7 +280,7 @@ function github(r: ScanReport): string {
           `${more} more in the report: GitHub keeps ${ANNOTATIONS} annotations of each kind per step.`,
         ]
       : []),
-    `plune mcp scan: ${plural(r.counts.total, 'finding', 'findings')}, ${r.counts.suppressed} suppressed, ${r.notEvaluated.length} not evaluated; exit ${r.exitCode}. ${exitLine(r)}`,
+    `plune mcp scan: ${plural(r.counts.total, 'finding', 'findings')}, ${r.counts.suppressed} suppressed, ${r.notEvaluated.length} not evaluated${r.probes.rows.length === 0 ? '' : `, ${plural(r.probes.rows.length, 'probe', 'probes')} (${r.probes.rows.filter((p) => p.outcome === 'not-run').length} not run)`}; exit ${r.exitCode}. ${exitLine(r)}`,
     DISCLAIMER,
   ];
   return `${[...lines, ...tail.map(noCommands)].join('\n')}\n`;
@@ -380,6 +412,7 @@ function sarif(r: ScanReport, rules: readonly SarifRule[], version: string): str
           disclaimer: DISCLAIMER,
           omittedResults: omitted,
           notEvaluated: r.notEvaluated.length,
+          probes: r.probes,
           counts: r.counts,
           exitCode: r.exitCode,
         },
@@ -420,6 +453,29 @@ function junit(r: ScanReport): string {
   for (const g of r.groups) {
     if (g.state === 'not-requested') continue;
     const classname = `mcp.scan.${g.group}`;
+    if (g.group === 'active' && r.probes.rows.length > 0) {
+      // One case for each probe: a violation that counts is a failure, a probe that did not run is skipped with its reason.
+      for (const p of r.probes.rows) {
+        const name = `probe ${p.id === '' ? '(none)' : p.id}`;
+        if (p.outcome === 'not-run')
+          cases.push({
+            classname,
+            name,
+            kind: 'skipped',
+            type: 'not-evaluated',
+            message: `not evaluated: ${PROBE_REASONS[p.reason!]}`,
+          });
+        else {
+          const f = r.findings.find((x) => x.group === 'active' && x.target === p.id);
+          if (f?.counted === true)
+            cases.push({ classname, name, kind: 'failure', type: f.severity, message: f.message });
+          else if (f !== undefined)
+            cases.push({ classname, name, kind: 'skipped', type: 'advisory', message: f.message });
+          else cases.push({ classname, name, kind: 'pass', type: '', message: '' });
+        }
+      }
+      continue;
+    }
     if (g.state === 'not-evaluated') {
       cases.push({
         classname,
