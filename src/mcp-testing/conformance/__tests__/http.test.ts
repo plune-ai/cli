@@ -7,7 +7,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { handleMcpConformance, type McpConformanceFlags } from '../../../cli/commands/mcp-conformance.js';
 import { closeServed, serve } from '../../__tests__/fixtures/conformance-http-servers.js';
 import { recorder } from '../../__tests__/fixtures/http-servers.js';
@@ -37,7 +37,7 @@ async function run(flags: McpConformanceFlags) {
     env: {},
     clientVersion: '9.9.9',
   });
-  return { code, out, err, report: out === '' ? undefined : (JSON.parse(out) as McpConformanceReport) };
+  return { code, out, err, report: out.startsWith('{') ? (JSON.parse(out) as McpConformanceReport) : undefined };
 }
 
 const states = (r: McpConformanceReport) =>
@@ -308,6 +308,65 @@ describe('CLI · mcp conformance · the raw HTTP layer', () => {
     expect(cut.ended).toBe(false);
   });
 
+  it('a line without an end, a flood of events and a flood of bytes each stop the reading, say why, and close the stream', async () => {
+    const closed: string[] = [];
+    const line = await stream((res) => {
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      res.write(`data: ${'a'.repeat(200_000)}`);
+      res.on('close', () => closed.push('line'));
+    });
+    const long = await rawRequest(targetOf(line), { method: 'GET', headers: [] });
+    expect(long).toMatchObject({ cut: 'line', events: [], ended: false });
+    const events = await stream((res) => {
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      const t = setInterval(() => res.write('data: x\n\n'), 1);
+      res.on('close', () => {
+        clearInterval(t);
+        closed.push('events');
+      });
+    });
+    const many = await rawRequest(targetOf(events), { method: 'GET', headers: [] });
+    expect(many).toMatchObject({ cut: 'events', ended: false });
+    expect(many.events).toHaveLength(100);
+    const bytes = await stream((res) => {
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      const t = setInterval(() => res.write(`: ${'k'.repeat(1000)}\n`), 1);
+      res.on('close', () => {
+        clearInterval(t);
+        closed.push('bytes');
+      });
+    });
+    const big = await rawRequest(targetOf(bytes), { method: 'GET', headers: [] }, { maxBytes: 20_000 });
+    expect(big).toMatchObject({ cut: 'bytes', events: [] });
+    await vi.waitFor(() => expect(closed.sort()).toEqual(['bytes', 'events', 'line']));
+    const whole = await stream((res) => res.writeHead(200, { 'content-type': 'text/event-stream' }).end('data: a\n\n'));
+    expect((await rawRequest(targetOf(whole), { method: 'GET', headers: [] })).cut).toBeUndefined();
+  });
+
+  it('exactly the limit followed by a clean end is not a cut; one more event or byte is', async () => {
+    const events = (n: number) =>
+      stream((res) => {
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        res.end('data: x\n\n'.repeat(n));
+      });
+    const exact = await rawRequest(targetOf(await events(100)), { method: 'GET', headers: [] });
+    expect(exact).toMatchObject({ ended: true });
+    expect(exact.events).toHaveLength(100);
+    expect(exact.cut).toBeUndefined();
+    const over = await rawRequest(targetOf(await events(101)), { method: 'GET', headers: [] });
+    expect(over.cut).toBe('events');
+    expect(over.events).toHaveLength(100);
+    const bytes = (n: number) =>
+      stream((res) => {
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        res.end(`: ${'k'.repeat(n - 3)}\n`);
+      });
+    const same = await rawRequest(targetOf(await bytes(20_000)), { method: 'GET', headers: [] }, { maxBytes: 20_000 });
+    expect(same.cut).toBeUndefined();
+    const more = await rawRequest(targetOf(await bytes(20_001)), { method: 'GET', headers: [] }, { maxBytes: 20_000 });
+    expect(more.cut).toBe('bytes');
+  });
+
   it('a stream that stays open is read until the time limit and returned, not thrown', async () => {
     const url = await stream((res) => {
       res.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -393,3 +452,157 @@ function fixtureFile(calls: unknown): string {
   writeFileSync(path, JSON.stringify(calls));
   return path;
 }
+
+describe('CLI · mcp conformance · a status that proves nothing is could-not-run, a refusal needs its control', () => {
+  const NOT_JUDGED = 'could-not-run (transport-error)';
+  const one = async (opts: Parameters<typeof serve>[0], id: string, flags: Partial<McpConformanceFlags> = {}) => {
+    const s = await serve(opts);
+    return states((await run({ url: s.url, check: [id], ...flags })).report!)[id];
+  };
+
+  for (const status of [429, 503, 302])
+    it(`HTTP ${status} to the notification, to GET or to a refusal probe is not a verdict`, async () => {
+      expect(await one({ notification: status }, 'http-notification-202')).toBe(NOT_JUDGED);
+      expect(await one({ get: status }, 'http-get-stream-or-405')).toBe(NOT_JUDGED);
+      const refusals = await serve({ refuse: status, origin: 'check', host: 'check', get: '405' });
+      const got = states(
+        (
+          await run({
+            url: refusals.url,
+            check: [
+              'http-session-required-400',
+              'http-protocol-version-header-invalid-400',
+              'http-session-terminated-404',
+              'http-origin-invalid-403',
+              'http-host-rebinding-advice',
+            ],
+          })
+        ).report!,
+      );
+      for (const id of Object.keys(got)) expect(got[id], id).toBe(NOT_JUDGED);
+    });
+
+  it('HTTP 401 is a wall in front of the endpoint: could-not-run (prerequisite-failed), not a verdict', async () => {
+    expect(await one({ notification: 401 }, 'http-notification-202')).toBe('could-not-run (prerequisite-failed)');
+    expect(await one({ get: 401 }, 'http-get-stream-or-405')).toBe('could-not-run (prerequisite-failed)');
+  });
+
+  it('modern: a 503 to GET or DELETE is not a verdict', async () => {
+    expect(
+      await one({ sessions: false, discover: 'modern-only', get: 503, del: 503 }, 'http-modern-get-delete-405', {
+        protocolVersion: '2026-07-28',
+      }),
+    ).toBe(NOT_JUDGED);
+  });
+
+  it('a server that refuses the valid request too: the 400 of the probe proves nothing, could-not-run (prerequisite-failed)', async () => {
+    const s = await serve({ pingStatus: 400 });
+    const got = states(
+      (
+        await run({
+          url: s.url,
+          check: ['http-session-required-400', 'http-protocol-version-header-invalid-400', 'http-session-terminated-404'],
+        })
+      ).report!,
+    );
+    for (const id of Object.keys(got)) expect(got[id], id).toBe('could-not-run (prerequisite-failed)');
+  });
+
+  it('a stream that opens and never sends the answer is could-not-run (timeout) for the concurrent POSTs, not failed', async () => {
+    const s = await serve({ silent: true });
+    const got = states((await run({ url: s.url, check: ['http-concurrent-posts-matched'] })).report!);
+    expect(got['http-concurrent-posts-matched']).toBe('could-not-run (timeout)');
+  }, 30_000);
+});
+
+describe('CLI · mcp conformance · the sessions a run opens', () => {
+  it('each session the run opened and did not end is closed with DELETE, and the report counts them', async () => {
+    const s = await serve({});
+    const { report } = await run({ url: s.url });
+    const deletes = s.requests.filter((r) => r.method === 'DELETE');
+    // One is the DELETE of http-session-terminated-404 itself; the other closes the session the checks shared.
+    expect(deletes).toHaveLength(2);
+    expect(new Set(deletes.map((d) => d.headers['mcp-session-id'])).size).toBe(2);
+    expect(report!.ownSessions).toEqual({ opened: 2, closed: 2, leftOpen: 0 });
+  });
+
+  it('a server that does not let a client end a session: the sessions are reported as left open, in JSON and in the human report', async () => {
+    const s = await serve({ del: '405' });
+    const json = await run({ url: s.url });
+    expect(json.report!.ownSessions).toEqual({ opened: 2, closed: 0, leftOpen: 2 });
+    const human = await run({ url: s.url, format: 'human' });
+    expect(human.out).toMatch(/2 sessions? of this run (was|were) left open/);
+  });
+
+  it('a session id is a secret: masked in every header of every detail and absent from the output', async () => {
+    const s = await serve({ sessions: (n) => `sess-abcdefgh-${n}` });
+    const { out, report } = await run({ url: s.url });
+    expect(out).not.toContain('sess-abcdefgh');
+    const sent = report!.checks.flatMap((c) => c.details ?? []).flatMap((d) => d.request.headers);
+    expect(sent.filter(([n]) => n.toLowerCase() === 'mcp-session-id').every(([, v]) => v === '***')).toBe(true);
+    expect(sent.some(([n]) => n.toLowerCase() === 'mcp-session-id')).toBe(true);
+  });
+
+  it('a session id that the server prints in a body is masked there too', async () => {
+    const s = await serve({ sessions: (n) => `sess-abcdefgh-${n}`, echoSession: true });
+    const { out } = await run({ url: s.url });
+    expect(out).not.toContain('sess-abcdefgh');
+  });
+});
+
+describe('CLI · mcp conformance · a stream that never ends is read within its limits and closed', () => {
+  it('one line of 200 KiB: the checks that read the stream are could-not-run (transport-error), and every stream is closed', async () => {
+    const s = await serve({ flood: 'line', answer: 'sse' });
+    const got = states(
+      (await run({ url: s.url, check: ['http-sse-event-ids-unique', 'http-sse-stream-closes', 'http-sse-no-server-requests'] })).report!,
+    );
+    expect(got).toEqual({
+      'http-sse-event-ids-unique': 'could-not-run (transport-error)',
+      'http-sse-stream-closes': 'could-not-run (transport-error)',
+      'http-sse-no-server-requests': 'not-applicable (era)',
+    });
+    await vi.waitFor(() => expect(s.closed()).toBeGreaterThanOrEqual(4));
+  }, 30_000);
+
+  it('events as fast as the server can: the reading stops at the event limit, nothing is judged from a part, every stream is closed', async () => {
+    const s = await serve({ flood: 'events', answer: 'sse' });
+    const got = states((await run({ url: s.url, check: ['http-sse-event-ids-unique', 'http-sse-stream-closes'] })).report!);
+    expect(got['http-sse-event-ids-unique']).toBe('could-not-run (transport-error)');
+    expect(got['http-sse-stream-closes']).toBe('failed');
+    await vi.waitFor(() => expect(s.closed()).toBeGreaterThanOrEqual(4));
+  }, 30_000);
+});
+
+describe('CLI · mcp conformance · a cut response is never judged', () => {
+  const NOT_JUDGED = 'could-not-run (transport-error)';
+  const one = async (opts: Parameters<typeof serve>[0], id: string, flags: Partial<McpConformanceFlags> = {}) => {
+    const s = await serve(opts);
+    return states((await run({ url: s.url, check: [id], ...flags })).report!)[id];
+  };
+
+  it('a JSON answer over 1 MiB, with a two-byte character across the cut, is not "not UTF-8" and not "not JSON": could-not-run', async () => {
+    expect(await one({ bigJson: true }, 'http-response-utf8')).toBe(NOT_JUDGED);
+  }, 30_000);
+
+  it('a stream cut at the event limit before the answer is could-not-run for the concurrent POSTs, not "no answer"', async () => {
+    expect(await one({ flood: 'noise', answer: 'sse' }, 'http-concurrent-posts-matched')).toBe(NOT_JUDGED);
+  }, 30_000);
+
+  it('GET streams cut at the event limit are could-not-run for http-sse-no-broadcast, not a pass', async () => {
+    const s = await serve({ get: 'flood' });
+    const got = states((await run({ url: s.url, check: ['http-sse-no-broadcast'], fixture: fixtureFile([{ tool: 'note', arguments: {} }]) })).report!);
+    expect(got['http-sse-no-broadcast']).toBe(NOT_JUDGED);
+  }, 30_000);
+
+  it('the 401 hint shows the form of --header', async () => {
+    const s = await serve({ notification: 401 });
+    const r = (await run({ url: s.url, check: ['http-notification-202'] })).report!;
+    expect(byId(r, 'http-notification-202').actual).toContain('--header "Authorization: Bearer <token>"');
+  });
+
+  it('the Host advice needs its control, and a 401 is not a refusal of the Host', async () => {
+    expect(await one({ pingStatus: 400 }, 'http-host-rebinding-advice')).toBe('could-not-run (prerequisite-failed)');
+    expect(await one({ host: 'check', refuse: 401 }, 'http-host-rebinding-advice')).toBe('could-not-run (prerequisite-failed)');
+    expect(await one({ host: 'check', refuse: 421 }, 'http-host-rebinding-advice')).toBe('passed');
+  });
+});
