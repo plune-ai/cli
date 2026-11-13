@@ -69,7 +69,10 @@ describe('CLI · mcp conformance · the catalog without a server', () => {
     expect(all.out).toContain('life-initialize-result');
     expect(all.out).toContain(`${CATALOG.length} checks.`);
     const oauth = await run({ listChecks: true, suite: ['oauth'] });
-    expect(oauth.out).toContain('0 checks.');
+    expect(oauth.out).toContain(`${CATALOG.filter((e) => e.suite === 'oauth').length} checks.`);
+    expect(oauth.out).not.toContain('life-initialize-result');
+    const tasks = await run({ listChecks: true, suite: ['tasks'] });
+    expect(tasks.out).toContain('0 checks.');
   });
 
   it('--explain prints the whole entry; an unknown id is exit 2', async () => {
@@ -162,7 +165,7 @@ describe('CLI · mcp conformance · a run', () => {
   });
 
   it('a suite with no checks yet is an empty run: score null, incomplete, exit 3', async () => {
-    const { code, report: r } = await report({ suite: ['oauth'] });
+    const { code, report: r } = await report({ suite: ['tasks'] });
     expect(code).toBe(3);
     expect(r.checks).toEqual([]);
     expect(r.summary).toMatchObject({ score: null, verdict: 'incomplete' });
@@ -170,15 +173,15 @@ describe('CLI · mcp conformance · a run', () => {
 
   it('the human report explains the score in one line per suite, and --out holds the same JSON', async () => {
     const out = join(mkdtempSync(join(tmpdir(), 'plune-conformance-')), 'r.json');
-    const r = await run({ out, suite: ['protocol', 'oauth'], check: ['tools-list-order-stable', 'tools-name-format'] }, STDIO);
+    const r = await run({ out, suite: ['protocol', 'tasks'], check: ['tools-list-order-stable', 'tools-name-format'] }, STDIO);
     expect(r.code).toBe(3);
     expect(r.out).toMatch(/^protocol: Score none = 0 of 0 \| outside the score: advisories 2$/m);
-    expect(r.out).toMatch(/^oauth: Score none = 0 of 0$/m);
+    expect(r.out).toMatch(/^tasks: Score none = 0 of 0$/m);
     expect(r.out).toMatch(/^all suites: Score none = 0 of 0/m);
     expect(r.out).toContain('Verdict: incomplete (exit 3): nothing was measured, so nothing is proven.');
     const saved = JSON.parse(readFileSync(out, 'utf8')) as McpConformanceReport;
     expect(saved.exitCode).toBe(3);
-    expect(saved.suites).toEqual(['protocol', 'oauth']);
+    expect(saved.suites).toEqual(['protocol', 'tasks']);
   });
 });
 
