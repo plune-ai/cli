@@ -6,6 +6,7 @@ import type { RunResult } from '../types/results.js';
 import { adviceOf, rowStatus } from '../types/results.js';
 import { createStyler } from './style.js';
 import { repeatsText, safeLine, truncate } from './helpers.js';
+import { buildMatrix, matrixConsole } from './matrix.js';
 
 const DEFAULT_MAX_OUTPUT = 500;
 
@@ -23,10 +24,14 @@ export function renderConsole(result: RunResult, opts: ConsoleOptions = {}): str
   if (result.dry_run === true) {
     // Nothing ran: a price and no verdict, so none of the words of a measured run (plune-ai/cli#244).
     lines.push(s.bold('Plune dry run'));
+    const matrix = buildMatrix(result);
+    // Several models: each cell is priced at its own model's price, and the line says how many there were.
+    const across = matrix !== undefined ? ` across ${matrix.models.length} models` : '';
     lines.push(
-      `${summary.total} row(s) priced, none measured · estimated $${summary.cost_usd.toFixed(4)}`,
+      `${summary.total} row(s) priced${across}, none measured · estimated $${summary.cost_usd.toFixed(4)}`,
     );
     lines.push('');
+    if (matrix !== undefined) lines.push(s.bold('Estimated cost per model'), ...matrixConsole(matrix, true), '');
     for (const ev of result.evals) {
       const tags = ev.tags.length > 0 ? s.dim(` (${ev.tags.join(', ')})`) : '';
       lines.push(`${s.dim('PRICED')} ${s.bold(ev.id)}${tags}`);
@@ -63,6 +68,8 @@ export function renderConsole(result: RunResult, opts: ConsoleOptions = {}): str
     );
   }
   lines.push('');
+  const matrix = buildMatrix(result);
+  if (matrix !== undefined) lines.push(s.bold('Model matrix'), ...matrixConsole(matrix), '');
 
   for (const ev of result.evals) {
     const mark = ev.passed ? s.green('PASS') : s.red('FAIL');

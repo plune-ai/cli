@@ -5,6 +5,7 @@
 import type { RunResult, RowResult } from '../types/results.js';
 import { adviceOf, rowStatus } from '../types/results.js';
 import { repeatsText, safeLine, truncate } from './helpers.js';
+import { buildMatrix, matrixMarkdown } from './matrix.js';
 
 const DEFAULT_MAX_OUTPUT = 500;
 const TICK = String.fromCharCode(96); // backtick
@@ -36,6 +37,11 @@ export function renderMarkdown(result: RunResult, opts: MarkdownOptions = {}): s
     out.push('| --- | --- |');
     out.push(`| Rows priced | ${summary.total} |`);
     out.push(`| Estimated cost (USD) | ${summary.cost_usd.toFixed(4)} |`);
+    const matrix = buildMatrix(result);
+    if (matrix !== undefined) {
+      out.splice(out.length - 1, 0, `| Models | ${matrix.models.length} |`);
+      out.push('', '## Estimated cost per model', '', ...matrixMarkdown(matrix, true));
+    }
     // Only a repeated row is named: its estimate is one run times `runs`.
     const repeated = result.evals.flatMap((ev) =>
       ev.rows.flatMap((row) => {
@@ -61,6 +67,10 @@ export function renderMarkdown(result: RunResult, opts: MarkdownOptions = {}): s
   out.push(`| Cost (USD) | ${summary.cost_usd.toFixed(4)} |`);
   out.push(`| Duration (ms) | ${summary.duration_ms} |`);
   out.push('');
+
+  // Only for a run of several models; a run of one reads as it always has.
+  const matrix = buildMatrix(result);
+  if (matrix !== undefined) out.push('## Model matrix', '', ...matrixMarkdown(matrix), '');
 
   // Only when some eval repeats its rows (`runs` above 1), so a report without repeats is unchanged.
   const repeated = result.evals.flatMap((ev) =>
