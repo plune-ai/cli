@@ -715,7 +715,7 @@ parameters. The `mod-*` checks (31) are `not-applicable` (`era`) in a legacy run
   (an integer, 0 or more) and `cacheScope` (`"public"` or `"private"`), the same on every page of a list.
 - **Subscriptions:** one `subscriptions/listen` for one kind of notification the server declares, watched for 1.5 s:
   the acknowledgment comes first with the subscription id; every later notification is of the kind asked for and
-  tagged (`could-not-run`, `needs-input`, when nothing changed); a subscription the server ends gets a successful
+  tagged (`not-applicable` when nothing changed: no notification to judge); a subscription the server ends gets a successful
   response (SHOULD; `not-applicable` while the server keeps it open).
 - **Request headers (HTTP only):** an unknown method is `404` and `-32601`; an `MCP-Protocol-Version`, `Mcp-Method`
   or `Mcp-Name` unlike the body, a missing one, and a wrong or missing `Mcp-Param-{Name}` (for a `--fixture` tool

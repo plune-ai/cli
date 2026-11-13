@@ -163,6 +163,8 @@ export function answer(mode, state, msg, emit, end = () => {}) {
         return;
       }
       emit(ack);
+      // quiet: nothing changes, and the subscription stays open (a server whose lists are fixed).
+      if (mode === 'quiet') return;
       setTimeout(() => emit(changed('tools', tag)), 50);
       // It ends the subscription on its own, as at shutdown, with a successful response.
       setTimeout(() => send({ jsonrpc: '2.0', id, result: { resultType: 'complete', _meta: tag } }), 100);

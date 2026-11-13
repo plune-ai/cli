@@ -230,6 +230,12 @@ describe('CLI · mcp conformance · the 2026-07-28 revision over stdio', () => {
     expect(states(green)).toEqual({ 'mod-resource-no-empty-contents': 'passed' });
   }, 30_000);
 
+  it('mod-sub-filter-and-tag: a server whose lists never change has nothing to judge: not-applicable, never a could-not-run (an <error> in JUnit)', async () => {
+    const r = await report({ check: ['mod-sub-ack-first', 'mod-sub-filter-and-tag'] }, modern('quiet'));
+    expect(states(r)).toEqual({ 'mod-sub-ack-first': 'passed', 'mod-sub-filter-and-tag': 'not-applicable (not-offered)' });
+    expect(byId(r, 'mod-sub-filter-and-tag').actual).toContain('Nothing changed');
+  }, 30_000);
+
   it('mod-discover-result: no capabilities fails it, and every other check is could-not-run (prerequisite-failed)', async () => {
     const r = await report({ check: ['mod-discover-result', 'mod-discover-server-info', 'tools-list-shape'] }, modern('no-discover'));
     expect(states(r)).toEqual({

@@ -550,7 +550,7 @@ export const CATALOG: readonly CatalogEntry[] = [
     id: 'mod-sub-filter-and-tag',
     title: 'A subscription gets only what it asked for, each tagged',
     description:
-      'The subscription asks for one kind of notification; every notification after the acknowledgment is of that kind and carries io.modelcontextprotocol/subscriptionId. When nothing changed while it was watched, could-not-run (needs-input).',
+      'The subscription asks for one kind of notification; every notification after the acknowledgment is of that kind and carries io.modelcontextprotocol/subscriptionId. When nothing changed while it was watched, there is no notification to judge: not-applicable (not-offered).',
     level: 'MUST',
     specRefs: [ref(M, 'basic/patterns/subscriptions', 'Opening a Stream'), ref(M, 'basic/index', '_meta')],
     eras: MODERN,

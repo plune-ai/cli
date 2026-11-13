@@ -135,12 +135,8 @@ const filterAndTag: ConformanceCheck = async (ctx) => {
   if ('state' in w) return w;
   const after = w.notes.filter((n) => n['method'] !== ACK);
   if (after.length === 0)
-    return {
-      state: 'could-not-run',
-      reason: 'needs-input',
-      actual: `Nothing changed in ${WATCH_MS / 1000} s on the subscription for ${w.asked}: no notification to judge.`,
-      details: w.details,
-    };
+    // A server whose lists do not change is correct to stay quiet, and no input of the user makes it speak.
+    return { ...notOffered(`Nothing changed in ${WATCH_MS / 1000} s on the subscription for ${w.asked}: no notification to judge.`), details: w.details };
   const wrong: string[] = [];
   for (const n of after) {
     const params = isObject(n['params']) ? n['params'] : {};
