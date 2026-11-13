@@ -11,6 +11,15 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **`plune diff` gates for pass rate, cost and tokens, with waivers.** New flags, each off until given: `--max-pass-rate-drop-percent <n>`, `--max-cost-usd <n>`, `--max-cost-increase-percent <n>`, `--max-tokens <n>`, and `--waivers <file>`. A value that is missing never gives green: the overall pass rate is compared only when both runs measured the same evals, rows, repeats, model and checks and each side has at least 10 attempts, and the diff names each difference; a cost gate needs a known price (`priced: true`) on every row it reads and counts what the cache saved as cost; a zero-cost baseline leaves the relative gate unmeasured. A waiver (YAML: `gate`, `eval` for a regression, `reason` of at most 200 characters, `granted`, `expires` at most 30 days later) lifts a measured failure only, never «not measured»; expired and unused waivers are listed, and a malformed file is exit `2`. Exit codes with `--fail-on-regression` or a gate: `0` all measured and nothing failed, `1` a measured failure (wins), `2` input error, `3` something not measured. The report has a «Gates» section in console, Markdown and JSON (the added `gates` field). Without these flags the exit code and the JSON are unchanged. See [the CLI guide](docs/guide/cli.md#exit-codes).
+- **`plune run` records what each eval measured (`EvalResult.measured`).** The number of repeats and rows, a hash of the rows' `vars`, a hash of the checks and the model; not the prompt text. Optional and additive: `schemaVersion` stays 1, and a result without it reads as an unknown population.
+
+### Changed
+
+- **`plune diff --fail-on-regression` on a current run with no evals exits `3`, not `0`.** Nothing was measured, so the gate has no verdict.
+
 ## [0.37.0] - 2026-11-13
 
 ### Added

@@ -5,6 +5,8 @@
 import * as fs from 'node:fs';
 import type { RunResult } from '../../types/results.js';
 import { diffRuns, type RunDiff } from '../../diff/diff.js';
+import { evaluateGates, gatesEnabled, type GateOptions } from '../../diff/gates.js';
+import { parseWaivers, WaiversFileError, type Waiver } from '../../diff/waivers.js';
 
 export class DiffInputError extends Error {
   readonly code = 'DIFF_INPUT';
@@ -44,10 +46,60 @@ function loadRunResult(file: string, label: string): RunResult {
 export interface DiffOptions {
   baselinePath: string;
   currentPath: string;
+  failOnRegression?: boolean;
+  /** The gate limits as typed on the command line; each gate is off until its limit is given. */
+  maxPassRateDropPercent?: string;
+  maxCostUsd?: string;
+  maxCostIncreasePercent?: string;
+  maxTokens?: string;
+  /** Path of the waivers file. */
+  waivers?: string;
+}
+
+function limit(flag: string, raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const n = Number(raw);
+  if (raw.trim() === '' || !Number.isFinite(n) || n < 0)
+    throw new DiffInputError(`--${flag} must be a number of 0 or more (got "${raw}")`);
+  return n;
+}
+
+function loadWaivers(file: string, now: Date): Waiver[] {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(file, 'utf8');
+  } catch {
+    throw new DiffInputError(`Cannot read waivers file: ${file}`);
+  }
+  try {
+    return parseWaivers(raw, now);
+  } catch (err) {
+    if (err instanceof WaiversFileError) throw new DiffInputError(`${file}:
+${err.message}`);
+    throw err;
+  }
 }
 
 export function handleDiff(opts: DiffOptions): RunDiff {
+  const gateOpts: GateOptions = {
+    ...(opts.failOnRegression === true ? { failOnRegression: true } : {}),
+  };
+  for (const [key, flag] of [
+    ['maxPassRateDropPercent', 'max-pass-rate-drop-percent'],
+    ['maxCostUsd', 'max-cost-usd'],
+    ['maxCostIncreasePercent', 'max-cost-increase-percent'],
+    ['maxTokens', 'max-tokens'],
+  ] as const) {
+    const n = limit(flag, opts[key]);
+    if (n !== undefined) gateOpts[key] = n;
+  }
   const baseline = loadRunResult(opts.baselinePath, 'baseline');
   const current = loadRunResult(opts.currentPath, 'current');
-  return diffRuns(baseline, current);
+  // The system clock, read once: no flag, variable or file field moves it, so an expired waiver stays expired.
+  const now = new Date();
+  // A bad waivers file is an input error even when no gate is on, never ignored quietly.
+  const waivers = opts.waivers === undefined ? [] : loadWaivers(opts.waivers, now);
+  const diff = diffRuns(baseline, current);
+  if (!gatesEnabled(gateOpts)) return diff;
+  return { ...diff, gates: evaluateGates(baseline, current, diff, gateOpts, waivers, now) };
 }

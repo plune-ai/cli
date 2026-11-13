@@ -81,6 +81,14 @@ the current run, or one that errored in the baseline and fails now, has no verdi
 `unmeasured`. With `--fail-on-regression`, a run with no regression but with unmeasured evals exits `3`
 rather than `0` (a regression still exits `1`). See [`plune diff` exit codes](./cli.md#exit-codes).
 
+The same rule holds for the other gates of `plune diff` (pass rate, cost, tokens): a value that is
+missing never gives green. A cost gate on a run whose model has no known price, an overall pass rate
+compared between runs that measured different evals, rows, repeats, models or checks, or one with fewer
+than 10 attempts on a side, is `unmeasured` (exit `3`), and a waiver never lifts that. To make the pass
+rate comparable, `plune run` records per eval what it measured (`measured`: repeats, rows, a hash of the
+rows' `vars`, a hash of the checks, the model), without the prompt text, since changing the prompt is
+what a pull request is checked for.
+
 A row in a RunResult may also say it was never judged: `"inconclusive": "blocked"` or `"skipped"`.
 That word comes first: such a row counts as `blocked` or `skipped` in the summary, whatever its
 assertions or its error say, and it moves no exit code. `plune run` always writes both counters, and
@@ -172,7 +180,9 @@ Every run produces a `RunResult`, saved to `.plune/last-run.json`. Its shape:
           // "error": { "code": "...", "message": "..." }  // present only when errored
           // "attempts": { "runs": 10, "pass_threshold": 0.8, "passed": 7, ... }  // only with runs > 1, see Repeats
         }
-      ]
+      ],
+      "measured": { "runs": 1, "rows": 1, "rows_hash": "…", "assertions_hash": "…", "model": "openai/gpt-4o-mini" }
+      // what the eval measured, for the pass-rate gate of `plune diff`; absent in results of older versions
     }
   ]
 }

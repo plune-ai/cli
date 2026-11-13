@@ -65,6 +65,24 @@ describe('runOrchestration', () => {
     }
   });
 
+  it('CLI · diff · gates · records what each eval measured: rows, repeats, model and checks, not the prompt text', async () => {
+    const two: EvalConfig = { ...evalPass, dataset: { examples: [{ vars: { q: 'a', n: 1 } }, { vars: { q: 'b' } }] } };
+    const measured = async (ev: EvalConfig, runs = 3) =>
+      (await runOrchestration(config([ev]), { runs }, deps())).evals[0]!.measured!;
+    const m = await measured(two);
+    expect(m).toMatchObject({ runs: 3, rows: 2, model: 'anthropic/m' });
+    expect(m.rows_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(m.assertions_hash).toMatch(/^[0-9a-f]{64}$/);
+    // The same rows in another order and with keys in another order, under another prompt text: the same population.
+    const reordered = { examples: [{ vars: { q: 'b' } }, { vars: { n: 1, q: 'a' } }] };
+    expect(await measured({ ...two, prompt: 'Other: {{q}}', dataset: reordered })).toEqual(m);
+    // Another row, another check parameter, another number of repeats, another model: a different one.
+    expect((await measured({ ...two, dataset: { examples: [{ vars: { q: 'c' } }, { vars: { q: 'b' } }] } })).rows_hash).not.toBe(m.rows_hash);
+    expect((await measured({ ...two, assertions: [{ type: 'exact-match', value: 'other' }] })).assertions_hash).not.toBe(m.assertions_hash);
+    expect((await measured(two, 1)).runs).toBe(1);
+    expect((await measured({ ...two, provider: { model: 'n' } })).model).toBe('anthropic/n');
+  });
+
   it('--only filters by id and tag; empty selection → no evals (AC-8)', async () => {
     const cfg = config([evalPass, { ...evalPass, id: 'e2', tags: ['rag'] }]);
     expect((await runOrchestration(cfg, { only: ['e2'] }, deps())).evals.map((e) => e.id)).toEqual(['e2']);

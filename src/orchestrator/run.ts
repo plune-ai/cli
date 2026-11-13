@@ -4,7 +4,8 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { cacheKey, configHash } from '../util/hash.js';
+import { cacheKey, configHash, sha256 } from '../util/hash.js';
+import { canonicalJson } from '../util/canonical-json.js';
 import { extractJson } from '../assertions/json-extract.js';
 import { isCacheable } from '../cache/cache.js';
 import { getAssertion } from '../assertions/index.js';
@@ -594,12 +595,13 @@ export async function runOrchestration(
 
     const runs = options.runs ?? ev.runs ?? config.runs ?? 1;
     const passThreshold = ev.pass_threshold ?? config.pass_threshold ?? 1;
+    // `defaults.assertions` apply to every eval, ahead of its own.
+    const assertions = [...(config.defaults?.assertions ?? []), ...ev.assertions];
 
     const rowResults = await mapLimit(rows, limit, (row) => {
       const params: RowParams = {
         template,
-        // `defaults.assertions` apply to every eval, ahead of its own.
-        assertions: [...(config.defaults?.assertions ?? []), ...ev.assertions],
+        assertions,
         row,
         providerConfig,
         provider,
@@ -624,7 +626,15 @@ export async function runOrchestration(
     });
 
     const passed = rowResults.every((r) => rowStatus(r) === 'passed');
-    evalResults.push({ id: ev.id, tags: ev.tags ?? [], rows: rowResults, passed });
+    // What `plune diff` needs to know two runs measured the same thing; the prompt text is not part of it.
+    const measured = {
+      runs,
+      rows: rows.length,
+      rows_hash: sha256(canonicalJson(rows.map((r) => canonicalJson(r.vars)).sort())),
+      assertions_hash: sha256(canonicalJson(assertions)),
+      model: `${providerConfig.type}/${providerConfig.model}`,
+    };
+    evalResults.push({ id: ev.id, tags: ev.tags ?? [], rows: rowResults, passed, measured });
     if (options.bail === true && !passed) break;
   }
 

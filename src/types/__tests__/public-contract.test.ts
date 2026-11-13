@@ -208,6 +208,7 @@ interface GoldenEvalResult {
   tags: string[];
   rows: GoldenRowResult[];
   passed: boolean;
+  measured?: { runs: number; rows: number; rows_hash: string; assertions_hash: string; model?: string };
 }
 interface GoldenRunResult {
   schemaVersion: 1;
