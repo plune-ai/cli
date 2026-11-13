@@ -29,7 +29,7 @@ import {
   listNote,
   listed,
   namedAddresses,
-  q,
+  quoter,
   readUi,
   sameMime,
   uiAddresses,
@@ -40,6 +40,7 @@ import {
 } from './view.js';
 
 const scheme: ConformanceCheck = async (ctx) => {
+  const q = quoter(ctx);
   const found = await uiTools(ctx);
   if (isOutcome(found)) return found;
   const bad: string[] = [];
@@ -72,6 +73,7 @@ const scheme: ConformanceCheck = async (ctx) => {
 };
 
 const exists: ConformanceCheck = async (ctx) => {
+  const q = quoter(ctx);
   const found = await uiTools(ctx);
   if (isOutcome(found)) return found;
   const { uris, over } = namedAddresses(found);
@@ -106,6 +108,7 @@ const exists: ConformanceCheck = async (ctx) => {
 };
 
 const mimeType: ConformanceCheck = async (ctx) => {
+  const q = quoter(ctx);
   const found = await uiTools(ctx);
   if (isOutcome(found)) return found;
   const g = await gather(
@@ -177,6 +180,7 @@ function htmlOf(
 }
 
 const payload: ConformanceCheck = async (ctx) => {
+  const q = quoter(ctx);
   const found = await uiTools(ctx);
   if (isOutcome(found)) return found;
   const g = await gather(ctx, await uiAddresses(ctx, found), (uri, c): Judged => {
@@ -206,6 +210,7 @@ const payload: ConformanceCheck = async (ctx) => {
 };
 
 const listedMime: ConformanceCheck = async (ctx) => {
+  const q = quoter(ctx);
   const found = await uiTools(ctx);
   if (isOutcome(found)) return found;
   const list = await listed(ctx);
@@ -239,6 +244,7 @@ const listedMime: ConformanceCheck = async (ctx) => {
 const VISIBILITY = ['model', 'app'];
 
 const visibility: ConformanceCheck = async (ctx) => {
+  const q = quoter(ctx);
   const found = await uiTools(ctx);
   if (isOutcome(found)) return found;
   const set = found.filter((t) => isObject(t.ui) && t.ui['visibility'] !== undefined);
@@ -298,6 +304,7 @@ export function metaProblems(ui: unknown): string[] {
 }
 
 const metaShapes: ConformanceCheck = async (ctx) => {
+  const q = quoter(ctx);
   const found = await uiTools(ctx);
   if (isOutcome(found)) return found;
   const local: string[] = [];
@@ -379,6 +386,7 @@ function uiCalls(
 }
 
 const textFallback: ConformanceCheck = async (ctx) => {
+  const q = quoter(ctx);
   const found = await uiTools(ctx);
   if (isOutcome(found)) return found;
   if (ctx.fixture === undefined)
