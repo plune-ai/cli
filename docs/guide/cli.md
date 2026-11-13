@@ -37,7 +37,7 @@ plune run [options]
 |--------|---------|
 | `--config <path>` | Use a specific config file (default: `plune.yaml` in the current directory). |
 | `--only <selector>` | Run a subset. `<selector>` is an eval `id` or `tag:<name>`. **Repeatable**: `--only a --only tag:rag`. |
-| `--dry-run` | Estimate cost/tokens without calling the model or touching the cache — so it needs no provider key. Always exits `0`. It prints how many rows were priced and the estimated cost, and no verdict: no row counts as passed, failed or errored (in `--format json`: `"dry_run": true`, and every row has `"inconclusive": "skipped"`). It is not saved to `.plune/last-run.json`. |
+| `--dry-run` | Estimate cost/tokens without calling the model or touching the cache — so it needs no provider key. Exits `0` once the config loads (a config error is exit `2`, as for any run). It prints how many rows were priced and the estimated cost, and no verdict: no row counts as passed, failed or errored (in `--format json`: `"dry_run": true`, and every row has `"inconclusive": "skipped"`). It is not saved to `.plune/last-run.json`. |
 | `--concurrency <n>` | Override how many rows run in parallel (default: the config's `provider.concurrency`, or 4). |
 | `--no-cache` | Ignore the cache for this run — always call the model, don't read or write cached completions. |
 | `--cache-strict` | Every row must come from the cache; no model call for completions. A miss ends the run with exit `5` and lists the rows with no entry. Cannot be combined with `--no-cache`. |
@@ -113,7 +113,7 @@ is given; with none of them the exit is always `0`.
 | Flag | Gate | Fails when |
 |------|------|------------|
 | `--fail-on-regression` | `regression` | an eval went from passed to failed. Not measured when an eval of the current run was not measured, or the current run has no evals. |
-| `--max-pass-rate-drop-percent <n>` | `pass-rate` | the overall pass rate (passed attempts of all attempts, every repeat counted) dropped by more than `n` percentage points. Measured only when both runs measured the same population and each side has at least 10 attempts. |
+| `--max-pass-rate-drop-percent <n>` | `pass-rate` | the overall pass rate (passed attempts of all attempts, every repeat counted) dropped by more than `n` percentage points. Measured only when both runs measured the same population, each side has at least 10 attempts and neither is a dry run. |
 | `--max-cost-usd <n>` | `cost` | the current run cost more than `n` USD. |
 | `--max-cost-increase-percent <n>` | `cost-increase` | the current run cost more than `n` percent over the baseline. Not measured when the baseline cost is `0`. |
 | `--max-tokens <n>` | `tokens` | the current run used more than `n` tokens, input plus output. |
