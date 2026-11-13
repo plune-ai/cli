@@ -279,7 +279,8 @@ const evalConfigSchema = z
 export const pluneConfigSchema = z
   .object({
     version: z.literal(1),
-    provider: providerConfigSchema,
+    // One object, or a non-empty list of models to run every eval against (a one-element list is the object).
+    provider: z.union([providerConfigSchema, z.array(providerConfigSchema).min(1)]),
     defaults: z
       .object({ assertions: z.array(assertionConfigSchema).optional() })
       .optional(),
@@ -291,6 +292,35 @@ export const pluneConfigSchema = z
   })
   .strict()
   .superRefine((config, ctx) => {
+    if (Array.isArray(config.provider)) {
+      const pairs = new Set<string>();
+      const byModel = new Map<string, string>();
+      config.provider.forEach((p, i) => {
+        const pair = `${p.type}/${p.model}`;
+        if (pairs.has(pair))
+          ctx.addIssue({ code: 'custom', path: ['provider', i], message: `provider "${pair}" is listed twice` });
+        pairs.add(pair);
+        // The cell id is `<eval id>@<model>`, so one model name under two types would give two cells one id.
+        const other = byModel.get(p.model);
+        if (other !== undefined && other !== p.type)
+          ctx.addIssue({
+            code: 'custom',
+            path: ['provider', i, 'model'],
+            message: `model "${p.model}" is listed under ${other} and ${p.type}: cell ids are built from the model name`,
+          });
+        byModel.set(p.model, p.type);
+      });
+      if (config.provider.length > 1)
+        config.evals.forEach((ev, i) => {
+          for (const key of ['type', 'model'] as const)
+            if (ev.provider?.[key] !== undefined)
+              ctx.addIssue({
+                code: 'custom',
+                path: ['evals', i, 'provider', key],
+                message: `eval "${ev.id}" sets provider.${key}, but the root provider lists several models: the models come from the root list`,
+              });
+        });
+    }
     config.evals.forEach((evalConfig, i) => {
       const server = evalConfig.mcp?.server;
       if (server === undefined) {
@@ -315,6 +345,14 @@ export const pluneConfigSchema = z
         message: `eval "${evalConfig.id}" uses MCP server "${server}", which mcp.servers does not define`,
       });
     });
+  })
+  // A one-element list is the object; several models keep the first as `provider` and all as `providers`.
+  .transform(({ provider, ...rest }) => {
+    if (!Array.isArray(provider)) return { provider, ...rest };
+    const [first, ...others] = provider;
+    return others.length === 0
+      ? { provider: first!, ...rest }
+      : { provider: first!, providers: provider, ...rest };
   });
 
 export type PluneConfig = z.infer<typeof pluneConfigSchema>;
