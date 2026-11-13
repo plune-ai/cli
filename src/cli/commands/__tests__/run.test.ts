@@ -189,15 +189,18 @@ describe('run command — a file-system error on a path is the user’s to fix (
     expect(exitSpy).toHaveBeenCalledWith(2);
     expect(exitSpy).not.toHaveBeenCalledWith(1);
     expect(stderr.join('')).toContain('ENOENT');
-    expect(stderr.join('')).toContain('check that the path exists');
+    expect(stderr.join('')).toContain('check the path in the message');
     expect(stderr.join('')).not.toContain('This one is on us');
   });
 
   it('tells a file-system error on a path from every other error', () => {
     const onPath = Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT', path: 'x' });
     const network = Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' });
+    // A command that could not be started carries a code and a path as well; it is not a path to fix.
+    const spawn = Object.assign(new Error('spawn x ENOENT'), { ...onPath, syscall: 'spawn x' });
     expect(isFileSystemError(onPath)).toBe(true);
     expect(isFileSystemError(network)).toBe(false);
+    expect(isFileSystemError(spawn)).toBe(false);
     expect(isFileSystemError(new Error('boom'))).toBe(false);
     expect(isFileSystemError('boom')).toBe(false);
   });

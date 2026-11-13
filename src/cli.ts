@@ -47,17 +47,25 @@ function writeReport(text: string, outputPath: string | undefined): void {
 // Stack traces are opt-in via --verbose (constitution §5: "fail loud, exit clean" — a clean
 // message by default, the stack only when the user asks for it). `maybeStack` appends the stack
 // after an already-printed message (used by the exit-2 config paths); `failUnexpected` handles an
-// unclassified error: message-or-stack, then exit 1.
+// unclassified error: message-or-stack, then exit 1 (exit 2 with advice for a file-system error on a path).
 function maybeStack(err: unknown, verbose: boolean): void {
   if (verbose && err instanceof Error && err.stack !== undefined) {
     process.stderr.write(err.stack + '\n');
   }
 }
 
-/** A file-system error that names a path on this machine. A network error has a `code` and no `path`. */
+/**
+ * A file-system error that names a path on this machine. A network error has a `code` and no `path`. A
+ * command that could not be started has both and is not one: its `syscall` starts with `spawn`.
+ */
 export function isFileSystemError(err: unknown): boolean {
   const e = err as NodeJS.ErrnoException;
-  return err instanceof Error && typeof e.code === 'string' && typeof e.path === 'string';
+  return (
+    err instanceof Error &&
+    typeof e.code === 'string' &&
+    typeof e.path === 'string' &&
+    e.syscall?.startsWith('spawn') !== true
+  );
 }
 
 function failUnexpected(err: unknown, verbose: boolean): void {
@@ -71,7 +79,7 @@ function failUnexpected(err: unknown, verbose: boolean): void {
     // fix, like a config error. So no request for a report, and exit 2, not the 1 that means a failed
     // assertion or a failed gate.
     process.stderr.write(
-      'This is a file or folder on this machine: check that the path exists and that you may read and write it.\n',
+      'This is a file or folder on this machine: check the path in the message and that you may read and write it.\n',
     );
     process.exit(2);
     return;
