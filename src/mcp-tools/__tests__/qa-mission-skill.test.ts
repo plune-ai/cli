@@ -50,6 +50,9 @@ describe('the qa-mission skill', () => {
       'plune_question_ask',
       'plune_strategy_propose',
       'plune_case_propose',
+      'plune_source_add',
+      'plune_endpoint_propose',
+      'plune_report_request',
     ])
       expect(all).toContain(name);
   });
@@ -61,7 +64,9 @@ describe('the qa-mission skill', () => {
     expect(examples.map((m) => m[1]).sort()).toEqual([
       'plune_api_request',
       'plune_case_propose',
+      'plune_endpoint_propose',
       'plune_question_ask',
+      'plune_source_add',
       'plune_strategy_propose',
     ]);
     for (const [, name, json] of examples) {
@@ -77,11 +82,19 @@ describe('the qa-mission skill', () => {
     expect(skill.indexOf('memoryRules', context)).toBeGreaterThan(context);
     expect(pluneTool('plune_project_context').output.shape).toHaveProperty('memoryRules');
 
-    const example = /<!-- input: plune_api_request -->\r?\n```json\r?\n([\s\S]*?)\r?\n```/.exec(all)![1]!;
+    const example = /<!-- input: plune_api_request -->\r?\n```json\r?\n([\s\S]*?)\r?\n```/.exec(
+      all,
+    )![1]!;
     // The route and source kinds of the platform's memory candidates (POST /v1/memory/candidates).
-    const call = JSON.parse(example) as { method: string; path: string; body: { source: { kind: string; id: string } } };
+    const call = JSON.parse(example) as {
+      method: string;
+      path: string;
+      body: { source: { kind: string; id: string } };
+    };
     expect([call.method, call.path]).toEqual(['POST', '/v1/memory/candidates']);
-    expect(['answer', 'decline', 'failure_choice', 'report_lesson']).toContain(call.body.source.kind);
+    expect(['answer', 'decline', 'failure_choice', 'report_lesson']).toContain(
+      call.body.source.kind,
+    );
     expect(all).toContain('review queue');
   });
 
@@ -98,10 +111,11 @@ describe('the qa-mission skill', () => {
     for (const text of [skill, refs]) {
       expect(text).toMatch(/exactly one of `source`, `assumption` or `waitingOn`/);
     }
-    for (const basis of ['"source":', '"assumption": true', '"waitingOn":']) expect(refs).toContain(basis);
+    for (const basis of ['"source":', '"assumption": true', '"waitingOn":'])
+      expect(refs).toContain(basis);
     // Propose first, then write the file from what was accepted, with the proposal id in the log.
     const propose = skill.indexOf('plune_strategy_propose(missionId, content, dry_run)');
-    const write = skill.indexOf("write `docs/testing/test-strategy.md`");
+    const write = skill.indexOf('write `docs/testing/test-strategy.md`');
     expect(propose).toBeGreaterThan(-1);
     expect(write).toBeGreaterThan(propose);
     expect(skill).toMatch(/proposal id/i);
@@ -114,6 +128,94 @@ describe('the qa-mission skill', () => {
     expect(flat).toMatch(/do not wait for answers/i);
     expect(skill).toContain('waitingOn');
     expect(skill).not.toMatch(/Every item that comes from a source says where it was read/);
+  });
+
+  describe('the full flow', () => {
+    const skill = texts.get('SKILL.md')!;
+    const flat = skill.replace(/\s+/g, ' ');
+    const at = (needle: string | RegExp, from = 0): number => {
+      const i =
+        typeof needle === 'string' ? skill.indexOf(needle, from) : skill.slice(from).search(needle);
+      expect(i, String(needle)).toBeGreaterThan(-1);
+      return typeof needle === 'string' ? i : i + from;
+    };
+
+    it('runs the stages of the ISTQB test process in order: analysis, design, implementation, execution, completion', () => {
+      let from = 0;
+      for (const stage of ['Analysis', 'Design', 'Implementation', 'Execution', 'Completion'])
+        from = at(new RegExp(`^## Stage \\d: ${stage}\\b`, 'm'), from) + 1;
+      // The stage log has one row per stage, named the same way.
+      const log = skill.slice(at('## Stage log'));
+      for (const stage of ['Analysis', 'Design', 'Implementation', 'Execution', 'Completion'])
+        expect(log).toContain(stage);
+    });
+
+    it('puts the mission, its sources, the questions, the strategy, the endpoint catalog and the report in Plune tools, not in files alone', () => {
+      const analysis = skill.slice(at('## Stage 1: Analysis'), at('## Stage 2: Design'));
+      expect(analysis).toContain('plune_source_add(');
+      expect(analysis).toContain('plune_endpoint_propose(');
+      expect(analysis).toContain('plune_question_ask(');
+      expect(analysis).toContain('plune_mission_create(');
+      const completion = skill.slice(at('## Stage 5: Completion'));
+      expect(completion).toContain('plune_report_request(missionId, dry_run)');
+      // The endpoint tool is not in the first tool list: the skill says how to switch it on.
+      expect(pluneTool('plune_endpoint_propose').visibility).toBe('discoverable');
+      expect(analysis).toContain('plune_discover_tools(names)');
+    });
+
+    it('asks for the report only once the strategy is accepted, as the platform requires', () => {
+      const completion = skill.slice(at('## Stage 5: Completion'));
+      expect(completion.replace(/\s+/g, ' ')).toMatch(
+        /only after a person has accepted the strategy/i,
+      );
+      expect(pluneTool('plune_report_request').description).toMatch(/accepted strategy/);
+    });
+
+    it('sends a product with no documentation to cairn collect-docs and one with no OpenAPI down the source ladder', () => {
+      const analysis = skill
+        .slice(at('## Stage 1: Analysis'), at('## Stage 2: Design'))
+        .replace(/\s+/g, ' ');
+      expect(analysis).toContain('cairn collect-docs --url');
+      expect(analysis).toContain('`documentation` is `none`');
+      // The ladder: a served spec, then a Postman collection or HAR file, then the traffic of an exploring run.
+      expect(analysis).toContain('openapi.derived.json');
+      const ladder = ['cairn api --base-url', 'cairn api --spec', 'cairn explore --url'].map(
+        (s) => {
+          expect(analysis, s).toContain(s);
+          return analysis.indexOf(s);
+        },
+      );
+      expect(ladder).toEqual([...ladder].sort((a, b) => a - b));
+      // Nothing from a third-party package runs without the user's say-so.
+      expect(analysis).toMatch(/ask the user before you run/i);
+    });
+
+    it('treats a derived endpoint as derived and never as confirmed', () => {
+      expect(flat).toMatch(/`trust` `derived`/);
+      expect(flat).toMatch(/`source` `traffic`/);
+    });
+
+    it('orders the surfaces: API, UI, LLM, docs, security, accessibility, performance', () => {
+      const order = ['API', 'UI', 'LLM', 'docs', 'security', 'accessibility', 'performance'].join(
+        ', ',
+      );
+      expect(flat).toContain(`surfaces in this order: ${order}`);
+    });
+
+    it('asks fewer questions on a second mission on the same product, from the answers already given', () => {
+      const analysis = skill.slice(at('## Stage 1: Analysis'), at('## Stage 2: Design'));
+      expect(analysis).toContain('plune_question_list()');
+      expect(analysis.replace(/\s+/g, ' ')).toMatch(/answered before|already answered/i);
+      expect(pluneTool('plune_question_list').input.shape).toHaveProperty('missionId');
+    });
+
+    it('does not run the tests itself', () => {
+      const execution = skill
+        .slice(at('## Stage 4: Execution'), at('## Stage 5: Completion'))
+        .replace(/\s+/g, ' ');
+      expect(execution).toMatch(/skipped/);
+      expect(execution).toMatch(/do not start a run/i);
+    });
   });
 
   it('never asks the agent to decide its own proposals', () => {
