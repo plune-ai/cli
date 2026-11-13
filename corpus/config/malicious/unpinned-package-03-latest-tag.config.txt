@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "s": {
+      "command": "npx",
+      "args": [
+        "@modelcontextprotocol/server-everything@latest"
+      ]
+    }
+  }
+}

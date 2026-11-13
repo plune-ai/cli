@@ -1,0 +1,28 @@
+{
+  "client": "claude-code",
+  "path": ".mcp.json",
+  "options": {
+    "allowPackages": [
+      "@modelcontextprotocol/server-filesystem",
+      "mcp-server-fetch"
+    ]
+  },
+  "expected": [
+    {
+      "rule": "scan/cfg/package-not-allowed",
+      "path": "mcpServers.s.args[1]"
+    }
+  ],
+  "notChecked": [],
+  "provenance": {
+    "catalogClass": "supply chain",
+    "mechanism": "The package is not on the list the person allows, sometimes a near copy of an allowed name.",
+    "concealment": "swapped-letters",
+    "source": "not verified",
+    "catalogRefs": [
+      "DOC-LSS"
+    ],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-13"
+  }
+}

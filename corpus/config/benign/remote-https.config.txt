@@ -1,0 +1,15 @@
+{
+  "servers": {
+    "docs": {
+      "type": "http",
+      "url": "https://mcp.example.net/docs"
+    },
+    "sse": {
+      "type": "sse",
+      "url": "https://mcp.example.net/sse",
+      "headers": {
+        "X-Client": "plune"
+      }
+    }
+  }
+}

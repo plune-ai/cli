@@ -1,0 +1,26 @@
+{
+  "mcpServers": {
+    "app": {
+      "command": "node",
+      "args": [
+        "app.js"
+      ],
+      "envFile": ".env.local"
+    },
+    "tool": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "cowsay@1.6.0"
+      ]
+    },
+    "tool2": {
+      "command": "npx",
+      "args": [
+        "--yes",
+        "--package=cowsay@1.6.0",
+        "cowsay"
+      ]
+    }
+  }
+}

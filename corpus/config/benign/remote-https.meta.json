@@ -1,0 +1,13 @@
+{
+  "origin": "synthetic",
+  "description": "Remote servers over https with the host allowed.",
+  "client": "vscode",
+  "path": ".vscode/mcp.json",
+  "options": {
+    "allowHosts": [
+      "mcp.example.net"
+    ]
+  },
+  "author": "Maievskyi Leonid",
+  "date": "2026-11-13"
+}

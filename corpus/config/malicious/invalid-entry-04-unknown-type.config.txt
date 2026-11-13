@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "s": {
+      "type": "websocket",
+      "url": "wss://mcp.example.net/m"
+    }
+  }
+}

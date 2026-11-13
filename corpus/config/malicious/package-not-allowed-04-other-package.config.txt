@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "s": {
+      "command": "npx",
+      "args": [
+        "left-pad@1.3.0"
+      ]
+    }
+  }
+}

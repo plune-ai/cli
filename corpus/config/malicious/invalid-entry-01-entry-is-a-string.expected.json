@@ -1,0 +1,20 @@
+{
+  "client": "claude-code",
+  "path": ".mcp.json",
+  "expected": [
+    {
+      "rule": "scan/cfg/invalid-entry",
+      "path": "mcpServers.s"
+    }
+  ],
+  "notChecked": [],
+  "provenance": {
+    "catalogClass": "reading the file",
+    "mechanism": "An entry or a list the client would not read as written, so the rules could not assess it.",
+    "concealment": "entry-is-a-string",
+    "source": "not verified",
+    "catalogRefs": [],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-13"
+  }
+}

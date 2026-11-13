@@ -1,0 +1,34 @@
+{
+  "mcpServers": {
+    "one": {
+      "command": "node",
+      "args": [
+        "server.js",
+        "--port",
+        "3000",
+        "--verbose"
+      ]
+    },
+    "two": {
+      "command": "python",
+      "args": [
+        "-m",
+        "my_server",
+        "--config",
+        "config/dev.json"
+      ],
+      "env": {
+        "LOG_LEVEL": "debug",
+        "PYTHONPATH": "src"
+      }
+    },
+    "three": {
+      "command": "deno",
+      "args": [
+        "run",
+        "--allow-net",
+        "server.ts"
+      ]
+    }
+  }
+}

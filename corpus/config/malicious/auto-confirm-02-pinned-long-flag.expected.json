@@ -1,0 +1,22 @@
+{
+  "client": "claude-code",
+  "path": ".mcp.json",
+  "expected": [
+    {
+      "rule": "scan/cfg/auto-confirm",
+      "path": "mcpServers.s.args[0]"
+    }
+  ],
+  "notChecked": [],
+  "provenance": {
+    "catalogClass": "supply chain",
+    "mechanism": "The launcher is told to install without asking.",
+    "concealment": "pinned-long-flag",
+    "source": "not verified",
+    "catalogRefs": [
+      "DOC-LSS"
+    ],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-13"
+  }
+}

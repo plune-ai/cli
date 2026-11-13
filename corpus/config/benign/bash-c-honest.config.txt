@@ -1,0 +1,27 @@
+{
+  "mcpServers": {
+    "app": {
+      "command": "bash",
+      "args": [
+        "-c",
+        "cd /srv/app && node server.js"
+      ]
+    },
+    "win": {
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "cowsay@1.6.0"
+      ]
+    },
+    "lc": {
+      "command": "/bin/zsh",
+      "args": [
+        "-lc",
+        "node ./server.js"
+      ]
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "servers": {
+    "s": {
+      "command": "node",
+      "args": [
+        "s.js"
+      ],
+      "envFile": "${workspaceFolder}/.env"
+    }
+  }
+}
