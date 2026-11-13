@@ -39,6 +39,8 @@ interface Opts {
   /** Every POST but the handshake answered with a 307 to this origin. */
   redirect?: string;
   bind?: string;
+  /** server/discover answered with a DiscoverResult that names 2025-11-25 as well: the dual-era server of a modern run. */
+  discover?: boolean;
 }
 
 interface Served extends Fixture {
@@ -126,7 +128,14 @@ async function serve(o: Opts = {}): Promise<Served> {
         const note = `data: ${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/message', params: { level: 'info', data: 'hi' } })}\n\n`;
         for (const s of o.broadcast === true ? state.streams : state.streams.slice(0, 1)) s.write(note);
       }
-      const result = msg.method === 'tools/list' ? { tools: [] } : msg.method === 'tools/call' ? { content: [] } : {};
+      const result =
+        msg.method === 'tools/list'
+          ? { tools: [] }
+          : msg.method === 'tools/call'
+            ? { content: [] }
+            : msg.method === 'server/discover' && o.discover === true
+              ? { resultType: 'complete', supportedVersions: ['2026-07-28', '2025-11-25'], capabilities: { tools: {} }, ttlMs: 0, cacheScope: 'public' }
+              : {};
       const frame = JSON.stringify({ jsonrpc: '2.0', id: o.wrongId === true ? 'not-yours' : msg.id, result });
       const answer = o.answer ?? 'json';
       if (answer === 'json') return res.writeHead(200, { 'content-type': 'application/json' }).end(frame);
@@ -277,7 +286,7 @@ describe('CLI · mcp conformance · Streamable HTTP on the wire', () => {
   });
 
   it('AC-5: modern: a notification refused with 400 passes; one answered 200, or 202, with a body fails', async () => {
-    const refused = await serve({ sessions: false, notification: 'refuse' });
+    const refused = await serve({ sessions: false, notification: 'refuse', discover: true });
     const ok = await run({ url: refused.url, protocolVersion: '2026-07-28' });
     expect(states(ok.report!)['http-notification-202']).toBe('passed');
     // A modern probe carries its version and method as headers and in _meta.
@@ -285,7 +294,7 @@ describe('CLI · mcp conformance · Streamable HTTP on the wire', () => {
     expect(discover.headers['mcp-method']).toBe('server/discover');
     expect(discover.headers['mcp-protocol-version']).toBe('2026-07-28');
     expect(discover.body).toContain('io.modelcontextprotocol/protocolVersion');
-    const body = await serve({ sessions: false, notification: 'body' });
+    const body = await serve({ sessions: false, notification: 'body', discover: true });
     expect(states((await run({ url: body.url, protocolVersion: '2026-07-28' })).report!)['http-notification-202']).toBe('failed');
     const body202 = await serve({ notification: 'body202' });
     const r = (await run({ url: body202.url })).report!;
@@ -309,18 +318,18 @@ describe('CLI · mcp conformance · Streamable HTTP on the wire', () => {
   });
 
   it('modern SSE: a request of the server on the stream and no X-Accel-Buffering fail; without them they pass', async () => {
-    const bad = await serve({ sessions: false, answer: 'sse', serverRequest: true });
+    const bad = await serve({ sessions: false, answer: 'sse', serverRequest: true, discover: true });
     const red = states((await run({ url: bad.url, protocolVersion: '2026-07-28' })).report!);
     expect(red['http-sse-no-server-requests']).toBe('failed');
     expect(red['http-accel-buffering-header']).toBe('failed');
-    // The server also answers initialize: a dual-era server, which the GET and DELETE check is not for.
+    // Its server/discover names 2025-11-25 too: a dual-era server, which the GET and DELETE check is not for.
     expect(red['http-modern-get-delete-405']).toBe('not-applicable (era)');
     expect(red['http-close-cancels']).toBe('could-not-run (needs-input)');
-    const good = await serve({ sessions: false, answer: 'sse', accel: true });
+    const good = await serve({ sessions: false, answer: 'sse', accel: true, discover: true });
     const green = states((await run({ url: good.url, protocolVersion: '2026-07-28' })).report!);
     expect(green['http-sse-no-server-requests']).toBe('passed');
     expect(green['http-accel-buffering-header']).toBe('passed');
-    const json = await serve({ sessions: false });
+    const json = await serve({ sessions: false, discover: true });
     expect(states((await run({ url: json.url, protocolVersion: '2026-07-28' })).report!)['http-accel-buffering-header']).toBe(
       'not-applicable (not-offered)',
     );

@@ -6,6 +6,7 @@
 
 import { isDeepStrictEqual } from 'node:util';
 import type { ConformanceCheck, ConformanceContext, FixtureCall } from './index.js';
+import { paramHeaders } from './modern/meta.js';
 import { DIALECT_NAMES, judge } from './schema.js';
 import {
   call,
@@ -25,7 +26,7 @@ import {
 } from './wire.js';
 import type { CheckOutcome } from '../outcome.js';
 
-const tools = (ctx: ConformanceContext) => entries(ctx, 'tools', 'tools/list', 'tools');
+export const tools = (ctx: ConformanceContext) => entries(ctx, 'tools', 'tools/list', 'tools');
 const NAME = /^[A-Za-z0-9_.-]{1,128}$/;
 export const UNKNOWN_TOOL = 'plune-conformance-no-such-tool';
 
@@ -106,14 +107,14 @@ const outputSchemaValid: ConformanceCheck = async (ctx) => {
   return schemaOutcome(r, 'outputSchemas', 'Make every outputSchema a valid JSON Schema in its dialect, with type: "object" at the root before 2026-07-28.');
 };
 
-interface Called {
+export interface Called {
   call: FixtureCall;
   tool: Record<string, unknown> | undefined;
   answer: Answer | undefined;
 }
 
 /** The --fixture calls, each made once per run; a tool the server does not list is not called. */
-function fixtureCalls(ctx: ConformanceContext, list: unknown[]): Promise<Called[]> {
+export function fixtureCalls(ctx: ConformanceContext, list: unknown[]): Promise<Called[]> {
   return ctx.memo('fixture calls', async () => {
     const out: Called[] = [];
     for (const c of ctx.fixture ?? []) {
@@ -121,7 +122,16 @@ function fixtureCalls(ctx: ConformanceContext, list: unknown[]): Promise<Called[
       out.push({
         call: c,
         tool,
-        answer: tool === undefined ? undefined : await call(ctx, 'tools/call', { name: c.tool, arguments: c.arguments }),
+        answer:
+          tool === undefined
+            ? undefined
+            : await call(
+                ctx,
+                'tools/call',
+                { name: c.tool, arguments: c.arguments },
+                // A modern client over HTTP mirrors the x-mcp-header parameters into Mcp-Param headers.
+                ctx.era === 'modern' && ctx.transport === 'http' ? { headers: paramHeaders(tool, c.arguments) } : undefined,
+              ),
       });
     }
     return out;

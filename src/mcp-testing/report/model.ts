@@ -6,7 +6,7 @@
  */
 
 import type { CheckClass, CheckLevel, CheckState } from '../result.js';
-import type { McpCheckReport, McpConformanceReport, McpDiffReport, McpReport } from '../result.js';
+import type { McpCheckReport, McpConformanceReport, McpConformanceReportSet, McpDiffReport, McpReport } from '../result.js';
 
 /** One check of one target, as every format reads it. */
 export interface ReportCheck {
@@ -38,7 +38,7 @@ export type McpCommand = 'lint' | 'check' | 'diff' | 'conformance';
 export interface McpRun {
   command: McpCommand;
   /** The command's own document: what `json` prints. */
-  document: McpReport | McpCheckReport | McpDiffReport | McpConformanceReport;
+  document: McpReport | McpCheckReport | McpDiffReport | McpConformanceReport | McpConformanceReportSet;
   /**
    * The fixed set of JUnit cases, the same on every run of the command with the same flags, whatever the server says.
    * Empty when nothing was measured: the report then holds one `run` case that could not run. `suite` (conformance)

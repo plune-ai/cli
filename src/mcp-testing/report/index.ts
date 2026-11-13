@@ -8,11 +8,12 @@
 import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { UsageError } from '../connect/options.js';
-import type { McpCheckReport, McpConformanceReport, McpDiffReport, McpReport } from '../result.js';
+import type { McpCheckReport, McpConformanceReport, McpConformanceReportSet, McpDiffReport, McpReport } from '../result.js';
 import { markdownCell } from '../snapshot/index.js';
 import {
   checkHuman,
   conformanceHuman,
+  conformanceSetHuman,
   diffHuman,
   diffMarkdown,
   lintHuman,
@@ -24,7 +25,7 @@ import type { ReportFormat, ReportOutputs } from './options.js';
 
 export * from './model.js';
 export * from './options.js';
-export { checkRun, conformanceRun, diffRun, lintRun } from './runs.js';
+export { checkRun, conformanceRun, conformanceSetRun, diffRun, lintRun } from './runs.js';
 
 const firstLine = (text: string) => text.split(/\r?\n/)[0] ?? '';
 
@@ -115,7 +116,9 @@ export function render(run: McpRun, format: ReportFormat): string {
           : run.command === 'check'
             ? checkHuman(run.document as McpCheckReport)
             : run.command === 'conformance'
-              ? conformanceHuman(run.document as McpConformanceReport)
+              ? run.document.kind === 'mcp-conformance-report-set'
+                ? conformanceSetHuman(run.document as McpConformanceReportSet)
+                : conformanceHuman(run.document as McpConformanceReport)
               : diffHuman(run.document as McpDiffReport),
       );
     case 'markdown':
