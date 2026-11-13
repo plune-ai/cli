@@ -970,6 +970,47 @@ and, per check, `class`, `level`, `state`, `reason`, `expected`, `actual`, `fix`
 checks, `details` (each request with its method, URL and headers, and the status, headers, body, number of SSE events
 and time of its answer, secrets masked).
 
+### The oauth suite
+
+`--suite oauth --url <endpoint>` asks an HTTP server the way a client with no credentials would: it needs no handshake,
+so a server that answers every request with 401 is the normal case. It runs once for each revision it covers (2025-11-25
+and 2026-07-28, or the one `--protocol-version` names) and prints one report each. A server that answers a request without
+a token with 2xx is public: every check is `not-applicable` (`no-auth`). The suite cannot be combined with another
+suite in one run yet. Its checks are outside the frozen profile, so they count for nothing in the score until a new
+profile version lists them. **A run of this suite therefore always ends with exit code 3 ("conformance is not
+established"), even when a check failed: read the list of checks, not the exit code.**
+
+`--header` and `--header-env` are not used by this suite: it sends no value from them, to the server or anywhere else.
+
+It checks the 401 and its `WWW-Authenticate` challenge, the protected resource metadata (RFC 9728, by `resource_metadata`
+or the well-known URI), the authorization server's metadata (RFC 8414 and OpenID Connect Discovery, in the order of the
+specification), PKCE, HTTPS, `iss`, Client ID Metadata Documents, a token the server never issued, and a token issued for
+another resource (`oauth-neg-wrong-audience`). Each id, its level and the section it cites is in `--list-checks --suite oauth`.
+
+| Flag | Meaning |
+|------|---------|
+| `--config <file>` | A JSON file: `auth`, `registration`, `scopes`, `resource`, `protocolVersions`. A secret is never a value in it: `registration.clientSecretEnv` names the environment variable that holds the client secret, and a file with a key that names a secret is refused. |
+| `--allow-origin <origin>` | Ask this origin too. Without it, a `resource_metadata` URL or an authorization server on another origin than the server's is not asked, and the check is `could-not-run` (`needs-input`). It is also the only way the client secret leaves the run: the secret is sent only to a token endpoint whose origin is named here (the server's own origin included), and only over https, or http on a loopback name. Repeatable. |
+
+`oauth-neg-wrong-audience` needs `"auth": "client-credentials"` and a preregistered client the authorization server accepts
+for that grant:
+
+```json
+{
+  "auth": "client-credentials",
+  "registration": { "method": "preregistered", "clientId": "my-test-client", "clientSecretEnv": "MCP_CLIENT_SECRET" },
+  "scopes": ["mcp:tools"]
+}
+```
+
+It asks for two tokens (one for the server itself, one for `https://other-resource.plune-conformance.invalid`) and
+**sends both to the server under test**, as `Authorization: Bearer`, so the server sees both. It passes only when the
+first gets a `2xx` and the second a `401`. A server that refuses the first, an authorization server that gives the
+same token for both, and a `429`, a `5xx` or a redirect on any of the requests prove nothing, and the check is then
+`could-not-run`. A token, a client secret or an `Authorization` value never reaches the output, `--out`
+files, JUnit or an error message. Not in this version: the browser and headless sign-in, registration (`dcr`, `cimd`),
+the checks of the authorization endpoint and of the token endpoint, and a result per registration method.
+
 ### Exit codes
 
 | Exit | Meaning |
