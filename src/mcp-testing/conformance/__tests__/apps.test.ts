@@ -370,6 +370,22 @@ describe('CLI · mcp conformance · apps · after review', () => {
     expect(Date.now() - t0).toBeLessThan(500);
   });
 
+  it('a secret inside an address is masked before the address is cut, not left as a prefix', async () => {
+    const secret = 'Zq7vK2mXpL9wR4tY8nB3cD6fG1hJ5sA0eU2iO';
+    for (const format of ['json', 'human']) {
+      const { out, err, report } = await run('secret-uri', {
+        format,
+        env: [`APPS_SECRET=${secret}`],
+      });
+      const all = `${out}
+${err}`;
+      expect(all, format).toContain('apps-ui-resource-uri-scheme');
+      if (format === 'json') expect(states(report)['apps-ui-resource-uri-scheme']).toBe('failed');
+      for (let i = 0; i + 8 <= secret.length; i++)
+        expect(all, `${format} ${i}`).not.toContain(secret.slice(i, i + 8));
+    }
+  });
+
   it('the visibility quote is the saved text, character for character', () => {
     const e = APPS.find((x) => x.id === 'apps-ui-visibility-values');
     expect(e?.derivation).toContain('`"model"`: Tool is visible to and callable by the agent');
