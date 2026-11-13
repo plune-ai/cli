@@ -26,6 +26,7 @@ import { parseScanExceptions } from '../../mcp-testing/scan/exceptions.js';
 import { parseProbeFile } from '../../mcp-testing/scan/probes/file.js';
 import { DEFAULT_MAX_CALLS, DEFAULT_MAX_REQUESTS } from '../../mcp-testing/scan/probes/guard.js';
 import { isThisMachine } from '../../mcp-testing/scan/probes/local.js';
+import { openProbeJournal } from '../../mcp-testing/scan/probes/journal.js';
 import { runProbes, type ProbeRunOptions } from '../../mcp-testing/scan/probes/runner.js';
 import { GROUPS, renderScan, type FailOn, type ScanGroup } from '../../mcp-testing/scan/report.js';
 import { ALL_RULES, runScan, type ScanSnapshot } from '../../mcp-testing/scan/run.js';
@@ -58,6 +59,8 @@ export interface McpScanFlags extends ConnectionFlags, ReportFlags {
   yes?: boolean;
   maxCalls?: string;
   maxRequests?: string;
+  /** `--journal`: every frame and answer of the probes, one JSON line each, with no secret and no body. */
+  journal?: string;
   tokenEnv?: string;
   otherTokenEnv?: string;
 }
@@ -194,11 +197,12 @@ async function scan(flags: McpScanFlags, server: string[], io: ScanIo): Promise<
     flags.yes === true ||
     flags.maxCalls !== undefined ||
     flags.maxRequests !== undefined ||
+    flags.journal !== undefined ||
     flags.tokenEnv !== undefined ||
     flags.otherTokenEnv !== undefined
   )
     throw new UsageError(
-      '--probes, --confirm-host, --yes, --max-calls, --max-requests, --token-env and --other-token-env are for --active; nothing is sent without it.',
+      '--probes, --confirm-host, --yes, --max-calls, --max-requests, --journal, --token-env and --other-token-env are for --active; nothing is sent without it.',
     );
 
   // snapshots: files named by the user, and at most one live server
@@ -457,6 +461,9 @@ function planProbes(
     ...(flags.confirmHost === undefined ? {} : { confirmHost: flags.confirmHost }),
     maxCalls: count('--max-calls', flags.maxCalls, DEFAULT_MAX_CALLS),
     maxRequests: count('--max-requests', flags.maxRequests, DEFAULT_MAX_REQUESTS),
+    ...(flags.journal === undefined
+      ? {}
+      : { journal: openProbeJournal(resolve(io.cwd, flags.journal)) }),
     timeoutMs: config?.timeoutMs ?? 30_000,
   };
 }

@@ -12,6 +12,8 @@ import {
   type Reply,
 } from './guard.js';
 import { httpTransport } from './http.js';
+import type { ProbeJournal } from './journal.js';
+import { LEAK_PATTERNS, errorTextOf, findLeak } from './leak.js';
 import { isThisMachine } from './local.js';
 import type { ProbeEntry, ProbeReason, ProbeRow } from './types.js';
 
@@ -23,6 +25,9 @@ import type { ProbeEntry, ProbeReason, ProbeRow } from './types.js';
  * body or an argument value.
  */
 
+/** The rule of a malformed probe (`malformed: true`): not a rule of an `as`, so it is not in the map below. */
+export const LEAK_RULE = 'scan/probe/error-detail-leak';
+
 export const PROBE_RULE_OF = {
   none: 'scan/probe/unauthenticated-call',
   garbage: 'scan/probe/garbage-token-accepted',
@@ -30,10 +35,10 @@ export const PROBE_RULE_OF = {
 } as const;
 
 export interface ProbeFinding {
-  rule: (typeof PROBE_RULE_OF)[keyof typeof PROBE_RULE_OF];
+  rule: (typeof PROBE_RULE_OF)[keyof typeof PROBE_RULE_OF] | typeof LEAK_RULE;
   id: string;
   tool: string;
-  severity: 'error' | 'info';
+  severity: 'error' | 'info' | 'advice';
   message: string;
 }
 
@@ -55,6 +60,8 @@ export interface ProbeRunOptions {
   maxCalls?: number;
   maxRequests?: number;
   timeoutMs: number;
+  /** Where the frames and answers are written (`--journal`), opened before anything is sent. */
+  journal?: ProbeJournal;
   /** The line "probes will go to ..." goes here, before the first frame. */
   announce: (line: string) => void;
 }
@@ -67,6 +74,7 @@ const REASON_OF: Record<Refusal, ProbeReason> = {
   budget: 'budget',
   'transport-stopped': 'transport-stopped',
   destructive: 'destructive',
+  'journal-failed': 'journal-failed',
   undeclared: 'inconclusive',
   'tools-unknown': 'inconclusive',
 };
@@ -75,7 +83,7 @@ type Decision =
   /** HTTP 401 or 403: the only answer that is a refusal by itself. */
   | { kind: 'refused' }
   /** A JSON-RPC error: the server did not run it, but nothing says why. */
-  | { kind: 'rpc-error' }
+  | { kind: 'rpc-error'; message: unknown }
   | { kind: 'ok'; message: unknown; sessionId?: string }
   | { kind: 'inconclusive' };
 
@@ -89,7 +97,7 @@ function decide(reply: Reply, expectMessage: boolean): Decision {
   const message = reply.message as { error?: unknown; result?: unknown } | undefined;
   if (message === undefined) return { kind: 'inconclusive' };
   // The code and the text of an error are not read: whether it is about authorization is not guessed.
-  if (message.error !== undefined) return { kind: 'rpc-error' };
+  if (message.error !== undefined) return { kind: 'rpc-error', message };
   // "Ran" is a result that is an object. An answer with neither a result nor an error, or a result that is not an
   // object, is not a run and not a refusal: it decides nothing.
   if (
@@ -110,8 +118,11 @@ function decide(reply: Reply, expectMessage: boolean): Decision {
 type Attempt =
   | { kind: 'allowed' }
   | { kind: 'http-refused'; step: string }
-  /** A JSON-RPC error or `isError` on the declared call itself: a refusal only if a control proves the call can run. */
-  | { kind: 'errored' }
+  /**
+   * A JSON-RPC error or `isError` on the declared call itself: a refusal only if a control proves the call can run.
+   * `text` is the text of the error, for the leak patterns; it is never stored or printed.
+   */
+  | { kind: 'errored'; text: string }
   | { kind: 'not-run'; reason: ProbeReason };
 
 const notRun = (e: ProbeEntry, reason: ProbeReason): ProbeRow => ({
@@ -125,6 +136,14 @@ const notRun = (e: ProbeEntry, reason: ProbeReason): ProbeRow => ({
 });
 
 export async function runProbes(opts: ProbeRunOptions): Promise<ProbeSection> {
+  try {
+    return await runProbesWith(opts);
+  } finally {
+    opts.journal?.close?.();
+  }
+}
+
+async function runProbesWith(opts: ProbeRunOptions): Promise<ProbeSection> {
   const section: ProbeSection = { rows: [], findings: [], calls: 0, requests: 0, metadata: null };
   const all = (reason: ProbeReason) => {
     section.rows =
@@ -176,7 +195,20 @@ export async function runProbes(opts: ProbeRunOptions): Promise<ProbeSection> {
       maxRequests: opts.maxRequests ?? DEFAULT_MAX_REQUESTS,
     },
     httpTransport(target.url, redact, opts.timeoutMs),
+    opts.journal,
   );
+  opts.journal?.bind?.(redact);
+  try {
+    opts.journal?.record({
+      dir: 'meta',
+      url: maskUrl(target.url),
+      maxCalls: opts.maxCalls ?? DEFAULT_MAX_CALLS,
+      maxRequests: opts.maxRequests ?? DEFAULT_MAX_REQUESTS,
+      probes: opts.entries.length,
+    });
+  } catch {
+    return all('journal-failed');
+  }
 
   const meta = await guard.send({ type: 'discovery' });
   if (meta.sent)
@@ -201,7 +233,8 @@ export async function runProbes(opts: ProbeRunOptions): Promise<ProbeSection> {
       // Before the call, any failure but 401/403 says nothing about the call: it is not run.
       if (d.kind === 'inconclusive' || (d.kind === 'rpc-error' && name !== 'tools/call'))
         return { stop: { kind: 'not-run', reason: 'inconclusive' } };
-      if (d.kind === 'rpc-error') return { stop: { kind: 'errored' } };
+      if (d.kind === 'rpc-error')
+        return { stop: { kind: 'errored', text: errorTextOf(d.message) } };
       return { ok: d };
     };
     const init = await step(
@@ -250,11 +283,15 @@ export async function runProbes(opts: ProbeRunOptions): Promise<ProbeSection> {
       );
     }
     if (!listed.has(entry.tool)) return { kind: 'not-run', reason: 'tool-missing' };
+    // A malformed probe sends the derived arguments; the wrapper allows exactly those for it.
+    const args =
+      entry.malformed === true ? guard.malformedArgumentsFor(entry.tool) : entry.arguments;
+    if (args === undefined) return { kind: 'not-run', reason: 'no-schema' };
     const call = await step(
       {
         type: 'rpc',
         method: 'tools/call',
-        params: { name: entry.tool, arguments: entry.arguments },
+        params: { name: entry.tool, arguments: args },
         probe: entry.id,
         credential,
         ...withSession,
@@ -264,7 +301,7 @@ export async function runProbes(opts: ProbeRunOptions): Promise<ProbeSection> {
     );
     if ('stop' in call) return call.stop;
     return (call.ok.message as { isError?: unknown } | undefined)?.isError === true
-      ? { kind: 'errored' }
+      ? { kind: 'errored', text: errorTextOf(call.ok.message) }
       : { kind: 'allowed' };
   }
 
@@ -309,6 +346,35 @@ ${canonical(e.arguments)}`;
     const got = await attempt(entry, credential);
     if (got.kind === 'not-run') {
       section.rows.push(notRun(entry, got.reason));
+      continue;
+    }
+    if (entry.malformed === true) {
+      // No expectation and no control: the answer is searched for the patterns, and the row says what was found.
+      const base = { id: entry.id, tool: entry.tool, as: entry.as, expect: 'none' } as const;
+      if (got.kind === 'http-refused') {
+        section.rows.push({
+          ...base,
+          answer: 'refused',
+          refusedAt: got.step,
+          outcome: 'as-expected',
+        });
+        continue;
+      }
+      const hit = got.kind === 'errored' ? findLeak(got.text) : undefined;
+      section.rows.push({
+        ...base,
+        answer: got.kind === 'errored' ? 'refused' : 'allowed',
+        outcome: 'as-expected',
+        note: hit === undefined ? 'no pattern matched' : `pattern ${hit}`,
+      });
+      if (hit !== undefined)
+        section.findings.push({
+          rule: LEAK_RULE,
+          id: entry.id,
+          tool: entry.tool,
+          severity: 'advice',
+          message: `${entry.tool}: invalid arguments answered with ${LEAK_PATTERNS.find((p) => p.id === hit)!.what} (pattern ${hit}) (advice)`,
+        });
       continue;
     }
     const expect = entry.expect ?? 'none';

@@ -13,7 +13,7 @@ export const MAX_PROBE_FILE_BYTES = 256 * 1024;
 export const MAX_PROBES = 64;
 const MAX_ARGUMENT_BYTES = 16 * 1024;
 const ID = /^[A-Za-z0-9._-]{1,64}$/;
-const KEYS = new Set(['id', 'tool', 'arguments', 'as', 'expect', 'allowDestructive']);
+const KEYS = new Set(['id', 'tool', 'arguments', 'as', 'expect', 'allowDestructive', 'malformed']);
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -67,6 +67,13 @@ export function parseProbeFile(text: string, name: string): ProbeEntry[] {
     const destructive = raw['allowDestructive'];
     if (destructive !== undefined && typeof destructive !== 'boolean')
       return bad(`${at} (${id}): allowDestructive must be true or false.`);
+    const malformed = raw['malformed'];
+    if (malformed !== undefined && typeof malformed !== 'boolean')
+      return bad(`${at} (${id}): malformed must be true or false.`);
+    if (malformed === true && (as !== 'account-a' || expect !== undefined))
+      return bad(
+        `${at} (${id}): a malformed probe is sent as account-a and takes no expect; its arguments are derived from the tool, not read from the file.`,
+      );
     entries.push({
       id,
       tool,
@@ -74,6 +81,7 @@ export function parseProbeFile(text: string, name: string): ProbeEntry[] {
       as: as as ProbeAs,
       ...(expect === undefined ? {} : { expect: expect as ProbeExpect }),
       ...(destructive === true ? { allowDestructive: true } : {}),
+      ...(malformed === true ? { malformed: true } : {}),
     });
   });
   return entries;
