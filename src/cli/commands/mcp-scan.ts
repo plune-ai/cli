@@ -23,6 +23,10 @@ import {
 } from '../../mcp-testing/report/index.js';
 import { MAX_FILE_BYTES, safe, type ConfigFile } from '../../mcp-testing/scan/config/config.js';
 import { parseScanExceptions } from '../../mcp-testing/scan/exceptions.js';
+import { parseProbeFile } from '../../mcp-testing/scan/probes/file.js';
+import { DEFAULT_MAX_CALLS, DEFAULT_MAX_REQUESTS } from '../../mcp-testing/scan/probes/guard.js';
+import { isThisMachine } from '../../mcp-testing/scan/probes/local.js';
+import { runProbes, type ProbeRunOptions } from '../../mcp-testing/scan/probes/runner.js';
 import { GROUPS, renderScan, type FailOn, type ScanGroup } from '../../mcp-testing/scan/report.js';
 import { ALL_RULES, runScan, type ScanSnapshot } from '../../mcp-testing/scan/run.js';
 import {
@@ -48,6 +52,14 @@ export interface McpScanFlags extends ConnectionFlags, ReportFlags {
   saveSnapshot?: string;
   allowHost?: string[];
   allowPackage?: string[];
+  /** Active probes (`--active`): the probe file, the consent, the budgets and the names of the variables with the tokens. */
+  probes?: string;
+  confirmHost?: string;
+  yes?: boolean;
+  maxCalls?: string;
+  maxRequests?: string;
+  tokenEnv?: string;
+  otherTokenEnv?: string;
 }
 
 export interface ScanIo extends SnapshotIo {
@@ -172,6 +184,22 @@ async function scan(flags: McpScanFlags, server: string[], io: ScanIo): Promise<
   const only = groupsOf('--only', flags.only);
   const skip = groupsOf('--skip', flags.skip);
   const live = flags.url !== undefined || server.length > 0;
+
+  // The active probes are planned first: a bad probe file, token or budget is a usage error before any connection.
+  let plan: Omit<ProbeRunOptions, 'announce'> | undefined;
+  if (flags.active === true) plan = planProbes(flags, server, io);
+  else if (
+    flags.probes !== undefined ||
+    flags.confirmHost !== undefined ||
+    flags.yes === true ||
+    flags.maxCalls !== undefined ||
+    flags.maxRequests !== undefined ||
+    flags.tokenEnv !== undefined ||
+    flags.otherTokenEnv !== undefined
+  )
+    throw new UsageError(
+      '--probes, --confirm-host, --yes, --max-calls, --max-requests, --token-env and --other-token-env are for --active; nothing is sent without it.',
+    );
 
   // snapshots: files named by the user, and at most one live server
   const snapshots: ScanSnapshot[] = [];
@@ -331,6 +359,11 @@ async function scan(flags: McpScanFlags, server: string[], io: ScanIo): Promise<
       '--pin-file compares a server with the file: give --snapshot <file> or a live server too.',
     );
 
+  const probes =
+    plan === undefined
+      ? undefined
+      : await runProbes({ ...plan, announce: (line) => io.err(`plune mcp scan: ${line}\n`) });
+
   const report = runScan(
     {
       snapshots,
@@ -341,6 +374,7 @@ async function scan(flags: McpScanFlags, server: string[], io: ScanIo): Promise<
       ...(pin === undefined ? {} : { pin }),
       ...(pinProblem === undefined ? {} : { pinProblem }),
       active: flags.active === true,
+      ...(probes === undefined ? {} : { probes }),
       allowHosts: flags.allowHost ?? [],
       allowPackages: flags.allowPackage ?? [],
     },
@@ -366,4 +400,63 @@ async function scan(flags: McpScanFlags, server: string[], io: ScanIo): Promise<
   };
   writeReport(run, outputs, io);
   return report.exitCode;
+}
+
+/** A positive whole number from a flag. */
+function count(flag: string, value: string | undefined, fallback: number): number {
+  if (value === undefined) return fallback;
+  if (!/^\d{1,6}$/.test(value) || Number(value) < 1)
+    throw new UsageError(`${flag} must be a whole number of 1 or more.`);
+  return Number(value);
+}
+
+/** A token is read from the variable a flag names; unset and empty are both refused. */
+function token(flag: string, name: string | undefined, env: NodeJS.ProcessEnv): string | undefined {
+  if (name === undefined) return undefined;
+  const value = env[name];
+  if (value === undefined || value === '')
+    throw new UsageError(`${flag}: the variable ${name} is not set or is empty.`);
+  return value;
+}
+
+/** The active probes: the file, the consent, the tokens and the budgets in, the section of the report out. */
+function planProbes(
+  flags: McpScanFlags,
+  server: string[],
+  io: ScanIo,
+): Omit<ProbeRunOptions, 'announce'> {
+  const entries =
+    flags.probes === undefined
+      ? undefined
+      : parseProbeFile(readText(io.cwd, flags.probes, '--probes'), shown(io.cwd, flags.probes));
+  const live = flags.url !== undefined || server.length > 0;
+  const config = live ? connectionConfig(flags, server, io.env) : undefined;
+  const tokens = {
+    ...(flags.tokenEnv === undefined
+      ? {}
+      : { accountA: token('--token-env', flags.tokenEnv, io.env)! }),
+    ...(flags.otherTokenEnv === undefined
+      ? {}
+      : { accountB: token('--other-token-env', flags.otherTokenEnv, io.env)! }),
+  };
+  const target = config?.target;
+  if (
+    Object.keys(tokens).length > 0 &&
+    target !== undefined &&
+    target.kind !== 'stdio' &&
+    new URL(target.url).protocol !== 'https:' &&
+    !isThisMachine(target.url)
+  )
+    throw new UsageError(
+      'A token goes only over https, or over http to this machine; this address is plain http to another host.',
+    );
+  return {
+    entries,
+    target,
+    tokens,
+    ...(flags.confirmHost === undefined ? {} : { confirmHost: flags.confirmHost }),
+    maxCalls: count('--max-calls', flags.maxCalls, DEFAULT_MAX_CALLS),
+    maxRequests: count('--max-requests', flags.maxRequests, DEFAULT_MAX_REQUESTS),
+    timeoutMs: config?.timeoutMs ?? 30_000,
+  };
 }

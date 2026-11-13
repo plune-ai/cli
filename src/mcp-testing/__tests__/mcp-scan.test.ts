@@ -164,7 +164,7 @@ describe('CLI · mcp scan · exit codes · what was found, its level, whether it
       .filter(
         (c) =>
           c[4] === 'yes' &&
-          ['MCP-G2', 'MCP-G3', 'MCP-G4'].includes(c[6]!) &&
+          ['MCP-G2', 'MCP-G3', 'MCP-G4', 'MCP-G5'].includes(c[6]!) &&
           !['scan/pin/list-unstable', 'scan/pin/differs-between-sessions'].includes(c[1]!),
       )
       .map((c) => c[1]!)
@@ -672,7 +672,7 @@ describe('CLI · mcp scan · reports', () => {
     );
     expect(out).toContain('<failure type="error"');
     expect(out).toMatch(/<skipped type="advisory"/);
-    expect(out).toMatch(/<skipped type="not-evaluated" message="not evaluated: active probes/);
+    expect(out).toMatch(/<skipped type="not-evaluated" message="not evaluated: no probe file/);
     expect(out).toMatch(
       /<testcase classname="mcp\.scan\.descriptions" name="scan\/desc\/html-comment [^"]*"\/>/,
     );
