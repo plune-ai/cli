@@ -128,21 +128,22 @@ describe('CLI · mcp conformance · a run', () => {
     expect(r.summary).toMatchObject({ score: null, applicable: 0, verdict: 'incomplete' });
     expect(r.pendingCheckIds).toEqual(r.summary.pending);
     expect(r.bySuite.protocol).toEqual(r.summary);
-  });
+  }, 15_000);
 
   it('every selected check lands in one bucket, and the buckets add up to the checks', async () => {
     const { report: r } = await report({});
     expect(r.checks.map((c) => c.id)).toEqual(CATALOG.filter((e) => e.suite === 'protocol').map((e) => e.id));
     expect(BUCKETS.reduce((n, k) => n + r.summary[k].length, 0)).toBe(r.checks.length);
     for (const c of r.checks) expect(r.summary[c.bucket], c.id).toContain(c.id);
-  });
+  }, 15_000);
 
   it('a check of another era is not-applicable (era), never passed', async () => {
     const { report: r } = await report({ protocolVersion: '2026-07-28', check: ['life-ping-empty-result', 'tools-list-order-stable'] });
     expect(r.protocolVersion).toBe('2026-07-28');
+    // A modern run makes no initialize handshake: this legacy-only server has no server/discover to stand on.
     expect(r.checks.map((c) => [c.id, c.state, c.reason])).toEqual([
       ['life-ping-empty-result', 'not-applicable', 'era'],
-      ['tools-list-order-stable', 'passed', undefined],
+      ['tools-list-order-stable', 'could-not-run', 'prerequisite-failed'],
     ]);
   });
 

@@ -254,7 +254,7 @@ async function listAll(session: Session, method: string, key: string): Promise<u
  * The whole text or nothing: written to a temporary file beside the target, then renamed over it. A failure removes
  * the temporary file and leaves the target as it was.
  */
-function writeAtomically(path: string, text: string, shown: string): void {
+export function writeAtomically(path: string, text: string, shown: string, flag = '--out'): void {
   const temporary = join(
     dirname(path),
     `.${basename(path)}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`,
@@ -265,6 +265,6 @@ function writeAtomically(path: string, text: string, shown: string): void {
   } catch (err) {
     rmSync(temporary, { force: true });
     const code = (err as NodeJS.ErrnoException).code ?? 'an error';
-    throw new UsageError(`--out: could not write ${shown} (${code}).`);
+    throw new UsageError(`${flag}: could not write ${shown} (${code}).`);
   }
 }

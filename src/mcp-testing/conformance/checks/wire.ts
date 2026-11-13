@@ -4,13 +4,15 @@
  * in their usual words.
  */
 
-import type { RawReply } from '../../connect/session.js';
+import type { RawOptions, RawReply } from '../../connect/session.js';
 import type { CheckOutcome } from '../outcome.js';
 import type { ConformanceContext } from './index.js';
+import { modernMeta } from './modern/meta.js';
 
+/** `status`: the HTTP status the answer came with (Streamable HTTP only). */
 export type Answer =
-  | { kind: 'result'; result: Record<string, unknown>; frame: Record<string, unknown> }
-  | { kind: 'error'; code: unknown; message: string; frame: Record<string, unknown> }
+  | { kind: 'result'; result: Record<string, unknown>; frame: Record<string, unknown>; status?: number }
+  | { kind: 'error'; code: unknown; message: string; frame: Record<string, unknown>; status?: number }
   /** No JSON-RPC answer: an HTTP error page, or a frame with neither a result object nor an error object. */
   | { kind: 'other'; text: string; status?: number };
 
@@ -23,25 +25,47 @@ export const nextId = (): string => `plune-conformance-${++counter}`;
 
 export function answerOf(reply: RawReply): Answer {
   const f = reply.frame;
+  const status = reply.status !== undefined ? { status: reply.status } : {};
   if (f !== undefined) {
     const error = f['error'];
     if (isObject(error))
-      return { kind: 'error', code: error['code'], message: typeof error['message'] === 'string' ? error['message'] : '', frame: f };
+      return { kind: 'error', code: error['code'], message: typeof error['message'] === 'string' ? error['message'] : '', frame: f, ...status };
     const result = f['result'];
-    if (isObject(result)) return { kind: 'result', result, frame: f };
+    if (isObject(result)) return { kind: 'result', result, frame: f, ...status };
   }
-  return { kind: 'other', text: reply.text, ...(reply.status !== undefined ? { status: reply.status } : {}) };
+  return { kind: 'other', text: reply.text, ...status };
 }
 
-/** One request, as written here, over stdio or one POST. A server that does not answer rejects with a ConnectError. */
+/** The params of a request in the run's era: in the modern era with the per-request `_meta` (basic/index, `_meta`). */
+export function eraParams(ctx: ConformanceContext, params?: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (ctx.era !== 'modern') return params;
+  const given = params?.['_meta'];
+  return { ...params, _meta: { ...modernMeta(ctx.protocolVersion ?? '2026-07-28'), ...(isObject(given) ? given : {}) } };
+}
+
+/**
+ * One request, as written here, over stdio or one POST, with the `_meta` of the modern era. A server that does not
+ * answer rejects with a ConnectError.
+ */
 export async function call(
   ctx: ConformanceContext,
   method: string,
   params?: Record<string, unknown>,
+  options?: RawOptions,
+): Promise<Answer> {
+  return callAsIs(ctx, method, eraParams(ctx, params), options);
+}
+
+/** One request with its params exactly as given: no `_meta` is added, so a probe can leave a field out. */
+export async function callAsIs(
+  ctx: ConformanceContext,
+  method: string,
+  params?: Record<string, unknown>,
+  options?: RawOptions,
 ): Promise<Answer> {
   const id = nextId();
   const message = { jsonrpc: '2.0', id, method, ...(params === undefined ? {} : { params }) };
-  return answerOf(await ctx.session.raw(JSON.stringify(message), id));
+  return answerOf(await ctx.session.raw(JSON.stringify(message), id, options));
 }
 
 /** What an answer was, in a few words, for `actual`. */
@@ -52,11 +76,20 @@ export function said(a: Answer): string {
   return `no JSON-RPC answer${status}${a.text === '' ? '' : `: ${a.text.slice(0, 160)}`}`;
 }
 
-/** The capabilities of the initialize result, as sent ({} when there are none to read). */
+/** The capabilities of the initialize result, or of server/discover in the modern era, as sent ({} when none). */
 export function capabilities(ctx: ConformanceContext): Record<string, unknown> {
-  const result = ctx.session.handshake.result;
+  const result = ctx.era === 'modern' ? (ctx.discover?.kind === 'result' ? ctx.discover.result : undefined) : ctx.session.handshake.result;
   return isObject(result) && isObject(result['capabilities']) ? result['capabilities'] : {};
 }
+
+/** The revisions server/discover named in a modern run; empty when it named none. */
+export function supportedVersions(ctx: ConformanceContext): string[] {
+  const v = ctx.discover?.kind === 'result' ? ctx.discover.result['supportedVersions'] : undefined;
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+}
+
+/** A modern server that serves the legacy era as well: server/discover names a revision before 2026-07-28. */
+export const dualEra = (ctx: ConformanceContext): boolean => supportedVersions(ctx).some((v) => v < '2026-07-28');
 
 export const declares = (ctx: ConformanceContext, name: string): boolean => {
   const value = capabilities(ctx)[name];
@@ -88,6 +121,8 @@ export interface Walk {
   items: unknown[];
   /** Each page's items, in order. */
   pages: unknown[][];
+  /** Each page's result as the server sent it. */
+  results: Record<string, unknown>[];
   /** nextCursor was absent on the last page read. */
   ended: boolean;
   repeatedCursor: boolean;
@@ -100,7 +135,7 @@ export interface Walk {
 /** Every page of a list, read once per run: the checks that read the list share it. */
 export function walk(ctx: ConformanceContext, method: string, field: string): Promise<Walk> {
   return ctx.memo(`walk ${method}`, async () => {
-    const w: Walk = { items: [], pages: [], ended: false, repeatedCursor: false };
+    const w: Walk = { items: [], pages: [], results: [], ended: false, repeatedCursor: false };
     const cursors = new Set<string>();
     let cursor: string | undefined;
     while (w.pages.length < PAGE_LIMIT) {
@@ -110,6 +145,7 @@ export function walk(ctx: ConformanceContext, method: string, field: string): Pr
       if (!Array.isArray(list))
         return { ...w, badPage: `page ${w.pages.length + 1} of ${method} has no ${field} list` };
       w.pages.push(list);
+      w.results.push(a.result);
       w.items.push(...list);
       const next = a.result['nextCursor'];
       if (next === undefined || next === null) return { ...w, ended: true };

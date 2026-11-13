@@ -6,7 +6,7 @@
  * their own and are kept last in the catalog.
  */
 
-import { ConnectError } from '../../connect/session.js';
+import { ConnectError, headerValue } from '../../connect/session.js';
 import { mediaTypeOf } from '../../../reporter-core/failure-detail.js';
 import type { CheckOutcome } from '../outcome.js';
 import {
@@ -21,14 +21,14 @@ import {
   type SseEvent,
 } from '../raw-http.js';
 import type { ConformanceCheck, ConformanceContext } from './index.js';
-import { failed, isObject, nextId, notOffered, passed, prerequisite } from './wire.js';
+import { CLIENT, modernMeta } from './modern/meta.js';
+import { dualEra, failed, isObject, nextId, notOffered, passed, prerequisite, some, supportedVersions } from './wire.js';
 
 const ACCEPT = 'application/json, text/event-stream';
 /** How long a stream is watched for its end once the response came on it. */
 export const LINGER_MS = 1000;
 /** The most the two GET streams of http-sse-no-broadcast are watched; they stop LINGER_MS after the call's answer. */
 export const BROADCAST_MS = 5000;
-const CLIENT = { name: 'plune-conformance', version: '1' };
 
 export function target(ctx: ConformanceContext): HttpTarget {
   if (ctx.http === undefined)
@@ -69,7 +69,7 @@ const answers = (data: string, id: string): Record<string, unknown> | undefined 
   return isObject(f) && f['id'] === id && ('result' in f || 'error' in f) ? f : undefined;
 };
 
-function frameOf(res: RawResponse, id: string): Record<string, unknown> | undefined {
+export function frameOf(res: RawResponse, id: string): Record<string, unknown> | undefined {
   if (isSse(res)) {
     for (const e of res.events) {
       const f = answers(e.data, id);
@@ -83,9 +83,9 @@ function frameOf(res: RawResponse, id: string): Record<string, unknown> | undefi
 
 /**
  * A JSON-RPC message as the run's era writes it. Legacy: the session id and the negotiated version as headers.
- * Modern: the version, client and capabilities in `_meta`, and the version and method as headers.
+ * Modern: the version, client and capabilities in `_meta`, and the version, method and name as headers.
  */
-function message(
+export function message(
   ctx: ConformanceContext,
   s: Pick<OwnSession, 'version' | 'sessionId'>,
   method: string,
@@ -99,14 +99,10 @@ function message(
   let p = params;
   if (ctx.era === 'modern') {
     headers.push(['MCP-Protocol-Version', s.version], ['Mcp-Method', method]);
-    p = {
-      ...params,
-      _meta: {
-        'io.modelcontextprotocol/protocolVersion': s.version,
-        'io.modelcontextprotocol/clientInfo': CLIENT,
-        'io.modelcontextprotocol/clientCapabilities': {},
-      },
-    };
+    const name = method === 'resources/read' ? params?.['uri'] : params?.['name'];
+    if (['tools/call', 'resources/read', 'prompts/get'].includes(method) && typeof name === 'string')
+      headers.push(['Mcp-Name', headerValue(name)]);
+    p = { ...params, _meta: modernMeta(s.version) };
   } else {
     if (s.sessionId !== undefined) headers.push(['Mcp-Session-Id', s.sessionId]);
     headers.push(['MCP-Protocol-Version', s.version]);
@@ -124,7 +120,7 @@ export function edited(req: RawRequest, set: HeaderList = [], drop: string[] = [
 /** One request in a session, read up to the event that answers it (and `lingerMs` beyond). */
 export async function ask(
   ctx: ConformanceContext,
-  s: OwnSession,
+  s: Pick<OwnSession, 'version' | 'sessionId'>,
   method: string,
   opts: { set?: HeaderList; drop?: string[]; params?: Record<string, unknown>; lingerMs?: number } = {},
 ): Promise<Asked> {
@@ -300,11 +296,11 @@ const getStreamOr405: ConformanceCheck = async (ctx) => {
 };
 
 const modernGetDelete405: ConformanceCheck = async (ctx) => {
-  if (ctx.session.handshake.result !== undefined)
+  if (dualEra(ctx))
     return {
       state: 'not-applicable',
       reason: 'era',
-      actual: 'The server answered initialize: it serves the legacy era as well (dual-era).',
+      actual: `server/discover names ${some(supportedVersions(ctx))}: the server serves the legacy era as well (dual-era).`,
     };
   const s = await session(ctx);
   if (isOutcome(s)) return s;

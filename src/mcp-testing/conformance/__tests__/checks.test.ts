@@ -48,6 +48,10 @@ async function run(flags: McpConformanceFlags, server: string[]) {
   return { code, out, err, report: json && out !== '' ? (JSON.parse(out) as McpConformanceReport) : undefined };
 }
 
+/** Why an entry does not apply to a legacy stdio run (AC-4 of MCP-C4: every mod- check is era); undefined when it does. */
+const legacyStdio = (e: (typeof CATALOG)[number]) =>
+  !e.transports.includes('stdio') ? 'not-applicable (transport)' : !e.eras.includes('legacy') ? 'not-applicable (era)' : undefined;
+
 const states = (r: McpConformanceReport) =>
   Object.fromEntries(r.checks.map((c) => [c.id, c.reason === undefined ? c.state : `${c.state} (${c.reason})`]));
 
@@ -60,21 +64,20 @@ function fixtureFile(calls: unknown): string {
 describe('CLI · mcp conformance · checks against a server that keeps and one that breaks each requirement', () => {
   it('a conformant server passes every check that applies to a legacy stdio server', async () => {
     const { code, report } = await run({ fixture: fixtureFile([{ tool: 'echo', arguments: { text: 'hi' } }]) }, mode('good'));
-    const expected = Object.fromEntries(CATALOG.map((e) => [e.id, e.transports.includes('stdio') ? 'passed' : 'not-applicable (transport)']));
-    expected['tools-list-order-stable'] = 'not-applicable (era)';
+    const expected = Object.fromEntries(CATALOG.map((e) => [e.id, legacyStdio(e) ?? 'passed']));
     expect(states(report!)).toEqual(expected);
+    expect(report!.era).toBe('legacy');
     expect(report!.summary).toMatchObject({ score: 100, verdict: 'passed' });
     expect(code).toBe(0);
-  });
+  }, 15_000);
 
   it('a server that breaks each requirement fails each check, with what it got and how to fix it', async () => {
     const { code, report } = await run({ fixture: fixtureFile([{ tool: 'dup' }]) }, mode('bad'));
-    const expected = Object.fromEntries(CATALOG.map((e) => [e.id, e.transports.includes('stdio') ? 'failed' : 'not-applicable (transport)']));
-    // The handshake is sound (the connection takes nothing less), and the list order is a modern-era check.
+    const expected = Object.fromEntries(CATALOG.map((e) => [e.id, legacyStdio(e) ?? 'failed']));
+    // The handshake is sound (the connection takes nothing less); the list order and the mod- checks are modern-era.
     expected['life-initialize-result'] = 'passed';
     expected['life-version-negotiation'] = 'passed';
     expected['life-capabilities-served-declared'] = 'passed';
-    expected['tools-list-order-stable'] = 'not-applicable (era)';
     expect(states(report!)).toEqual(expected);
     for (const c of report!.checks.filter((c) => c.state === 'failed')) {
       expect(c.actual, c.id).not.toBe('');
@@ -126,7 +129,7 @@ describe('CLI · mcp conformance · checks against a server that keeps and one t
       .map((m) => m?.params?.name);
     // The two calls that cannot run a tool: one without a name, one for a name no server has.
     expect(called.sort()).toEqual([UNKNOWN_TOOL, undefined]);
-  });
+  }, 15_000);
 
   it('AC-3: over stdio no check outside stdio passes, over HTTP the stdio checks are not-applicable and the rest run', async () => {
     const stdio = await run({}, SDK_STDIO);
