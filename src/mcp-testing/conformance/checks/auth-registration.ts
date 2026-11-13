@@ -67,7 +67,7 @@ const isReg = (
 
 // ---- the authorization endpoint, asked with a client_id only ----
 
-type Authorize =
+export type Authorize =
   | { kind: 'accepted'; status: number; detail: Exchange }
   /** The server refused the client itself: invalid_client, unauthorized_client, or an invalid_request that names it. */
   | { kind: 'refused'; status: number; error: string; detail: Exchange }
@@ -97,22 +97,48 @@ function judged(
     : { kind: 'unclear', status, error: error.slice(0, 60), detail };
 }
 
+/** The query and fragment values of a Location that the server issued: they are masked in every exchange. */
+const ISSUED_IN_REDIRECT = ['code', 'access_token', 'id_token', 'refresh_token', 'state'];
+/** The `state` this suite sends: echoing it back is not an issue. */
+const SENT_STATE = 'plune-conformance';
+function collectRedirectIssued(ctx: OauthContext, location: string | undefined, base: URL): void {
+  if (location === undefined) return;
+  let target: URL;
+  try {
+    target = new URL(location, base);
+  } catch {
+    return;
+  }
+  for (const params of [target.searchParams, new URLSearchParams(target.hash.slice(1))])
+    for (const key of ISSUED_IN_REDIRECT) {
+      const value = params.get(key);
+      if (value !== null && value.length >= 4 && value !== SENT_STATE) ctx.secrets.add(value);
+    }
+}
+
+/** Whether a Location is the redirect URI: the same scheme, host and path (an origin is "null" for a custom scheme). */
+function sameAddress(a: URL, b: URL): boolean {
+  if (a.origin !== 'null' || b.origin !== 'null')
+    return a.origin === b.origin && a.pathname === b.pathname;
+  return a.protocol === b.protocol && a.host === b.host && a.pathname === b.pathname;
+}
+
 /**
  * One authorization request with `clientId`, to the endpoint of the metadata. Only the client_id, the redirect URI and
  * a PKCE challenge go: no secret. A redirect is read, never followed: one to the redirect URI with no error is
  * `accepted`; one to anywhere else is `page` (a sign-in).
  */
-async function authorize(
+export async function authorize(
   ctx: OauthContext,
   endpoint: string,
   clientId: string,
   redirectUri: string,
-): Promise<Authorize> {
+): Promise<Authorize & { toRedirectUri: boolean }> {
   const url = new URL(endpoint);
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('client_id', clientId);
   url.searchParams.set('redirect_uri', redirectUri);
-  url.searchParams.set('state', 'plune-conformance');
+  url.searchParams.set('state', SENT_STATE);
   url.searchParams.set('code_challenge', 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM');
   url.searchParams.set('code_challenge_method', 'S256');
   url.searchParams.set('resource', ctx.config.resource ?? ctx.url);
@@ -120,40 +146,46 @@ async function authorize(
     method: 'GET',
     headers: [['Accept', 'text/html, application/json']],
   });
-  const d = detail();
   const { status } = res;
   const location = res.headers.find(([n]) => n.toLowerCase() === 'location')?.[1];
+  // Before the exchange is written down: what a redirect carries is issued by the server, and a code is as good as a token.
+  collectRedirectIssued(ctx, location, url);
+  const d = detail();
   if (transient(status) && !(status >= 300 && status < 400 && location !== undefined))
-    return { kind: 'transient', status, detail: d };
+    return { kind: 'transient', status, detail: d, toRedirectUri: false };
   if (status >= 300 && status < 400) {
     let target: URL;
     try {
       target = new URL(location ?? '', url);
     } catch {
-      return { kind: 'unclear', status, error: undefined, detail: d };
+      return { kind: 'unclear', status, error: undefined, detail: d, toRedirectUri: false };
     }
-    const fragment = new URLSearchParams(target.hash.slice(1));
-    const error = target.searchParams.get('error') ?? fragment.get('error');
-    if (error !== null)
-      return judged(
-        status,
-        error,
-        target.searchParams.get('error_description') ?? fragment.get('error_description'),
-        d,
-      );
     let expected: URL | undefined;
     try {
       expected = new URL(redirectUri);
     } catch {
       expected = undefined;
     }
-    return expected !== undefined &&
-      target.origin === expected.origin &&
-      target.pathname === expected.pathname
-      ? { kind: 'accepted', status, detail: d }
-      : { kind: 'page', status, detail: d };
+    // Compared as URLs, by origin and path: a redirect URI that only appears in a parameter of another address is not it.
+    const landed = expected !== undefined && sameAddress(target, expected);
+    const fragment = new URLSearchParams(target.hash.slice(1));
+    const error = target.searchParams.get('error') ?? fragment.get('error');
+    if (error !== null)
+      return {
+        ...judged(
+          status,
+          error,
+          target.searchParams.get('error_description') ?? fragment.get('error_description'),
+          d,
+        ),
+        toRedirectUri: landed,
+      };
+    return landed
+      ? { kind: 'accepted', status, detail: d, toRedirectUri: true }
+      : { kind: 'page', status, detail: d, toRedirectUri: false };
   }
-  if (status >= 200 && status < 300) return { kind: 'page', status, detail: d };
+  if (status >= 200 && status < 300)
+    return { kind: 'page', status, detail: d, toRedirectUri: false };
   let error: string | undefined;
   let description: string | undefined;
   try {
@@ -165,10 +197,10 @@ async function authorize(
   } catch {
     error = undefined;
   }
-  return judged(status, error, description, d);
+  return { ...judged(status, error, description, d), toRedirectUri: false };
 }
 
-const said = (a: { status: number; error?: string | undefined }): string =>
+export const said = (a: { status: number; error?: string | undefined }): string =>
   `HTTP ${a.status}${a.error === undefined ? '' : `, ${a.error}`}`;
 
 interface Endpoint {
@@ -177,7 +209,7 @@ interface Endpoint {
 }
 
 /** The metadata and its authorization endpoint, or the outcome of a check that cannot start from them. */
-async function authorizationEndpoint(ctx: OauthContext): Promise<Endpoint | CheckOutcome> {
+export async function authorizationEndpoint(ctx: OauthContext): Promise<Endpoint | CheckOutcome> {
   const m = await asMetadata(ctx);
   if (!isMeta(m)) return m;
   const endpoint = m.doc['authorization_endpoint'];
@@ -194,7 +226,7 @@ async function authorizationEndpoint(ctx: OauthContext): Promise<Endpoint | Chec
     return needsInput(`The authorization endpoint ${blockedNote(endpoint)}`);
   return { meta: m, endpoint };
 }
-const isEndpoint = (v: Endpoint | CheckOutcome): v is Endpoint => 'endpoint' in v;
+export const isEndpoint = (v: Endpoint | CheckOutcome): v is Endpoint => 'endpoint' in v;
 
 const prereg: ConformanceCheck = async (c) => {
   const ctx = c.oauth!;
