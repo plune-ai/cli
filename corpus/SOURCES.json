@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "note": "Real tool lists are not part of the corpus yet: the sources and licences are for the operator to decide. Each real set needs the fields below.",
+  "fields": [
+    "id",
+    "address",
+    "version",
+    "license",
+    "sha256",
+    "capturedAt",
+    "method",
+    "committed"
+  ],
+  "methods": [
+    "static reading of source code",
+    "snapshot taken by our own client from a server we may run"
+  ],
+  "real": []
+}

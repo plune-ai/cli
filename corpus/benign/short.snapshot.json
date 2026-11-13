@@ -1,0 +1,55 @@
+{
+  "kind": "plune-mcp-snapshot",
+  "schemaVersion": 2,
+  "transport": "stdio",
+  "server": {
+    "name": "fixture-server",
+    "version": "0.0.0"
+  },
+  "instructions": null,
+  "capabilities": {
+    "tools": {}
+  },
+  "tools": [
+    {
+      "name": "ping",
+      "description": "Ping.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "now",
+      "description": "Time.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "id",
+      "description": "Id.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "string",
+            "description": "x"
+          }
+        }
+      }
+    },
+    {
+      "name": "ok",
+      "description": "OK",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "resources": null,
+  "resourceTemplates": null,
+  "prompts": null
+}

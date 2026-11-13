@@ -1,0 +1,20 @@
+{
+  "expected": [
+    {
+      "rule": "scan/desc/override-instruction",
+      "pointer": "/tools/0/inputSchema/properties/body/description"
+    }
+  ],
+  "provenance": {
+    "catalogClass": "tool-poisoning",
+    "mechanism": "Wording that tells the model to set aside the instructions it was given.",
+    "concealment": "explicit",
+    "source": "not verified",
+    "catalogRefs": [
+      "OWASP-03",
+      "INV"
+    ],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-13"
+  }
+}

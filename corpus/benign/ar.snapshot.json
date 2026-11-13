@@ -1,0 +1,61 @@
+{
+  "kind": "plune-mcp-snapshot",
+  "schemaVersion": 2,
+  "transport": "stdio",
+  "server": {
+    "name": "fixture-server",
+    "version": "0.0.0"
+  },
+  "instructions": null,
+  "capabilities": {
+    "tools": {}
+  },
+  "tools": [
+    {
+      "name": "idafat_mulahaza",
+      "description": "يضيف ملاحظة إلى الدفتر ويعيد رقمها.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "عنوان قصير للملاحظة."
+          },
+          "body": {
+            "type": "string",
+            "description": "نص الملاحظة."
+          }
+        }
+      }
+    },
+    {
+      "name": "qaima",
+      "description": "يعرض الملاحظات، الأحدث أولاً، عبر \u200fAPI\u200f واحدة.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tag": {
+            "type": "string",
+            "description": "الملاحظات التي تحمل هذه الوسمة فقط."
+          }
+        }
+      }
+    },
+    {
+      "name": "hadhf",
+      "description": "يحذف ملاحظة برقمها.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "رقم الملاحظة."
+          }
+        }
+      }
+    }
+  ],
+  "resources": null,
+  "resourceTemplates": null,
+  "prompts": null
+}

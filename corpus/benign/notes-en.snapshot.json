@@ -1,0 +1,82 @@
+{
+  "kind": "plune-mcp-snapshot",
+  "schemaVersion": 2,
+  "transport": "stdio",
+  "server": {
+    "name": "fixture-server",
+    "version": "0.0.0"
+  },
+  "instructions": null,
+  "capabilities": {
+    "tools": {}
+  },
+  "tools": [
+    {
+      "name": "notes_add",
+      "description": "Adds a note to the notebook and returns its id.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Short title of the note."
+          },
+          "body": {
+            "type": "string",
+            "description": "Text of the note, in Markdown."
+          }
+        }
+      }
+    },
+    {
+      "name": "notes_list",
+      "description": "Lists notes, newest first. Returns at most 50 notes per call.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tag": {
+            "type": "string",
+            "description": "Only notes with this tag."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "How many notes to return."
+          }
+        }
+      }
+    },
+    {
+      "name": "notes_delete",
+      "description": "Deletes a note by id. The note cannot be restored.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Id of the note."
+          }
+        }
+      },
+      "annotations": {
+        "title": "Delete note",
+        "destructiveHint": true
+      }
+    },
+    {
+      "name": "notes_search",
+      "description": "Full-text search over titles and bodies.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Words to look for. Quotes match a phrase."
+          }
+        }
+      }
+    }
+  ],
+  "resources": null,
+  "resourceTemplates": null,
+  "prompts": null
+}

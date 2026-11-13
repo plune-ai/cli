@@ -5,7 +5,7 @@
 import type { RunResult } from '../types/results.js';
 import { adviceOf, rowStatus } from '../types/results.js';
 import { createStyler } from './style.js';
-import { repeatsText, truncate } from './helpers.js';
+import { repeatsText, safeLine, truncate } from './helpers.js';
 
 const DEFAULT_MAX_OUTPUT = 500;
 
@@ -80,7 +80,8 @@ export function renderConsole(result: RunResult, opts: ConsoleOptions = {}): str
       if (status === 'passed' && repeats === undefined && advice.length === 0) continue;
       lines.push(`  ${s.dim('vars:')} ${JSON.stringify(row.vars)}`);
       if (repeats !== undefined) lines.push(`  ${repeats}`);
-      for (const a of advice) lines.push(`  ${s.yellow('advice')} ${a.type}: ${a.reason}`);
+      for (const a of advice)
+        lines.push(`  ${s.yellow('advice')} ${safeLine(a.type)}: ${safeLine(a.reason)}`);
       if (status === 'passed') continue;
       if (status === 'blocked' || status === 'skipped') {
         lines.push(`  ${s.yellow(status)} (not judged)`);

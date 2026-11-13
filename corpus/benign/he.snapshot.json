@@ -1,0 +1,44 @@
+{
+  "kind": "plune-mcp-snapshot",
+  "schemaVersion": 2,
+  "transport": "stdio",
+  "server": {
+    "name": "fixture-server",
+    "version": "0.0.0"
+  },
+  "instructions": null,
+  "capabilities": {
+    "tools": {}
+  },
+  "tools": [
+    {
+      "name": "add_note",
+      "description": "מוסיף הערה למחברת ומחזיר את המזהה שלה.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "כותרת קצרה להערה."
+          }
+        }
+      }
+    },
+    {
+      "name": "list_notes",
+      "description": "מציג את ההערות, החדשות ראשונות, דרך \u200eREST\u200e.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tag": {
+            "type": "string",
+            "description": "רק הערות עם התווית הזו."
+          }
+        }
+      }
+    }
+  ],
+  "resources": null,
+  "resourceTemplates": null,
+  "prompts": null
+}

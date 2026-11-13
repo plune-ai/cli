@@ -1,0 +1,20 @@
+{
+  "expected": [
+    {
+      "rule": "scan/desc/bidi-control",
+      "pointer": "/tools/0/description"
+    }
+  ],
+  "provenance": {
+    "catalogClass": "tool-poisoning",
+    "mechanism": "Bidi override, embedding or isolate characters change the order a person sees, not the order the model reads.",
+    "concealment": "hidden",
+    "source": "not verified",
+    "catalogRefs": [
+      "TROJAN",
+      "UAX9"
+    ],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-13"
+  }
+}
