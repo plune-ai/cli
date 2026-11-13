@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "s": {
+      "url": "http://[2001:db8::1]/mcp"
+    }
+  }
+}

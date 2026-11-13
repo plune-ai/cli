@@ -1,0 +1,8 @@
+{
+  "origin": "synthetic",
+  "description": "Local urls and a reference in the host.",
+  "client": "claude-code",
+  "path": ".mcp.json",
+  "author": "Maievskyi Leonid",
+  "date": "2026-11-13"
+}

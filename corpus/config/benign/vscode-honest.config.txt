@@ -1,0 +1,8 @@
+{
+  // servers of this workspace
+  "inputs": [{ "id": "api-token", "type": "promptString", "description": "API token", "password": true }],
+  "servers": {
+    "api": { "type": "http", "url": "https://mcp.example.net/m", "headers": { "Authorization": "Bearer ${input:api-token}" } },
+    "local": { "type": "stdio", "command": "node", "args": ["${workspaceFolder}/server.js"], "env": { "TOKEN": "${input:api-token}" } }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "client": "claude-code",
+  "path": ".mcp.json",
+  "expected": [
+    {
+      "rule": "scan/cfg/unpinned-package",
+      "path": "mcpServers.s.args[1]"
+    }
+  ],
+  "notChecked": [],
+  "provenance": {
+    "catalogClass": "supply chain",
+    "mechanism": "A launcher fetches a package without an exact version.",
+    "concealment": "bare-name",
+    "source": "not verified",
+    "catalogRefs": [
+      "DOC-LSS"
+    ],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-13"
+  }
+}

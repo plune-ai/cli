@@ -1,0 +1,21 @@
+{
+  "client": "claude-code",
+  "path": ".mcp.json",
+  "expected": [],
+  "notChecked": [
+    {
+      "kind": "not-evaluated",
+      "rule": "scan/cfg/secret-known-format",
+      "path": "mcpServers.s.env.PAD"
+    }
+  ],
+  "provenance": {
+    "catalogClass": "reading the file",
+    "mechanism": "Input past a limit of the scanner: it must report that it did not check, not that the file is clean.",
+    "concealment": "value-over-64k",
+    "source": "not verified",
+    "catalogRefs": [],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-13"
+  }
+}

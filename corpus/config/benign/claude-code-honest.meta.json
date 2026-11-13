@@ -1,0 +1,8 @@
+{
+  "origin": "synthetic",
+  "description": "A project file with references instead of secrets.",
+  "client": "claude-code",
+  "path": ".mcp.json",
+  "author": "Maievskyi Leonid",
+  "date": "2026-11-13"
+}

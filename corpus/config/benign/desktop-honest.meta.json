@@ -1,0 +1,15 @@
+{
+  "origin": "synthetic",
+  "description": "A Claude Desktop file.",
+  "client": "claude-desktop",
+  "path": "claude_desktop_config.json",
+  "options": {
+    "allowPackages": [
+      "@modelcontextprotocol/server-filesystem",
+      "@modelcontextprotocol/server-memory",
+      "mcp-server-fetch"
+    ]
+  },
+  "author": "Maievskyi Leonid",
+  "date": "2026-11-13"
+}

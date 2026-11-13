@@ -1,0 +1,20 @@
+{
+  "client": "vscode",
+  "path": ".vscode/mcp.json",
+  "expected": [
+    {
+      "rule": "scan/cfg/invalid-entry",
+      "path": "mcpServers"
+    }
+  ],
+  "notChecked": [],
+  "provenance": {
+    "catalogClass": "reading the file",
+    "mechanism": "An entry or a list the client would not read as written, so the rules could not assess it.",
+    "concealment": "wrong-key-for-client",
+    "source": "not verified",
+    "catalogRefs": [],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-13"
+  }
+}

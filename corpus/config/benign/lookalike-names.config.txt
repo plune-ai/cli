@@ -1,0 +1,25 @@
+{
+  "mcpServers": {
+    "desk-lamp-tools": {
+      "command": "node",
+      "args": [
+        "desk.js"
+      ],
+      "env": {
+        "DESK_NAME": "desk-assistant",
+        "NOTE": "highghp_notes",
+        "MAX_TOKENS": "4096",
+        "TOKEN_LIMIT": "1000"
+      }
+    },
+    "risk-report": {
+      "command": "node",
+      "args": [
+        "risk.js"
+      ],
+      "env": {
+        "RISK_LEVEL": "sk-low"
+      }
+    }
+  }
+}
