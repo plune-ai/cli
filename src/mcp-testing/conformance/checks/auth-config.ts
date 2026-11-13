@@ -5,7 +5,7 @@
  * no anchor, alias, custom tag or merge key and a size limit checked before parsing; any other file is JSON.
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { isScalar, parseDocument, visit } from 'yaml';
 import { UsageError } from '../../connect/options.js';
 
@@ -146,6 +146,9 @@ function parseRegistration(value: unknown, label: string): Registration {
 /** The largest `--config` file read, in bytes, checked before anything is parsed. */
 export const MAX_CONFIG_BYTES = 64 * 1024;
 
+const tooLarge = (): string =>
+  `--config: the file is too large (more than ${MAX_CONFIG_BYTES / 1024} KiB).`;
+
 /** YAML as plain data: no anchor, alias, custom tag or merge key, one document, no repeated key. */
 function readYaml(source: string): unknown {
   const parsed = parseDocument(source, { merge: false, schema: 'core', uniqueKeys: true });
@@ -176,10 +179,7 @@ function readYaml(source: string): unknown {
  * not one.
  */
 export function parseOauthConfig(source: string, format: 'json' | 'yaml' = 'json'): OauthConfig {
-  if (Buffer.byteLength(source) > MAX_CONFIG_BYTES)
-    throw new UsageError(
-      `--config: the file is too large (more than ${MAX_CONFIG_BYTES / 1024} KiB).`,
-    );
+  if (Buffer.byteLength(source) > MAX_CONFIG_BYTES) throw new UsageError(tooLarge());
   let doc: unknown;
   if (format === 'yaml') doc = readYaml(source);
   else {
@@ -255,8 +255,11 @@ export function parseOauthConfig(source: string, format: 'json' | 'yaml' = 'json
 export function loadOauthConfig(path: string): OauthConfig {
   let source: string;
   try {
+    // The size first: a file over the limit is not read at all (the text is measured again, a file can grow).
+    if (statSync(path).size > MAX_CONFIG_BYTES) throw new UsageError(tooLarge());
     source = readFileSync(path, 'utf8');
   } catch (err) {
+    if (err instanceof UsageError) throw err;
     const code = (err as NodeJS.ErrnoException).code;
     throw new UsageError(
       `--config: could not read ${path}${code === undefined ? '' : ` (${code})`}.`,

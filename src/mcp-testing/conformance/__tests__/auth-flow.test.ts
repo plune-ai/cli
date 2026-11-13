@@ -365,3 +365,73 @@ describe('CLI · mcp conformance · oauth flow · nothing issued is printed', ()
     for (const id of [ISS, PKCE, REDIR]) expect(report?.summary.pending).toContain(id);
   });
 });
+
+describe('CLI · mcp conformance · oauth flow · after review', () => {
+  const refusals: [string, { status: number; error?: string; description?: string }][] = [
+    ['invalid_client', { status: 400, error: 'invalid_client' }],
+    ['invalid_request', { status: 400, error: 'invalid_request' }],
+    ['unsupported_grant_type', { status: 400, error: 'unsupported_grant_type' }],
+    ['a bare 401', { status: 401 }],
+    ['a 401 with invalid_grant', { status: 401, error: 'invalid_grant' }],
+  ];
+  for (const [name, probeRefusal] of refusals)
+    it(`${name} to a probe is not a refusal of the PKCE verifier or of the redirect_uri: could-not-run, not passed`, async () => {
+      const s = await serve({
+        probeRefusal: { ...probeRefusal, description: 'redirect_uri and code_verifier' },
+      });
+      const { report } = await run(s.url, [PKCE, REDIR], { config: headless() });
+      expect(verdict(report, PKCE)).toBe('could-not-run (prerequisite-failed)');
+      expect(verdict(report, REDIR)).toBe('could-not-run (prerequisite-failed)');
+      expect(actual(report, PKCE)).toMatch(/invalid_grant|refusal|not/i);
+    });
+
+  it('a 400 invalid_grant still passes the wrong-verifier probe (the control)', async () => {
+    const s = await serve({});
+    const { report } = await run(s.url, [PKCE, REDIR], { config: headless() });
+    expect(verdict(report, PKCE)).toBe('passed');
+    expect(verdict(report, REDIR)).toBe('passed');
+  });
+
+  it('an iss that is repeated in the redirect is failed when the server declares the parameter, and says so', async () => {
+    const s = await serve({ authIss: 'correct', issRepeat: true, as: { iss: true } });
+    const { report } = await run(s.url, [ISS], { config: headless() });
+    expect(verdict(report, ISS)).toBe('failed');
+    expect(actual(report, ISS)).toMatch(/more than once|repeated/i);
+  });
+
+  it('a control exchange whose connection is cut: could-not-run (transport-error) that says a token may have been issued', async () => {
+    const s = await serve({ force: { 'token:code': 'drop' } });
+    const { report } = await run(s.url, [PKCE, REDIR], { config: headless() });
+    expect(verdict(report, PKCE)).toBe('could-not-run (transport-error)');
+    expect(verdict(report, REDIR)).toBe('could-not-run (transport-error)');
+    expect(actual(report, PKCE)).toMatch(/token may have been issued and was not revoked/i);
+    expect(tokensAsked(s)).toHaveLength(1);
+  });
+
+  const notTheRedirectUri: [string, (u: string) => string][] = [
+    ['a suffix of the host', (u) => u.replace('127.0.0.1', '127.0.0.1.evil.example')],
+    [
+      'another host with the address as userinfo',
+      (u) => u.replace('//127.0.0.1:8765', '//127.0.0.1:8765@other.example'),
+    ],
+    ['the same host with userinfo', (u) => u.replace('//', '//user:pw@')],
+    ['another port', (u) => u.replace(':8765', ':8766')],
+    ['a longer path of which the redirect path is a prefix', (u) => `${u}/more`],
+    ['a path that continues the last segment', (u) => `${u}evil`],
+  ];
+  for (const [name, codeRedirect] of notTheRedirectUri)
+    it(`a Location on ${name} is not the redirect URI: needs-input, no code is read from it`, async () => {
+      const s = await serve({ codeRedirect });
+      const { report } = await run(s.url, [ISS, PKCE, REDIR], { config: headless() });
+      for (const id of [ISS, PKCE, REDIR])
+        expect(verdict(report, id), id).toBe('could-not-run (needs-input)');
+      expect(tokensAsked(s)).toHaveLength(0);
+    });
+
+  it('the three checks over two revisions ask for 7 codes and 6 token requests, as the guide says', async () => {
+    const s = await serve({ as: { iss: true }, authIss: 'correct' });
+    await run(s.url, [ISS, PKCE, REDIR], { config: headless(), protocolVersion: 'both' });
+    expect(authorizeAsked(s)).toHaveLength(7);
+    expect(tokensAsked(s)).toHaveLength(6);
+  });
+});

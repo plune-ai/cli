@@ -130,6 +130,15 @@ export interface AuthOpts {
    * verifier and says which one was wrong; `generic-redirect` answers a bare invalid_grant to a wrong redirect_uri;
    * `lax-redirect` and `lax-pkce` do not check that one at all (the faults).
    */
+  /** `iss` is in the redirect twice (both the right one, when `authIss` is `correct`). */
+  issRepeat?: boolean;
+  /** The redirect with a code goes to this address (built from the redirect_uri of the request) instead of to it. */
+  codeRedirect?: (redirectUri: string) => string;
+  /**
+   * The answer to the second and later authorization-code exchanges (the probes, after the control): a status and the
+   * `error` of the body, if any.
+   */
+  probeRefusal?: { status: number; error?: string; description?: string };
   codeFault?: 'generic-redirect' | 'lax-redirect' | 'lax-pkce';
   tokenResponse?: 'ok' | 'no-type' | 'mac' | 'dpop' | 'bearer-lower' | 'no-expires' | 'no-token';
   /**
@@ -508,7 +517,11 @@ export async function authFixture(o: AuthOpts = {}, seen: Seen[] = []): Promise<
           error: 'invalid_request',
           error_description: 'redirect_uri is not registered',
         });
-      const to = new URL(redirect || `${origin}/cb`);
+      const to = new URL(
+        o.codeRedirect !== undefined && !foreign
+          ? o.codeRedirect(redirect)
+          : redirect || `${origin}/cb`,
+      );
       if (foreign && o.authorize === 'redirect-any-error')
         to.searchParams.set('error', 'invalid_request');
       else {
@@ -522,6 +535,7 @@ export async function authFixture(o: AuthOpts = {}, seen: Seen[] = []): Promise<
         to.searchParams.set('state', o.echoState === true ? (q.get('state') ?? '') : AUTH_STATE);
         if (o.authIss !== undefined)
           to.searchParams.set('iss', o.authIss === 'correct' ? origin : 'https://evil.example');
+        if (o.authIss !== undefined && o.issRepeat === true) to.searchParams.append('iss', origin);
       }
       res.writeHead(302, { location: to.href }).end();
       return;
@@ -540,6 +554,19 @@ export async function authFixture(o: AuthOpts = {}, seen: Seen[] = []): Promise<
         // `token:code` answers every exchange, `token:code:2` the second one and the ones after it.
         exchanges += 1;
         if (forced('token:code') || (exchanges >= 2 && forced('token:code:2'))) return;
+        if (exchanges >= 2 && o.probeRefusal !== undefined)
+          return json(
+            res,
+            o.probeRefusal.status,
+            o.probeRefusal.error === undefined
+              ? {}
+              : {
+                  error: o.probeRefusal.error,
+                  ...(o.probeRefusal.description === undefined
+                    ? {}
+                    : { error_description: o.probeRefusal.description }),
+                },
+          );
         const code = grant.get('code') ?? '';
         const entry = codes.get(code);
         codes.delete(code);

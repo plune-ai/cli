@@ -72,6 +72,8 @@ const isReg = (
 export interface RedirectResponse {
   code: string | null;
   iss: string | null;
+  /** Every `iss` of the redirect: more than one is a fault of the server. */
+  issAll: string[];
   state: string | null;
 }
 
@@ -132,9 +134,10 @@ function collectRedirectIssued(
 
 /** Whether a Location is the redirect URI: the same scheme, host and path (an origin is "null" for a custom scheme). */
 function sameAddress(a: URL, b: URL): boolean {
-  if (a.origin !== 'null' || b.origin !== 'null')
-    return a.origin === b.origin && a.pathname === b.pathname;
-  return a.protocol === b.protocol && a.host === b.host && a.pathname === b.pathname;
+  // The user and password are part of the address too: `https://client.example@other.example` is not `client.example`.
+  const same = a.username === b.username && a.password === b.password && a.pathname === b.pathname;
+  if (a.origin !== 'null' || b.origin !== 'null') return same && a.origin === b.origin;
+  return same && a.protocol === b.protocol && a.host === b.host;
 }
 
 /**
@@ -209,6 +212,7 @@ export async function authorize(
           response: {
             code: target.searchParams.get('code'),
             iss: target.searchParams.get('iss'),
+            issAll: target.searchParams.getAll('iss'),
             state: target.searchParams.get('state'),
           },
         }
@@ -461,7 +465,9 @@ async function register(
   if (status === 401 || status === 403) return { kind: 'needs-credential', status, detail: d };
   if (transient(status)) return { kind: 'transient', status, maybe: status !== 429, detail: d };
   const error =
-    isObject(doc) && typeof doc['error'] === 'string' ? maskedCut(ctx, doc['error'], 60) : undefined;
+    isObject(doc) && typeof doc['error'] === 'string'
+      ? maskedCut(ctx, doc['error'], 60)
+      : undefined;
   return { kind: 'refused', status, error, detail: d };
 }
 

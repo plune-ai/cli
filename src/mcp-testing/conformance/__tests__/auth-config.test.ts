@@ -1,12 +1,17 @@
 // `--config` of the oauth suite in YAML: the same strict validation as JSON, a size limit before parsing, and no
 // anchor, alias, custom tag or merge key (a small file must not become a large one when it is read).
 
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { UsageError } from '../../connect/options.js';
 import { loadOauthConfig, parseOauthConfig } from '../checks/auth-config.js';
+
+vi.mock('node:fs', async (original) => {
+  const actual = await original<typeof import('node:fs')>();
+  return { ...actual, readFileSync: vi.fn(actual.readFileSync) };
+});
 
 const dir = mkdtempSync(join(tmpdir(), 'plune-oauth-config-'));
 let n = 0;
@@ -121,5 +126,24 @@ describe('CLI · mcp conformance · oauth --config · YAML', () => {
 
   it('a file that is not named .yaml or .yml is still JSON, and the error says YAML is read by extension', () => {
     expect(() => loadOauthConfig(file('conf', GOOD))).toThrow(/\.yaml|\.yml/);
+  });
+
+  it('a file over the limit is refused by its size, without being read, in YAML and in JSON', () => {
+    for (const [ext, text] of [
+      [
+        'yaml',
+        `scopes: [${'a,'.repeat(40_000)}a]
+`,
+      ],
+      ['json', JSON.stringify({ scopes: Array(40_000).fill('a') })],
+    ] as const) {
+      const path = file(ext, text);
+      vi.mocked(readFileSync).mockClear();
+      expect(() => loadOauthConfig(path), ext).toThrow(/too large/);
+      expect(
+        vi.mocked(readFileSync).mock.calls.filter(([p]) => p === path),
+        ext,
+      ).toEqual([]);
+    }
   });
 });

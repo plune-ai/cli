@@ -154,6 +154,24 @@ describe('CLI · mcp conformance · oauth matrix · the runs', () => {
     expect(code).toBe(set.exitCode);
   });
 
+  it('a check that fails in one run is not a pass in the combined summary: it is failed there', async () => {
+    const s = await serve({ as: { cimd: true }, cimdMismatch: 'accept' });
+    const cimd = { ...CIMD, clientIdMetadataUrl: 'https://client.example/good.json' };
+    const { doc } = await run(s.url, configFile({ ...base, registration: [PREREG, cimd] }));
+    const set = doc as McpConformanceReportSet;
+    const bad = set.reports.filter((r) => state(r, 'oauth-reg-cimd') === 'failed');
+    expect(bad.length).toBeGreaterThan(0);
+    expect(bad.length).toBeLessThan(set.reports.length);
+    // The new checks are outside the frozen profile: a failure is shown as pending, never counted as a pass, and the
+    // combined summary is never `passed` while a run has one.
+    for (const r of bad) {
+      expect(r.summary.pending).toContain('oauth-reg-cimd');
+      expect(r.summary.passed).not.toContain('oauth-reg-cimd');
+    }
+    expect(set.combined?.verdict).not.toBe('passed');
+    expect(set.combined?.passed).toBe(set.reports.reduce((a, r) => a + r.summary.passed.length, 0));
+  });
+
   it('one registration object and a revision named give one report with its label and no combined summary', async () => {
     const s = await serve({});
     const { doc } = await run(s.url, configFile({ ...base, registration: PREREG }), {

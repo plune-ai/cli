@@ -19,6 +19,7 @@ import {
   inconclusive,
   isHttpUrl,
   isOutcome,
+  maskedCut,
   needsAuth,
   needsInput,
   prerequisite,
@@ -144,6 +145,16 @@ const issInResponse: ConformanceCheck = async (c) => {
   const { iss } = code.response;
   const details = code.details;
   const says = (what: string) => `${what}${NOT_USED}`;
+  if (code.response.issAll.length > 1 && s.advertisesIss)
+    return {
+      ...failed(
+        says(
+          `The authorization response carries iss ${code.response.issAll.length} times: a parameter that is repeated cannot be told from an attacker's.`,
+        ),
+        'Send iss once in the authorization response (RFC 9207 section 2.4: a client refuses a response with more than one iss).',
+      ),
+      details,
+    };
   if (iss !== null && iss !== s.issuer)
     return {
       ...failed(
@@ -280,7 +291,22 @@ function control(ctx: OauthContext, s: Start, t: TokenSetup): Promise<Control> {
   return ctx.memo('oauth headless control', async (): Promise<Control> => {
     const code = await codeFor(ctx, s);
     if (!isCode(code)) return { ok: false, outcome: code };
-    const x = await exchange(ctx, t, code.response.code!, code.verifier, s.redirectUri);
+    let x: Exchanged;
+    try {
+      x = await exchange(ctx, t, code.response.code!, code.verifier, s.redirectUri);
+    } catch (err) {
+      if (!(err instanceof ConnectError)) throw err;
+      // The request was sent: whether a token was issued is not known, and the run says so.
+      return {
+        ok: false,
+        outcome: {
+          state: 'could-not-run',
+          reason: err.kind === 'timeout' ? 'timeout' : 'transport-error',
+          actual: `The control exchange could not be completed: ${err.kind === 'timeout' ? 'no answer in time' : 'the connection failed'}. A token may have been issued and was not revoked.`,
+          details: code.details,
+        },
+      };
+    }
     const details = [...code.details, x.detail];
     if (transient(x.status))
       return {
@@ -368,19 +394,29 @@ const wrongVerifier: ConformanceCheck = async (c) => {
       ...inconclusive('The token endpoint (the wrong verifier)', x.status, details),
       actual: `The token endpoint answered HTTP ${x.status}, which says nothing of the requirement.${tokensIssued(1)}`,
     };
-  if (x.status === 400 || x.status === 401)
+  if (refusedGrant(x))
     return {
       ...passed(
-        `A code exchanged with a code_verifier that does not match was refused (HTTP ${x.status}${typeof x.doc?.['error'] === 'string' ? `, ${x.doc['error'].slice(0, 60)}` : ''}), while the correct exchange gave a token.${tokensIssued(1)}`,
+        `A code exchanged with a code_verifier that does not match was refused (HTTP 400, invalid_grant), while the correct exchange gave a token.${tokensIssued(1)}`,
       ),
       details,
     };
   return {
     ...prerequisite(
-      `The token endpoint answered HTTP ${x.status} to the wrong verifier, which is not a refusal of a grant.${tokensIssued(1)}`,
+      `The token endpoint answered ${answerOf(ctx, x)} to the wrong verifier. Only HTTP 400 with invalid_grant is the refusal RFC 7636 section 4.6 names for it: another answer does not show that PKCE was what refused the code.${tokensIssued(1)}`,
       details,
     ),
   };
+};
+
+/** HTTP 400 with `error` exactly `invalid_grant`: the answer RFC 6749 section 5.2 gives to a code that cannot be used. */
+const refusedGrant = (x: Exchanged): boolean =>
+  x.status === 400 && x.doc?.['error'] === 'invalid_grant';
+
+/** What the token endpoint said, for a message: the status and the error, the error masked before it is cut. */
+const answerOf = (ctx: OauthContext, x: Exchanged): string => {
+  const error = x.doc?.['error'];
+  return `HTTP ${x.status}${typeof error === 'string' ? `, ${maskedCut(ctx, error, 60)}` : ''}`;
 };
 
 const REDIRECT_NAMED = /redirect[_ ]?uri|redirection/i;
@@ -407,23 +443,18 @@ const tokenRedirectMismatch: ConformanceCheck = async (c) => {
     };
   const description =
     typeof x.doc?.['error_description'] === 'string' ? x.doc['error_description'] : '';
-  if ((x.status === 400 || x.status === 401) && REDIRECT_NAMED.test(description))
+  if (refusedGrant(x) && REDIRECT_NAMED.test(description))
     return {
       ...passed(
-        `A code exchanged with another redirect_uri was refused and the answer names the redirect_uri (HTTP ${x.status}).${tokensIssued(1)}`,
+        `A code exchanged with another redirect_uri was refused (HTTP 400, invalid_grant) and the answer names the redirect_uri.${tokensIssued(1)}`,
       ),
       details,
     };
-  if (x.status === 400 || x.status === 401)
-    return {
-      ...prerequisite(
-        `The token endpoint refused the code with a generic answer (HTTP ${x.status}${typeof x.doc?.['error'] === 'string' ? `, ${x.doc['error'].slice(0, 60)}` : ''}) that does not say the redirect_uri was the reason: it does not show that the redirect_uri was compared.${tokensIssued(1)}`,
-        details,
-      ),
-    };
   return {
     ...prerequisite(
-      `The token endpoint answered HTTP ${x.status} to the other redirect_uri, which is not a refusal of a grant.${tokensIssued(1)}`,
+      refusedGrant(x)
+        ? `The token endpoint refused the code with a generic answer (${answerOf(ctx, x)}) that does not say the redirect_uri was the reason: it does not show that the redirect_uri was compared.${tokensIssued(1)}`
+        : `The token endpoint answered ${answerOf(ctx, x)} to the other redirect_uri. Only HTTP 400 with invalid_grant that names the redirect_uri shows that it was compared: another answer does not.${tokensIssued(1)}`,
       details,
     ),
   };
