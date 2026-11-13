@@ -11,6 +11,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-11-13
+
 ### Added
 
 - **`plune_case_propose` takes an optional `missionId` and returns `itemIds`, the ids of the review-queue entries it created; `plune_review_list` takes `missionId` to read one mission's entries (#230).** A platform that does not know the mission ignores it and names no ids, and the call still works.
