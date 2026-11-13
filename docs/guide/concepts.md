@@ -86,7 +86,7 @@ rather than `0` (a regression still exits `1`). See [`plune diff` exit codes](./
 The same rule holds for the other gates of `plune diff` (pass rate, cost, tokens): a value that is
 missing never gives green. A cost gate on a run whose model has no known price, an overall pass rate
 compared between runs that measured different evals, rows, repeats, models or checks, or one with fewer
-than 10 attempts on a side, is `unmeasured` (exit `3`), and a waiver never lifts that. To make the pass
+than 10 attempts on a side or with a dry run on either side, is `unmeasured` (exit `3`), and a waiver never lifts that. To make the pass
 rate comparable, `plune run` records per eval what it measured (`measured`: repeats, rows, a hash of the
 rows' `vars`, a hash of the checks, the model), without the prompt text, since changing the prompt is
 what a pull request is checked for.
@@ -155,7 +155,7 @@ only prints it (`--format json`) and leaves the saved one as it was. Its shape:
 
 ```jsonc
 {
-  "schema": 1,
+  "schemaVersion": 1,
   "plune_version": "0.1.0",
   "started_at": "2026-06-11T09:00:00.000Z",
   "finished_at": "2026-06-11T09:00:04.210Z",
@@ -193,7 +193,7 @@ only prints it (`--format json`) and leaves the saved one as it was. Its shape:
 }
 ```
 
-This is stable (`schema: 1`) and meant to be machine-read — pipe it into your own tooling today, and
+This is stable (`schemaVersion: 1`) and meant to be machine-read — pipe it into your own tooling today, and
 `plune report` will render it nicely soon.
 
 ## See also
