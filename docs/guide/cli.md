@@ -1086,6 +1086,35 @@ password, assertion or credential (`client_secret`, `registration_access_token`,
 Not in this version: the browser and headless sign-in, the checks of the authorization endpoint that refuse a wrong
 request, and a result per registration method.
 
+### The apps suite
+
+`--suite apps` checks a server that offers MCP Apps: tools that come with an interface, described by the
+[extension's specification](https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/2026-01-26/apps.mdx).
+It runs over the same connection as the protocol suite (stdio or HTTP, either revision), so it can be given together
+with `--suite protocol`. It only reads: `tools/list`, `resources/list` and `resources/read` of the `ui://` addresses a
+tool or the list names. The HTML of a resource is never opened, parsed or run, and never printed; an address, a name or
+a media type the server sent is quoted and cut. A resource over 4 MiB is `could-not-run`. At most 32 `ui://` addresses are read in a run: over that, the checks that read them end `could-not-run` (never `passed`) and say how many were not read. A `resources/list` that cannot be read is said in the result, and the checks that rest on it are `could-not-run`.
+
+A server that declares no `io.modelcontextprotocol/ui` extension in its capabilities and has no tool with `_meta.ui`
+gets `not-applicable` (`capability-not-declared`) on every check, never `passed`. The checks are outside the frozen
+profile, so they count for nothing in the score: **a run of this suite alone ends with exit code 3 whatever its checks
+say; read the list of checks.**
+
+| Check | Level | What it asks |
+|-------|-------|--------------|
+| `apps-ui-resource-uri-scheme` | MUST (derived) | `_meta.ui.resourceUri` of a tool, and a listed resource of the MCP Apps media type, starts with `ui://` |
+| `apps-ui-resource-exists` | MUST | `resources/read` of each `ui://` address a tool names answers content; only the error that means "not found" in the revision of the run (`-32002` up to 2025-11-25, `-32602` from 2026-07-28) is a failure, any other error or an empty list is `could-not-run` |
+| `apps-ui-mime-type` | MUST | the content's `mimeType` is `text/html;profile=mcp-app` |
+| `apps-ui-content-payload` | MUST (derived) | exactly one of `text` and `blob` (base64), and an HTML5 doctype; the specification gives no other criterion for a valid HTML5 document |
+| `apps-ui-listed-mime` | SHOULD | a `ui://` resource in `resources/list` has that `mimeType` too (a listed resource with no `mimeType` is not judged: the field is optional) |
+| `apps-ui-visibility-values` | SHOULD (derived) | `_meta.ui.visibility` holds only `model` and `app` |
+| `apps-ui-meta-shapes` | SHOULD (derived) | `csp`, `permissions`, `domain` and `prefersBorder` have the types the specification gives them |
+| `apps-ui-tool-text-fallback` | MUST | a tool with a UI also returns a `content` that says something |
+
+`apps-ui-tool-text-fallback` has to call a tool. It calls only the tools of `--fixture` that have `_meta.ui`; without such
+an entry it is `could-not-run` (`needs-input`) and no tool is called. `--explain <id>` prints the sentence of the
+specification each level comes from.
+
 ### Exit codes
 
 | Exit | Meaning |
