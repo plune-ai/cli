@@ -216,7 +216,7 @@ evals:
     # The prompt names two cases of the recorded project by their exact titles (one case each), so a model can find
     # their ids: a result names its case by testCaseId, and a name that matches no case leaves nothing to write.
     # max_steps stays 6: switching the writer on by name, the searches (one step, or two), the write and the answer take
-    # four or five. The discovery tool names the hidden tools and says a switched-on one needs nothing read first, so
+    # four or five. The discovery tool names the hidden tools and says writing results needs no read of the run first, so
     # a read of the run between discovery and the write is a step the descriptions do not ask for.
     prompt: >-
       Record last night's results in run run-1: "Оплата карткою Mastercard проходить" passed and "Прострочена картка
