@@ -25,6 +25,8 @@ import {
   gather,
   hasUiScheme,
   kind,
+  LIMIT_NOTE,
+  listNote,
   listed,
   namedAddresses,
   q,
@@ -54,11 +56,14 @@ const scheme: ConformanceCheck = async (ctx) => {
       judged++;
       if (!hasUiScheme(r['uri'])) bad.push(`listed ${q(r['uri'])}`);
     }
+  const note = listNote(list).listNote;
   if (bad.length > 0)
     return failed(
-      `Not an address that starts with ui://: ${some(bad, 5)}.`,
+      `Not an address that starts with ui://: ${some(bad, 5)}.${note === undefined ? '' : ` ${note}.`}`,
       'Give every UI resource an address that starts with ui://, and name that address in _meta.ui.resourceUri.',
     );
+  // The list is half of what this check reads: without it a pass would speak for the tools only.
+  if (note !== undefined) return prerequisite(`${note}, so the listed resources were not judged.`);
   if (judged === 0)
     return notOffered(
       'No tool names a _meta.ui.resourceUri, and no listed resource has the MCP Apps media type.',
@@ -72,22 +77,31 @@ const exists: ConformanceCheck = async (ctx) => {
   const { uris, over } = namedAddresses(found);
   if (uris.length === 0)
     return notOffered('No tool names a ui:// resource in _meta.ui.resourceUri.');
+  // Only -32002 (Resource not found) says the resource is not there; any other answer says nothing of it.
   const bad: string[] = [];
+  const unknown: string[] = [];
   for (const uri of uris) {
     const read = await readUi(ctx, uri);
-    if (read.kind === 'no-answer')
-      return prerequisite(`resources/read of ${q(uri)} answered ${read.said}.`);
-    if (read.kind === 'refused') bad.push(`${q(uri)}: resources/read answered ${read.said}`);
-    else if (read.contents.length === 0) bad.push(`${q(uri)}: resources/read answered no content`);
+    if (read.kind === 'not-found') bad.push(`${q(uri)}: resources/read answered ${read.said}`);
+    else if (read.kind === 'no-answer')
+      unknown.push(`${q(uri)}: resources/read answered ${read.said}`);
+    else if (read.contents.length === 0)
+      unknown.push(`${q(uri)}: resources/read answered an empty contents list`);
   }
-  const limit = over > 0 ? ` ${over} more addresses were not read: the limit is 32.` : '';
+  const limit = over > 0 ? ` ${LIMIT_NOTE(over, uris.length)}.` : '';
   if (bad.length > 0)
     return failed(
-      `A resource a tool names cannot be read: ${some(bad, 3)}.${limit}`,
+      `A resource a tool names is not found: ${some(bad, 3)}.${limit}`,
       'Serve every ui:// resource a tool names in _meta.ui.resourceUri through resources/read.',
     );
+  if (unknown.length > 0)
+    return prerequisite(`Whether the resource exists is not known: ${some(unknown, 3)}.${limit}`);
+  if (over > 0)
+    return prerequisite(
+      `${LIMIT_NOTE(over, uris.length)}, so the check covers only part of the addresses.`,
+    );
   return passed(
-    `${uris.length} resource${uris.length === 1 ? '' : 's'} named by tools, each read with content.${limit}`,
+    `${uris.length} resource${uris.length === 1 ? '' : 's'} named by tools, each read with content.`,
   );
 };
 
@@ -113,8 +127,26 @@ const mimeType: ConformanceCheck = async (ctx) => {
   );
 };
 
-// The HTML5 doctype, after a byte order mark, white space and comments (which a document may have before it).
-const DOCTYPE = /^﻿?(?:\s|<!--[\s\S]*?-->)*<!doctype\s+html(?:\s[^>]*)?>/i;
+// The HTML5 doctype. What may come before it (a byte order mark, white space, comments) is skipped in a loop, not in
+// the pattern: a pattern that alternates white space with comments backtracks without end on text a server chooses.
+const DOCTYPE = /^<!doctype\s+html(?:\s[^>]*)?>/i;
+/** How far into a document the doctype is looked for. */
+const LOOK = 2048;
+
+/** `yes`; `no`; or `far`: white space and comments run past `LOOK` characters, so the doctype was not looked for. */
+export function opensWithDoctype(html: string): 'yes' | 'no' | 'far' {
+  let i = html.startsWith('\uFEFF') ? 1 : 0;
+  for (;;) {
+    while (i < LOOK && /\s/.test(html.charAt(i))) i++;
+    if (i >= LOOK) return html.length > i ? 'far' : 'no';
+    if (!html.startsWith('<!--', i)) break;
+    const end = html.indexOf('-->', i + 4);
+    if (end < 0) return 'no';
+    i = end + 3;
+    if (i >= LOOK) return html.length > i ? 'far' : 'no';
+  }
+  return DOCTYPE.test(html.slice(i, i + 256)) ? 'yes' : 'no';
+}
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 
 /** The HTML of a content, or what is wrong with it, or that it is too large to judge. Never printed. */
@@ -151,7 +183,13 @@ const payload: ConformanceCheck = async (ctx) => {
     if ('large' in h)
       return { problems: [], skipped: `${h.large}, over the 4 MiB this checker judges` };
     if ('problem' in h) return { problems: [`${q(uri)}: ${h.problem}`] };
-    if (!DOCTYPE.test(h.html.slice(0, 2048)))
+    const doctype = opensWithDoctype(h.html);
+    if (doctype === 'far')
+      return {
+        problems: [],
+        skipped: `comments or white space run past the first ${LOOK} characters, so the doctype was not looked for`,
+      };
+    if (doctype === 'no')
       return {
         problems: [
           `${q(uri)}: ${Buffer.byteLength(h.html)} bytes that do not open with an HTML5 doctype`,
@@ -176,17 +214,25 @@ const listedMime: ConformanceCheck = async (ctx) => {
     return notOffered(
       'resources/list lists no ui:// resource (a server may leave UI-only resources out of it).',
     );
-  const bad = ui
+  // mimeType is optional on a listed resource, and the sentence is about its value: a missing one is not judged.
+  const given = ui.filter((r) => r['mimeType'] !== undefined);
+  const missing = ui.length - given.length;
+  const without = missing > 0 ? ` ${missing} listed without a mimeType were not judged.` : '';
+  const bad = given
     .filter((r) => !sameMime(r['mimeType'], APP_MIME))
-    .map(
-      (r) => `${q(r['uri'])}: ${r['mimeType'] === undefined ? 'no mimeType' : q(r['mimeType'])}`,
-    );
+    .map((r) => `${q(r['uri'])}: ${q(r['mimeType'])}`);
   if (bad.length > 0)
     return failed(
-      `A listed UI resource without the MCP Apps media type: ${some(bad, 3)}.`,
+      `A listed UI resource without the MCP Apps media type: ${some(bad, 3)}.${without}`,
       `Give every listed UI resource the mimeType ${APP_MIME}.`,
     );
-  return passed(`${ui.length} listed UI resource${ui.length === 1 ? '' : 's'}, each ${APP_MIME}.`);
+  if (given.length === 0)
+    return notOffered(
+      'No listed ui:// resource has a mimeType (it is optional on a listed resource).',
+    );
+  return passed(
+    `${given.length} listed UI resource${given.length === 1 ? '' : 's'}, each ${APP_MIME}.${without}`,
+  );
 };
 
 const VISIBILITY = ['model', 'app'];
@@ -256,6 +302,8 @@ const metaShapes: ConformanceCheck = async (ctx) => {
   const local: string[] = [];
   let localJudged = 0;
   for (const t of found) {
+    // A tool with only the deprecated flat _meta["ui/resourceUri"] has no _meta.ui to judge.
+    if (t.ui === undefined) continue;
     localJudged++;
     if (!isObject(t.ui)) local.push(`tool ${q(t.name)}: _meta.ui is ${kind(t.ui)}, not an object`);
   }

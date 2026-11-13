@@ -55,7 +55,7 @@ export const APPS_CATALOG: readonly CatalogEntry[] = [
     id: 'apps-ui-resource-exists',
     title: 'The resource a tool names can be read',
     description:
-      'resources/read of each ui:// resource a tool names in _meta.ui.resourceUri answers a result with contents, not an error or an empty list.',
+      'resources/read of each ui:// resource a tool names in _meta.ui.resourceUri answers a result with contents. The error -32002 (Resource not found) is a failure; any other error, and an empty contents list, say nothing of whether the resource exists and are could-not-run. Over 32 addresses, the rest are not read and the verdict is could-not-run.',
     level: 'MUST',
     derivation: 'Resource Discovery, Behavior: "Resource MUST exist on the server"',
     specRefs: [ref(DISCOVERY)],
@@ -74,7 +74,7 @@ export const APPS_CATALOG: readonly CatalogEntry[] = [
     id: 'apps-ui-content-payload',
     title: 'The content is one of text and blob, and is an HTML5 document',
     description:
-      'Each content of a UI resource has exactly one of text (a string) and blob (base64), and the HTML it holds opens with an HTML5 doctype. A resource over 4 MiB is not judged: could-not-run.',
+      'Each content of a UI resource has exactly one of text (a string) and blob (base64), and the HTML it holds opens with an HTML5 doctype. A resource over 4 MiB, or with comments or white space past the first 2048 characters before the doctype, is not judged: could-not-run.',
     level: 'MUST',
     derived: true,
     derivation:
@@ -85,7 +85,7 @@ export const APPS_CATALOG: readonly CatalogEntry[] = [
     id: 'apps-ui-listed-mime',
     title: 'A listed UI resource has the mimeType text/html;profile=mcp-app',
     description:
-      'Every ui:// resource in resources/list has the mimeType text/html;profile=mcp-app. A server may leave UI-only resources out of the list; then there is nothing to read.',
+      'Every ui:// resource in resources/list that has a mimeType has text/html;profile=mcp-app; a listed resource without one is not judged (the field is optional, and the sentence is about its value). A server may leave UI-only resources out of the list; then there is nothing to read.',
     level: 'SHOULD',
     derivation:
       'UIResource.mimeType: "SHOULD be `text/html;profile=mcp-app` for HTML-based UIs in the initial MVP."',
@@ -99,7 +99,7 @@ export const APPS_CATALOG: readonly CatalogEntry[] = [
     level: 'SHOULD',
     derived: true,
     derivation:
-      'No sentence says MUST or SHOULD about the values: McpUiToolMeta types visibility as `Array<"model" | "app">` and lists the two values ("`model`: Tool is visible to and callable by the agent", "`app`: Tool is callable by the app from the same server connection only"); Visibility: "`visibility` defaults to `["model", "app"]` if omitted". A requirement the text states only as a type has no keyword, so the level is SHOULD.',
+      'No sentence says MUST or SHOULD about the values: McpUiToolMeta types visibility as `Array<"model" | "app">` and lists the two values ("`\"model\"`: Tool is visible to and callable by the agent", "`\"app\"`: Tool is callable by the app from the same server connection only"); Visibility: "`visibility` defaults to `["model", "app"]` if omitted". A requirement the text states only as a type has no keyword, so the level is SHOULD.',
     specRefs: [ref(DISCOVERY)],
   }),
   apps({

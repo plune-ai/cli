@@ -58,9 +58,23 @@ export interface UiTool {
 
 /** The resource of the run that is read: its address and what the read answered. */
 export type Read =
+  /** An answer with contents (a list that may be empty). */
   | { kind: 'read'; contents: Record<string, unknown>[] }
-  | { kind: 'refused'; said: string }
+  /** The error -32002: the one answer that says the resource is not there. */
+  | { kind: 'not-found'; said: string }
+  /** Any other error, or an answer that is not a result with a contents list: nothing is known of the resource. */
   | { kind: 'no-answer'; said: string };
+
+/** The addresses to read, those left unread for the limit, and why the list that was to add to them was not read. */
+export interface Addresses {
+  uris: string[];
+  over: number;
+  /** resources/list could not be read: addresses it names, if any, are not in `uris`. */
+  listNote?: string;
+}
+
+export const LIMIT_NOTE = (over: number, read: number): string =>
+  `${over} of ${read + over} addresses were not read (the limit is ${MAX_UI_READS})`;
 
 const noApps: CheckOutcome = {
   state: 'not-applicable',
@@ -139,23 +153,35 @@ export function namedAddresses(found: readonly UiTool[]): { uris: string[]; over
 export async function uiAddresses(
   ctx: ConformanceContext,
   found: readonly UiTool[],
-): Promise<{ uris: string[]; over: number }> {
+): Promise<Addresses> {
   const list = await listed(ctx);
-  // A list that cannot be read adds nothing: apps-ui-listed-mime says so.
   const fromList = Array.isArray(list) ? list.map((r) => r['uri']).filter(hasUiScheme) : [];
   const all = [...new Set([...found.map((t) => t.resourceUri).filter(hasUiScheme), ...fromList])];
-  return { uris: all.slice(0, MAX_UI_READS), over: Math.max(0, all.length - MAX_UI_READS) };
+  return {
+    uris: all.slice(0, MAX_UI_READS),
+    over: Math.max(0, all.length - MAX_UI_READS),
+    ...listNote(list),
+  };
 }
+
+/** Says that the list was not read, when it was asked for and could not be (not when the server declares no resources). */
+export const listNote = (list: Record<string, unknown>[] | CheckOutcome): { listNote?: string } =>
+  Array.isArray(list) || list.state !== 'could-not-run'
+    ? {}
+    : { listNote: `resources/list was not read (${list.actual ?? 'no answer'})` };
 
 /** resources/read of one address, once per run. A server that does not answer rejects (the runner says could-not-run). */
 export function readUi(ctx: ConformanceContext, uri: string): Promise<Read> {
   return ctx.memo(`apps read ${uri}`, async (): Promise<Read> => {
     const a = await call(ctx, 'resources/read', { uri });
-    if (a.kind === 'error') return { kind: 'refused', said: said(a) };
+    if (a.kind === 'error')
+      return a.code === -32002
+        ? { kind: 'not-found', said: said(a) }
+        : { kind: 'no-answer', said: said(a) };
     if (a.kind === 'other') return { kind: 'no-answer', said: said(a) };
     const contents = a.result['contents'];
     if (!Array.isArray(contents))
-      return { kind: 'refused', said: 'a result with no contents list' };
+      return { kind: 'no-answer', said: 'a result with no contents list' };
     return { kind: 'read', contents: contents.filter(isObject) };
   });
 }
@@ -172,6 +198,7 @@ export interface Gathered {
   /** The addresses left unread for the limit. */
   over: number;
   uris: number;
+  listNote?: string;
 }
 
 /** What one content gives: its problems, or why it was not judged, or that it has nothing of the kind to judge. */
@@ -184,7 +211,7 @@ export interface Judged {
 /** Each content that resources/read answers for these addresses, judged. A server that does not answer rejects. */
 export async function gather(
   ctx: ConformanceContext,
-  addresses: { uris: string[]; over: number },
+  addresses: Addresses,
   judge: (uri: string, content: Record<string, unknown>) => Judged,
 ): Promise<Gathered> {
   const g: Gathered = {
@@ -194,11 +221,16 @@ export async function gather(
     judged: 0,
     over: addresses.over,
     uris: addresses.uris.length,
+    ...(addresses.listNote === undefined ? {} : { listNote: addresses.listNote }),
   };
   for (const uri of addresses.uris) {
     const read = await readUi(ctx, uri);
     if (read.kind !== 'read') {
       g.unread.push(`${q(uri)}: resources/read answered ${read.said}`);
+      continue;
+    }
+    if (read.contents.length === 0) {
+      g.unread.push(`${q(uri)}: resources/read answered no content`);
       continue;
     }
     // The contents that carry the address asked for; a server that names none is judged on all it sent.
@@ -224,14 +256,22 @@ export function verdict(
   fix: string,
   more: { bad: string[]; judged: number } = { bad: [], judged: 0 },
 ): CheckOutcome {
-  const limit =
-    g.over > 0 ? ` ${g.over} more addresses were not read: the limit is ${MAX_UI_READS}.` : '';
+  const notes = [
+    ...(g.listNote === undefined ? [] : [g.listNote]),
+    ...(g.over > 0 ? [LIMIT_NOTE(g.over, g.uris)] : []),
+  ];
+  const limit = notes.length > 0 ? ` ${notes.join('; ')}.` : '';
   const bad = [...more.bad, ...g.bad];
   if (bad.length > 0) return { state: 'failed', actual: `${what}: ${some(bad, 3)}.${limit}`, fix };
   if (g.skipped.length > 0) return prerequisite(`Not judged: ${some(g.skipped, 3)}.${limit}`);
   if (g.unread.length > 0)
     return prerequisite(
       `A resource could not be read, so it was not judged: ${some(g.unread, 3)}.${limit} apps-ui-resource-exists says why.`,
+    );
+  // Not everything that was to be judged was read: no pass for what was.
+  if (notes.length > 0)
+    return prerequisite(
+      `${notes.join('; ')}, so the verdict would cover only part of what the server has.`,
     );
   const judged = g.judged + more.judged;
   if (judged === 0)

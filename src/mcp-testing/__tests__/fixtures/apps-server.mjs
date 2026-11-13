@@ -14,7 +14,16 @@
 // - `huge`: a resource over the limit of the checker;
 // - `no-fallback`, `blank-fallback`: tools/call answers an empty content, or one blank text block;
 // - `hostile`: every text the server sends is long and starts with `::error::`;
-// - `silent-read`: resources/read is never answered.
+// - `silent-read`: resources/read is never answered;
+// - `error-internal`, `error-method`, `empty-contents`: resources/read of a ui:// address answers -32603, -32601, or
+//   an empty contents list (only -32002 says the resource is not there);
+// - `many`: 33 tools, each with an address of its own, all readable;
+// - `flat-key`: the one tool has only the deprecated `_meta["ui/resourceUri"]`;
+// - `ui-string`, `ui-null`, `ui-array`: the tool's `_meta.ui` is not an object;
+// - `list-fails`: resources/list answers -32603; `list-no-mime`: the listed resource has no mimeType;
+// - `comments-x`, `comments-doctype`, `comment-unclosed`, `comments-far`: 290 comments before `x` or the doctype, one
+//   comment never closed, comments that run past 2048 characters before the doctype;
+// - `mime-case`: the content's mimeType in other letter case and with spaces around `;`.
 
 import { appendFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
@@ -49,8 +58,33 @@ const REFRESH = {
 };
 const PLAIN = { name: 'plain', description: 'No UI', inputSchema: { type: 'object' } };
 
+const FLAT = {
+  name: 'weather',
+  description: 'Weather',
+  inputSchema: { type: 'object' },
+  _meta: { 'ui/resourceUri': URI },
+};
+const BAD_UI = { 'ui-string': 'x', 'ui-null': null, 'ui-array': [] };
+
 function tools() {
   if (mode === 'no-ui' || mode === 'ext-only') return [PLAIN];
+  if (mode === 'flat-key') return [FLAT, PLAIN];
+  if (mode in BAD_UI)
+    return [
+      {
+        name: 'weather',
+        description: 'Weather',
+        inputSchema: { type: 'object' },
+        _meta: { ui: BAD_UI[mode] },
+      },
+    ];
+  if (mode === 'many')
+    return Array.from({ length: 33 }, (_, i) => ({
+      name: `t${i}`,
+      description: 'UI',
+      inputSchema: { type: 'object' },
+      _meta: { ui: { resourceUri: `ui://apps/${i}` } },
+    }));
   return [WEATHER, REFRESH, PLAIN];
 }
 
@@ -65,7 +99,9 @@ const listedMime =
   mode === 'wrong-mime' ? 'text/html' : mode === 'hostile' ? `::error::${'M'.repeat(200)}` : APP;
 function resources() {
   if (mode === 'no-ui' || mode === 'ext-only') return [{ uri: 'mem://a', name: 'a' }];
+  if (mode === 'many') return [];
   const list = [{ uri, name: 'weather', mimeType: listedMime }];
+  if (mode === 'list-no-mime') delete list[0].mimeType;
   if (mode === 'wrong-scheme')
     list.push({ uri: 'https://apps.example/other', name: 'other', mimeType: APP });
   if (mode === 'bad-meta') list[0]._meta = { ui: { csp: 'self', prefersBorder: 'yes' } };
@@ -73,7 +109,15 @@ function resources() {
 }
 
 function content() {
-  const base = { uri, mimeType: mode === 'wrong-mime' ? 'text/html' : APP };
+  const base = {
+    uri,
+    mimeType:
+      mode === 'wrong-mime'
+        ? 'text/html'
+        : mode === 'mime-case'
+          ? 'Text/HTML ; Profile=MCP-App'
+          : APP,
+  };
   const meta = {
     csp: {
       connectDomains: ['https://api.example.com'],
@@ -94,6 +138,14 @@ function content() {
       return { ...base, blob: 'this is not base64!!' };
     case 'not-html':
       return { ...base, text: '<p>no doctype</p>' };
+    case 'comments-x':
+      return { ...base, text: `${'<!---->'.repeat(290)}x` };
+    case 'comments-doctype':
+      return { ...base, text: `${'<!---->'.repeat(290)}<!DOCTYPE html><html></html>` };
+    case 'comment-unclosed':
+      return { ...base, text: '<!-- never closed <!DOCTYPE html><html></html>' };
+    case 'comments-far':
+      return { ...base, text: `${'<!---->'.repeat(400)}<!DOCTYPE html><html></html>` };
     case 'huge':
       return { ...base, text: `<!DOCTYPE html><html>${'a'.repeat(4 * 1024 * 1024 + 1)}</html>` };
     case 'bad-meta':
@@ -155,9 +207,21 @@ function answer(msg) {
     case 'tools/call':
       return call(id, params);
     case 'resources/list':
+      if (mode === 'list-fails') return fail(id, -32603, 'Internal error');
       return ok(id, { resources: resources() });
     case 'resources/read':
+      if (process.env.APPS_READ_LOG)
+        appendFileSync(
+          process.env.APPS_READ_LOG,
+          `${params.uri}
+`,
+        );
       if (mode === 'silent-read') return;
+      if (mode === 'error-internal') return fail(id, -32603, 'Internal error');
+      if (mode === 'error-method') return fail(id, -32601, 'Method not found');
+      if (mode === 'empty-contents') return ok(id, { contents: [] });
+      if (mode === 'many' && String(params.uri).startsWith('ui://apps/'))
+        return ok(id, { contents: [{ ...content(), uri: params.uri }] });
       if (mode === 'missing' && String(params.uri).startsWith('ui://'))
         return fail(id, -32002, 'Resource not found');
       if (params.uri === uri || params.uri === URI) return ok(id, { contents: [content()] });

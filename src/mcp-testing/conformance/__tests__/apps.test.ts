@@ -342,3 +342,91 @@ describe('CLI · mcp conformance · apps · what the server sends is never print
     expect(byId(report, 'apps-ui-mime-type').state).toBe('failed');
   });
 });
+
+describe('CLI · mcp conformance · apps · after review', () => {
+  it('the visibility quote is the saved text, character for character', () => {
+    const e = APPS.find((x) => x.id === 'apps-ui-visibility-values');
+    expect(e?.derivation).toContain('`"model"`: Tool is visible to and callable by the agent');
+    expect(e?.derivation).toContain(
+      '`"app"`: Tool is callable by the app from the same server connection only',
+    );
+  });
+
+  it('the doctype is found without backtracking: 290 comments then x is failed, then a doctype is passed, fast', async () => {
+    const t0 = Date.now();
+    const x = await run('comments-x');
+    expect(states(x.report)['apps-ui-content-payload']).toBe('failed');
+    expect(Date.now() - t0).toBeLessThan(8000);
+    expect(states((await run('comments-doctype')).report)['apps-ui-content-payload']).toBe(
+      'passed',
+    );
+    expect(states((await run('comment-unclosed')).report)['apps-ui-content-payload']).toBe(
+      'failed',
+    );
+  }, 20_000);
+
+  it('comments that run past the first 2048 characters are not judged: could-not-run, not failed', async () => {
+    const { report } = await run('comments-far');
+    expect(states(report)['apps-ui-content-payload']).toBe('could-not-run (prerequisite-failed)');
+  });
+
+  it('only -32002 says a resource is not there: an internal error, method-not-found or an empty list is could-not-run', async () => {
+    for (const mode of ['error-internal', 'error-method', 'empty-contents'])
+      expect(states((await run(mode)).report)['apps-ui-resource-exists'], mode).toBe(
+        'could-not-run (prerequisite-failed)',
+      );
+    expect(states((await run('missing')).report)['apps-ui-resource-exists']).toBe('failed');
+  });
+
+  it('over 32 addresses, the checks that read are could-not-run and name how many were not read', async () => {
+    const { report } = await run('many');
+    for (const id of [
+      'apps-ui-resource-exists',
+      'apps-ui-mime-type',
+      'apps-ui-content-payload',
+      'apps-ui-meta-shapes',
+    ]) {
+      expect(states(report)[id], id).toBe('could-not-run (prerequisite-failed)');
+      expect(byId(report, id).actual, id).toMatch(/1 of 33 addresses were not read/);
+    }
+  });
+
+  it('a tool with only the flat _meta["ui/resourceUri"] is not failed for a missing _meta.ui; any other non-object is', async () => {
+    const flat = await run('flat-key');
+    expect(states(flat.report)['apps-ui-meta-shapes']).toBe('passed');
+    expect(states(flat.report)['apps-ui-resource-uri-scheme']).toBe('passed');
+    for (const mode of ['ui-string', 'ui-null', 'ui-array'])
+      expect(states((await run(mode)).report)['apps-ui-meta-shapes'], mode).toBe('failed');
+  });
+
+  it('a resources/list that cannot be read is said, and the checks that rest on it are could-not-run', async () => {
+    const { report } = await run('list-fails');
+    for (const id of [
+      'apps-ui-resource-uri-scheme',
+      'apps-ui-meta-shapes',
+      'apps-ui-mime-type',
+      'apps-ui-content-payload',
+    ]) {
+      expect(states(report)[id], id).toBe('could-not-run (prerequisite-failed)');
+      expect(byId(report, id).actual, id).toContain('resources/list');
+    }
+    expect(states(report)['apps-ui-resource-exists']).toBe('passed');
+  });
+
+  it('a listed resource with no mimeType is not judged (not-offered); a different one still fails', async () => {
+    expect(states((await run('list-no-mime')).report)['apps-ui-listed-mime']).toBe(
+      'not-applicable (not-offered)',
+    );
+    expect(states((await run('wrong-mime')).report)['apps-ui-listed-mime']).toBe('failed');
+  });
+
+  it('a media type is compared without letter case and the spaces around ";"', async () => {
+    expect(states((await run('mime-case')).report)['apps-ui-mime-type']).toBe('passed');
+  });
+
+  it('the same address on several tools and in the list is read once', async () => {
+    const readLog = join(dir, 'reads.log');
+    await run('good', { env: [`APPS_READ_LOG=${readLog}`] });
+    expect(readFileSync(readLog, 'utf8').trim().split('\n')).toEqual(['ui://apps/weather']);
+  });
+});
