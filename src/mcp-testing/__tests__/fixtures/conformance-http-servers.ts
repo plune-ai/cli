@@ -26,12 +26,14 @@ export interface Opts {
   wrongId?: boolean;
   /** No session required, no version checked, a DELETE that ends nothing. */
   lax?: boolean;
-  get?: 'sse' | 'json' | '405' | number;
+  get?: 'sse' | 'json' | '405' | 'flood' | number;
   del?: 'ends' | '405' | number;
   /** The status of every refusal (a foreign Origin or Host, no session, an ended one, a bad version) instead of its own: 429, 503... */
   refuse?: number;
   /** A `ping` is answered on an SSE stream that never ends: with one line of 200 KiB, or with events as fast as it can. */
-  flood?: 'line' | 'events';
+  flood?: 'line' | 'events' | 'noise';
+  /** A `ping` is answered with 1.1 MiB of valid JSON in which a two-byte character lies across the 1 MiB mark. */
+  bigJson?: boolean;
   /** Every JSON answer carries the session id of the request in its body, too. */
   echoSession?: boolean;
   /** A `ping` that carries a session is answered with this status: a server whose valid request is refused too. */
@@ -82,6 +84,11 @@ export async function serve(o: Opts = {}): Promise<Served> {
     if (req.method === 'GET') {
       const get = o.get ?? '405';
       if (typeof get === 'number') return res.writeHead(get).end();
+      if (get === 'flood') {
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        for (let i = 0; i < 150; i++) res.write(`data: m${i}\n\n`);
+        return;
+      }
       if (get === '405') return res.writeHead(405).end();
       if (get === 'json')
         return res.writeHead(200, { 'content-type': 'application/json' }).end('{}');
@@ -186,8 +193,20 @@ export async function serve(o: Opts = {}): Promise<Served> {
         result,
         ...(o.echoSession === true && sid !== undefined ? { session: sid } : {}),
       });
+      if (o.bigJson === true && msg.method === 'ping') {
+        const head = `{"jsonrpc":"2.0","id":${JSON.stringify(msg.id)},"result":{"pad":"`;
+        const pad =
+          ((1048576 - Buffer.byteLength(head)) % 2 === 0 ? 'a' : '') + 'é'.repeat(550_000);
+        return res.writeHead(200, { 'content-type': 'application/json' }).end(`${head}${pad}"}}`);
+      }
       if (o.flood !== undefined && msg.method === 'ping') {
         res.writeHead(200, { 'content-type': 'text/event-stream' });
+        if (o.flood === 'noise') {
+          for (let i = 0; i < 150; i++) res.write('data: x\n\n');
+          res.write(`data: ${frame}\n\n`);
+          res.on('close', () => closedStreams++);
+          return;
+        }
         if (o.flood === 'line') {
           res.write(`data: ${'a'.repeat(200_000)}`);
           res.on('close', () => closedStreams++);

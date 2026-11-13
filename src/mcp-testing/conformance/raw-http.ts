@@ -217,7 +217,9 @@ export async function rawRequest(target: HttpTarget, req: RawRequest, limits: Li
           const fed = parser.feed(decoder.decode(value, { stream: true }));
           for (const e of fed.events) {
             events.push(e);
-            if (events.length >= maxEvents) {
+            // Cut only when one event beyond the limit was read: exactly the limit and a clean end is a whole stream.
+            if (events.length > maxEvents) {
+              events.pop();
               cut = 'events';
               break read;
             }
@@ -232,7 +234,7 @@ export async function rawRequest(target: HttpTarget, req: RawRequest, limits: Li
             break;
           }
         }
-        if (bytes >= maxBytes) {
+        if (bytes > maxBytes) {
           cut = 'bytes';
           break;
         }

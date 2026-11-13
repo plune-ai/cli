@@ -56,7 +56,7 @@ export function unjudged(res: RawResponse, details: Exchange[], opts: { wall?: b
     return {
       state: 'could-not-run',
       reason: 'prerequisite-failed',
-      actual: 'The server answered HTTP 401: it wants a login (--header), and nothing was judged.',
+      actual: 'The server answered HTTP 401: it wants a login (give it with --header "Authorization: Bearer <token>"), and nothing was judged.',
       details,
     };
   return undefined;
@@ -302,6 +302,8 @@ const utf8Json: ConformanceCheck = async (ctx) => {
   const got = await probed(ctx);
   if (isOutcome(got)) return got;
   const { res, detail } = got.p;
+  const cut = cutOf(res, detail);
+  if (cut !== undefined) return cut;
   const fix = 'Send every JSON-RPC message as JSON encoded in UTF-8.';
   if (!res.utf8) return { ...failed('The body of the answer is not valid UTF-8.', fix), details: [detail] };
   const messages = isSse(res) ? res.events.map((e) => e.data).filter((d) => d !== '') : [res.body];
@@ -450,6 +452,8 @@ const concurrentMatched: ConformanceCheck = async (ctx) => {
   const refused = all.find((a) => !ok(a.res));
   if (refused !== undefined)
     return { ...prerequisite(`A probe request (${probeMethod(ctx)}) got HTTP ${refused.res.status}.`), details };
+  const cutOne = all.find((a) => a.res.cut !== undefined);
+  if (cutOne !== undefined) return tooMuch(cutOne);
   const silent = all.find((a) => isSse(a.res) && a.frame === undefined && !a.res.ended && a.res.events.length === 0);
   if (silent !== undefined)
     return { state: 'could-not-run', reason: 'timeout', actual: 'A request was answered on an SSE stream that sent no event in time.', details };
@@ -474,6 +478,10 @@ async function streams(ctx: ConformanceContext): Promise<Asked[] | CheckOutcome>
   const cut = sse.find((a) => a.res.cut !== undefined);
   return cut === undefined ? sse : tooMuch(cut);
 }
+
+/** The answer, whole or not: a cut answer is never judged, whatever it holds. */
+const cutOf = (res: RawResponse, detail: Exchange): CheckOutcome | undefined =>
+  res.cut === undefined ? undefined : tooMuch({ res, detail } as Asked);
 
 /** A stream stopped at one of the limits of the reading: the check could not read it whole. */
 const tooMuch = (a: Asked): CheckOutcome => ({
@@ -635,6 +643,8 @@ const noBroadcast: ConformanceCheck = async (ctx) => {
   const refused = got.find((res) => !ok(res) || !isSse(res));
   if (refused !== undefined)
     return { ...notOffered(`A second GET stream was not opened: HTTP ${refused.status}.`), details };
+  const cutGet = got.findIndex((res) => res.cut !== undefined);
+  if (cutGet >= 0) return { ...tooMuch({ res: got[cutGet]!, detail: details[cutGet]! } as Asked), details };
   const [a, b] = got.map((res) => new Set(res.events.map((e) => e.data).filter((d) => d !== '')));
   if (a!.size + b!.size === 0)
     return { ...prerequisite(`The --fixture call of ${call.tool} sent no message on either GET stream.`), details };

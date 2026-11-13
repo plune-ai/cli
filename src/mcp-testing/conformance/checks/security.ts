@@ -128,9 +128,17 @@ const hostAdvice: ConformanceCheck = async (ctx) => {
   if (skip !== undefined) return skip;
   const s = await session(ctx);
   if (isOutcome(s)) return s;
+  // The control: the same request with the Host of the server is accepted, so a refusal is of the foreign Host.
+  const control = await probe(ctx, s);
+  if (!ok(control.res))
+    return {
+      ...prerequisite(`The control with the server's own Host got HTTP ${control.res.status}: a refusal of a foreign Host would show a server that refuses everything.`),
+      details: [control.detail],
+    };
   const a = await ask(ctx, s, probeMethod(ctx), { set: [['Host', FOREIGN_HOST]] });
-  const details = [a.detail];
-  const stop = unjudged(a.res, details, { wall: false });
+  const details = [control.detail, a.detail];
+  // A 401 is the wall of a login, not a refusal of the Host.
+  const stop = unjudged(a.res, details);
   if (stop !== undefined) return stop;
   if (!ok(a.res)) return { ...passed(`Host: ${FOREIGN_HOST} got HTTP ${a.res.status}.`), details };
   return {
