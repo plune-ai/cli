@@ -54,11 +54,27 @@ function maybeStack(err: unknown, verbose: boolean): void {
   }
 }
 
+/** A file-system error that names a path on this machine. A network error has a `code` and no `path`. */
+export function isFileSystemError(err: unknown): boolean {
+  const e = err as NodeJS.ErrnoException;
+  return err instanceof Error && typeof e.code === 'string' && typeof e.path === 'string';
+}
+
 function failUnexpected(err: unknown, verbose: boolean): void {
   if (err instanceof Error) {
     process.stderr.write((verbose && err.stack !== undefined ? err.stack : err.message) + '\n');
   } else {
     process.stderr.write(String(err) + '\n');
+  }
+  if (isFileSystemError(err)) {
+    // A folder that is not there, no permission, a file where a folder is expected (#258): the user's to
+    // fix, like a config error. So no request for a report, and exit 2, not the 1 that means a failed
+    // assertion or a failed gate.
+    process.stderr.write(
+      'This is a file or folder on this machine: check that the path exists and that you may read and write it.\n',
+    );
+    process.exit(2);
+    return;
   }
   // The one branch with no advice of its own: every classified failure above ends in an
   // instruction, and this is where somebody lands holding an error nobody wrote a sentence for
