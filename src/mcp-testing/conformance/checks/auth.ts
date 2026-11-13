@@ -56,12 +56,52 @@ const prerequisite = (actual: string, details?: Exchange[]): CheckOutcome => ({
   ...(details === undefined ? {} : { details }),
 });
 
+/** The origin of a URL the caller has already parsed. */
 const originOf = (url: string): string => new URL(url).origin;
-/** The origin is the server's or one `--allow-origin` named. */
+/** The origin is the server's or one `--allow-origin` named: enough to read public metadata from it. */
 export const allowed = (ctx: OauthContext, url: string): boolean => {
-  const origin = originOf(url);
-  return origin === originOf(ctx.url) || ctx.allowOrigins.has(origin);
+  try {
+    const origin = originOf(url);
+    return origin === originOf(ctx.url) || ctx.allowOrigins.has(origin);
+  } catch {
+    return false;
+  }
 };
+
+const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
+const isLoopbackHost = (host: string): boolean => {
+  const h = host.toLowerCase();
+  return LOOPBACK.has(h) || h.endsWith('.localhost');
+};
+const isLoopbackUrl = (url: string): boolean => {
+  try {
+    return isLoopbackHost(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+};
+const isHttpUrl = (url: string): boolean => {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' || u.protocol === 'http:';
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Why a credential may not be sent to `url`, or undefined when it may: only to an origin `--allow-origin` named (the
+ * server's own is no exception: a server that names itself the authorization server is still one the user has to
+ * name), and only over https, or http on a loopback name.
+ */
+function credentialRefusal(ctx: OauthContext, url: string): string | undefined {
+  const u = new URL(url);
+  if (!ctx.allowOrigins.has(u.origin))
+    return `The client secret goes only to an origin named with --allow-origin, and ${u.origin} is not one (the origin of the server is not exempt). Name it with --allow-origin ${u.origin} to send it there.`;
+  if (u.protocol !== 'https:' && !isLoopbackHost(u.hostname))
+    return `${u.origin} is plain http outside loopback: the client secret is sent only over https.`;
+  return undefined;
+}
 
 interface Sent {
   res: RawResponse;
@@ -147,23 +187,81 @@ export async function probe(ctx: OauthContext, token?: string): Promise<Probed> 
   };
 }
 
-/** The parameters of the Bearer challenge in a `WWW-Authenticate` value; undefined when there is no Bearer scheme. */
+interface Challenge {
+  scheme: string;
+  params: Record<string, string>;
+}
+
+/**
+ * The challenges of a `WWW-Authenticate` value. A challenge starts at a word that is not followed by `=`: its
+ * scheme. A word followed by `=` is a parameter of the challenge before it, and a quoted value is read whole, so a
+ * scheme named inside a parameter (`Basic realm="a Bearer b"`) is not a scheme.
+ */
+export function challengesOf(value: string): Challenge[] {
+  const out: Challenge[] = [];
+  const n = value.length;
+  let i = 0;
+  const skip = (re: RegExp) => {
+    while (i < n && re.test(value[i] ?? '')) i++;
+  };
+  for (;;) {
+    skip(/[\s,]/);
+    if (i >= n) break;
+    const start = i;
+    skip(/[^\s,=]/);
+    const word = value.slice(start, i);
+    if (word === '') {
+      i++;
+      continue;
+    }
+    let j = i;
+    while (value[j] === ' ' || value[j] === '\t') j++;
+    if (value[j] === '=' && value[j + 1] !== '=') {
+      i = j + 1;
+      skip(/[ \t]/);
+      let v = '';
+      if (value[i] === '"') {
+        i++;
+        while (i < n && value[i] !== '"') {
+          if (value[i] === '\\' && i + 1 < n) i++;
+          v += value[i] ?? '';
+          i++;
+        }
+        i++;
+      } else {
+        const from = i;
+        skip(/[^\s,]/);
+        v = value.slice(from, i);
+      }
+      const current = out[out.length - 1];
+      if (current !== undefined) current.params[word.toLowerCase()] = v;
+    } else out.push({ scheme: word.toLowerCase(), params: {} });
+  }
+  return out;
+}
+
+/** The parameters of the first Bearer challenge in a `WWW-Authenticate` value; undefined when there is none. */
 export function bearerParams(value: string | undefined): Record<string, string> | undefined {
   if (value === undefined) return undefined;
-  const scheme = /(^|[\s,])Bearer(?=[\s,]|$)/i.exec(value);
-  if (scheme === null) return undefined;
-  const params: Record<string, string> = {};
-  // ponytail: a challenge of another scheme after Bearer in the same value would add its parameters; one scheme is what a server sends.
-  for (const m of value
-    .slice(scheme.index + scheme[0].length)
-    .matchAll(/([A-Za-z0-9_-]+)\s*=\s*("(?:[^"\\]|\\.)*"|[^\s,]+)/g)) {
-    const raw = m[2] ?? '';
-    params[(m[1] ?? '').toLowerCase()] = raw.startsWith('"')
-      ? raw.slice(1, -1).replace(/\\(.)/g, '$1')
-      : raw;
-  }
-  return params;
+  return challengesOf(value).find((c) => c.scheme === 'bearer')?.params;
 }
+
+/** An answer that says nothing about the requirement: a redirect (never followed), a rate limit or a server error. */
+const transient = (status: number): boolean =>
+  status === 429 || status >= 500 || (status >= 300 && status < 400);
+const transientNote = (status: number): string =>
+  status === 429
+    ? 'a rate limit'
+    : status >= 500
+      ? 'a server error'
+      : 'a redirect, which is not followed';
+
+const inconclusive = (what: string, status: number, details: Exchange[]): CheckOutcome => ({
+  state: 'could-not-run',
+  reason: 'transport-error',
+  actual: `${what} got HTTP ${status}, ${transientNote(status)}: nothing can be said of the requirement.`,
+  details,
+});
 
 /** The first probe, without a token: once per run. */
 const unauthenticated = (ctx: OauthContext): Promise<Probed> =>
@@ -180,6 +278,7 @@ async function needsAuth(ctx: OauthContext): Promise<Probed | CheckOutcome> {
       actual: `A request without a token got HTTP ${p.status}: the server is public.`,
       details: [p.detail],
     };
+  if (transient(p.status)) return inconclusive('A request without a token', p.status, [p.detail]);
   return prerequisite(
     `A request without a token got HTTP ${p.status}, not 401: nothing of the authorization can be read.`,
     [p.detail],
@@ -191,41 +290,89 @@ const isOutcome = (v: Probed | CheckOutcome): v is CheckOutcome => !('status' in
 type Fetched =
   | { state: 'ok'; url: string; doc: Record<string, unknown>; detail: Exchange }
   | { state: 'blocked'; url: string }
-  | { state: 'bad'; url: string; why: string; detail?: Exchange };
+  /**
+   * `wrong`: the server answered, and what it answered is no such document (404, another 4xx, not JSON): a finding.
+   * `unreadable`: no answer that says anything (no connection, a timeout, 3xx, 429, 5xx, a body too large to read).
+   */
+  | {
+      state: 'bad';
+      kind: 'wrong' | 'unreadable';
+      reason: 'timeout' | 'transport-error';
+      url: string;
+      why: string;
+      detail?: Exchange;
+    };
+
+const wrong = (url: string, why: string, detail?: Exchange): Fetched => ({
+  state: 'bad',
+  kind: 'wrong',
+  reason: 'transport-error',
+  url,
+  why,
+  ...(detail === undefined ? {} : { detail }),
+});
+const unreadable = (
+  url: string,
+  why: string,
+  reason: 'timeout' | 'transport-error',
+  detail?: Exchange,
+): Fetched => ({
+  state: 'bad',
+  kind: 'unreadable',
+  reason,
+  url,
+  why,
+  ...(detail === undefined ? {} : { detail }),
+});
 
 /** A JSON object from `url`, by GET, with no credentials; a foreign origin is not asked. */
 async function getJson(ctx: OauthContext, url: string): Promise<Fetched> {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return { state: 'bad', url, why: 'it is not an absolute URL' };
-  }
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:')
-    return { state: 'bad', url, why: 'it is not an http(s) URL' };
+  if (!isHttpUrl(url)) return wrong(url, 'it is not an absolute http(s) URL');
   if (!allowed(ctx, url)) return { state: 'blocked', url };
   let sent: Sent;
   try {
     sent = await send(ctx, url, { method: 'GET', headers: [['Accept', 'application/json']] });
   } catch (err) {
     if (!(err instanceof ConnectError)) throw err;
-    return {
-      state: 'bad',
-      url,
-      why: err.kind === 'timeout' ? 'it did not answer in time' : 'it could not be reached',
-    };
+    return err.kind === 'timeout'
+      ? unreadable(url, 'it did not answer in time', 'timeout')
+      : unreadable(url, 'it could not be reached', 'transport-error');
   }
   const detail = sent.detail();
-  if (sent.res.status !== 200)
-    return { state: 'bad', url, why: `it answered HTTP ${sent.res.status}`, detail };
+  const { status } = sent.res;
+  if (transient(status))
+    return unreadable(
+      url,
+      `it answered HTTP ${status}, ${transientNote(status)}`,
+      'transport-error',
+      detail,
+    );
+  if (status !== 200) return wrong(url, `it answered HTTP ${status}`, detail);
+  if (!sent.res.ended)
+    return unreadable(url, 'the answer is larger than this check reads', 'transport-error', detail);
   let doc: unknown;
   try {
     doc = JSON.parse(sent.res.body);
   } catch {
-    return { state: 'bad', url, why: 'the answer is not JSON', detail };
+    return wrong(url, 'the answer is not JSON', detail);
   }
-  if (!isObject(doc)) return { state: 'bad', url, why: 'the answer is not a JSON object', detail };
+  if (!isObject(doc)) return wrong(url, 'the answer is not a JSON object', detail);
   return { state: 'ok', url, doc, detail };
+}
+
+/** The outcome when no document was read and at least one place gave no answer that says anything; else undefined. */
+function noAnswer(
+  tried: readonly (Fetched | undefined)[],
+  details: Exchange[],
+): CheckOutcome | undefined {
+  const lost = tried.flatMap((f) => (f?.state === 'bad' && f.kind === 'unreadable' ? [f] : []));
+  if (lost.length === 0) return undefined;
+  return {
+    state: 'could-not-run',
+    reason: lost.every((f) => f.reason === 'timeout') ? 'timeout' : 'transport-error',
+    actual: `${lost.map((f) => `${f.url}: ${f.why}`).join('; ')}: the requirement cannot be judged.`,
+    details,
+  };
 }
 
 interface Prm {
@@ -294,11 +441,7 @@ function discoverAs(ctx: OauthContext, issuer: string): Promise<As> {
     try {
       u = new URL(issuer);
     } catch {
-      return {
-        issuer,
-        tried: [{ state: 'bad', url: issuer, why: 'it is not an absolute URL' }],
-        found: undefined,
-      };
+      return { issuer, tried: [wrong(issuer, 'it is not an absolute URL')], found: undefined };
     }
     const path = u.pathname === '/' ? '' : u.pathname.replace(/\/$/, '');
     const urls =
@@ -370,12 +513,22 @@ const requiresAuth: ConformanceCheck = async (c) => {
       actual: `A request without a token got HTTP ${p.status}: the server is public.`,
       details: [p.detail],
     };
+  if (transient(p.status)) return inconclusive('A request without a token', p.status, [p.detail]);
+  // 403 is an answer about authorization that is not the one required. Another 4xx (400, 404, 405, 415...) may be this
+  // checker's request reaching something that is not the MCP endpoint, or not parsing: it proves nothing.
+  if (p.status === 403)
+    return {
+      ...failed(
+        'A request without a token got HTTP 403.',
+        'Answer a request to the MCP endpoint that has no access token with 401 Unauthorized and a WWW-Authenticate challenge.',
+      ),
+      details: [p.detail],
+    };
   return {
-    ...failed(
-      `A request without a token got HTTP ${p.status}.`,
-      'Answer a request to the MCP endpoint that has no access token with 401 Unauthorized and a WWW-Authenticate challenge.',
+    ...prerequisite(
+      `A request without a token got HTTP ${p.status}: is the URL the MCP endpoint, and does it take a POST?`,
+      [p.detail],
     ),
-    details: [p.detail],
   };
 };
 
@@ -418,6 +571,8 @@ const prmReachable: ConformanceCheck = async (c) => {
   const blocked = [prm.fromChallenge, ...prm.wellKnown].find((f) => f?.state === 'blocked');
   if (blocked !== undefined)
     return { ...needsInput(`The resource_metadata URL ${blockedNote(blocked.url)}`), details };
+  const lost = noAnswer([prm.fromChallenge, ...prm.wellKnown], details);
+  if (lost !== undefined) return lost;
   return {
     ...failed(
       `Neither mechanism served the metadata (${[prm.fromChallenge, ...prm.wellKnown]
@@ -449,6 +604,8 @@ const challengeMetadataUrl: ConformanceCheck = async (c) => {
       details: [f.detail],
     };
   if (f?.state === 'blocked') return needsInput(`The resource_metadata URL ${blockedNote(f.url)}`);
+  const lost = noAnswer([f], fetchedDetails(f));
+  if (lost !== undefined) return lost;
   return {
     ...failed(
       `resource_metadata (${f?.url ?? ''}): ${f?.state === 'bad' ? f.why : 'not read'}.`,
@@ -457,6 +614,33 @@ const challengeMetadataUrl: ConformanceCheck = async (c) => {
     details: fetchedDetails(f),
   };
 };
+
+/**
+ * What differs between the `resource` of the metadata and the URL of the server, compared as URLs (the case of the
+ * host and a default port do not count); undefined when they are the same. A difference in the path or in a trailing
+ * slash of a path is a difference.
+ */
+export function resourceDifference(actual: string, expected: string): string | undefined {
+  let a: URL;
+  try {
+    a = new URL(actual);
+  } catch {
+    return `resource ${JSON.stringify(actual.slice(0, 200))} is not an absolute URL`;
+  }
+  let e: URL;
+  try {
+    e = new URL(expected);
+  } catch {
+    return undefined;
+  }
+  if (a.origin !== e.origin)
+    return `resource differs in the origin: ${a.origin} is not ${e.origin}`;
+  if (a.pathname !== e.pathname)
+    return `resource differs in the path: ${JSON.stringify(a.pathname)} is not ${JSON.stringify(e.pathname)}`;
+  if (a.search !== e.search)
+    return `resource differs in the query: ${JSON.stringify(a.search)} is not ${JSON.stringify(e.search)}`;
+  return undefined;
+}
 
 const prmValid: ConformanceCheck = async (c) => {
   const ctx = c.oauth!;
@@ -475,10 +659,11 @@ const prmValid: ConformanceCheck = async (c) => {
     : [];
   if (urls.length === 0) problems.push('authorization_servers lists no URL');
   const expected = ctx.config.resource ?? ctx.url;
-  if (doc['resource'] !== expected)
-    problems.push(
-      `resource is ${typeof doc['resource'] === 'string' ? JSON.stringify(doc['resource']) : 'missing'}, not ${JSON.stringify(expected)}`,
-    );
+  const differs =
+    typeof doc['resource'] === 'string'
+      ? resourceDifference(doc['resource'], expected)
+      : 'resource is missing';
+  if (differs !== undefined) problems.push(differs);
   const details = [prm.found.detail];
   if (problems.length > 0)
     return {
@@ -533,6 +718,8 @@ const asDiscoverable: ConformanceCheck = async (c) => {
   const blocked = as.tried.find((t) => t.state === 'blocked');
   if (blocked !== undefined)
     return needsInput(`The authorization server ${blockedNote(blocked.url)}`);
+  const lost = noAnswer(as.tried, details);
+  if (lost !== undefined) return lost;
   return {
     ...failed(
       `No metadata document at any location: ${as.tried.flatMap((t) => (t.state === 'bad' ? [`${t.url}: ${t.why}`] : [])).join('; ')}.`,
@@ -569,15 +756,18 @@ const asIssuerMatches = asMember((doc, as) =>
       },
 );
 
-const asPkceAdvertised = asMember((doc) =>
-  Array.isArray(doc['code_challenge_methods_supported'])
-    ? { ok: true, actual: 'code_challenge_methods_supported is present.' }
-    : {
-        ok: false,
-        actual: 'The metadata has no code_challenge_methods_supported.',
-        fix: 'Add code_challenge_methods_supported to the metadata (["S256"]): a client must refuse an authorization server that does not advertise PKCE.',
-      },
-);
+const asPkceAdvertised = asMember((doc) => {
+  const methods = doc['code_challenge_methods_supported'];
+  if (Array.isArray(methods) && methods.length > 0)
+    return { ok: true, actual: 'code_challenge_methods_supported is present.' };
+  return {
+    ok: false,
+    actual: Array.isArray(methods)
+      ? 'code_challenge_methods_supported is an empty list: no method is advertised.'
+      : 'The metadata has no code_challenge_methods_supported.',
+    fix: 'Add code_challenge_methods_supported to the metadata (["S256"]): a client must refuse an authorization server that does not advertise PKCE.',
+  };
+});
 
 const asPkceS256 = asMember((doc) => {
   const methods = doc['code_challenge_methods_supported'];
@@ -613,28 +803,24 @@ const asCimdAdvertised = asMember((doc) =>
 );
 
 const ENDPOINTS = ['authorization_endpoint', 'token_endpoint', 'registration_endpoint'] as const;
-const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
-
 const asHttps: ConformanceCheck = async (c) => {
   const m = await asMetadata(c.oauth!);
   if (!isMeta(m)) return m;
   const urls = ENDPOINTS.flatMap((k) =>
     typeof m.doc[k] === 'string' ? [[k, m.doc[k] as string] as const] : [],
   );
-  const isLoopback = (u: string): boolean => {
-    try {
-      const host = new URL(u).hostname.toLowerCase();
-      return LOOPBACK.has(host) || host.endsWith('.localhost');
-    } catch {
-      return false;
-    }
-  };
-  if (urls.length > 0 && urls.every(([, u]) => isLoopback(u)))
+  if (urls.length === 0)
+    return prerequisite(
+      'The metadata names no authorization, token or registration endpoint: there is nothing to judge.',
+      [m.detail],
+    );
+  // A loopback authorization server is a test setup only when the server under test is one too.
+  if (isLoopbackUrl(c.oauth!.url) && urls.every(([, u]) => isLoopbackUrl(u)))
     return {
       state: 'not-applicable',
       reason: 'not-offered',
       actual:
-        'Every endpoint is on a loopback name: the test setup of a local authorization server.',
+        'The server and every endpoint are on a loopback name: the test setup of a local authorization server.',
       details: [m.detail],
     };
   const bad = urls.filter(([, u]) => !u.toLowerCase().startsWith('https://'));
@@ -659,6 +845,8 @@ const invalidToken401: ConformanceCheck = async (c) => {
       ...passed('A token the authorization server never issued got HTTP 401.'),
       details: [bad.detail],
     };
+  if (transient(bad.status))
+    return inconclusive('A token the authorization server never issued', bad.status, [bad.detail]);
   return {
     ...failed(
       `A token the authorization server never issued got HTTP ${bad.status}.`,
@@ -668,6 +856,10 @@ const invalidToken401: ConformanceCheck = async (c) => {
   };
 };
 
+type Token =
+  | { token: string; detail: Exchange }
+  | { error: string; status: number; detail: Exchange };
+
 /** `{ access_token }` from a token response, else the error the authorization server gave. */
 async function requestToken(
   ctx: OauthContext,
@@ -675,7 +867,7 @@ async function requestToken(
   clientId: string,
   secret: string,
   resource: string,
-): Promise<{ token: string; detail: Exchange } | { error: string; detail: Exchange }> {
+): Promise<Token> {
   ctx.secrets.add(secret);
   const form = new URLSearchParams({ grant_type: 'client_credentials', resource });
   if (ctx.config.scopes !== undefined && ctx.config.scopes.length > 0)
@@ -707,9 +899,17 @@ async function requestToken(
   const code = isObject(doc) && typeof doc['error'] === 'string' ? doc['error'] : undefined;
   return {
     error: `HTTP ${res.status}${code === undefined ? '' : ` ${code.slice(0, 60)}`}`,
+    status: res.status,
     detail: detail(),
   };
 }
+
+const lostStatus = (what: string, error: string, details: Exchange[]): CheckOutcome => ({
+  state: 'could-not-run',
+  reason: 'transport-error',
+  actual: `${what} (${error}): nothing can be said of the requirement.`,
+  details,
+});
 
 const wrongAudience: ConformanceCheck = async (c) => {
   const ctx = c.oauth!;
@@ -733,25 +933,45 @@ const wrongAudience: ConformanceCheck = async (c) => {
   const endpoint = m.doc['token_endpoint'];
   if (typeof endpoint !== 'string')
     return prerequisite('The authorization server metadata has no token_endpoint.', [m.detail]);
-  if (!allowed(ctx, endpoint))
-    return needsInput(`The token endpoint ${blockedNote(endpoint)} No credentials were sent.`);
+  if (!isHttpUrl(endpoint))
+    return prerequisite('The token_endpoint of the metadata is not an absolute http(s) URL.', [
+      m.detail,
+    ]);
+  const refusal = credentialRefusal(ctx, endpoint);
+  if (refusal !== undefined)
+    return needsInput(`${refusal} No request was sent to the token endpoint.`);
   const own = ctx.config.resource ?? ctx.url;
   const control = await requestToken(ctx, endpoint, reg.clientId, secret, own);
-  if ('error' in control)
-    return prerequisite(
-      `The authorization server issued no token for the server itself (${control.error}): the control cannot be made.`,
-      [control.detail],
-    );
+  if ('error' in control) {
+    const what = 'The authorization server issued no token for the server itself';
+    return transient(control.status)
+      ? lostStatus(what, control.error, [control.detail])
+      : prerequisite(`${what} (${control.error}): the control cannot be made.`, [control.detail]);
+  }
   const foreign = await requestToken(ctx, endpoint, reg.clientId, secret, SERVER_OTHER_RESOURCE);
-  if ('error' in foreign)
-    return needsInput(
-      `The authorization server issued no token for another resource (${foreign.error}): there is nothing to offer the server.`,
-    );
+  if ('error' in foreign) {
+    const what = 'The authorization server issued no token for another resource';
+    return transient(foreign.status)
+      ? lostStatus(what, foreign.error, [control.detail, foreign.detail])
+      : needsInput(`${what} (${foreign.error}): there is nothing to offer the server.`);
+  }
+  if (control.token === foreign.token)
+    return {
+      ...needsInput(
+        'No token of its own for the other resource: the authorization server gave the same token for both resources.',
+      ),
+      details: [control.detail, foreign.detail],
+    };
   const accepted = await probe(ctx, control.token);
-  if (accepted.status === 401 || accepted.status === 403)
+  if (transient(accepted.status))
+    return inconclusive('The token issued for the server itself', accepted.status, [
+      control.detail,
+      accepted.detail,
+    ]);
+  if (accepted.status < 200 || accepted.status >= 300)
     return prerequisite(
       `The server answered HTTP ${accepted.status} to the token issued for itself: a refusal of the other token would prove nothing.`,
-      [accepted.detail],
+      [control.detail, accepted.detail],
     );
   const refused = await probe(ctx, foreign.token);
   const details = [control.detail, accepted.detail, foreign.detail, refused.detail];
@@ -762,6 +982,8 @@ const wrongAudience: ConformanceCheck = async (c) => {
       ),
       details,
     };
+  if (transient(refused.status))
+    return inconclusive('The token issued for another resource', refused.status, details);
   return {
     ...failed(
       `A token issued for another resource got HTTP ${refused.status}, while the token issued for the server was accepted (HTTP ${accepted.status}).`,

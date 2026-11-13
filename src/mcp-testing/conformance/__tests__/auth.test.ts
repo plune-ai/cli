@@ -12,7 +12,8 @@ import {
 import type { McpConformanceReport, McpConformanceReportSet } from '../../result.js';
 import { CATALOG } from '../catalog.js';
 import { PROFILE } from '../profile.js';
-import { bearerParams } from '../checks/auth.js';
+import { bearerParams, resourceDifference } from '../checks/auth.js';
+import { outsideAddresses } from '../checks/security.js';
 import {
   authFixture,
   CLIENT_ID,
@@ -56,6 +57,8 @@ async function run(url: string, flags: Partial<McpConformanceFlags> = {}) {
       suite: ['oauth'],
       protocolVersion: '2026-07-28',
       url,
+      // The secret goes only to an origin named here: the tests name the server's own unless they say otherwise.
+      ...(flags.config === undefined ? {} : { allowOrigin: [new URL(url).origin] }),
       ...flags,
     },
     [],
@@ -398,5 +401,236 @@ describe('CLI · mcp conformance · oauth · configuration and matrix', () => {
     const r = JSON.parse(out) as McpConformanceReport;
     for (const c of r.checks)
       expect(`${c.state} (${c.reason})`, c.id).toBe('not-applicable (transport)');
+  });
+});
+
+const quiet = (id: string, report: McpConformanceReport | undefined) => verdicts(report)[id];
+
+describe('CLI · mcp conformance · oauth · the client secret goes only where it was named', () => {
+  it('a server that names itself the authorization server gets no secret without --allow-origin for it', async () => {
+    const s = await serve({});
+    const { report } = await run(s.url, { config: credentials(), allowOrigin: [] });
+    expect(quiet('oauth-neg-wrong-audience', report)).toBe('could-not-run (needs-input)');
+    expect(byId(report, 'oauth-neg-wrong-audience').actual).toContain('--allow-origin');
+    expect(s.seen.filter((x) => x.path === '/token')).toEqual([]);
+    expect(s.seen.some((x) => x.authorization?.startsWith('Basic '))).toBe(false);
+  });
+
+  it('a token endpoint on http outside loopback is not sent the secret, though its origin is named', async () => {
+    const s = await serve({ as: { tokenEndpoint: 'http://203.0.113.9/token' } });
+    const { report } = await run(s.url, {
+      config: credentials(),
+      allowOrigin: [s.origin, 'http://203.0.113.9'],
+    });
+    expect(quiet('oauth-neg-wrong-audience', report)).toBe('could-not-run (needs-input)');
+    expect(byId(report, 'oauth-neg-wrong-audience').actual).toContain('https');
+  });
+});
+
+describe('CLI · mcp conformance · oauth · a value from the server that is not a URL', () => {
+  for (const bad of ['/token', 'not a url', 'ftp://x.example/token'])
+    it(`token_endpoint ${JSON.stringify(bad)} gives a report, not an exception`, async () => {
+      const s = await serve({ as: { tokenEndpoint: bad } });
+      const { code, report } = await run(s.url, { config: credentials() });
+      expect(code).toBe(3);
+      expect(quiet('oauth-neg-wrong-audience', report)).toBe('could-not-run (prerequisite-failed)');
+    });
+
+  it('an authorization server that is not a URL is a failed metadata, not an exception', async () => {
+    const s = await serve({ authorizationServers: ['not a url'] });
+    const { report } = await run(s.url, { config: credentials() });
+    expect(quiet('oauth-prm-valid', report)).toBe('failed');
+    expect(quiet('oauth-as-metadata-discoverable', report)).toMatch(/^(failed|could-not-run)/);
+  });
+});
+
+describe('CLI · mcp conformance · oauth · the control and the other token of the audience check', () => {
+  it('one token string for both resources proves nothing: could-not-run (needs-input), with the reason', async () => {
+    const s = await serve({ sameToken: true });
+    const { report } = await run(s.url, { config: credentials() });
+    expect(quiet('oauth-neg-wrong-audience', report)).toBe('could-not-run (needs-input)');
+    expect(byId(report, 'oauth-neg-wrong-audience').actual).toContain(
+      'the authorization server gave the same token for both resources',
+    );
+  });
+
+  const elsewhere = 'http://127.0.0.1:9/';
+  const cases: [string, AuthOpts, string][] = [
+    ['429 to the control', { force: { 'mcp:own': 429 } }, 'could-not-run (transport-error)'],
+    ['503 to the control', { force: { 'mcp:own': 503 } }, 'could-not-run (transport-error)'],
+    [
+      'a redirect to the control',
+      { force: { 'mcp:own': elsewhere } },
+      'could-not-run (transport-error)',
+    ],
+    ['429 to the other token', { force: { 'mcp:other': 429 } }, 'could-not-run (transport-error)'],
+    ['503 to the other token', { force: { 'mcp:other': 503 } }, 'could-not-run (transport-error)'],
+    [
+      'a redirect to the other token',
+      { force: { 'mcp:other': elsewhere } },
+      'could-not-run (transport-error)',
+    ],
+    ['403 to the other token (not 401)', { force: { 'mcp:other': 403 } }, 'failed'],
+    [
+      '503 from the token endpoint for the control',
+      { force: { 'token:own': 503 } },
+      'could-not-run (transport-error)',
+    ],
+    [
+      '429 from the token endpoint for the other',
+      { force: { 'token:other': 429 } },
+      'could-not-run (transport-error)',
+    ],
+    [
+      '403 to the control: the server refuses its own token',
+      { force: { 'mcp:own': 403 } },
+      'could-not-run (prerequisite-failed)',
+    ],
+  ];
+  for (const [name, opts, expected] of cases)
+    it(`${name}: ${expected}`, async () => {
+      const s = await serve(opts);
+      const { report } = await run(s.url, { config: credentials() });
+      expect(quiet('oauth-neg-wrong-audience', report)).toBe(expected);
+    });
+});
+
+describe('CLI · mcp conformance · oauth · failed only for what the server showed in an answer', () => {
+  const elsewhere = 'http://127.0.0.1:9/';
+  const statuses: [string, number | string, string][] = [
+    ['404', 404, 'could-not-run (prerequisite-failed)'],
+    ['405', 405, 'could-not-run (prerequisite-failed)'],
+    ['429', 429, 'could-not-run (transport-error)'],
+    ['500', 500, 'could-not-run (transport-error)'],
+    ['503', 503, 'could-not-run (transport-error)'],
+    ['a 302', elsewhere, 'could-not-run (transport-error)'],
+    ['403', 403, 'failed'],
+  ];
+  for (const [name, status, expected] of statuses)
+    it(`oauth-requires-auth: ${name} without a token is ${expected}`, async () => {
+      const s = await serve({ force: { mcp: status } });
+      const { report } = await run(s.url);
+      expect(quiet('oauth-requires-auth', report)).toBe(expected);
+    });
+
+  const invalid: [string, number | string, string][] = [
+    ['429', 429, 'could-not-run (transport-error)'],
+    ['503', 503, 'could-not-run (transport-error)'],
+    ['a 302', elsewhere, 'could-not-run (transport-error)'],
+    ['403', 403, 'failed'],
+    ['404', 404, 'failed'],
+  ];
+  for (const [name, status, expected] of invalid)
+    it(`oauth-neg-invalid-token-401: ${name} to a token nobody issued is ${expected}`, async () => {
+      const s = await serve({ force: { 'mcp:bad': status } });
+      const { report } = await run(s.url);
+      expect(quiet('oauth-neg-invalid-token-401', report)).toBe(expected);
+    });
+
+  const metadata: [string, AuthOpts, string][] = [
+    ['503', { force: { prm: 503 } }, 'could-not-run (transport-error)'],
+    ['429', { force: { prm: 429 } }, 'could-not-run (transport-error)'],
+    ['a body over the limit', { bigPrm: true }, 'could-not-run (transport-error)'],
+    ['404 at every place', { prm: 'none' }, 'failed'],
+  ];
+  for (const [name, opts, expected] of metadata)
+    it(`oauth-prm-reachable: ${name} is ${expected}`, async () => {
+      const s = await serve(opts);
+      const { report } = await run(s.url);
+      expect(quiet('oauth-prm-reachable', report)).toBe(expected);
+    });
+
+  it('oauth-prm-reachable: a resource_metadata URL nobody answers at is could-not-run, not failed', async () => {
+    const s = await serve({ prm: 'none', prmUrl: 'http://127.0.0.1:9/prm' });
+    const { report } = await run(s.url, { allowOrigin: ['http://127.0.0.1:9'] });
+    expect(quiet('oauth-prm-reachable', report)).toBe('could-not-run (transport-error)');
+  });
+
+  const asCases: [string, AuthOpts, string][] = [
+    ['503', { force: { as: 503 } }, 'could-not-run (transport-error)'],
+    ['429', { force: { as: 429 } }, 'could-not-run (transport-error)'],
+    ['404 at every place', { as: { none: true } }, 'failed'],
+  ];
+  for (const [name, opts, expected] of asCases)
+    it(`oauth-as-metadata-discoverable: ${name} is ${expected}`, async () => {
+      const s = await serve(opts);
+      const { report } = await run(s.url);
+      expect(quiet('oauth-as-metadata-discoverable', report)).toBe(expected);
+    });
+});
+
+describe('CLI · mcp conformance · oauth · the metadata is read as a client would', () => {
+  it('oauth-as-https: a document with no endpoint is not passed', async () => {
+    const s = await serve({ as: { endpoints: false } });
+    const { report } = await run(s.url);
+    expect(quiet('oauth-as-https', report)).toBe('could-not-run (prerequisite-failed)');
+  });
+
+  const outside = outsideAddresses().find((a) => !a.includes(':'));
+  it.skipIf(outside === undefined)(
+    'oauth-as-https: loopback endpoints excuse nothing when the server itself is not on loopback',
+    async () => {
+      const s = await serve({ host: outside!, as: { base: 'http://127.0.0.1:9' } });
+      const { report } = await run(s.url);
+      expect(quiet('oauth-as-https', report)).toBe('failed');
+    },
+  );
+
+  it('oauth-as-pkce-advertised: an empty list is failed', async () => {
+    const s = await serve({ as: { pkce: 'empty' } });
+    const { report } = await run(s.url);
+    expect(quiet('oauth-as-pkce-advertised', report)).toBe('failed');
+  });
+
+  it('oauth-challenge-bearer: a Bearer inside a parameter of another scheme is not a Bearer challenge', async () => {
+    const s = await serve({ challenge: 'tricky' });
+    const { report } = await run(s.url);
+    expect(quiet('oauth-challenge-bearer', report)).toBe('failed');
+    expect(bearerParams('Basic realm="a Bearer b"')).toBeUndefined();
+    expect(bearerParams('Basic realm="x", Bearer scope="s"')).toEqual({ scope: 's' });
+    expect(bearerParams('bearer scope="s"')).toEqual({ scope: 's' });
+  });
+
+  it('oauth-prm-valid: resource is compared as a URL, and a difference says what differs', async () => {
+    expect(
+      resourceDifference('HTTP://Example.COM:80/mcp', 'http://example.com/mcp'),
+    ).toBeUndefined();
+    expect(resourceDifference('https://h.example', 'https://h.example/')).toBeUndefined();
+    expect(resourceDifference('https://h.example/mcp/', 'https://h.example/mcp')).toContain('path');
+    expect(resourceDifference('https://h.example:8443/mcp', 'https://h.example/mcp')).toContain(
+      'origin',
+    );
+    expect(resourceDifference('not a url', 'https://h.example/mcp')).toContain(
+      'not an absolute URL',
+    );
+    const s = await serve({ prmResource: '{origin}/mcp/' });
+    const { report } = await run(s.url);
+    expect(quiet('oauth-prm-valid', report)).toBe('failed');
+    expect(byId(report, 'oauth-prm-valid').actual).toContain('path');
+  });
+});
+
+describe('CLI · mcp conformance · oauth · what the suite sends and where', () => {
+  it('--header is not used by the oauth suite: no request carries it', async () => {
+    const s = await serve({});
+    const value = 'Bearer hdr-9d41f0c7a2b85e63';
+    const { report } = await run(s.url, { header: [`Authorization: ${value}`] });
+    expect(quiet('oauth-requires-auth', report)).toBe('passed');
+    expect(s.seen.length).toBeGreaterThan(0);
+    expect(s.seen.some((x) => x.authorization === value)).toBe(false);
+  });
+
+  it('a 302 from the metadata to another origin is not followed: the other server gets no request', async () => {
+    const seen: Seen[] = [];
+    const other = await serve({}, seen);
+    const s = await serve({ force: { prm: `${other.origin}/x` } });
+    const { report } = await run(s.url);
+    expect(quiet('oauth-prm-reachable', report)).toBe('could-not-run (transport-error)');
+    const s2 = await serve({ force: { as: `${other.origin}/y` } });
+    const r2 = await run(s2.url);
+    expect(quiet('oauth-as-metadata-discoverable', r2.report)).toBe(
+      'could-not-run (transport-error)',
+    );
+    expect(seen).toEqual([]);
   });
 });

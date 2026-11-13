@@ -9,7 +9,7 @@ export interface AuthOpts {
   /** No authorization at all: every request is answered. */
   public?: boolean;
   /** `url`: Bearer with resource_metadata; `plain`: Bearer without it (the well-known URI serves); `basic`: not Bearer; `none`: no header. */
-  challenge?: 'url' | 'plain' | 'basic' | 'none';
+  challenge?: 'url' | 'plain' | 'basic' | 'none' | 'tricky';
   /** A scope parameter in the challenge (default true). */
   scope?: boolean;
   /** `none`: no metadata anywhere. */
@@ -20,9 +20,27 @@ export interface AuthOpts {
   prmResource?: string;
   /** `authorization_servers` of the metadata, instead of this server's own; `{origin}` stands for this server's origin. */
   authorizationServers?: string[];
+  /** Bind to every interface and name the server by this host, instead of 127.0.0.1. */
+  host?: string;
+  /**
+   * What an endpoint answers instead of its own answer: a status, or a string for a 302 to that location. Keys: `mcp`
+   * (no token), `mcp:own` (a token issued for this server), `mcp:other` (for another resource), `mcp:bad` (not issued),
+   * `prm`, `as`, `token:own`, `token:other`.
+   */
+  force?: Record<string, number | string>;
+  /** The protected resource metadata is larger than a reader takes. */
+  bigPrm?: boolean;
+  /** The token endpoint hands out one token whatever resource is asked for. */
+  sameToken?: boolean;
   as?: {
     issuer?: string;
-    pkce?: 'S256' | 'plain' | 'none';
+    pkce?: 'S256' | 'plain' | 'none' | 'empty';
+    /** `false`: the metadata names no endpoint at all. */
+    endpoints?: boolean;
+    /** The token_endpoint member, as written. */
+    tokenEndpoint?: string;
+    /** The base of every endpoint URL, instead of this server's origin. */
+    base?: string;
     iss?: boolean;
     cimd?: boolean;
     /** No metadata at any well-known location. */
@@ -89,11 +107,27 @@ export async function authFixture(o: AuthOpts = {}, seen: Seen[] = []): Promise<
       authorization: req.headers.authorization,
       body,
     });
+    const forced = (key: string): boolean => {
+      const f = o.force?.[key];
+      if (f === undefined) return false;
+      if (typeof f === 'number') json(res, f, {});
+      else res.writeHead(302, { location: f }).end();
+      return true;
+    };
     if (path === '/mcp') {
       if (o.public === true) return json(res, 200, { jsonrpc: '2.0', id: 'x', result: {} });
       const auth = req.headers.authorization;
       const token = auth?.startsWith('Bearer ') ? auth.slice(7) : undefined;
       const aud = token === undefined ? undefined : issued.get(token);
+      const kind =
+        token === undefined
+          ? 'mcp'
+          : aud === resource()
+            ? 'mcp:own'
+            : aud !== undefined
+              ? 'mcp:other'
+              : 'mcp:bad';
+      if (forced(kind)) return;
       const fine =
         o.audience === 'any'
           ? token !== undefined
@@ -116,30 +150,43 @@ export async function authFixture(o: AuthOpts = {}, seen: Seen[] = []): Promise<
               'www-authenticate':
                 o.challenge === 'basic'
                   ? 'Basic realm="x"'
-                  : `Bearer ${params.join(', ')}`.trimEnd(),
+                  : o.challenge === 'tricky'
+                    ? 'Basic realm="a Bearer b"'
+                    : `Bearer ${params.join(', ')}`.trimEnd(),
             };
       return json(res, 401, { error: 'invalid_token' }, headers);
     }
-    if (path === '/.well-known/oauth-protected-resource/mcp' && o.prm !== 'none')
+    if (path === '/.well-known/oauth-protected-resource/mcp' && o.prm !== 'none') {
+      if (forced('prm')) return;
+      if (o.bigPrm === true) return json(res, 200, { pad: 'x'.repeat(300_000) });
       return json(res, 200, {
-        resource: o.prmResource ?? resource(),
+        resource: (o.prmResource ?? resource()).replace('{origin}', origin),
         authorization_servers: (o.authorizationServers ?? [origin]).map((a) =>
           a.replace('{origin}', origin),
         ),
       });
+    }
     if (path === '/.well-known/oauth-authorization-server' && o.as?.none !== true) {
+      if (forced('as')) return;
       const https = o.as?.https;
       const at = (p: string) =>
         https === true || (https === 'mixed' && p === '/authorize')
           ? `https://as.example${p}`
-          : `${origin}${p}`;
+          : `${o.as?.base ?? origin}${p}`;
       return json(res, 200, {
         issuer: o.as?.issuer ?? origin,
-        authorization_endpoint: at('/authorize'),
-        token_endpoint: at('/token'),
+        ...(o.as?.endpoints === false
+          ? {}
+          : {
+              authorization_endpoint: at('/authorize'),
+              token_endpoint: o.as?.tokenEndpoint ?? at('/token'),
+            }),
         ...(o.as?.pkce === 'none'
           ? {}
-          : { code_challenge_methods_supported: o.as?.pkce === 'plain' ? ['plain'] : ['S256'] }),
+          : {
+              code_challenge_methods_supported:
+                o.as?.pkce === 'plain' ? ['plain'] : o.as?.pkce === 'empty' ? [] : ['S256'],
+            }),
         ...(o.as?.iss === true ? { authorization_response_iss_parameter_supported: true } : {}),
         ...(o.as?.cimd === true ? { client_id_metadata_document_supported: true } : {}),
       });
@@ -152,16 +199,19 @@ export async function authFixture(o: AuthOpts = {}, seen: Seen[] = []): Promise<
         return json(res, 401, { error: 'invalid_client' });
       const form = new URLSearchParams(body);
       const wanted = form.get('resource') ?? resource();
+      if (forced(wanted === resource() ? 'token:own' : 'token:other')) return;
       if (o.otherResource === 'refuse' && wanted !== resource())
         return json(res, 400, { error: 'invalid_target' });
-      const token = `at-${++counter}-7c1d9e5b3f2a8064`;
-      issued.set(token, wanted);
+      const token = `at-${o.sameToken === true ? 1 : ++counter}-7c1d9e5b3f2a8064`;
+      issued.set(token, o.sameToken === true ? resource() : wanted);
       return json(res, 200, { access_token: token, token_type: 'Bearer', expires_in: 300 });
     }
     res.writeHead(404).end();
   });
-  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
-  origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  await new Promise<void>((r) =>
+    server.listen(0, o.host === undefined ? '127.0.0.1' : '0.0.0.0', r),
+  );
+  origin = `http://${o.host ?? '127.0.0.1'}:${(server.address() as AddressInfo).port}`;
   return {
     url: `${origin}/mcp`,
     origin,
