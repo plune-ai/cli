@@ -72,10 +72,22 @@ export interface AuthOpts {
     | 'redirect-login-all'
     /** Every client gets 403 with no error code. */
     | 'forbidden'
+    /** A redirect to a sign-in of this server that carries the redirect_uri it was given in a parameter. */
+    | 'redirect-login-keeps-uri'
+    /** A known client is redirected to any redirect_uri, registered or not (the fault), with a code. */
+    | 'redirect-any'
+    /** The same, with an error in the redirect. */
+    | 'redirect-any-error'
+    /** A client that does not exist is redirected to the redirect_uri with a code (the fault). */
+    | 'accept-unknown'
+    /** A client that does not exist is redirected to the redirect_uri with error=invalid_client. */
+    | 'unknown-error-redirect'
     /** An unknown client gets invalid_request that names the client_id, or one that does not. */
     | 'invalid-request-client'
     | 'invalid-request-plain'
     | number;
+  /** A client the token endpoint does not know: refused with invalid_client (default), given a token, or 400 or 403 otherwise. */
+  tokenUnknown?: 'refuse' | 'accept' | 'invalid-request' | 'forbidden';
   /** The token response also carries a refresh_token and an id_token. */
   tokenExtras?: boolean;
   /** A client_id URL whose document names another client_id: `reject` (default) or `accept` (the fault). */
@@ -115,6 +127,8 @@ export interface Seen {
   server: string;
   method: string;
   path: string;
+  /** The query string, as sent. */
+  query: string;
   authorization: string | undefined;
   body: string;
 }
@@ -168,6 +182,7 @@ export async function authFixture(o: AuthOpts = {}, seen: Seen[] = []): Promise<
       server: req.headers.host ?? '',
       method: req.method ?? '',
       path,
+      query: (req.url ?? '').split('?')[1] ?? '',
       authorization: req.headers.authorization,
       body,
     });
@@ -319,6 +334,7 @@ export async function authFixture(o: AuthOpts = {}, seen: Seen[] = []): Promise<
       return;
     }
     if (path === '/authorize' && req.method === 'GET') {
+      if (forced('authorize')) return;
       if (typeof o.authorize === 'number') return json(res, o.authorize, {});
       if (o.authorize === 'forbidden') return json(res, 403, {});
       if (o.authorize === 'error-redirect') {
@@ -333,6 +349,13 @@ export async function authFixture(o: AuthOpts = {}, seen: Seen[] = []): Promise<
         res.writeHead(200, { 'content-type': 'text/html' }).end('<html>sign in</html>');
         return;
       }
+      if (o.authorize === 'redirect-login-keeps-uri') {
+        const given = new URL(req.url ?? '/', origin).searchParams.get('redirect_uri') ?? '';
+        res
+          .writeHead(302, { location: `${origin}/login?redirect_uri=${encodeURIComponent(given)}` })
+          .end();
+        return;
+      }
       if (o.authorize === 'redirect-login-all') {
         res.writeHead(302, { location: `${origin}/login` }).end();
         return;
@@ -345,6 +368,18 @@ export async function authFixture(o: AuthOpts = {}, seen: Seen[] = []): Promise<
         clients.has(id) ||
         (id.startsWith('https://') &&
           (!id.endsWith('mismatch.json') || o.cimdMismatch === 'accept'));
+      if (!known && o.authorize === 'accept-unknown') {
+        const to = new URL(redirect || `${origin}/cb`);
+        to.searchParams.set('code', 'plune-test-code');
+        res.writeHead(302, { location: to.href }).end();
+        return;
+      }
+      if (!known && o.authorize === 'unknown-error-redirect') {
+        const to = new URL(redirect || `${origin}/cb`);
+        to.searchParams.set('error', 'invalid_client');
+        res.writeHead(302, { location: to.href }).end();
+        return;
+      }
       if (!known && o.authorize === 'invalid-request-client')
         return json(res, 400, { error: 'invalid_request', error_description: 'unknown client_id' });
       if (!known && o.authorize === 'invalid-request-plain')
@@ -354,8 +389,22 @@ export async function authFixture(o: AuthOpts = {}, seen: Seen[] = []): Promise<
         res.writeHead(200, { 'content-type': 'text/html' }).end('<html>sign in</html>');
         return;
       }
+      // A registered redirect URI is any that is not on a .invalid host; the faults skip the check.
+      let foreign = false;
+      try {
+        foreign = new URL(redirect).hostname.endsWith('.invalid');
+      } catch {
+        foreign = false;
+      }
+      if (foreign && o.authorize !== 'redirect-any' && o.authorize !== 'redirect-any-error')
+        return json(res, 400, {
+          error: 'invalid_request',
+          error_description: 'redirect_uri is not registered',
+        });
       const to = new URL(redirect || `${origin}/cb`);
-      to.searchParams.set('code', 'plune-test-code');
+      if (foreign && o.authorize === 'redirect-any-error')
+        to.searchParams.set('error', 'invalid_request');
+      else to.searchParams.set('code', 'plune-test-code');
       res.writeHead(302, { location: to.href }).end();
       return;
     }
@@ -363,8 +412,12 @@ export async function authFixture(o: AuthOpts = {}, seen: Seen[] = []): Promise<
       const basic = req.headers.authorization?.startsWith('Basic ')
         ? Buffer.from(req.headers.authorization.slice(6), 'base64').toString()
         : '';
-      if (basic !== `${CLIENT_ID}:${CLIENT_SECRET}`)
+      if (basic !== `${CLIENT_ID}:${CLIENT_SECRET}` && o.tokenUnknown !== 'accept') {
+        if (o.tokenUnknown === 'invalid-request')
+          return json(res, 400, { error: 'invalid_request' });
+        if (o.tokenUnknown === 'forbidden') return json(res, 403, {});
         return json(res, 401, { error: 'invalid_client' });
+      }
       const form = new URLSearchParams(body);
       const wanted = form.get('resource') ?? resource();
       if (forced(wanted === resource() ? 'token:own' : 'token:other')) return;

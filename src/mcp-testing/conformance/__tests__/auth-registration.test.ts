@@ -132,8 +132,9 @@ describe('CLI · mcp conformance · oauth registration · a pre-registered clien
     const { report } = await run(s.url, { config: prereg() });
     expect(verdict(report, 'oauth-reg-prereg')).toBe('passed');
     const asked = s.seen.filter((x) => x.path === '/authorize');
-    // The client asked for, and a made-up one as the control.
-    expect(asked).toHaveLength(2);
+    // The client asked for, and a made-up one as the control (the probes of auth-probes.ts ask too).
+    expect(asked.filter((x) => x.query.includes('no-such-client'))).toHaveLength(1);
+    expect(asked.some((x) => x.query.includes('client_id=plune-test-client'))).toBe(true);
     expect(asked.every((x) => x.authorization === undefined)).toBe(true);
   });
 
@@ -598,8 +599,10 @@ describe('CLI · mcp conformance · oauth registration · the authorization endp
     const s = await serve({});
     const { report } = await run(s.url, { config: prereg() });
     expect(verdict(report, 'oauth-reg-prereg')).toBe('passed');
-    const ids = s.seen.filter((x) => x.path === '/authorize').map((x) => x.body).length;
-    expect(ids).toBe(2);
+    const made = s.seen.filter(
+      (x) => x.path === '/authorize' && x.query.includes('no-such-client'),
+    );
+    expect(made).toHaveLength(1);
   });
 
   for (const mode of ['login-all', 'redirect-login-all'] as const)

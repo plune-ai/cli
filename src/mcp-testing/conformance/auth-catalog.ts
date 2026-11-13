@@ -288,4 +288,30 @@ export const OAUTH_CATALOG: readonly CatalogEntry[] = [
     eras: BOTH,
     needsFixture: true,
   }),
+  oauth({
+    id: 'oauth-neg-invalid-client',
+    title: 'A client that does not exist is not accepted',
+    description:
+      'A made-up client_id is not accepted at the authorization endpoint (it is not redirected to the redirect URI, with a code or with an error) and, when --config has client credentials, a made-up client is not given a token at the token endpoint (400 or 401 with invalid_client or invalid_request). The pre-registered client is the control for each half: it must not be refused. A server that sends every client to a sign-in page cannot be judged. The made-up client sends made-up credentials, never the real ones.',
+    level: 'MUST',
+    derived: true,
+    derivation:
+      'RFC 6749 section 4.1.2.1: if "the client identifier is missing or invalid, the authorization server SHOULD inform the resource owner of the error and MUST NOT automatically redirect the user-agent to the invalid redirection URI" (the authorization half); section 5.2: invalid_client is "Client authentication failed (e.g., unknown client...)" (the token half, which has no MUST of its own). The MCP text says only that authorization servers "MUST validate exact redirect URIs against pre-registered values" (Open Redirection).',
+    specRefs: [ref(L, AUTH, 'Open Redirection'), ref(M, SECURITY, 'Open Redirection')],
+    eras: BOTH,
+    needsFixture: true,
+  }),
+  oauth({
+    id: 'oauth-neg-authorize-redirect-mismatch',
+    title: 'A redirect URI that is not registered is not redirected to',
+    description:
+      'An authorization request with the pre-registered client and a redirect URI that is not registered (https://plune-conformance-other.invalid/callback, never a real host and never followed) is not answered with a redirect to that URI, neither with a code nor with an error. The same request with the registered redirect URI is the control: it must not be refused. A redirect to a sign-in page of the server that only carries the other URI in a parameter is not a violation, and cannot be judged either.',
+    level: 'MUST',
+    derived: false,
+    derivation:
+      'Open Redirection: "Authorization servers MUST validate exact redirect URIs against pre-registered values to prevent redirection attacks." RFC 6749 section 4.1.2.1: if the request fails due to a missing, invalid, or mismatching redirection URI, the server "MUST NOT automatically redirect the user-agent to the invalid redirection URI."',
+    specRefs: [ref(L, AUTH, 'Open Redirection'), ref(M, SECURITY, 'Open Redirection')],
+    eras: BOTH,
+    needsFixture: true,
+  }),
 ];
