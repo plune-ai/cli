@@ -231,7 +231,11 @@ export function exchange(target: HttpTarget, req: RawRequest, res?: RawResponse)
   const r = target.redact;
   const headers = (list: HeaderList): HeaderList =>
     list.map(([n, v]) => [n, isSecretHeader(n) ? MASK : r.text(v)]);
-  const text = (t: string) => r.text(t.length <= BODY_TEXT ? t : `${t.slice(0, BODY_TEXT)}… (cut: ${t.length} characters)`);
+  // Masked whole, then cut: a secret that straddles the cut would otherwise be left in part.
+  const text = (t: string) => {
+    const masked = r.text(t);
+    return masked.length <= BODY_TEXT ? masked : `${masked.slice(0, BODY_TEXT)}… (cut: ${t.length} characters)`;
+  };
   return {
     request: {
       method: req.method,

@@ -342,6 +342,21 @@ describe('CLI · mcp conformance · the raw HTTP layer', () => {
     expect(x.response?.body).toBe('bad token ***');
   });
 
+  it('a secret that straddles the cut of a body is masked before the body is cut, in the request and the response', async () => {
+    // The secret starts fifteen characters before the 2000th, so the cut would leave a part of it that is not the whole.
+    const straddle = (tail: string) => `${'x'.repeat(1985)}${token}${tail}`;
+    const body = straddle('y'.repeat(500));
+    const url = await stream((res) => res.writeHead(200, { 'content-type': 'text/plain' }).end(body));
+    const t = targetOf(url);
+    const req = { method: 'POST', headers: [] as [string, string][], body: straddle('z'.repeat(40)) };
+    const x = exchange(t, req, await rawRequest(t, req));
+    const all = JSON.stringify(x);
+    for (let i = 0; i + 8 <= token.length; i++) expect(all).not.toContain(token.slice(i, i + 8));
+    // The note keeps the length of the body as it was.
+    expect(x.response?.body).toContain(`(cut: ${body.length} characters)`);
+    expect(x.request.body).toContain(`(cut: ${req.body.length} characters)`);
+  });
+
   it('a Host of its own goes through node:http, to the same address, with the --header values', async () => {
     let seen: IncomingMessage['headers'] = {};
     const url = await stream((res) => {
