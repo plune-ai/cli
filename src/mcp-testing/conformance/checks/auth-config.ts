@@ -26,6 +26,8 @@ export interface OauthConfig {
      */
     allowClientCreation?: boolean;
   };
+  /** Several methods written as a list: the suite runs once for each (and for each revision). */
+  registrations?: NonNullable<OauthConfig['registration']>[];
   scopes?: string[];
   /** The scopes to ask for the token that must be refused for lack of scope; `scopes` stays the full set. */
   narrowScopes?: string[];
@@ -84,6 +86,61 @@ function text(flag: string, value: unknown): string {
   return value;
 }
 
+type Registration = NonNullable<OauthConfig['registration']>;
+
+/** One registration object; `label` is how its keys are named in a usage error (`registration`, `registration[1]`). */
+function parseRegistration(value: unknown, label: string): Registration {
+  if (!isObject(value)) throw new UsageError(`--config: "${label}" must be an object.`);
+  for (const k of Object.keys(value)) {
+    if (!REGISTRATION.has(k)) {
+      const why = SECRET_KEY.test(k)
+        ? ' (a secret is never written in the file: name the variable that holds it)'
+        : '';
+      throw new UsageError(`--config: unknown key "${label}.${k}"${why}.`);
+    }
+  }
+  const method = text(`${label}.method`, value['method']);
+  if (!(METHODS as readonly string[]).includes(method))
+    throw new UsageError(`--config: "${label}.method" must be one of ${METHODS.join(', ')}.`);
+  const reg: Registration = { method: method as RegistrationMethod };
+  if (value['clientId'] !== undefined) reg.clientId = text(`${label}.clientId`, value['clientId']);
+  if (value['clientIdMetadataUrl'] !== undefined)
+    reg.clientIdMetadataUrl = text(`${label}.clientIdMetadataUrl`, value['clientIdMetadataUrl']);
+  if (value['clientIdMetadataMismatchUrl'] !== undefined)
+    reg.clientIdMetadataMismatchUrl = text(
+      `${label}.clientIdMetadataMismatchUrl`,
+      value['clientIdMetadataMismatchUrl'],
+    );
+  for (const k of ['clientIdMetadataUrl', 'clientIdMetadataMismatchUrl'] as const) {
+    const u = reg[k];
+    if (u === undefined) continue;
+    let parsed: URL | undefined;
+    try {
+      parsed = new URL(u);
+    } catch {
+      parsed = undefined;
+    }
+    if (parsed === undefined || parsed.protocol !== 'https:' || parsed.pathname === '/')
+      throw new UsageError(
+        `--config: "${label}.${k}" must be an https URL with a path, such as https://example.com/client.json.`,
+      );
+  }
+  if (value['allowClientCreation'] !== undefined) {
+    if (typeof value['allowClientCreation'] !== 'boolean')
+      throw new UsageError(`--config: "${label}.allowClientCreation" must be true or false.`);
+    reg.allowClientCreation = value['allowClientCreation'];
+  }
+  if (value['clientSecretEnv'] !== undefined) {
+    const name = text(`${label}.clientSecretEnv`, value['clientSecretEnv']);
+    if (!ENV_NAME.test(name))
+      throw new UsageError(
+        `--config: "${label}.clientSecretEnv" is the NAME of an environment variable, not the secret.`,
+      );
+    reg.clientSecretEnv = name;
+  }
+  return reg;
+}
+
 /** The configuration in `source` (a file's text); a UsageError for anything that is not one. */
 export function parseOauthConfig(source: string): OauthConfig {
   let doc: unknown;
@@ -125,67 +182,21 @@ export function parseOauthConfig(source: string): OauthConfig {
         throw new UsageError(`--config: "auth" must be one of ${MODES.join(', ')}.`);
       config.auth = mode as AuthMode;
     } else if (key === 'registration') {
-      if (!isObject(value)) throw new UsageError('--config: "registration" must be an object.');
-      for (const k of Object.keys(value)) {
-        if (!REGISTRATION.has(k)) {
-          const why = SECRET_KEY.test(k)
-            ? ' (a secret is never written in the file: name the variable that holds it)'
-            : '';
-          throw new UsageError(`--config: unknown key "registration.${k}"${why}.`);
-        }
-      }
-      const method = text('registration.method', value['method']);
-      if (!(METHODS as readonly string[]).includes(method))
-        throw new UsageError(
-          `--config: "registration.method" must be one of ${METHODS.join(', ')}.`,
-        );
-      const reg: NonNullable<OauthConfig['registration']> = {
-        method: method as RegistrationMethod,
-      };
-      if (value['clientId'] !== undefined)
-        reg.clientId = text('registration.clientId', value['clientId']);
-      if (value['clientIdMetadataUrl'] !== undefined)
-        reg.clientIdMetadataUrl = text(
-          'registration.clientIdMetadataUrl',
-          value['clientIdMetadataUrl'],
-        );
-      if (value['clientIdMetadataMismatchUrl'] !== undefined)
-        reg.clientIdMetadataMismatchUrl = text(
-          'registration.clientIdMetadataMismatchUrl',
-          value['clientIdMetadataMismatchUrl'],
-        );
-      for (const k of ['clientIdMetadataUrl', 'clientIdMetadataMismatchUrl'] as const) {
-        const u = reg[k];
-        if (u === undefined) continue;
-        let parsed: URL | undefined;
-        try {
-          parsed = new URL(u);
-        } catch {
-          parsed = undefined;
-        }
-        if (parsed === undefined || parsed.protocol !== 'https:' || parsed.pathname === '/')
-          throw new UsageError(
-            `--config: "registration.${k}" must be an https URL with a path, such as https://example.com/client.json.`,
-          );
-      }
-      if (value['allowClientCreation'] !== undefined) {
-        if (typeof value['allowClientCreation'] !== 'boolean')
-          throw new UsageError(
-            '--config: "registration.allowClientCreation" must be true or false.',
-          );
-        reg.allowClientCreation = value['allowClientCreation'];
-      }
-      if (value['clientSecretEnv'] !== undefined) {
-        const name = text('registration.clientSecretEnv', value['clientSecretEnv']);
-        if (!ENV_NAME.test(name))
-          throw new UsageError(
-            '--config: "registration.clientSecretEnv" is the NAME of an environment variable, not the secret.',
-          );
-        reg.clientSecretEnv = name;
-      }
-      config.registration = reg;
+      if (Array.isArray(value)) {
+        // Several methods: one run of the suite for each, in the order written.
+        if (value.length === 0)
+          throw new UsageError('--config: "registration" must not be an empty list.');
+        const list = value.map((v, n) => parseRegistration(v, `registration[${n}]`));
+        const methods = list.map((r) => r.method);
+        const twice = methods.find((m, n) => methods.indexOf(m) !== n);
+        if (twice !== undefined)
+          throw new UsageError(`--config: "registration" names the method "${twice}" twice.`);
+        config.registrations = list;
+      } else config.registration = parseRegistration(value, 'registration');
     }
   }
+  if (config.registration !== undefined && config.registrations !== undefined)
+    throw new UsageError('--config: "registration" is one object or a list, not both.');
   if (config.narrowScopes !== undefined && config.scopes !== undefined) {
     const full = config.scopes;
     const extra = config.narrowScopes.filter((s) => !full.includes(s));

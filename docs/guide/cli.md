@@ -1022,7 +1022,7 @@ another resource (`oauth-neg-wrong-audience`). Each id, its level and the sectio
 
 | Flag | Meaning |
 |------|---------|
-| `--config <file>` | A JSON file: `auth`, `registration`, `scopes`, `narrowScopes`, `resource`, `protocolVersions`. A secret is never a value in it: `registration.clientSecretEnv` names the environment variable that holds the client secret, and a file with a key that names a secret is refused. |
+| `--config <file>` | A JSON file: `auth`, `registration` (one object, or a list of objects with a `method` each: the suite then runs once for each revision and each method, reports each run with its own summary, and adds a `Combined` summary made from the counters of all runs, not from their scores), `scopes`, `narrowScopes`, `resource`, `protocolVersions`. A secret is never a value in it: `registration.clientSecretEnv` names the environment variable that holds the client secret, and a file with a key that names a secret is refused. |
 | `--allow-origin <origin>` | Ask this origin too. Without it, a `resource_metadata` URL or an authorization server on another origin than the server's is not asked, and the check is `could-not-run` (`needs-input`). It is also the only way the client secret leaves the run: the secret is sent only to a token endpoint whose origin is named here (the server's own origin included), and only over https, or http on a loopback name. Repeatable. |
 
 `oauth-neg-wrong-audience` needs `"auth": "client-credentials"` and a preregistered client the authorization server accepts

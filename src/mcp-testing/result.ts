@@ -212,6 +212,8 @@ export interface McpConformanceReport {
   bySuite: Partial<Record<import('./conformance/catalog.js').Suite, import('./conformance/score.js').Summary>>;
   /** Every selected check: the counts of all suites added up, not an average of their scores. */
   summary: import('./conformance/score.js').Summary;
+  /** The oauth suite: the revision and the registration method (null when `--config` names none) this run was for. */
+  matrix?: { revision: string; registration: string | null };
   exitCode: 0 | 1 | 3;
 }
 
@@ -224,5 +226,18 @@ export interface McpConformanceReportSet {
   schemaVersion: 1;
   command: 'conformance';
   reports: McpConformanceReport[];
+  /**
+   * The oauth matrix: the counters of every run added up (not an average of scores), and the score made from the sums.
+   * Absent for the two eras of a protocol run, which are scored on their own.
+   */
+  combined?: {
+    runs: number;
+    passed: number;
+    failed: number;
+    couldNotRun: number;
+    applicable: number;
+    score: number | null;
+    verdict: import('./conformance/score.js').RunVerdict;
+  };
   exitCode: 0 | 1 | 3;
 }
