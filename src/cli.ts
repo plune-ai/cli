@@ -11,6 +11,7 @@ import type { LinksFlags } from './cli/commands/requirements-links.js';
 import type { McpLintFlags } from './cli/commands/mcp-lint.js';
 import type { McpSnapshotFlags } from './cli/commands/mcp-snapshot.js';
 import type { McpDiffFlags } from './cli/commands/mcp-diff.js';
+import type { McpPinFlags } from './cli/commands/mcp-pin.js';
 // The connection flags of `plune mcp` commands: commander and a duration parser, no MCP client (that loads in the action).
 import { addConnectionOptions } from './mcp-testing/connect/options.js';
 import { addReportOptions } from './mcp-testing/report/options.js';
@@ -855,6 +856,48 @@ export function createProgram(): Command {
           return;
         }
         process.exitCode = await handleMcpDiff(options, operands, io);
+      } catch (err) {
+        failUnexpected(err, verbose);
+      }
+    });
+
+  addConnectionOptions(
+    mcp
+      .command('pin')
+      .description(
+        'Pin the tools, prompts and resource templates of any MCP server in a lock file once you have read them in full; --check compares a live server with the file (exit 1 on a difference, 3 when nothing could be compared), --stability asks for the tool list several times',
+      ),
+  )
+    .option('--check', 'Compare the live server with the lock file and write nothing: exit 0 the same, 1 a difference, 2 a usage error, 3 not measured', false)
+    .option('--stability', 'Ask for tools/list several times in one session and once in a new one: exit 1 when the list changed unannounced', false)
+    .option('--yes', 'Approve what is shown without asking; without it and without a terminal nothing is written', false)
+    .option('--lock <path>', 'The lock file', 'plune-mcp.lock.json')
+    .option('--name <label>', "The server's entry in the lock file (default: the name the server gives itself)")
+    .option('--format <format>', 'With --check or --stability: human or json', 'human')
+    .option('--times <n>', 'With --stability: how many times to ask in the first session', '3')
+    .option('--pause <duration>', 'With --stability: the pause between two requests (e.g. 1s)', '1s')
+    .option('--wait <duration>', 'With --stability: how long to listen for notifications/tools/list_changed after the last request (e.g. 2s)', '2s')
+    .action(async (server: string[], options: McpPinFlags, command: Command) => {
+      const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
+      const { handleMcpPin } = await import('./cli/commands/mcp-pin.js');
+      try {
+        process.exitCode = await handleMcpPin(options, server, {
+          out: (s) => process.stdout.write(s),
+          err: (s) => process.stderr.write(s),
+          env: process.env,
+          cwd: process.cwd(),
+          clientVersion: pkg.version,
+          interactive: process.stdin.isTTY === true && process.stderr.isTTY === true,
+          confirm: async (question) => {
+            const { createInterface } = await import('node:readline/promises');
+            const rl = createInterface({ input: process.stdin, output: process.stderr });
+            try {
+              return /^y(es)?$/i.test((await rl.question(question)).trim());
+            } finally {
+              rl.close();
+            }
+          },
+        });
       } catch (err) {
         failUnexpected(err, verbose);
       }

@@ -128,6 +128,7 @@ the last resort, used only when `PLUNE_TOKEN` is set nowhere else. Nothing write
 | `plune mcp lint` | Check the tool list of **any** MCP server for what confuses a model — no account, no model. See [Checking any MCP server](#checking-any-mcp-server-plune-mcp-lint). Flags: `--fail-on error\|warn\|info\|never`, `--show-info`, `--format human\|json\|github\|markdown`, `--reporter junit-xml`, `--out [<format>=]<path>`, `--ignore-file <path>`, `--list-rules`, `--call`, `--call-limit <n>`, `--call-timeout <duration>`, and the connection flags (`--url`, `--header-env`, `--env`, …). Exit `0` clean, `1` findings, `2` the server did not start or a flag is wrong, `3` nothing measured. |
 | `plune mcp snapshot` | Write the contract of **any** MCP server — tools, resources, resource templates, prompts, capabilities, instructions — as one stable JSON file to commit. See [Contract snapshots](#contract-snapshots-plune-mcp-snapshot-and-plune-mcp-diff). Flags: `--out <path>` (default stdout) and the connection flags. Exit `0` written, `2` the server did not start or a declared list could not be read (no file is written), `3` the server lists nothing. |
 | `plune mcp diff` | Compare a snapshot with another snapshot file or a live server: every change `breaking`, `non-breaking` or `informational`, with a reason. See [Contract snapshots](#contract-snapshots-plune-mcp-snapshot-and-plune-mcp-diff). Flags: `--fail-on breaking\|any\|none`, `--format human\|json\|github\|markdown`, `--reporter junit-xml`, `--out [<format>=]<path>`, and the connection flags. All three write [JSON, JUnit XML for `plune run import`, GitHub annotations and a pull request comment](docs/guide/cli.md#report-formats-of-plune-mcp-lint-check-and-diff) from one run. Exit `0` nothing at `--fail-on`, `1` a change at it, `2` a file cannot be read or the server did not start, `3` nothing to compare. |
+| `plune mcp pin` | Pin the tools, prompts and resource templates of **any** MCP server in `plune-mcp.lock.json` after reading them in full, and check a live server against it in CI. See [Pinning approved tools](#pinning-approved-tools-plune-mcp-pin). Flags: `--check`, `--stability` (with `--times`, `--pause`, `--wait`), `--yes`, `--lock <path>`, `--name <label>`, `--format human\|json`, and the connection flags. `--check` exits `0` as pinned, `1` a difference, `2` a usage error, `3` nothing compared (the server could not be reached). |
 | `plune mcp conformance` | Check **any** MCP server against the protocol: a catalog of checks with their requirement level and spec section, a score from the `MUST` checks only, a frozen profile so a score means the same thing next month. `--list-checks` prints the catalog without connecting; `--fixture <file>` names the only tools a run may call; `--format human|json`, `--reporter junit-xml` and `--out [<format>=]<path>` (repeatable) write JSON and JUnit XML for `plune run import` from one run. See the [CLI guide](docs/guide/cli.md#plune-mcp-conformance). |
 | `plune sync` | Upload the latest local run to the platform. Flags: `--file <path>` to send a specific run JSON, `--fail-on-failures` to read the run's summary back once after the upload and exit with [the gate](#a-release-gate---fail-on-failures)'s code. Each upload carries an `Idempotency-Key` (SHA-256 of the body), so sending the same run again returns the same run rather than creating a second one. Against a platform with `POST /v1/jobs` the upload is also reported as a job (kind `sync`, counting the run's rows) that ends completed, or failed with the error text if the sync fails; an older platform without the route is not told, and a job report never fails the sync: when the sync goes through, one the platform did not take is said in one line on stderr. |
 | `plune run import <file \| folder>` | Turn a **JUnit XML** or **Playwright JSON** report, a **k6 summary** or **Lighthouse JSON** report, a **folder of JUnit XML files** (Maven Surefire's `target/surefire-reports`, Gradle's `build/test-results/test`), or an **Allure `allure-results` folder**, into a run in Plune. Needs no provider key — nothing is generated. Flags: `--format junit\|playwright-json\|allure\|k6\|lighthouse` (detected when omitted: a folder with a `*-result.json` is Allure, any other folder is read as the JUnit `*.xml` files in it), `--name <text>` to call the run something other than the [folder-based default](#what-the-run-is-called), `--min-score <category>=<0-100>` (repeatable) for the score a [Lighthouse](#a-k6-summary-or-a-lighthouse-report) category needs to pass, `--key <externalKey>` to land several reports in one run (with `PLUNE_SHARED_RUN=1` — see below), `--create` to offer unmatched tests to the review queue, `--fail-on-missing-attachments` to exit 1 when a file a JUnit report names with `[[ATTACHMENT\|path]]`, or an Allure result names as a `source`, is not there (the results are sent either way), `--upload-concurrency <n>` for files uploaded at once ([1 to 32, default 16](#many-screenshots-upload-concurrency-and-retries)), `--fail-on-failures` to exit with [the gate](#a-release-gate---fail-on-failures)'s code on the summary the platform froze when this import finished the run. |
@@ -785,6 +786,25 @@ A changed description, changed instructions, a tool that stops being read-only o
 destructive, and a new tool that does not say it is read-only carry a `security` signal: a reason
 for a reviewer to look, not a failure by itself. The format, the rules and the exit codes are in
 [the CLI reference](docs/guide/cli.md#plune-mcp-snapshot).
+
+### Pinning approved tools: `plune mcp pin`
+
+A server can change a tool's description after a person approved it, and tell the model something
+new. `plune mcp pin` shows every tool, prompt and resource template in full (escaped: nothing that
+does not print reaches the terminal), asks for an approval, and writes `plune-mcp.lock.json` with
+each entry and the SHA-256 of its canonical JSON. Commit the file: the commit is the approval.
+`plune mcp pin --check` in CI compares the live server with it and shows any change field by field,
+the old and the new description side by side; `--stability` asks for the list several times and in a
+new session.
+
+```bash
+plune mcp pin -- node dist/server.js
+plune mcp pin --check -- node dist/server.js
+```
+
+It sees only what the server answers this connection: a server can answer a scanner differently from
+a model's client. The format, the exit codes and a GitHub Actions example are in
+[the CLI reference](docs/guide/cli.md#plune-mcp-pin).
 
 ## Programmatic API
 

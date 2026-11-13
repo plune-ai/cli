@@ -615,6 +615,172 @@ does not change the class or the exit code.
 | `2` | A snapshot file cannot be read, is not JSON, is nested deeper than 256 levels, or has a `schemaVersion` this version does not read (the message names both); the server did not start or a declared list could not be read; or a flag is wrong. |
 | `3` | Nothing to compare: neither snapshot holds a tool, resource, resource template or prompt. |
 
+## `plune mcp pin`
+
+Pins what a person approved of an MCP server (its tools, prompts and resource templates) in a lock
+file that is committed with the project, so that a change after the approval stops the build and
+shows what changed. A server can rewrite a tool's description after it was approved and slip
+instructions to the model into it; the lock file turns «somebody once looked» into a fact a CI step
+checks.
+
+```bash
+plune mcp pin -- node dist/server.js                # show everything in full, ask, write plune-mcp.lock.json
+plune mcp pin --check -- node dist/server.js        # CI: compare with the file, write nothing
+plune mcp pin --check --url https://example.com/mcp --header-env "Authorization=MCP_AUTH"
+plune mcp pin --stability -- node dist/server.js    # ask for tools/list several times
+```
+
+**Pinning.** `plune mcp pin` connects, reads every list the server declares, and prints every entry
+in full: name, title, the whole description, the input and output schemas, the annotations, the
+arguments of a prompt. Every character that does not print is shown as its code point (`[U+202E]`,
+`[U+001B]`), and each line of server text sits behind `| `, so nothing the server sent can pass for
+plune's own output. Then it asks for an approval in a terminal; `--yes` approves without asking. With
+no terminal and no `--yes` nothing is written (exit `2`). Run again against a pinned server, it
+shows only the differences and asks for each one on its own: an approval takes the new entry, a
+refusal leaves the pinned one (and `--check` keeps failing on it). When nothing changed, the file is
+not touched.
+
+**The approval is the commit.** The file has no approver field and there is no other store of
+approvals: a change to `plune-mcp.lock.json` in a pull request is the approval, and git keeps who
+made it and when. Whoever can change the server can change the file in the same pull request, so
+review the file; a `CODEOWNERS` entry for it puts that review on the right people:
+
+```
+/plune-mcp.lock.json @your-org/security-reviewers
+```
+
+### The lock file
+
+```json
+{
+  "kind": "plune-mcp-lock",
+  "lockVersion": 1,
+  "servers": {
+    "notes": {
+      "approvedAt": "2026-11-13T10:00:00.000Z",
+      "prompts": [],
+      "resourceTemplates": null,
+      "server": { "name": "notes", "version": "2.0.0" },
+      "sha256": "<hex>",
+      "source": "stdio",
+      "tools": [
+        {
+          "annotations": { "readOnlyHint": true },
+          "description": "Returns the current weather for one city.",
+          "inputSchema": { "properties": { "city": { "type": "string" } }, "required": ["city"], "type": "object" },
+          "name": "weather_get",
+          "sha256": "<hex>"
+        }
+      ],
+      "transport": "stdio"
+    }
+  }
+}
+```
+
+- An entry under `servers` is named after the server's own `serverInfo.name`, or by `--name`.
+- `source` is `stdio` for a server started after `--` (never its command), or the origin and path
+  of `--url` (never its query). No `--env` value, no header and no credential is written; a value
+  the server repeats in a description is masked as in `plune mcp snapshot`.
+- Each tool, prompt and resource template is kept whole, as `plune mcp snapshot` normalizes it
+  (sorted keys and lists, `$schema` dropped), restricted to the fields its hash covers, with the
+  SHA-256 of their canonical JSON beside it: keys in code-point order, no whitespace, numbers in
+  their shortest form (`0.1`, `1e-7`). Tools: `name`, `title`, `description`, `inputSchema`,
+  `outputSchema`, `annotations`. Prompts: `name`, `title`, `description`, `arguments`. Resource
+  templates: `uriTemplate`, `name`, `title`, `description`, `mimeType`.
+- The server's `sha256` covers the hashes of every entry. `server.version` is shown for reference
+  and is in no hash: a new version with the same tools is no difference.
+- The order of a list is no difference (entries are in code-unit order of their key).
+- The field lists are versioned by `lockVersion`. A later plune that hashes more fields raises it;
+  a file of an older version is read and refused with a request to approve again (exit `2`).
+- The file is written with LF line ends and no byte order mark. It reads the same after a checkout
+  with CRLF, or with a BOM an editor added: the hashes are of the values, not of the bytes.
+- An entry whose `sha256` does not match its content was edited by hand: exit `2`, it is not
+  compared.
+
+| Option | Meaning |
+|--------|---------|
+| `--check` | Compare the live server with the file and write nothing. |
+| `--stability` | Ask for `tools/list` several times (see below). |
+| `--yes` | Approve what is shown without asking. |
+| `--lock <path>` | The lock file (default `plune-mcp.lock.json`). |
+| `--name <label>` | The server's entry in the file (default: the name the server gives itself). |
+| `--format <fmt>` | With `--check` or `--stability`: `human` (default) or `json`, one document in printable ASCII (anything else as `\uXXXX`). |
+| `--times <n>`, `--pause <duration>`, `--wait <duration>` | With `--stability`: requests in the first session (default 3), the pause between them (`1s`), and how long to listen for `notifications/tools/list_changed` after the last one (`2s`). |
+
+The connection flags are those of `plune mcp lint`.
+
+### `--check`
+
+Each tool, prompt and resource template is one of: as pinned; changed (`scan/pin/tool-changed`);
+added (`scan/pin/tool-added`, shown in full, since nobody approved it); removed
+(`scan/pin/tool-removed`). A server with no entry in the file is `scan/pin/server-not-pinned`, and
+the output names the entries the file has. A changed entry shows its differences field by field,
+classified as `plune mcp diff` classifies them: the pinned and the new description one under the
+other, whole and escaped; a schema that gained a required parameter or lost a value of an `enum`; a
+`readOnlyHint` or `destructiveHint` switched. An entry whose name, title or description (its own or
+a parameter's) changed is marked `[the text the model reads changed]` and listed first: that is
+what a model is told, and how a tool is swapped under an approved client.
+
+#### Exit codes
+
+| Exit | Meaning |
+|------|---------|
+| `0` | The server is as pinned. A changed `server.version` is printed as a reference line. |
+| `1` | A difference: an entry changed, added or removed, or the server has no entry in the file. |
+| `2` | A usage or configuration error: a wrong flag, no lock file, a file that is not JSON, of another `lockVersion` or edited by hand; pinning without a terminal and without `--yes`. |
+| `3` | Not measured: the server could not be started or reached, a list could not be read, or the server lists no tool, prompt or resource template. Nothing was compared, and that is not a pass. |
+
+`3` is «not measured» as in the other `plune mcp` commands and in `plune diff`. Unlike `plune mcp
+check`, `lint`, `snapshot` and `diff`, which count a server that does not start as `2`,
+`pin --check` reports it as `3`: a CI step that compares with an approved state must not read «could
+not compare» as a mistake in its own flags.
+
+### `--stability`
+
+Asks for `tools/list` `--times` times in one session, `--pause` apart, listens `--wait` longer for
+`notifications/tools/list_changed`, then asks once more in a new session.
+
+| Finding | Level | When |
+|---------|-------|------|
+| `scan/pin/list-unstable` | `warn` | The answers of one session are not all the same list, and no `list_changed` came. |
+| `scan/pin/differs-between-sessions` | `warn` | The new session got another list than the first answer of the first session. |
+| `scan/pin/list-changed-announced` | `info` | The server announced a change with `list_changed`: allowed by the protocol (`plune mcp serve` does it after `plune_discover_tools` in the 2025 revisions); run `pin --check` again after it. |
+
+Exit `1` on a `warn` finding, `0` otherwise, `2` on a wrong flag, `3` when the server could not be
+reached or its list read.
+
+**What it cannot see.** Every check here sees only what the server answered this connection, at
+this time. A server can answer a scanner differently from the client a model uses (by the client
+name in `initialize`, by the number of calls, by the time, by the address it is called from), and a
+server that does so is not caught by asking more often. `--stability` prints this with every result.
+A change that comes later than the wait, and a server that behaves differently without changing what
+it lists, are out of its reach too.
+
+### In GitHub Actions
+
+Commit `plune-mcp.lock.json`, and check it on every pull request:
+
+```yaml
+name: mcp-pin
+on: pull_request
+jobs:
+  pin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci && npm run build
+      # 0 as pinned, 1 a difference to review, 2 a configuration error, 3 nothing compared: only 0 passes.
+      - run: npx -y @plune-ai/cli mcp pin --check -- node dist/server.js
+```
+
+When the server changes on purpose, run `plune mcp pin -- node dist/server.js` locally, read what it
+shows, approve, and commit the file with the change: the reviewer of the pull request sees the
+approved text in the diff of the lock file.
+
 ## `plune mcp conformance`
 
 Checks any MCP server against the text of the specification, check by check, and scores the run. It needs no
