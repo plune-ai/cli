@@ -13,9 +13,13 @@ import { handleMcpConformance, type McpConformanceFlags } from '../../../cli/com
 import { streamableServer, type Fixture } from '../../__tests__/fixtures/http-servers.js';
 import type { McpConformanceReport } from '../../result.js';
 import { CATALOG } from '../catalog.js';
+
 import type { ConformanceContext } from '../checks/index.js';
 import { LIFECYCLE } from '../checks/lifecycle.js';
 import { UNKNOWN_TOOL } from '../checks/tools.js';
+
+/** The checks a run without --suite covers: the oauth suite has its own tests (auth.test.ts). */
+const PROTOCOL = CATALOG.filter((e) => e.suite === 'protocol');
 
 const fixture = (name: string) => fileURLToPath(new URL(`../../__tests__/fixtures/${name}`, import.meta.url));
 const SERVER = fixture('conformance-server.mjs');
@@ -64,7 +68,7 @@ function fixtureFile(calls: unknown): string {
 describe('CLI · mcp conformance · checks against a server that keeps and one that breaks each requirement', () => {
   it('a conformant server passes every check that applies to a legacy stdio server', async () => {
     const { code, report } = await run({ fixture: fixtureFile([{ tool: 'echo', arguments: { text: 'hi' } }]) }, mode('good'));
-    const expected = Object.fromEntries(CATALOG.map((e) => [e.id, legacyStdio(e) ?? 'passed']));
+    const expected = Object.fromEntries(PROTOCOL.map((e) => [e.id, legacyStdio(e) ?? 'passed']));
     expect(states(report!)).toEqual(expected);
     expect(report!.era).toBe('legacy');
     expect(report!.summary).toMatchObject({ score: 100, verdict: 'passed' });
@@ -73,7 +77,7 @@ describe('CLI · mcp conformance · checks against a server that keeps and one t
 
   it('a server that breaks each requirement fails each check, with what it got and how to fix it', async () => {
     const { code, report } = await run({ fixture: fixtureFile([{ tool: 'dup' }]) }, mode('bad'));
-    const expected = Object.fromEntries(CATALOG.map((e) => [e.id, legacyStdio(e) ?? 'failed']));
+    const expected = Object.fromEntries(PROTOCOL.map((e) => [e.id, legacyStdio(e) ?? 'failed']));
     // The handshake is sound (the connection takes nothing less); the list order and the mod- checks are modern-era.
     expected['life-initialize-result'] = 'passed';
     expected['life-version-negotiation'] = 'passed';
@@ -106,7 +110,7 @@ describe('CLI · mcp conformance · checks against a server that keeps and one t
     const { code, report } = await run({}, mode('no-server-info'));
     const s = states(report!);
     expect(s['life-initialize-result']).toBe('failed');
-    for (const e of CATALOG.filter((e) => e.id !== 'life-initialize-result')) {
+    for (const e of PROTOCOL.filter((e) => e.id !== 'life-initialize-result')) {
       const why = !e.transports.includes('stdio') ? 'transport' : !e.eras.includes('legacy') ? 'era' : undefined;
       expect(s[e.id], e.id).toBe(why !== undefined ? `not-applicable (${why})` : 'could-not-run (prerequisite-failed)');
     }
@@ -133,7 +137,7 @@ describe('CLI · mcp conformance · checks against a server that keeps and one t
 
   it('AC-3: over stdio no check outside stdio passes, over HTTP the stdio checks are not-applicable and the rest run', async () => {
     const stdio = await run({}, SDK_STDIO);
-    for (const e of CATALOG.filter((e) => !e.transports.includes('stdio')))
+    for (const e of PROTOCOL.filter((e) => !e.transports.includes('stdio')))
       expect(states(stdio.report!)[e.id], e.id).toBe('not-applicable (transport)');
     const http = await streamableServer();
     servers.push(http);
@@ -141,7 +145,7 @@ describe('CLI · mcp conformance · checks against a server that keeps and one t
     const s = states(report!);
     expect(s['stdio-stdout-clean']).toBe('not-applicable (transport)');
     expect(s['stdio-exit-on-eof']).toBe('not-applicable (transport)');
-    for (const e of CATALOG.filter((e) => e.transports.includes('http'))) expect(s[e.id], e.id).not.toBe('pending');
+    for (const e of PROTOCOL.filter((e) => e.transports.includes('http'))) expect(s[e.id], e.id).not.toBe('pending');
     expect(s['tools-list-shape']).toBe('passed');
   }, 15_000);
 
