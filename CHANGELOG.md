@@ -26,6 +26,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 - **`plune mcp serve` refuses an unsupported revision on every request, not only the first.** Over stdio the SDK checks the revision the opening message claims and then pins the connection, so a later `server/discover` or `tools/list` claiming `1900-01-01` was answered as if it were supported. It now gets `-32022` with `data.supported` and `data.requested`, as revision 2026-07-28 asks: «the server accepts or rejects each request independently».
 
+- **`plune run --dry-run` gives a price and no verdict, and no longer replaces the last run (#244).** A dry run runs no assertion, and a row with no assertion counted as passed: the console said `3 passed` and `PASS`, and the result was saved to `.plune/last-run.json`, so `plune report` then said `All evals passed.` over a run that had failed. Now a dry run counts no row as passed, failed or errored: the console and Markdown reports say how many rows were priced and the estimated cost, and `.plune/last-run.json` is left as it was (none is written where there was none). In `--format json` the result has a new optional `dry_run: true`, every row has `inconclusive: "skipped"`, `summary.passed` is `0` and `summary.skipped` is the number of rows, and every eval has `passed: false`; a script that read `passed: true` of a dry run as a green check no longer gets one. `--dry-run --bail` still prices every eval, the exit code stays `0`, and `schemaVersion` stays 1.
+
 ## [0.37.0] - 2026-11-13
 
 ### Added

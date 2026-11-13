@@ -132,6 +132,16 @@ export function costFields(c: { cost_usd: number; priced?: boolean }): {
 }
 
 /**
+ * The row of a dry run, plain or agentic: priced and never run, so it has no verdict. With no
+ * assertion run, "every assertion passed" would make it a pass (plune-ai/cli#244); `skipped` is the
+ * contract's word for a row that was never judged (ADR 0045), and `rowStatus` reads it first, so the
+ * summary, the eval, the reporters and the diff all count the row as neither passed, failed nor errored.
+ */
+export function dryRunRow(vars: DatasetRow['vars'], usage: Usage): RowResult {
+  return { vars, output: null, cached: false, usage, inconclusive: 'skipped', assertions: [] };
+}
+
+/**
  * The row's assertions on an answer, with what the judge calls among them cost. Shared by plain and agentic rows;
  * an agentic row passes its transcript. A heuristic never decides the row: what it finds, or why it could not run,
  * goes to `advice`, not to `records`.
@@ -207,8 +217,7 @@ export async function runRow(p: RowParams): Promise<RowResult> {
   if (p.dryRun) {
     const est = estimateUsage(prompt, maxTokens);
     const cost = p.provider.estimateCost(est);
-    const usage: Usage = { ...est, ...costFields(cost) };
-    return { vars: p.row.vars, output: null, cached: false, usage, assertions: [] };
+    return dryRunRow(p.row.vars, { ...est, ...costFields(cost) });
   }
 
   // An unset temperature keys as 0 (the cache policy version, not this default, retires old entries).
@@ -625,7 +634,8 @@ export async function runOrchestration(
       return runRepeats(agentParams, runs, passThreshold, runAgentRow);
     });
 
-    const passed = rowResults.every((r) => rowStatus(r) === 'passed');
+    // A dry run measured nothing: no eval of it passed, an eval with no rows included.
+    const passed = !dryRun && rowResults.every((r) => rowStatus(r) === 'passed');
     // What `plune diff` needs to know two runs measured the same thing; the prompt text is not part of it.
     const measured = {
       runs,
@@ -635,7 +645,8 @@ export async function runOrchestration(
       model: `${providerConfig.type}/${providerConfig.model}`,
     };
     evalResults.push({ id: ev.id, tags: ev.tags ?? [], rows: rowResults, passed, measured });
-    if (options.bail === true && !passed) break;
+    // `--bail` stops on an eval that did not pass; on a dry run none failed, and every eval is priced.
+    if (options.bail === true && !dryRun && !passed) break;
   }
 
   const finished = deps.now();
@@ -647,6 +658,8 @@ export async function runOrchestration(
     started_at: new Date(started).toISOString(),
     finished_at: new Date(finished).toISOString(),
     config_hash: configHash(config),
+    // The one fact every reader of the result asks: was anything measured (plune-ai/cli#244).
+    ...(dryRun ? { dry_run: true } : {}),
     summary,
     evals: evalResults,
   };

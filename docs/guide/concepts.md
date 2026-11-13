@@ -60,6 +60,8 @@ Plune reports an estimated USD cost from token usage:
   attributed to the row that triggered them, so the run total includes it.
 - **`--dry-run`** estimates cost from the prompt length and `max_tokens` without calling anything.
   With `runs` above `1` the estimate is multiplied by `runs`, and the report shows the multiplier.
+  A dry run gives a price and no verdict: no row counts as passed, failed or errored, and the
+  result is not saved as the last run.
 - **With repeats** a row's `usage` is the sum over its runs, so the run total is what every run cost.
 
 ## errored vs failed
@@ -148,7 +150,8 @@ into a score. `llm-judge` can point at a different model via its own `provider:`
 
 ## The RunResult
 
-Every run produces a `RunResult`, saved to `.plune/last-run.json`. Its shape:
+Every run produces a `RunResult`. A measured run saves it to `.plune/last-run.json`; a dry run
+only prints it (`--format json`) and leaves the saved one as it was. Its shape:
 
 ```jsonc
 {
@@ -157,6 +160,8 @@ Every run produces a `RunResult`, saved to `.plune/last-run.json`. Its shape:
   "started_at": "2026-06-11T09:00:00.000Z",
   "finished_at": "2026-06-11T09:00:04.210Z",
   "config_hash": "…64 hex chars…",      // identifies the exact config that ran
+  // "dry_run": true,                    // only on --dry-run: rows priced, none run; every row is
+  //                                     // "inconclusive": "skipped" and no eval is "passed"
   "summary": {
     "total": 15, "passed": 12, "failed": 2, "errored": 1, "blocked": 0, "skipped": 0,
     "cost_usd": 0.0431, "duration_ms": 4210

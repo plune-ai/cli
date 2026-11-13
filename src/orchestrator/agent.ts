@@ -19,6 +19,7 @@ import type { CallAnswer } from '../mcp-testing/connect/tools.js';
 import {
   assess,
   costFields,
+  dryRunRow,
   estimateUsage,
   resolvePrompt,
   sumUsage,
@@ -136,13 +137,7 @@ export async function runAgentRow(p: AgentRowParams): Promise<RowResult> {
       input_tokens: one.input_tokens * limits.max_steps,
       output_tokens: one.output_tokens * limits.max_steps,
     };
-    return {
-      vars: p.row.vars,
-      output: null,
-      cached: false,
-      usage: { ...est, ...costFields(p.provider.estimateCost(est)) },
-      assertions: [],
-    };
+    return dryRunRow(p.row.vars, { ...est, ...costFields(p.provider.estimateCost(est)) });
   }
 
   const respond = p.provider.respond!.bind(p.provider);

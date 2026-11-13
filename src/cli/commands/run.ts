@@ -1,6 +1,6 @@
 // `plune run` composition root. Loads the config, builds the real dependencies (or injected
-// fakes for tests), runs the orchestrator, persists the RunResult for `plune report` (S9), and
-// returns it. Exit-code mapping + output live in cli.ts.
+// fakes for tests), runs the orchestrator, persists the RunResult for `plune report` (S9) unless it
+// is a dry run, and returns it. Exit-code mapping + output live in cli.ts.
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -162,7 +162,9 @@ export async function handleRun(
           'dry run: an eval with mcp is priced as max_steps model calls of its prompt; tool schemas and tool results are not counted\n',
         );
     }
-    persist(result, baseDir);
+    // A dry run measured nothing, so it is not the last run: what `plune report`, `sync` and `diff`
+    // read stays the last measured one (plune-ai/cli#244).
+    if (result.dry_run !== true) persist(result, baseDir);
     return result;
   } finally {
     deps.cache.close();

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { renderConsole } from '../console.js';
-import { mixed, allPass, withLongOutput, inconclusive } from './fixtures.js';
+import { mixed, allPass, withLongOutput, inconclusive, dryRun } from './fixtures.js';
 import type { RunResult } from '../../types/results.js';
 
 const ESC = String.fromCharCode(27); // the ANSI escape byte (unambiguous, no escape-sequence pitfalls)
@@ -94,5 +94,28 @@ describe('renderConsole', () => {
     expect(out).toContain('skipped (not judged)');
     expect(out).not.toContain('x contains'); // the blocked row's failing assertion is not a failure
     expect(out).toContain('1 row(s) passed'); // the skipped row is not counted as passed
+  });
+
+  // plune-ai/cli#244 — a dry run priced the rows and ran none: a price, and no word of a verdict.
+  it('CLI · run --dry-run · console · says the rows were priced, with no verdict', () => {
+    expect(renderConsole(dryRun, { color: false })).toBe(
+      [
+        'Plune dry run',
+        '3 row(s) priced, none measured · estimated $0.0492',
+        '',
+        'PRICED example (smoke)',
+        '  2 row(s) priced',
+        'PRICED repeated',
+        '  vars: {"q":"3"}',
+        '  dry run: estimate × 10 runs',
+        '  1 row(s) priced',
+      ].join('\n'),
+    );
+  });
+
+  it('CLI · run --dry-run · console · has none of the words of a measured run', () => {
+    expect(renderConsole(dryRun, { color: false })).not.toMatch(
+      /PASS|FAIL|passed|failed|errored|skipped/,
+    );
   });
 });
