@@ -15,6 +15,7 @@
 // - `huge`: a resource over the limit of the checker;
 // - `no-fallback`, `blank-fallback`: tools/call answers an empty content, or one blank text block;
 // - `hostile`: every text the server sends is long and starts with `::error::`;
+// - `secret-uri`: the tool names an address that carries a secret from the environment, after 25 characters;
 // - `silent-read`: resources/read is never answered;
 // - `error-internal`, `error-method`, `empty-contents`: resources/read of a ui:// address answers -32603, -32601, or
 //   an empty contents list (only -32002 says the resource is not there);
@@ -41,7 +42,10 @@ const HTML = '<!DOCTYPE html><html><body><p>Sunny</p></body></html>';
 const URI = mode === 'wrong-scheme' ? 'https://apps.example/weather' : 'ui://apps/weather';
 const HOSTILE = `::error::${'A'.repeat(5000)}\n::error::second`;
 const HTML_MARKER = 'HTML-BODY-MARKER-9f3a';
-const uri = mode === 'hostile' ? `ui://${HOSTILE}` : URI;
+// secret-uri: an address that is not under ui:// and carries APPS_SECRET (given with --env, so the run masks it) after
+// 25 characters, so the 60-character cut of a message falls inside the secret.
+const SECRET_URI = `https://apps.example/${'f'.repeat(25)}${process.env.APPS_SECRET ?? ''}/weather`;
+const uri = mode === 'hostile' ? `ui://${HOSTILE}` : mode === 'secret-uri' ? SECRET_URI : URI;
 const toolName = mode === 'hostile' ? `::error::${'T'.repeat(300)}` : 'weather';
 
 const visibility = mode === 'bad-visibility' ? ['model', 'admin'] : ['model', 'app'];
