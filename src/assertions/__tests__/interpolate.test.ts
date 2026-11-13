@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { interpolate } from '../interpolate.js';
+import { interpolate, usesExpected } from '../interpolate.js';
 
 function ctx(vars: Record<string, unknown>, expected?: string) {
   return { vars, row: { vars: vars as Record<string, string | number | boolean>, ...(expected !== undefined ? { expected } : {}) } };
@@ -40,5 +40,36 @@ describe('interpolate (ADR-AP03)', () => {
 
   it('returns the string unchanged when there are no placeholders', () => {
     expect(interpolate('plain text', ctx({}, 'z'))).toBe('plain text');
+  });
+});
+
+describe('usesExpected', () => {
+  it('is true for a string with {{expected}}, with or without spaces in the braces', () => {
+    expect(usesExpected('{{expected}}')).toBe(true);
+    expect(usesExpected('{{ expected }}')).toBe(true);
+    expect(usesExpected('the answer is {{expected}}!')).toBe(true);
+  });
+
+  it('is false for a string without it, including other placeholders', () => {
+    expect(usesExpected('plain')).toBe(false);
+    expect(usesExpected('{{vars.expected}}')).toBe(false);
+    expect(usesExpected('')).toBe(false);
+  });
+
+  it('looks inside arrays and nested objects', () => {
+    expect(usesExpected(['a', '{{expected}}'])).toBe(true);
+    expect(usesExpected(['a', 'b'])).toBe(false);
+    expect(usesExpected({ type: 'contains', value: '{{expected}}' })).toBe(true);
+    expect(usesExpected({ args: { deep: [{ x: '{{expected}}' }] } })).toBe(true);
+    expect(usesExpected({ args: { deep: [{ x: 'no' }] } })).toBe(false);
+  });
+
+  it('is false for non-string values and an empty object', () => {
+    expect(usesExpected(7)).toBe(false);
+    expect(usesExpected(true)).toBe(false);
+    expect(usesExpected(null)).toBe(false);
+    expect(usesExpected(undefined)).toBe(false);
+    expect(usesExpected({})).toBe(false);
+    expect(usesExpected([])).toBe(false);
   });
 });

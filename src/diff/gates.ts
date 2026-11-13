@@ -127,6 +127,17 @@ function attempts(run: RunResult): { passed: number; total: number } {
 
 function passRateGate(baseline: RunResult, current: RunResult, limit: number): GateResult {
   const threshold = limit;
+  // A dry run priced its rows and judged none (#252): its rate is 0 of N by construction, which read as
+  // a drop when it was the current run and as a green gate when it was the baseline.
+  const dry =
+    baseline.dry_run === true ? 'baseline' : current.dry_run === true ? 'current run' : undefined;
+  if (dry !== undefined)
+    return {
+      gate: 'pass-rate',
+      state: 'unmeasured',
+      reason: `the ${dry} is a dry run: nothing was measured`,
+      threshold,
+    };
   const diffs = populationDiffs(baseline, current);
   if (diffs.length > 0)
     return {

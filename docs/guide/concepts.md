@@ -60,6 +60,8 @@ Plune reports an estimated USD cost from token usage:
   attributed to the row that triggered them, so the run total includes it.
 - **`--dry-run`** estimates cost from the prompt length and `max_tokens` without calling anything.
   With `runs` above `1` the estimate is multiplied by `runs`, and the report shows the multiplier.
+  A dry run gives a price and no verdict: no row counts as passed, failed or errored, and the
+  result is not saved as the last run.
 - **With repeats** a row's `usage` is the sum over its runs, so the run total is what every run cost.
 
 ## errored vs failed
@@ -84,7 +86,7 @@ rather than `0` (a regression still exits `1`). See [`plune diff` exit codes](./
 The same rule holds for the other gates of `plune diff` (pass rate, cost, tokens): a value that is
 missing never gives green. A cost gate on a run whose model has no known price, an overall pass rate
 compared between runs that measured different evals, rows, repeats, models or checks, or one with fewer
-than 10 attempts on a side, is `unmeasured` (exit `3`), and a waiver never lifts that. To make the pass
+than 10 attempts on a side or with a dry run on either side, is `unmeasured` (exit `3`), and a waiver never lifts that. To make the pass
 rate comparable, `plune run` records per eval what it measured (`measured`: repeats, rows, a hash of the
 rows' `vars`, a hash of the checks, the model), without the prompt text, since changing the prompt is
 what a pull request is checked for.
@@ -148,15 +150,18 @@ into a score. `llm-judge` can point at a different model via its own `provider:`
 
 ## The RunResult
 
-Every run produces a `RunResult`, saved to `.plune/last-run.json`. Its shape:
+Every run produces a `RunResult`. A measured run saves it to `.plune/last-run.json`; a dry run
+only prints it (`--format json`) and leaves the saved one as it was. Its shape:
 
 ```jsonc
 {
-  "schema": 1,
+  "schemaVersion": 1,
   "plune_version": "0.1.0",
   "started_at": "2026-06-11T09:00:00.000Z",
   "finished_at": "2026-06-11T09:00:04.210Z",
   "config_hash": "…64 hex chars…",      // identifies the exact config that ran
+  // "dry_run": true,                    // only on --dry-run: rows priced, none run; every row is
+  //                                     // "inconclusive": "skipped" and no eval is "passed"
   "summary": {
     "total": 15, "passed": 12, "failed": 2, "errored": 1, "blocked": 0, "skipped": 0,
     "cost_usd": 0.0431, "duration_ms": 4210
@@ -188,7 +193,7 @@ Every run produces a `RunResult`, saved to `.plune/last-run.json`. Its shape:
 }
 ```
 
-This is stable (`schema: 1`) and meant to be machine-read — pipe it into your own tooling today, and
+This is stable (`schemaVersion: 1`) and meant to be machine-read — pipe it into your own tooling today, and
 `plune report` will render it nicely soon.
 
 ## See also

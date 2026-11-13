@@ -16,6 +16,46 @@ that is wrong, so a `dry_run` call first is the cheap way to find a mistake.
 - Where a case was read (`source.kind`): `url`, `openapi-operation`, `requirement`, `pasted-text`.
 - A case's `execution`: `auto` (it can be automated) or `manual` (the default).
 
+## A source
+
+`plune_source_add`. A link needs `kind` (`url`, `openapi`, `repo` or `ticket`) and `ref`. A file of the
+repository needs `kind` `file`, its `name` (`.md`, `.markdown`, `.txt` or `.json`) and its `text`, up to
+1 MiB.
+
+<!-- input: plune_source_add -->
+```json
+{
+  "missionId": "m_123",
+  "kind": "openapi",
+  "ref": "https://staging.example.com/openapi.json",
+  "title": "Served by the product",
+  "dry_run": true
+}
+```
+
+## An endpoint
+
+`plune_endpoint_propose`. 1 to 100 endpoints. `path` is a template that starts with `/` and has no query.
+`source` is `spec`, `code` or `traffic`; an endpoint taken from a derived draft (`openapi.derived.json`) or
+from recorded traffic is `traffic` with `trust` `derived`.
+
+<!-- input: plune_endpoint_propose -->
+```json
+{
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/users/{id}/password-reset",
+      "source": "traffic",
+      "trust": "derived",
+      "summary": "Sends a reset link",
+      "auth": ["bearer"]
+    }
+  ],
+  "dry_run": true
+}
+```
+
 ## A question
 
 `plune_question_ask` with a plain question and up to three options:

@@ -14,7 +14,7 @@ There are 24 types, in four families:
 
 > **String parameters support `{{ }}`.** In any assertion, `{{expected}}` is replaced with the
 > row's `expected` value and `{{vars.X}}` with a row variable — so you can compare against the
-> dataset's expected answer (e.g. `value: "{{expected}}"`). An unknown placeholder is left as-is.
+> dataset's expected answer (e.g. `value: "{{expected}}"`). An unknown placeholder is left as-is. A check that uses `{{expected}}` fails on a row with no `expected` (missing or empty), saying so, rather than comparing against an empty string.
 
 ---
 
