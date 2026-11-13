@@ -27,6 +27,7 @@ import { STDIO } from './stdio.js';
 import { TOOLS } from './tools.js';
 import { TRANSPORT } from './transport.js';
 import { APPS } from './apps/index.js';
+import { TASKS } from './tasks/index.js';
 
 /** One call of `--fixture`: a tool the user named as safe to call, and its arguments. */
 export interface FixtureCall {
@@ -52,6 +53,11 @@ export interface ConformanceContext {
   oauth?: OauthContext;
   /** One value per key for the whole run: a list is walked once for every check that reads it. */
   memo<T>(key: string, make: () => Promise<T>): Promise<T>;
+  /**
+   * A step to run once, after the last check, with the session still open: a check that made something on the server (a
+   * task) registers how to end it. The text it returns, if any, is added to the report: what was left behind.
+   */
+  onEnd(step: () => Promise<string | undefined>): void;
 }
 
 export type ConformanceCheck = (ctx: ConformanceContext) => Promise<CheckOutcome>;
@@ -74,4 +80,5 @@ export const IMPLEMENTATIONS: Readonly<Record<string, ConformanceCheck>> = {
   ...AUTH_SCOPE,
   ...AUTH_FLOW,
   ...APPS,
+  ...TASKS,
 };
