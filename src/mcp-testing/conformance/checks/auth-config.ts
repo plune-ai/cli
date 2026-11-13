@@ -27,6 +27,8 @@ export interface OauthConfig {
     allowClientCreation?: boolean;
   };
   scopes?: string[];
+  /** The scopes to ask for the token that must be refused for lack of scope; `scopes` stays the full set. */
+  narrowScopes?: string[];
   redirectUri?: string;
   auth?: AuthMode;
   /** The canonical URI of the server: what the metadata's `resource` is compared with, and what the token is for. */
@@ -37,6 +39,7 @@ const TOP = new Set([
   'protocolVersions',
   'registration',
   'scopes',
+  'narrowScopes',
   'redirectUri',
   'auth',
   'resource',
@@ -89,7 +92,14 @@ export function parseOauthConfig(source: string): OauthConfig {
     }
     if (key === 'protocolVersions') config.protocolVersions = strings(key, value);
     else if (key === 'scopes') config.scopes = strings(key, value);
-    else if (key === 'redirectUri') config.redirectUri = text(key, value);
+    else if (key === 'narrowScopes') {
+      const list = strings(key, value);
+      if (list.length === 0 || new Set(list).size !== list.length)
+        throw new UsageError(
+          '--config: "narrowScopes" must be a non-empty list of scopes with no duplicates.',
+        );
+      config.narrowScopes = list;
+    } else if (key === 'redirectUri') config.redirectUri = text(key, value);
     else if (key === 'resource') {
       const uri = text(key, value);
       try {
@@ -165,6 +175,13 @@ export function parseOauthConfig(source: string): OauthConfig {
       config.registration = reg;
     }
   }
+  if (
+    config.narrowScopes !== undefined &&
+    config.scopes !== undefined &&
+    config.narrowScopes.length === config.scopes.length &&
+    config.narrowScopes.every((s) => config.scopes!.includes(s))
+  )
+    throw new UsageError('--config: "narrowScopes" must differ from "scopes".');
   return config;
 }
 
