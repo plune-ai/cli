@@ -1,10 +1,12 @@
 /**
  * `--config <file>` of the oauth suite: how the run may sign in, in JSON. A secret is never a value here, only the
  * name of the environment variable that holds it (`clientSecretEnv`); a file with a key that names a secret is refused,
- * so a secret is not written into a file by habit. YAML is not read yet.
+ * so a secret is not written into a file by habit. A file named `.yaml` or `.yml` is read as YAML (the same rules), with
+ * no anchor, alias, custom tag or merge key and a size limit checked before parsing; any other file is JSON.
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
+import { isScalar, parseDocument, visit } from 'yaml';
 import { UsageError } from '../../connect/options.js';
 
 export type RegistrationMethod = 'preregistered' | 'dcr' | 'cimd';
@@ -26,6 +28,8 @@ export interface OauthConfig {
      */
     allowClientCreation?: boolean;
   };
+  /** Several methods written as a list: the suite runs once for each (and for each revision). */
+  registrations?: NonNullable<OauthConfig['registration']>[];
   scopes?: string[];
   /** The scopes to ask for the token that must be refused for lack of scope; `scopes` stays the full set. */
   narrowScopes?: string[];
@@ -84,15 +88,110 @@ function text(flag: string, value: unknown): string {
   return value;
 }
 
-/** The configuration in `source` (a file's text); a UsageError for anything that is not one. */
-export function parseOauthConfig(source: string): OauthConfig {
-  let doc: unknown;
-  try {
-    doc = JSON.parse(source);
-  } catch {
-    throw new UsageError('--config: the file is not JSON (YAML is not read yet).');
+type Registration = NonNullable<OauthConfig['registration']>;
+
+/** One registration object; `label` is how its keys are named in a usage error (`registration`, `registration[1]`). */
+function parseRegistration(value: unknown, label: string): Registration {
+  if (!isObject(value)) throw new UsageError(`--config: "${label}" must be an object.`);
+  for (const k of Object.keys(value)) {
+    if (!REGISTRATION.has(k)) {
+      const why = SECRET_KEY.test(k)
+        ? ' (a secret is never written in the file: name the variable that holds it)'
+        : '';
+      throw new UsageError(`--config: unknown key "${label}.${k}"${why}.`);
+    }
   }
-  if (!isObject(doc)) throw new UsageError('--config: the file must hold a JSON object.');
+  const method = text(`${label}.method`, value['method']);
+  if (!(METHODS as readonly string[]).includes(method))
+    throw new UsageError(`--config: "${label}.method" must be one of ${METHODS.join(', ')}.`);
+  const reg: Registration = { method: method as RegistrationMethod };
+  if (value['clientId'] !== undefined) reg.clientId = text(`${label}.clientId`, value['clientId']);
+  if (value['clientIdMetadataUrl'] !== undefined)
+    reg.clientIdMetadataUrl = text(`${label}.clientIdMetadataUrl`, value['clientIdMetadataUrl']);
+  if (value['clientIdMetadataMismatchUrl'] !== undefined)
+    reg.clientIdMetadataMismatchUrl = text(
+      `${label}.clientIdMetadataMismatchUrl`,
+      value['clientIdMetadataMismatchUrl'],
+    );
+  for (const k of ['clientIdMetadataUrl', 'clientIdMetadataMismatchUrl'] as const) {
+    const u = reg[k];
+    if (u === undefined) continue;
+    let parsed: URL | undefined;
+    try {
+      parsed = new URL(u);
+    } catch {
+      parsed = undefined;
+    }
+    if (parsed === undefined || parsed.protocol !== 'https:' || parsed.pathname === '/')
+      throw new UsageError(
+        `--config: "${label}.${k}" must be an https URL with a path, such as https://example.com/client.json.`,
+      );
+  }
+  if (value['allowClientCreation'] !== undefined) {
+    if (typeof value['allowClientCreation'] !== 'boolean')
+      throw new UsageError(`--config: "${label}.allowClientCreation" must be true or false.`);
+    reg.allowClientCreation = value['allowClientCreation'];
+  }
+  if (value['clientSecretEnv'] !== undefined) {
+    const name = text(`${label}.clientSecretEnv`, value['clientSecretEnv']);
+    if (!ENV_NAME.test(name))
+      throw new UsageError(
+        `--config: "${label}.clientSecretEnv" is the NAME of an environment variable, not the secret.`,
+      );
+    reg.clientSecretEnv = name;
+  }
+  return reg;
+}
+
+/** The largest `--config` file read, in bytes, checked before anything is parsed. */
+export const MAX_CONFIG_BYTES = 64 * 1024;
+
+const tooLarge = (): string =>
+  `--config: the file is too large (more than ${MAX_CONFIG_BYTES / 1024} KiB).`;
+
+/** YAML as plain data: no anchor, alias, custom tag or merge key, one document, no repeated key. */
+function readYaml(source: string): unknown {
+  const parsed = parseDocument(source, { merge: false, schema: 'core', uniqueKeys: true });
+  const first = parsed.errors[0];
+  if (first !== undefined)
+    throw new UsageError(`--config: the file is not valid YAML (${first.code}).`);
+  // Walked before anything is turned into data, so an alias is never expanded.
+  visit(parsed, {
+    Alias() {
+      throw new UsageError('--config: YAML aliases and anchors are not allowed.');
+    },
+    Node(_key, node) {
+      if (node.anchor !== undefined)
+        throw new UsageError('--config: YAML aliases and anchors are not allowed.');
+      if (node.tag !== undefined)
+        throw new UsageError(`--config: a YAML tag (${node.tag.slice(0, 40)}) is not allowed.`);
+    },
+    Pair(_key, pair) {
+      if (isScalar(pair.key) && pair.key.value === '<<')
+        throw new UsageError('--config: a YAML merge key (<<) is not allowed.');
+    },
+  });
+  return parsed.toJS();
+}
+
+/**
+ * The configuration in `source` (a file's text, JSON unless `format` says YAML); a UsageError for anything that is
+ * not one.
+ */
+export function parseOauthConfig(source: string, format: 'json' | 'yaml' = 'json'): OauthConfig {
+  if (Buffer.byteLength(source) > MAX_CONFIG_BYTES) throw new UsageError(tooLarge());
+  let doc: unknown;
+  if (format === 'yaml') doc = readYaml(source);
+  else {
+    try {
+      doc = JSON.parse(source);
+    } catch {
+      throw new UsageError(
+        '--config: the file is not JSON (a file named .yaml or .yml is read as YAML).',
+      );
+    }
+  }
+  if (!isObject(doc)) throw new UsageError('--config: the file must hold an object.');
   const config: OauthConfig = {};
   for (const [key, value] of Object.entries(doc)) {
     if (!TOP.has(key)) {
@@ -125,67 +224,21 @@ export function parseOauthConfig(source: string): OauthConfig {
         throw new UsageError(`--config: "auth" must be one of ${MODES.join(', ')}.`);
       config.auth = mode as AuthMode;
     } else if (key === 'registration') {
-      if (!isObject(value)) throw new UsageError('--config: "registration" must be an object.');
-      for (const k of Object.keys(value)) {
-        if (!REGISTRATION.has(k)) {
-          const why = SECRET_KEY.test(k)
-            ? ' (a secret is never written in the file: name the variable that holds it)'
-            : '';
-          throw new UsageError(`--config: unknown key "registration.${k}"${why}.`);
-        }
-      }
-      const method = text('registration.method', value['method']);
-      if (!(METHODS as readonly string[]).includes(method))
-        throw new UsageError(
-          `--config: "registration.method" must be one of ${METHODS.join(', ')}.`,
-        );
-      const reg: NonNullable<OauthConfig['registration']> = {
-        method: method as RegistrationMethod,
-      };
-      if (value['clientId'] !== undefined)
-        reg.clientId = text('registration.clientId', value['clientId']);
-      if (value['clientIdMetadataUrl'] !== undefined)
-        reg.clientIdMetadataUrl = text(
-          'registration.clientIdMetadataUrl',
-          value['clientIdMetadataUrl'],
-        );
-      if (value['clientIdMetadataMismatchUrl'] !== undefined)
-        reg.clientIdMetadataMismatchUrl = text(
-          'registration.clientIdMetadataMismatchUrl',
-          value['clientIdMetadataMismatchUrl'],
-        );
-      for (const k of ['clientIdMetadataUrl', 'clientIdMetadataMismatchUrl'] as const) {
-        const u = reg[k];
-        if (u === undefined) continue;
-        let parsed: URL | undefined;
-        try {
-          parsed = new URL(u);
-        } catch {
-          parsed = undefined;
-        }
-        if (parsed === undefined || parsed.protocol !== 'https:' || parsed.pathname === '/')
-          throw new UsageError(
-            `--config: "registration.${k}" must be an https URL with a path, such as https://example.com/client.json.`,
-          );
-      }
-      if (value['allowClientCreation'] !== undefined) {
-        if (typeof value['allowClientCreation'] !== 'boolean')
-          throw new UsageError(
-            '--config: "registration.allowClientCreation" must be true or false.',
-          );
-        reg.allowClientCreation = value['allowClientCreation'];
-      }
-      if (value['clientSecretEnv'] !== undefined) {
-        const name = text('registration.clientSecretEnv', value['clientSecretEnv']);
-        if (!ENV_NAME.test(name))
-          throw new UsageError(
-            '--config: "registration.clientSecretEnv" is the NAME of an environment variable, not the secret.',
-          );
-        reg.clientSecretEnv = name;
-      }
-      config.registration = reg;
+      if (Array.isArray(value)) {
+        // Several methods: one run of the suite for each, in the order written.
+        if (value.length === 0)
+          throw new UsageError('--config: "registration" must not be an empty list.');
+        const list = value.map((v, n) => parseRegistration(v, `registration[${n}]`));
+        const methods = list.map((r) => r.method);
+        const twice = methods.find((m, n) => methods.indexOf(m) !== n);
+        if (twice !== undefined)
+          throw new UsageError(`--config: "registration" names the method "${twice}" twice.`);
+        config.registrations = list;
+      } else config.registration = parseRegistration(value, 'registration');
     }
   }
+  if (config.registration !== undefined && config.registrations !== undefined)
+    throw new UsageError('--config: "registration" is one object or a list, not both.');
   if (config.narrowScopes !== undefined && config.scopes !== undefined) {
     const full = config.scopes;
     const extra = config.narrowScopes.filter((s) => !full.includes(s));
@@ -202,12 +255,15 @@ export function parseOauthConfig(source: string): OauthConfig {
 export function loadOauthConfig(path: string): OauthConfig {
   let source: string;
   try {
+    // The size first: a file over the limit is not read at all (the text is measured again, a file can grow).
+    if (statSync(path).size > MAX_CONFIG_BYTES) throw new UsageError(tooLarge());
     source = readFileSync(path, 'utf8');
   } catch (err) {
+    if (err instanceof UsageError) throw err;
     const code = (err as NodeJS.ErrnoException).code;
     throw new UsageError(
       `--config: could not read ${path}${code === undefined ? '' : ` (${code})`}.`,
     );
   }
-  return parseOauthConfig(source);
+  return parseOauthConfig(source, /\.ya?ml$/i.test(path) ? 'yaml' : 'json');
 }

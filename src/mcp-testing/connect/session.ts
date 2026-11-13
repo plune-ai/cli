@@ -1,5 +1,6 @@
 import type { ChildProcess } from 'node:child_process';
 import { homedir } from 'node:os';
+import { StringDecoder } from 'node:string_decoder';
 import { createInterface } from 'node:readline';
 import type { Readable, Writable } from 'node:stream';
 // A static import on purpose, as in src/mcp/server.ts: the CLI bundle is CommonJS, and a dynamic import() of the
@@ -87,6 +88,11 @@ export interface Session {
    * `ConnectError`: `timeout` when no such answer came. Not for HTTP+SSE.
    */
   raw(body: string, id: string | number | null, options?: RawOptions): Promise<RawReply>;
+  /**
+   * Writes a message that has no answer (a notification) to a stdio server as one line, as written. Rejects with a
+   * `ConnectError` when the process is gone or its stdin is closed. Not for HTTP.
+   */
+  notify(body: string): Promise<void>;
   /**
    * Every JSON-RPC message the server sent that the raw layer saw, in order: each line of a stdio server's stdout, and
    * each message of a raw POST's answer (its SSE events included). A response carries the method of the raw request
@@ -183,6 +189,53 @@ function fromEventStream(text: string, id: string | number | null): Record<strin
 }
 
 const TAIL_LINES = 20;
+
+/** The longest line of a server stderr that is kept; what is past it, up to the next newline, is dropped. */
+export const STDERR_LINE_LIMIT = 64 * 1024;
+
+/**
+ * Lines of a stream, as `readline` gives them (split on a newline, a carriage return before it dropped), but a line is
+ * cut at STDERR_LINE_LIMIT as it is read, so a child that writes without a newline cannot make the scan hold what it
+ * wrote. Resolves when the stream ends or closes.
+ */
+export function readLines(
+  stream: Readable,
+  onLine: (line: string) => void,
+  /** Test hook: `high` is the longest text held at once before a cut. */
+  stats?: { high: number },
+): Promise<void> {
+  const decoder = new StringDecoder('utf8');
+  let partial = '';
+  const feed = (text: string) => {
+    let from = 0;
+    for (let nl = text.indexOf('\n', from); nl >= 0; nl = text.indexOf('\n', from)) {
+      const whole = partial + text.slice(from, nl);
+      if (stats !== undefined && whole.length > stats.high) stats.high = whole.length;
+      const line = whole.slice(0, STDERR_LINE_LIMIT);
+      partial = '';
+      onLine(line.endsWith('\r') ? line.slice(0, -1) : line);
+      from = nl + 1;
+    }
+    const rest = partial + text.slice(from);
+    if (stats !== undefined && rest.length > stats.high) stats.high = rest.length;
+    partial = rest.slice(0, STDERR_LINE_LIMIT);
+  };
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      feed(decoder.end());
+      if (partial !== '') onLine(partial.endsWith('\r') ? partial.slice(0, -1) : partial);
+      resolve();
+    };
+    stream.on('data', (chunk: Buffer | string) =>
+      feed(typeof chunk === 'string' ? chunk : decoder.write(chunk)),
+    );
+    stream.once('end', finish);
+    stream.once('close', finish);
+  });
+}
 
 /**
  * The most one message on a stdio server's stdout may hold, in bytes: the SDK's default, stated so the error can name
@@ -451,13 +504,11 @@ export async function openSession(config: ConnectConfig, options: SessionOptions
   };
   let stderrDone: Promise<void> = Promise.resolve();
   if (transport instanceof StdioClientTransport && transport.stderr !== null) {
-    const lines = createInterface({ input: transport.stderr as Readable, crlfDelay: Infinity });
-    lines.on('line', (line) => {
+    stderrDone = readLines(transport.stderr as Readable, (line) => {
       journal.write('stderr', { line });
       tail.push(clean(line));
       if (tail.length > TAIL_LINES) tail.shift();
     });
-    stderrDone = new Promise((resolve) => lines.once('close', resolve));
     watchStdout(transport, journal, seen);
     watchOverflow(transport, () => {
       if (tooLarge) return;
@@ -668,6 +719,18 @@ export async function openSession(config: ConnectConfig, options: SessionOptions
       }
       journal.write('in', frame !== undefined ? { frame } : { status, raw: clean(text).slice(0, RAW_TEXT) });
       return { frame, status, text: clean(text).slice(0, RAW_TEXT) };
+    },
+    async notify(body) {
+      if (target.kind !== 'stdio')
+        throw new ConnectError('protocol', 'notify is for a stdio server.', []);
+      const stdin = (transport as unknown as { _process?: { stdin?: Writable | null } })._process?.stdin;
+      if (stdin === null || stdin === undefined || stdin.writableEnded)
+        throw spawnError !== undefined
+          ? await toConnectError(spawnError)
+          : new ConnectError('exited-early', `${LEAD['exited-early'][0]}.`, [...tail]);
+      journal.write('out', { raw: body });
+      stdin.write(`${body}
+`);
     },
     traffic: () => traffic,
     stdoutNoise: () => ({ count: noise.count, first: [...noise.first] }),

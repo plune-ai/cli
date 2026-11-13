@@ -37,7 +37,7 @@ import { modernMeta } from '../../mcp-testing/conformance/checks/modern/meta.js'
 import { answerOf, isObject, nextId, said, type Answer } from '../../mcp-testing/conformance/checks/wire.js';
 import { applicability, eraOf, type CheckOutcome } from '../../mcp-testing/conformance/outcome.js';
 import { manifestDigest, PROFILE } from '../../mcp-testing/conformance/profile.js';
-import { BUCKETS, exitCodeOf, summarize } from '../../mcp-testing/conformance/score.js';
+import { BUCKETS, exitCodeOf, floorScore, summarize } from '../../mcp-testing/conformance/score.js';
 import { MCP_EXIT } from '../../mcp-testing/exit-codes.js';
 import { noCommands, noCommandsJson } from '../../mcp-testing/report/human.js';
 import { conformanceRun, conformanceSetRun, reportOutputs, writeReport } from '../../mcp-testing/report/index.js';
@@ -247,7 +247,11 @@ async function conformance(
     if (suites.length > 1) throw new UsageError('--suite oauth cannot be run together with another suite yet: run it on its own.');
     const setup = oauthSetup(flags, cwd, io.env);
     const revisions = requested === 'auto' || requested === 'both' ? (setup.config.protocolVersions ?? OAUTH_REVISIONS) : [requested];
-    for (const revision of revisions) reports.push(await measureOauth(config, base, revision, setup, io));
+    // The matrix: each revision with each registration method of --config, each its own run.
+    const methods = setup.config.registrations ?? [setup.config.registration];
+    for (const revision of revisions)
+      for (const registration of methods)
+        reports.push(await measureOauth(config, base, revision, { ...setup, config: withRegistration(setup.config, registration) }, io));
   } else if (plan === 'auto') reports.push(await measure(config, base, await detect(config), io));
   else
     for (const era of plan) {
@@ -265,10 +269,35 @@ async function conformance(
     schemaVersion: 1,
     command: 'conformance',
     reports,
+    ...(suites.includes('oauth') ? { combined: combined(reports) } : {}),
     exitCode: worstExit(reports.map((r) => r.exitCode)),
   };
   writeReport(conformanceSetRun(set), { format, files }, { out: rawOut, err: io.err, cwd });
   return set.exitCode;
+}
+
+/** The config for one run of the matrix: the registration of that run, or none. */
+function withRegistration(config: OauthConfig, registration: OauthConfig['registration']): OauthConfig {
+  const { registration: _all, registrations: _list, ...rest } = config;
+  return registration === undefined ? rest : { ...rest, registration };
+}
+
+/** The matrix of the oauth suite: the counters of every run added up, and the score made from the sums. */
+function combined(reports: McpConformanceReport[]): NonNullable<McpConformanceReportSet['combined']> {
+  const sum = (key: 'passed' | 'failed' | 'couldNotRun') => reports.reduce((a, r) => a + r.summary[key].length, 0);
+  const applicable = reports.reduce((a, r) => a + r.summary.applicable, 0);
+  const passed = sum('passed');
+  const failed = sum('failed');
+  const couldNotRun = sum('couldNotRun');
+  return {
+    runs: reports.length,
+    passed,
+    failed,
+    couldNotRun,
+    applicable,
+    score: floorScore(passed, applicable),
+    verdict: failed > 0 ? 'failed' : couldNotRun > 0 || applicable === 0 ? 'incomplete' : 'passed',
+  };
 }
 
 /** The revision a modern run is for. */
@@ -591,6 +620,7 @@ async function measureOauth(
     protocolVersionRequested: requested,
     era,
     eraDetection: 'the oauth suite runs once for each revision it covers',
+    matrix: { revision, registration: setup.config.registration?.method ?? null },
     server: null,
     transport: config.target.kind,
     suites,
