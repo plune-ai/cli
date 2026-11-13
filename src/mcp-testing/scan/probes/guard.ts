@@ -122,7 +122,10 @@ export class ProbeGuard {
     this.#destructive = new Set(
       tools.flatMap((t) => {
         const tool = t as { name?: unknown; annotations?: { destructiveHint?: unknown } } | null;
-        return typeof tool?.name === 'string' && tool.annotations?.destructiveHint === true
+        // A malformed hint is not a permission: only a boolean false, null or no hint at all lets a tool through.
+        const hint = tool?.annotations?.destructiveHint;
+        return typeof tool?.name === 'string' &&
+          (hint === true || (hint !== undefined && hint !== null && typeof hint !== 'boolean'))
           ? [tool.name]
           : [];
       }),

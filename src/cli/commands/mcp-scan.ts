@@ -183,20 +183,29 @@ export async function handleMcpScan(
   }
 }
 
-/** The file a path names, for comparing: real path where it exists (else of its folder), case-folded on Windows. */
-function fileKey(cwd: string, path: string): string {
+/**
+ * What names a file, for comparing: its identity (device and inode, which no spelling, short name or hard link
+ * changes) when it exists, and its real path (of its folder, for a file that is not there yet), case-folded on Windows.
+ * Two paths are the same file when either key is the same.
+ */
+function fileKeys(cwd: string, path: string): string[] {
   const full = resolve(cwd, path);
+  const keys: string[] = [];
   let real = full;
   try {
-    real = realpathSync(full);
+    real = realpathSync.native(full);
+    const st = statSync(full, { bigint: true });
+    // Some file systems report 0 for the inode: then only the path says anything.
+    if (st.ino !== 0n) keys.push(`id:${st.dev}:${st.ino}`);
   } catch {
     try {
-      real = join(realpathSync(dirname(full)), basename(full));
+      real = join(realpathSync.native(dirname(full)), basename(full));
     } catch {
       /* neither exists: the resolved path stands */
     }
   }
-  return process.platform === 'win32' ? real.toLowerCase() : real;
+  keys.push(`path:${process.platform === 'win32' ? real.toLowerCase() : real}`);
+  return keys;
 }
 
 /**
@@ -231,15 +240,17 @@ function noSharedFiles(
       : ([['--debug-out', (flags as { debugOut: string }).debugOut]] as [string, string][])),
   ];
   const seen = new Map<string, string>();
-  for (const [flag, path] of reads) seen.set(fileKey(cwd, path), flag);
+  for (const [flag, path] of reads) for (const key of fileKeys(cwd, path)) seen.set(key, flag);
   for (const [flag, path] of writes) {
-    const key = fileKey(cwd, path);
-    const other = seen.get(key);
-    if (other !== undefined && other !== flag + '#w')
-      throw new UsageError(
-        `${flag} and ${other.replace('#w', '')} name the same file; a file the scan writes must not be one it reads or writes elsewhere.`,
-      );
-    seen.set(key, flag + '#w');
+    const keys = fileKeys(cwd, path);
+    for (const key of keys) {
+      const other = seen.get(key);
+      if (other !== undefined && other !== flag + '#w')
+        throw new UsageError(
+          `${flag} and ${other.replace('#w', '')} name the same file; a file the scan writes must not be one it reads or writes elsewhere.`,
+        );
+    }
+    for (const key of keys) seen.set(key, flag + '#w');
   }
 }
 

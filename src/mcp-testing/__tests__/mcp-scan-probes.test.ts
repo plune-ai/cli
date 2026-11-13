@@ -2,17 +2,27 @@
 // that keeps what it is told (strict) and one that keeps nothing (lax), each recording what reached it, so a test can
 // say what was sent and what was not. The tokens are made-up strings.
 
-import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
+import {
+  existsSync,
+  linkSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { handleMcpScan, type McpScanFlags } from '../../cli/commands/mcp-scan.js';
 import { ProbeGuard, canonical, type Frame, type Reply } from '../scan/probes/guard.js';
 import { MAX_PROBE_FILE_BYTES, parseProbeFile } from '../scan/probes/file.js';
 import { runProbes } from '../scan/probes/runner.js';
-import { runScan, type ScanInput } from '../scan/run.js';
+import { renderScan } from '../scan/report.js';
+import { ALL_RULES, runScan, type ScanInput } from '../scan/run.js';
 import type { ProbeEntry } from '../scan/probes/types.js';
 import { buildSnapshot, serializeSnapshot } from '../snapshot/index.js';
 
@@ -1723,5 +1733,141 @@ describe('CLI · mcp scan · smaller points of the review of step 2', () => {
     };
     expect(await guard.send(frame)).toEqual({ sent: false, refusal: 'undeclared' });
     expect(sent).toHaveLength(0);
+  });
+});
+
+// ---- step 2, second review ---------------------------------------------------------------------------------------------------
+
+describe('CLI · mcp scan probes · the journal path guard compares files, not spellings', () => {
+  it('a hard link to the probe file as the journal is exit 2, nothing is sent, the probe file is untouched', async () => {
+    const f = await fixture({ tools: STEP2_TOOLS });
+    const { dir } = probeFile(journalProbes);
+    linkSync(join(dir, 'probes.json'), join(dir, 'hard.json'));
+    const before = readFileSync(join(dir, 'probes.json'), 'utf8');
+    const r = await scan(dir, active(f, 'probes.json', { journal: 'hard.json' }), TOKENS);
+    expect(r.code, r.err).toBe(2);
+    expect(f.seen.filter((s) => s.rpc === 'tools/call')).toEqual([]);
+    expect(readFileSync(join(dir, 'probes.json'), 'utf8')).toBe(before);
+  });
+
+  it('an 8.3 short name of the probe file as the journal is exit 2 (skipped where the volume has no short names)', async (ctx) => {
+    const dir = tmp();
+    const long = join(dir, 'probes-long-name.json');
+    writeFileSync(long, JSON.stringify({ probes: journalProbes }));
+    let short = '';
+    if (process.platform === 'win32') {
+      try {
+        const listing = execSync(`dir /x "${dir}"`, { encoding: 'utf8' });
+        const line = listing.split(/\r?\n/).find((l) => l.includes('probes-long-name.json')) ?? '';
+        short = join(dir, line.trim().split(/\s+/).at(-2) ?? '');
+      } catch {
+        short = '';
+      }
+    }
+    if (!basename(short).includes('~') || !existsSync(short)) return ctx.skip();
+    const f = await fixture({ tools: STEP2_TOOLS });
+    const before = readFileSync(long, 'utf8');
+    const r = await scan(
+      dir,
+      active(f, 'probes-long-name.json', { journal: basename(short) }),
+      TOKENS,
+    );
+    expect(r.code, r.err).toBe(2);
+    expect(readFileSync(long, 'utf8')).toBe(before);
+    expect(f.seen.filter((s) => s.rpc === 'tools/call')).toEqual([]);
+  });
+});
+
+describe('CLI · mcp scan probes · an incomplete journal is in JUnit too', () => {
+  const junitOf = async (
+    extra: Partial<Parameters<typeof runProbes>[0]>,
+    writeFails: (l: Record<string, unknown>, n: number) => boolean,
+  ) => {
+    const f = await fixture({ lax: true, tools: STEP2_TOOLS });
+    let n = 0;
+    const section = await runProbes({
+      entries: [entry('p1', 'none')] as ProbeEntry[],
+      target: { kind: 'http', url: f.url, headers: {} } as never,
+      tokens: {},
+      timeoutMs: 5000,
+      announce: () => {},
+      journal: {
+        record: (l) => {
+          if (writeFails(l, ++n)) throw new Error('disk full');
+        },
+      },
+      ...extra,
+    });
+    const input: ScanInput = {
+      snapshots: [],
+      unreadable: [],
+      configFiles: [],
+      configRequested: false,
+      active: true,
+      allowHosts: [],
+      allowPackages: [],
+      probes: section,
+    };
+    const report = runScan(input, { failOn: 'error', gateHeuristics: false, allowPartial: false });
+    return renderScan(report, 'junit-xml', ALL_RULES, '0');
+  };
+  it('a failure on the last "in" line, and on a "refused" line, say so in the XML', async () => {
+    expect(await junitOf({}, (_l, n) => n === 11)).toContain(
+      'the journal (--journal) could not be written',
+    );
+    expect(
+      await junitOf(
+        { entries: [entry('p1', 'none'), entry('p2', 'none')] as ProbeEntry[], maxCalls: 1 },
+        (l) => l['dir'] === 'refused',
+      ),
+    ).toContain('the journal (--journal) could not be written');
+  });
+});
+
+describe('CLI · mcp scan probes · a malformed destructiveHint blocks, and a control that ran is a JUnit pass', () => {
+  it('the wrapper blocks on true and on any non-boolean that is present; false, null and absent do not block', async () => {
+    const cases: [unknown, boolean][] = [
+      [true, true],
+      [false, false],
+      [undefined, false],
+      [null, false],
+      ['true', true],
+      ['false', true],
+      [1, true],
+      [0, true],
+      [{}, true],
+    ];
+    for (const [hint, blocked] of cases) {
+      const sent: Frame[] = [];
+      const guard = new ProbeGuard(
+        [{ id: 'p1', tool: 'wipe', arguments: {}, as: 'none' }],
+        { maxCalls: 8, maxRequests: 40 },
+        async (frame) => {
+          sent.push(frame);
+          return { kind: 'http', status: 200 } as Reply;
+        },
+      );
+      guard.setListedTools([
+        { name: 'wipe', annotations: hint === undefined ? {} : { destructiveHint: hint } },
+      ]);
+      const got = await guard.send({
+        type: 'rpc',
+        method: 'tools/call',
+        params: { name: 'wipe', arguments: {} },
+        probe: 'p1',
+        credential: { kind: 'none' },
+      });
+      expect(got.sent, String(hint)).toBe(!blocked);
+    }
+  });
+
+  it('a control that ran and was allowed is a passed test case, not a skipped one', async () => {
+    const f = await fixture({ tools: STEP2_TOOLS });
+    const { dir, file } = probeFile(journalProbes);
+    await scan(dir, active(f, file, { out: ['junit-xml=j.xml'] }), TOKENS);
+    const xml = readFileSync(join(dir, 'j.xml'), 'utf8');
+    const m = /<testcase [^>]*name="probe p-a"[^>]*?(\/>|>[\s\S]*?<\/testcase>)/.exec(xml);
+    expect(m).not.toBeNull();
+    expect(m![1]).not.toContain('<skipped');
   });
 });
