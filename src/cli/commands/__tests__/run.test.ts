@@ -141,4 +141,28 @@ describe('run command — config errors (exit 2)', () => {
     await createProgram().parseAsync(['node', 'plune', 'run', '--config', cfgPath]);
     expect(exitSpy).toHaveBeenCalledWith(2);
   });
+
+  // #256: this was reported as an internal error (exit 1, "This one is on us").
+  it.each([[[] as string[]], [['--dry-run']]])(
+    'exits 2 when the dataset file does not exist, and does not call it an internal error (%j)',
+    async (flags) => {
+      const cfgPath = path.join(tmpDir, 'nodata.yaml');
+      // The config every test here runs, with its inline rows swapped for a file that is not there.
+      const rows = 'dataset:\n      examples:\n        - vars: { q: hi }\n          expected: hi\n';
+      fs.writeFileSync(cfgPath, CONFIG.replace(rows, 'dataset: datasets/none.jsonl\n'));
+      const stderr: string[] = [];
+      vi.spyOn(process.stderr, 'write').mockImplementation((c: string | Uint8Array) => {
+        stderr.push(typeof c === 'string' ? c : Buffer.from(c).toString());
+        return true;
+      });
+      const exitSpy = vi
+        .spyOn(process, 'exit')
+        .mockImplementation((() => {}) as (code?: string | number | null | undefined) => never);
+      await createProgram().parseAsync(['node', 'plune', 'run', '--config', cfgPath, ...flags]);
+      expect(exitSpy).toHaveBeenCalledWith(2);
+      expect(exitSpy).not.toHaveBeenCalledWith(1);
+      expect(stderr.join('')).toContain('datasets/none.jsonl: dataset file not found');
+      expect(stderr.join('')).not.toContain('This one is on us');
+    },
+  );
 });
