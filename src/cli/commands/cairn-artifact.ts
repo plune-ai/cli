@@ -22,9 +22,9 @@ const INGEST_SCHEMA_VERSION = 1;
 export type CairnRunMode = 'explore' | 'design' | 'api' | 'mcp';
 export type CairnExecution = 'auto' | 'manual';
 /**
- * `blocked` (plune-ai/plune#1327): the case's request got no answer — Cairn's evidence records a transport error
+ * `blocked`: the case's request got no answer — Cairn's evidence records a transport error
  * after the retries — so the product never said anything either way. Sent as `failed`, it blamed the product for an
- * unreachable target. Needs a platform that accepts it (plune-ai/plune#1330); an older one refuses the payload.
+ * unreachable target. Needs a platform that accepts it; an older one refuses the payload.
  */
 export type CairnVerdict = 'passed' | 'failed' | 'blocked';
 

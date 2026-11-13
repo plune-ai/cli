@@ -31,7 +31,7 @@ const BATCH_MAX = 500;
  * because it is a different endpoint's promise and they are free to diverge. */
 const DISCOVER_MAX = 500;
 const BATCH_DEFAULT = 500;
-/** Result batches of one run in flight at once (plune-ai/plune#1393). */
+/** Result batches of one run in flight at once. */
 const SEND_CONCURRENCY = 4;
 /** What `configuration.expected` may hold before the contract refuses the whole start. */
 const EXPECTED_MAX = 10_000;
@@ -435,8 +435,8 @@ export async function startRun(
    */
   const discoveries = new Map<KeyId, DiscoveredTest>();
   /**
-   * The results behind `discoveries`, by each of their keys: a case the platform creates from an offer gets its result recorded
-   * (plune-ai/plune#1581), and the platform names that test by its highest-ranked key, which need not be the first one sent (cli#156).
+   * The results behind `discoveries`, by each of their keys: a case the platform creates from an offer gets its result recorded,
+   * and the platform names that test by its highest-ranked key, which need not be the first one sent (cli#156).
    */
   const held = new Map<KeyId, PendingResult>();
   /** Cases created from an offer, and how many of them have a result delivered; the summary says "recorded" only when they match. */
@@ -731,7 +731,7 @@ export async function startRun(
   }
 
   /**
-   * Ask where one file goes (plune-ai/plune#945): into the customer's bucket by a link, to the route that has
+   * Ask where one file goes: into the customer's bucket by a link, to the route that has
    * always taken a picture or a text, or nowhere. One file to a call: a refusal of one (a file over the
    * bucket's ceiling refuses the whole call) costs no other, and a renewed link is the same call again.
    */
@@ -1288,7 +1288,7 @@ export async function startRun(
       }
       const out = await client.post<{ counts: Record<keyof RunStats, number>; items?: BatchItem[] }>(
         `/v1/runs/${runId}/results`,
-        // The job's combination on every batch (plune-ai/plune#1251); a refusal of it is a 422 said below as it came.
+        // The job's combination on every batch; a refusal of it is a 422 said below as it came.
         { results: part, ...(configuration !== undefined ? { configuration } : {}) },
       );
       // A success with no counts says nothing about what was stored: kept for a replay, not guessed —

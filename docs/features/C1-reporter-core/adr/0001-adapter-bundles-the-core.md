@@ -4,7 +4,6 @@ owner: "Leonid (AZANIR)"
 reviewers: ["Tech Lead"]
 updated_at: "2026-09-08"
 feature_size: "L"
-ticket: "https://github.com/plune-ai/plune/issues/486"
 ---
 
 # 0001 — Адаптер вбудовує ядро, а не залежить від нього

@@ -1,4 +1,4 @@
-// plune-ai/plune#1696: the completion cache keeps only usable answers, drops unusable ones, and has a
+// The completion cache keeps only usable answers, drops unusable ones, and has a
 // strict mode. Uses a real SQLite store so the behaviour is the shipped one, not a fake's.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';

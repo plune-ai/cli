@@ -1,4 +1,4 @@
-// END-TO-END for `--fail-on-failures` (plune-ai/plune#1247), against the REAL built binary (dist/cli.cjs) and a
+// END-TO-END for `--fail-on-failures`, against the REAL built binary (dist/cli.cjs) and a
 // platform on a real socket. Run with `pnpm test:e2e` (builds first). What it pins is the wiring: each of the four
 // commands takes the flag, and the process exits with the gate's code — and exits as before without it.
 // Also the one line `plune sync` writes when the platform refuses its job report (cli#139).

@@ -7,7 +7,7 @@ feature_size: "S"
 
 # Spec — C4-reporter-env
 
-> **Епік:** `plune-ai/plune#486` (B-2) · **Сусід:** [`C1-reporter-core`](../C1-reporter-core/spec.md)
+> **Етап:** B-2 · **Сусід:** [`C1-reporter-core`](../C1-reporter-core/spec.md)
 
 ## 1. Context
 
@@ -33,7 +33,7 @@ feature_size: "S"
 - `PLUNE_CREATE` — сходинка драбини C2, реалізована там (D14): читання змінної живе в `readEnv`,
   а поведінка — у сесії репортера.
 - ~~Поля прогону з D13 — це зміна платформи, не CLI.~~ **Знято 08.09.2026:** платформа
-  (`plune-ai/plune#603`) дала прогону `title`, `environment` і `labels`, і три з чотирьох
+  дала прогону `title`, `environment` і `labels`, і три з чотирьох
   відмовлених змінних тепер мають куди приїхати. `PLUNE_GROUP` лишається поза — група прогонів
   чекає на D6.
 

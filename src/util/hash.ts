@@ -22,7 +22,7 @@ export interface CacheKeyInputs {
 /**
  * Raise when the way a prompt is resolved, variables are normalised or a default that reaches the
  * request text changes. The version is part of every key, so older entries stop answering with no
- * manual clearing (plune-ai/plune#1696). It is a constant, never a time or a run id.
+ * manual clearing. It is a constant, never a time or a run id.
  */
 export const CACHE_POLICY_VERSION = 1;
 

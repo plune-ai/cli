@@ -250,7 +250,7 @@ function platform(opts: PlatformOptions = {}) {
           // As the platform answers: a test is named by its highest-ranked key, not by the first one sent (cli#156).
           const key = [...d.keys].sort((a, b) => RANK.indexOf(a.kind!) - RANK.indexOf(b.kind!))[0]!;
           const outcome = opts.discoverOutcomes?.[i] ?? 'queued';
-          // A `created` answer names the new case (plune-ai/plune#1581).
+          // A `created` answer names the new case.
           return { key, outcome, ...(outcome === 'created' ? { id: `tc-new-${key.value}` } : {}) };
         }),
       });
@@ -822,7 +822,7 @@ describe('the platform is not there (AC-05)', () => {
 });
 
 /**
- * plune-ai/plune#927. A batch the platform did not take is replayed by `plune run report`, which opens
+ * A batch the platform did not take is replayed by `plune run report`, which opens
  * a run for it when none was — and a run opened there is to be the run the reporter would have opened,
  * with the commit and branch it ran at. So the line says where the run came from.
  */
@@ -874,7 +874,7 @@ describe('a deferred line says where its run came from (plune#927)', () => {
 });
 
 /**
- * plune-ai/plune#1251. A job of a CI matrix names its combination in `PLUNE_CONFIGURATION`, and every
+ * A job of a CI matrix names its combination in `PLUNE_CONFIGURATION`, and every
  * results batch carries it; the platform finds the combination in the run or appends it. Without the
  * variable a batch is exactly what it was.
  */
@@ -1661,7 +1661,7 @@ describe('a test name longer than a key (AC-13)', () => {
 });
 
 /**
- * plune-ai/plune#913, platform ADR 0040. A run in Plune shows every test with its screenshots, a passed
+ * A run in Plune shows every test with its screenshots, a passed
  * one's too. No file rides in a batch — its path names this machine: once the platform has stored a
  * result, the screenshots its attempt kept are uploaded to that result, all of them before anything can
  * close the run, and nothing about them can cost a result.
@@ -1855,7 +1855,7 @@ describe('screenshots go to the result they belong to (plune#913)', () => {
 });
 
 /**
- * plune-ai/plune#928, platform ADR 0040 (its 2026-09-29 review). A test attaches more than pictures — the
+ * A test attaches more than pictures — the
  * answer of an API, a log — and the platform now keeps JSON and plain text beside screenshots: up to 512 KiB
  * a file and 10 a result, UTF-8 only. They travel as screenshots do: to their result once the batch that
  * stores it is answered, before anything closes the run, and nothing about them can cost a result. What the
@@ -2339,7 +2339,7 @@ describe('text files go to the result they belong to (plune#928)', () => {
   });
 });
 
-describe('files go to the project’s bucket by short-lived links (plune-ai/plune#946)', () => {
+describe('files go to the project’s bucket by short-lived links', () => {
   const FOUND =
     'plune: storage bucket found for this project — screenshots, text, trace and video go straight to it over short-lived links.';
   const NOT_STORED = 'not stored — no storage bucket is connected to this project.';

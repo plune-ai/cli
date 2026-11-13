@@ -16,7 +16,7 @@ const kase = (over: Record<string, unknown>) => ({
   ...over,
 });
 
-describe('plune verify (plune-ai/plune#1291)', () => {
+describe('plune verify', () => {
   it('reads the tests as the reporter keys them: file, describes, title, with the id a test names', () => {
     expect(testsOfListing(listing)).toEqual([
       { pathTitle: 'nested/cart.spec.ts#top level' },

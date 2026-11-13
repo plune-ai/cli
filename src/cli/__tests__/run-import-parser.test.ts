@@ -118,7 +118,7 @@ describe('plune run import --create, when the platform refuses the offer (cli#71
 });
 
 /**
- * plune-ai/plune#928, through the command line. `plune run import report.json` typed into the program the
+ * Through the command line. `plune run import report.json` typed into the program the
  * binary runs, answered by a platform on a real socket over the transport the binary uses: the JSON and the
  * text a Playwright report keeps reach the platform's file route (`POST /v1/results/:id/files?name=`,
  * platform ADR 0040) as the bytes and the type it reads — not as a fake `fetch` was told to expect them.

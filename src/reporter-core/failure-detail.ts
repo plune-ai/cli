@@ -59,7 +59,7 @@ export function errorContextOf(attempt: FailedAttempt, home: string = homedir())
 }
 
 /**
- * The `errorContext` and `errorContextOmitted` keys of a result (plune-ai/plune#1281 AC-03), ready to spread:
+ * The `errorContext` and `errorContextOmitted` keys of a result (AC-03), ready to spread:
  * none for an empty text, and `errorContextOmitted` only when the cut took something out, a whole number of at
  * least 1 (the platform refuses 0). Counted in characters of the text as it would have been sent (`.length`,
  * the unit the platform counts in), never bytes; the `…[omitted N lines]…` marker is not counted.
@@ -109,11 +109,11 @@ export const isTextType = (contentType: string | undefined): boolean => TEXT_TYP
 
 /**
  * The files the runner kept for one attempt, whatever its status: a screenshot of a test that passed
- * is how a person sees what it checked (plune-ai/plune#913). Which of them the platform takes, the
+ * is how a person sees what it checked. Which of them the platform takes, the
  * session decides as it uploads — once, for both roads.
  *
  * A file is what has a `path`. What a test attached as a `body` leaves none — Playwright hands the bytes
- * over and keeps nothing — so a JSON or a text is kept with its bytes (plune-ai/plune#928), and nothing
+ * over and keeps nothing — so a JSON or a text is kept with its bytes, and nothing
  * else is: an image, a trace or a page is not taken from memory, and a suite whose screenshots are
  * bodies must not hold them all until a batch is sent.
  */

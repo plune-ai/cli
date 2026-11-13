@@ -7,7 +7,7 @@ feature_size: "M"
 
 # Spec — C2-id-resolution
 
-> **Епік:** `plune-ai/plune#486` (B-2) · **Рішення:** ADR 0023 §4, ADR 0010 · **Сусід:** [`C1-reporter-core`](../C1-reporter-core/spec.md)
+> **Етап:** B-2 · **Рішення:** ADR 0023 §4, ADR 0010 · **Сусід:** [`C1-reporter-core`](../C1-reporter-core/spec.md)
 
 ## 1. Context
 

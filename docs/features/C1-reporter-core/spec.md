@@ -8,7 +8,7 @@ feature_size: "L"
 
 # Spec — C1-reporter-core
 
-> **Епік:** `plune-ai/plune#486` (B-2) · **План:** `AI-documents/plune/plune-ai/06-plan.md` фаза B
+> **Етап:** B-2 · **План:** фаза B
 > **Рішення:** ADR 0023 (ядро в `@plune-ai/cli`, тонкі адаптери), ADR 0012 (контракт належить платформі), ADR 0006 (один CLI)
 > **Звірено з кодом платформи 08.09.2026:** `src/server/runs/v1-routes.ts`, `src/server/runs/lifecycle.ts`,
 > `src/server/results/v1-routes.ts`, `src/server/test-cases/v1-routes.ts`, `src/contracts/{run,result,test-case}.ts`

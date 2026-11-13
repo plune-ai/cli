@@ -48,7 +48,7 @@ function shardOf(env: NodeJS.ProcessEnv): { shard?: ShardOf; error?: string } {
 }
 
 /**
- * `PLUNE_CONFIGURATION="Browser=Chrome;Operating system=Windows"` (plune-ai/plune#1251): the combination a
+ * `PLUNE_CONFIGURATION="Browser=Chrome;Operating system=Windows"`: the combination a
  * CI job of a matrix runs, group name → value label, sent on every results batch. Names, because a job knows
  * no ids; the platform matches them without case. Pairs split at `;`, a pair at its first `=` (a label may
  * hold one), both sides trimmed; a blank pair is what a template leaves and is dropped.
@@ -105,7 +105,7 @@ export interface EnvSettings {
 /** Bounds of `PLUNE_UPLOAD_CONCURRENCY` and `PLUNE_UPLOAD_RETRIES`, and what each is when unset. */
 export const UPLOAD_CONCURRENCY = { min: 1, max: 32, default: 16 } as const;
 export const UPLOAD_RETRIES = { min: 0, max: 20, default: 6 } as const;
-/** `PLUNE_IMPORT_TIMEOUT` / `--timeout`: seconds for the whole of `plune run import`; 0 means no limit (plune-ai/plune#1473). */
+/** `PLUNE_IMPORT_TIMEOUT` / `--timeout`: seconds for the whole of `plune run import`; 0 means no limit. */
 export const IMPORT_TIMEOUT = { min: 0, max: 86_400, default: 600 } as const;
 
 /** A variable that is set but blank is what a CI template leaves when it had no value to give. */
@@ -261,7 +261,7 @@ const PROVIDERS = [
 ] as const;
 
 /**
- * The commit and the branch a run belongs to (plune-ai/plune#927), for `meta.sha` and `meta.branch`.
+ * The commit and the branch a run belongs to, for `meta.sha` and `meta.branch`.
  *
  * `reported` is what the runner said about its CI — Playwright's `metadata.ci`, or the copy of it in
  * its JSON report — and outranks the job's variables: it is a project's own word where the CI is one

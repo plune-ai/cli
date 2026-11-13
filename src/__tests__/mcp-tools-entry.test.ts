@@ -1,4 +1,4 @@
-// `@plune-ai/cli/mcp-tools` is a published entry point: the platform's built-in agent (plune-ai/plune#2202)
+// `@plune-ai/cli/mcp-tools` is a published entry point: the platform's built-in agent
 // imports the tool contract from it. It has to exist in `exports`, be built as its own bundle, and stay
 // out of the package root so the root keeps its dependency graph.
 

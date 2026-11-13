@@ -13,7 +13,7 @@ export interface Summary {
   skipped?: number;
   cost_usd: number;
   duration_ms: number;
-  /** plune-ai/plune#1696. Where the answers came from. Optional and additive; absent in older runs. */
+  /** Where the answers came from. Optional and additive; absent in older runs. */
   cache?: CacheSummary;
 }
 
@@ -142,7 +142,7 @@ export interface RowResult {
   latency_ms?: number;
   error?: RunError;
   assertions: AssertionResultRecord[];
-  /** plune-ai/plune#1696. On a cache hit: what the call would have cost. Optional and additive. */
+  /** On a cache hit: what the call would have cost. Optional and additive. */
   cache_saved?: { input_tokens: number; output_tokens: number; cost_usd: number };
   /**
    * ADR 0045. Say it when the test was never judged, rather than letting `failed` stand for both

@@ -54,7 +54,7 @@ export interface PluneReporterOptions {
   /**
    * The mapfile `plune ids --write` keeps, `{ "<path-title>": "<case id>" }`. Defaults to `PLUNE_IDS_FILE`,
    * then `plune/ids.json` under the directory the run starts in. Missing is fine; a broken one is
-   * warned about once and ignored (plune-ai/plune#1291).
+   * warned about once and ignored.
    */
   idsFile?: string;
 }

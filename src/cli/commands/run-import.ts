@@ -64,12 +64,12 @@ export interface ImportResult {
   deferred: number;
   /** The screenshots the report's files hold, as they went to the accepted results (ADR 0040). */
   screenshots: { uploaded: number; skipped: number; failed: number };
-  /** Its JSON and plain-text files, kept by path or as a body, counted the same way and apart (plune-ai/plune#928). */
+  /** Its JSON and plain-text files, kept by path or as a body, counted the same way and apart. */
   textFiles: { uploaded: number; skipped: number; failed: number };
   /** Tests the report gives no location for, so the queue could never show a reviewer where to look. */
   unlocatable: number;
   /**
-   * The files the report announced and this machine could not give (plune-ai/plune#1220): absent, not a file,
+   * The files the report announced and this machine could not give: absent, not a file,
    * or outside the report's folder. The one place the list is kept — a «not there at import» state on the
    * platform, once it has one, is sent from here.
    */
@@ -121,7 +121,7 @@ async function timeoutMessage(limit: number, runId: string | null, ours: boolean
 export async function handleRunImport(options: ImportOptions): Promise<ImportResult> {
   const write = options.write ?? ((line: string) => void process.stdout.write(`${line}\n`));
 
-  // A folder is an allure-results report (plune-ai/plune#1221) or JUnit files (plune-ai/plune#2309); anything else is a file.
+  // A folder is an allure-results report or JUnit files; anything else is a file.
   let read: { format: ImportFormat; results: PendingResult[]; missing: MissingAttachment[]; notes: string[]; ciUrl?: string; ci?: unknown };
   if (isFolder(options.file)) {
     read = readFolder(options.file, options.format, {
@@ -144,7 +144,7 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
   }
 
   // Said now and whatever else happens: a file that is not here is the answer to «where is my screenshot?»,
-  // and it is not for --verbose to give (plune-ai/plune#1220).
+  // and it is not for --verbose to give.
   // The title and the path are the report's words: the title as a JSON string and the path without control
   // characters, so a name with a new line in it cannot start a line of ours (a `::warning::` is a command to
   // GitHub Actions) and an escape code cannot reach a terminal.
@@ -174,7 +174,7 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
       // The CI run the report names, never this machine's: whoever imports may be another job (#790).
       // The commit and branch likewise, where the report names a commit; a report that names none —
       // JUnit's never does — takes this job's own, which is where the tests ran when import follows
-      // them in one job (plune-ai/plune#927).
+      // them in one job.
       meta: { runner: format, ...(ciUrl !== undefined ? { ciUrl } : {}), ...ciCommit(ci) },
       log: write,
     },
@@ -195,7 +195,7 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
   };
 
   // The whole exchange with the platform has one deadline. Each request already gives up after 300 s of
-  // silence, but with retries and a hundred batches that adds up to hours, and CI is what ended it (plune-ai/plune#1473).
+  // silence, but with retries and a hundred batches that adds up to hours, and CI is what ended it.
   const limit = options.timeoutSec ?? env.importTimeout ?? IMPORT_TIMEOUT.default;
   const sent = send();
   let frozen: FrozenSummary | undefined;

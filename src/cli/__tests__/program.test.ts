@@ -71,7 +71,7 @@ describe('run import takes its own --format', () => {
   });
 });
 
-describe('completion cache flags (plune-ai/plune#1696)', () => {
+describe('completion cache flags', () => {
   const row = (error?: { code: string; message: string }): RunResult['evals'][number]['rows'][number] => ({
     vars: { q: 'a' },
     output: null,

@@ -4,7 +4,7 @@ import { z } from 'zod';
  * The platform's job queue as a fake that judges every body the way the real one does, for the commands that report
  * into it (`sync`, `ingest`). Not a test file: the command tests share it.
  *
- * The contract as plune-ai/plune has it on master (758cf1ad): `src/contracts/job.ts` and `src/contracts/job-states.ts`,
+ * The contract as the platform has it: `src/contracts/job.ts` and `src/contracts/job-states.ts`,
  * copied because the CLI does not depend on the platform. Before cli#139 the fake server took whatever the CLI sent,
  * so a body the real one answers 400 passed.
  */

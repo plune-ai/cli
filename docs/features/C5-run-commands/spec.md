@@ -7,7 +7,7 @@ feature_size: "M"
 
 # Spec — C5-run-commands
 
-> **Епік:** `plune-ai/plune#486` (B-2) · **Сусіди:** [`C1-reporter-core`](../C1-reporter-core/spec.md), [`C4-reporter-env`](../C4-reporter-env/spec.md)
+> **Етап:** B-2 · **Сусіди:** [`C1-reporter-core`](../C1-reporter-core/spec.md), [`C4-reporter-env`](../C4-reporter-env/spec.md)
 
 ## 1. Context
 

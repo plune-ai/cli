@@ -8,7 +8,7 @@ feature_size: "L"
 # Design — C1-reporter-core
 
 > Спека: [`spec.md`](./spec.md) · Рішення пакування: [`adr/0001-adapter-bundles-the-core.md`](./adr/0001-adapter-bundles-the-core.md)
-> Контракт платформи звірено з кодом 08.09.2026 (шляхи в `plune-ai/plune`).
+> Контракт платформи звірено з кодом 08.09.2026 (шляхи в репозиторії платформи).
 
 ## 1. Межа
 

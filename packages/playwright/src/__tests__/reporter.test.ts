@@ -184,7 +184,7 @@ describe('what the adapter tells the core about a test', () => {
   });
 
   /**
-   * plune-ai/plune#913. The core uploads the screenshots among them once the result is stored, so a
+   * The core uploads the screenshots among them once the result is stored, so a
    * person sees what a green test looked at, not only a red one. An image or a trace kept in memory is
    * no file, and an attachment with nothing in it (`attach(name)`) has nothing to hand over; only a text
    * is read from memory (#928, below).
@@ -207,7 +207,7 @@ describe('what the adapter tells the core about a test', () => {
   });
 
   /**
-   * plune-ai/plune#928. What a test attaches as a `body` — `testInfo.attach('api-response', { body:
+   * What a test attaches as a `body` — `testInfo.attach('api-response', { body:
    * JSON.stringify(…), contentType: 'application/json' })` — is not a file: Playwright hands the reporter
    * the bytes, and this callback is the only place they are. The adapter passes them on as they are, for
    * the core to upload once the result is stored.
@@ -400,7 +400,7 @@ describe('identity and timing', () => {
   });
 });
 
-describe('the ids mapfile (plune-ai/plune#1291)', () => {
+describe('the ids mapfile', () => {
   const PATH_TITLE = 'tests/cart.spec.ts#cart#rejects a negative quantity';
   let stderr: MockInstance<Parameters<typeof process.stderr.write>, boolean>;
   beforeEach(() => {
@@ -779,7 +779,7 @@ describe('what failed and where, from a recorded run (#790)', () => {
 });
 
 /**
- * plune-ai/plune#927. The run opens with the commit and the branch it ran at, so the panel of a run can
+ * The run opens with the commit and the branch it ran at, so the panel of a run can
  * say where it ran. The `ci` objects are what Playwright 1.63's `ciInfo()` builds under each CI's own
  * variables (`lib/runner/index.js`): a commit and no branch on GitHub, both on GitLab and on Jenkins —
  * where there is no `buildHref` either.

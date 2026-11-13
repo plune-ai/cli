@@ -80,7 +80,7 @@ describe('reading a JUnit report', () => {
   });
 
   it('without a timestamp (Surefire), the duration still arrives, as the span that ends when the report is read', () => {
-    // plune-ai/plune#2310: the duration is what Plune sorts and averages; dropping it with the missing start lost every
+    // The duration is what Plune sorts and averages; dropping it with the missing start lost every
     // Maven duration. The file's mtime stays out: a report copied from another job would carry the copy's time.
     const now = new Date('2026-11-03T12:00:00.000Z');
     const read = (xml: string) => readJUnit(xml, 'r.xml', [], [], now)[0]?.execution;

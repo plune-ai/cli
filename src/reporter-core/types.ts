@@ -334,13 +334,13 @@ export interface RunStats extends SubmitCounts {
    */
   screenshots: { uploaded: number; skipped: number; failed: number };
   /**
-   * The same for the JSON and plain-text files of the accepted results (plune-ai/plune#928): counted
+   * The same for the JSON and plain-text files of the accepted results: counted
    * apart from the screenshots because the two have limits of their own — 512 KiB and ten a result against
    * 2 MB and twenty — and a person reading "3 skipped" has to know which kind it was.
    */
   textFiles: { uploaded: number; skipped: number; failed: number };
   /**
-   * Every other file (a trace, a video, a page): only a project's bucket takes them (plune-ai/plune#946), so
+   * Every other file (a trace, a video, a page): only a project's bucket takes them, so
    * without one they are counted as skipped. With one, the summary adds all three kinds up.
    */
   otherFiles: { uploaded: number; skipped: number; failed: number };
@@ -363,7 +363,7 @@ export interface ReporterConfig {
   /** How the run is marked — smoke, nightly, a team. */
   labels?: string[];
   /**
-   * The combination this job runs, group name → value label (`PLUNE_CONFIGURATION`, plune-ai/plune#1251):
+   * The combination this job runs, group name → value label (`PLUNE_CONFIGURATION`):
    * sent as `configuration` on every results batch. Not the run's own `configuration` (what it expects).
    * Stated, it is all there is: the variable is not read, and `{}` sends none (what a replay passes for a line that recorded none).
    */

@@ -93,7 +93,7 @@
     },
     {
       "id": "T11",
-      "title": "Platform contract test against @plune-ai/cli (separate PR in plune-ai/plune)",
+      "title": "Platform contract test against @plune-ai/cli (separate PR in the platform repository)",
       "layer": "tests",
       "deps": ["T5"],
       "acs": [],

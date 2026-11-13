@@ -364,7 +364,7 @@ describe('a failed attempt in the report carries its failure detail (#790)', () 
 });
 
 /**
- * plune-ai/plune#913 and #928. A Playwright JSON report names what each attempt kept: a file by its `path`,
+ * A Playwright JSON report names what each attempt kept: a file by its `path`,
  * or — what `testInfo.attach(name, { body })` leaves — the bytes themselves, as base64 in `body`. Both go to
  * the core as the files of the result; a body is decoded only where the platform would take it, since
  * a report full of screenshots kept as bodies is megabytes of base64 nothing will read.

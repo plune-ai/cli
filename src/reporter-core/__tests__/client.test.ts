@@ -114,8 +114,8 @@ describe('client — what it retries (AC-05)', () => {
     expect(!out.ok && out.detail).toMatch(/quota exceeded/);
   });
 
-  // The platform's 429 for a quota carries a `quota` object, and the run quota's also a Retry-After
-  // (plune-ai/plune#1599). The body decides: waiting till the reset frees nothing. See cli#111.
+  // The platform's 429 for a quota carries a `quota` object, and the run quota's also a Retry-After.
+  // The body decides: waiting till the reset frees nothing. See cli#111.
   const QUOTA = { kind: 'runs', limit: 50, used: 50, remaining: 0, resetsAt: '2026-10-18T00:00:00.000Z' };
 
   it.each([
@@ -182,7 +182,7 @@ describe('client — what it retries (AC-05)', () => {
   });
 });
 
-/** plune-ai/plune#913, platform ADR 0040: a file is its bytes, not a JSON document about them. */
+/** A file is its bytes, not a JSON document about them. */
 describe('client — a file', () => {
   it('sends the bytes as they are, under their own type, and waits out a 429 as a POST does', async () => {
     const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
@@ -343,7 +343,7 @@ describe('client — its own transport (cli#58)', () => {
   });
 });
 
-describe('put — a file to a short-lived link of the project’s bucket (plune-ai/plune#946)', () => {
+describe('put — a file to a short-lived link of the project’s bucket', () => {
   let bucket: Server;
   let base: string;
   let got: { headers: IncomingHttpHeaders; bytes: Buffer } | undefined;

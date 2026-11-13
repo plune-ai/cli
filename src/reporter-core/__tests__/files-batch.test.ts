@@ -11,7 +11,7 @@ import type { PendingResult } from '../types.js';
 /**
  * Platform ADR 0051: the files of a report go through `uploads-batch`, `complete-batch` and `direct-batch`, up to 100 a
  * request, each item judged alone. The fake below is the platform's three routes on a real socket (the answers follow
- * `files-batch.ts` of plune-ai/plune), plus the single routes an older platform has.
+ * the platform's `files-batch.ts`), plus the single routes an older platform has.
  */
 interface Options {
   /** The project has a bucket (links) or not (`direct`). */

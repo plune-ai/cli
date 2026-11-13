@@ -25,7 +25,7 @@ interface Seen {
 function platform(
   resolveTo: (key: string) => string | null = () => 'tc-1',
   discoveryOutcome: 'queued' | 'known' | 'created' = 'queued',
-  /** A `created` answer names the new case (plune-ai/plune#1581); an older platform does not. */
+  /** A `created` answer names the new case; an older platform does not. */
   createdIds = true,
 ) {
   const seen: Seen[] = [];
@@ -256,7 +256,7 @@ describe('plune run import', () => {
       expect(lines.join('\n')).not.toContain('pass --create');
     });
 
-    describe('a trusted source (plune-ai/plune#1581)', () => {
+    describe('a trusted source', () => {
       const resultPosts = (seen: Seen[]) => seen.filter((s) => s.path === '/v1/runs/r-9/results');
       const sentCases = (seen: Seen[]) =>
         resultPosts(seen).flatMap((s) => (s.body['results'] as { testCaseId?: string }[]).map((r) => r.testCaseId));
@@ -668,7 +668,7 @@ describe('plune run import', () => {
   });
 
   /**
-   * plune-ai/plune#927. The run opens with the commit and branch it ran at, read from the CI's own
+   * The run opens with the commit and branch it ran at, read from the CI's own
    * variables — as `@plune-ai/playwright` reads them, and from the report's when it names a commit:
    * whoever imports may be another job, and this job's branch is not that commit's.
    */
@@ -806,7 +806,7 @@ describe('plune run import', () => {
   });
 
   /**
-   * plune-ai/plune#913. A Playwright JSON report names the files each attempt kept; the screenshots
+   * A Playwright JSON report names the files each attempt kept; the screenshots
    * among them go to their result — a passed test's too — once the batch that carries it is stored.
    */
   describe('the screenshots a Playwright report keeps (plune#913)', () => {
@@ -880,7 +880,7 @@ describe('plune run import', () => {
   });
 
   /**
-   * plune-ai/plune#928. The same report names JSON and text files: kept by `path`, or as the base64 of a
+   * The same report names JSON and text files: kept by `path`, or as the base64 of a
    * `body` when the test attached the bytes themselves. They go to their result as the screenshots do, and
    * are counted apart from them.
    */
@@ -1097,7 +1097,7 @@ describe('plune run import', () => {
   });
 });
 
-describe('a platform that stops answering (plune-ai/plune#1473)', () => {
+describe('a platform that stops answering', () => {
   /** Answers the run's start, then goes silent on everything else; remembers whether `terminate` was tried. */
   function stalls(terminateAnswers: boolean) {
     const events: string[] = [];
@@ -1172,7 +1172,7 @@ describe('a platform that stops answering (plune-ai/plune#1473)', () => {
   });
 });
 
-/** plune-ai/plune#2309. The fixture is written by hand to Surefire's format, not taken from a live Maven run. */
+/** The fixture is written by hand to Surefire's format, not taken from a live Maven run. */
 describe('CLI · run import · JUnit folder · Maven Surefire', () => {
   const SUREFIRE = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'importers', '__tests__', 'fixtures', 'junit-folder-surefire');
 

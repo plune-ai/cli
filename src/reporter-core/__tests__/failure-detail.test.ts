@@ -689,7 +689,7 @@ describe('errorContextOf — the text of every error (AC-01, AC-01c, AC-05, AC-1
 });
 
 /**
- * plune-ai/plune#913 and #928. What the core is handed to upload, for both roads: the files an attempt kept
+ * What the core is handed to upload, for both roads: the files an attempt kept
  * — and, since the platform keeps text besides pictures, a JSON or a plain text kept as a `body`, which is
  * no file at all. A body of any other type is not handed over: the platform takes no image, trace or page
  * from memory, and a suite full of screenshots kept as bodies must not sit in memory until a batch is sent.
@@ -743,7 +743,7 @@ describe('filesOf — what the core uploads from (plune#913, plune#928)', () => 
   });
 });
 
-// plune-ai/plune#1281 AC-03: what the cut took out is sent as `errorContextOmitted`, in characters, never 0.
+// AC-03: what the cut took out is sent as `errorContextOmitted`, in characters, never 0.
 describe('errorContextFields — errorContextOmitted (#1281 AC-03)', () => {
   const HOME = '/home/ci-user';
   const LIMIT = 512 * 1024;

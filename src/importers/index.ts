@@ -74,8 +74,8 @@ function perfFormatOf(source: string): 'k6' | 'lighthouse' | undefined {
 export { isFolder };
 
 /**
- * Read a folder: an `allure-results` one (plune-ai/plune#1221) when a `*-result.json` is in it, otherwise the
- * JUnit files Maven Surefire and Gradle write one per class (plune-ai/plune#2309), all of them one run.
+ * Read a folder: an `allure-results` one when a `*-result.json` is in it, otherwise the
+ * JUnit files Maven Surefire and Gradle write one per class, all of them one run.
  * `--format` says which outright; `playwright-json` is never a folder. `--min-score` is refused for a folder as it is
  * for any file that is not Lighthouse: no folder holds a Lighthouse report, and a bar that judged nothing reads as met.
  */

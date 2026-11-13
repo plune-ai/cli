@@ -4,7 +4,7 @@ import { platformGet, type PlanGrepDeps } from './plan.js';
 import { SyncFileError } from './sync.js';
 
 /**
- * `plune verify` (plune-ai/plune#1291, AC-07): the project's automated cases against the tests the code has now,
+ * `plune verify` (AC-07): the project's automated cases against the tests the code has now,
  * read-only. Both sides of the difference are printed — what the platform has and the code no longer does (the
  * cases a full run would mark `detached`), and what the code has and the platform does not know yet — so drift is
  * seen before a test leaves a regression, not after. Nothing is written, in either direction.

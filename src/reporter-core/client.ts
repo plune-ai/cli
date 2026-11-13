@@ -38,7 +38,7 @@ export function parseRetryAfter(raw: string | null | undefined, now: number = Da
 
 /**
  * One pool per scheme, shared by every request of the process: a new connection to the platform costs
- * about 200 ms to the first byte (TLS ~70 ms of it), so a run's tens of requests reuse sockets (plune-ai/plune#1393).
+ * about 200 ms to the first byte (TLS ~70 ms of it), so a run's tens of requests reuse sockets.
  * An idle socket in the pool is unref'd by Node, so it never keeps the process alive after the last request.
  */
 const POOLS = { 'http:': new HttpAgent({ keepAlive: true }), 'https:': new HttpsAgent({ keepAlive: true }) };
@@ -159,7 +159,7 @@ export interface PlatformClient {
   /** A GET, through the same retries, classification and token scrubbing. */
   get<T>(path: string): Promise<ClientOutcome<T>>;
   /**
-   * The bytes to a short-lived link of the customer's bucket (plune-ai/plune#946): exactly the headers the
+   * The bytes to a short-lived link of the customer's bucket: exactly the headers the
    * link came with, no token of ours. Network failures and 5xx wait and try again, up to three times; a 403
    * (the link has expired) comes back at once, for the caller to ask for a new one.
    */

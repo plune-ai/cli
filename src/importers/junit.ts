@@ -147,7 +147,7 @@ function specRefOf(test: XmlElement, suite: XmlElement | undefined, classname: s
  * is the closest thing the file actually contains, so every case in a suite reports the suite's
  * start — approximate, but derived from the report rather than from this machine's clock.
  *
- * Surefire writes no `timestamp` (plune-ai/plune#2310). The duration is the part Plune sorts and
+ * Surefire writes no `timestamp`. The duration is the part Plune sorts and
  * averages results by, and dropping it with the missing start lost every Maven duration; so a case with
  * a `time` still sends it, as the span that ends at `now`: the moment the import read the report. That
  * is how Plune's own dashboard sends a duration a person typed. The file's mtime stays out of it: a
@@ -180,7 +180,7 @@ function executionOf(test: XmlElement, suite: XmlElement | undefined, now: Date)
 /**
  * Read a JUnit XML report. Throws `XmlParseError`, which names the file and the line.
  *
- * The files a test announced with `[[ATTACHMENT|path]]` (plune-ai/plune#1220) are looked up from the folder
+ * The files a test announced with `[[ATTACHMENT|path]]` are looked up from the folder
  * of `file`; those that cannot be given are pushed to `missing`, which is how the caller learns of them.
  */
 export function readJUnit(

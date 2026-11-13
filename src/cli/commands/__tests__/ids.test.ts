@@ -29,7 +29,7 @@ const deps = (file: string, cases: unknown[], write: boolean) => ({
 });
 const tmpFile = () => join(mkdtempSync(join(tmpdir(), 'ids-')), 'plune', 'ids.json');
 
-describe('plune ids (plune-ai/plune#1291, AC-01/AC-05)', () => {
+describe('plune ids (AC-01/AC-05)', () => {
   it('maps only tests without an id that have a case; lists the rest', () => {
     const plan = planIds(code, [keyed('k1', TOP)], {});
     expect(plan.added).toEqual({ [TOP]: 'k1' });

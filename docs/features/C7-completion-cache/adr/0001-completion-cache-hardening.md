@@ -4,7 +4,6 @@ owner: "Leonid (AZANIR)"
 reviewers: ["Tech Lead"]
 updated_at: "2026-10-19"
 feature_size: "M"
-ticket: "https://github.com/plune-ai/plune/issues/1696"
 ---
 
 # 0001 — Кеш завершень: запис після перевірки, версія політики, strict-режим
@@ -136,5 +135,5 @@ ticket: "https://github.com/plune-ai/plune/issues/1696"
 
 ## References
 
-- plune-ai/plune#1696; пов'язане: #1694, ADR-TC04 (ключ кешу), C-3, C-4.
+- Пов'язане: ADR-TC04 (ключ кешу), C-3, C-4.
 - `src/cache/cache.ts`, `src/util/hash.ts`, `src/orchestrator/run.ts`.

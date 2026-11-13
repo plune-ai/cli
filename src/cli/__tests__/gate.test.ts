@@ -1,4 +1,4 @@
-// `--fail-on-failures` (plune-ai/plune#1247, decision 8): the one rule every command's exit code comes from.
+// `--fail-on-failures`: the one rule every command's exit code comes from.
 
 import { describe, expect, it } from 'vitest';
 import { gateExit } from '../gate.js';

@@ -125,7 +125,7 @@ function attemptOf(result: JsonResult, file: string, ctx: ReportContext): Failed
       name: name ?? '',
       ...(contentType !== undefined ? { contentType } : {}),
       ...(path !== undefined ? { path } : {}),
-      // Decoded only where the platform would take it (plune-ai/plune#928): a report of screenshots kept as
+      // Decoded only where the platform would take it: a report of screenshots kept as
       // bodies is megabytes of base64 that nothing here will read.
       ...(typeof body === 'string' && isTextType(contentType) ? { body: Buffer.from(body, 'base64') } : {}),
     })),
@@ -218,7 +218,7 @@ function walk(suite: JsonSuite, describes: string[], depth: number, ctx: ReportC
  * Read a Playwright JSON report: its results, and the CI run that wrote it (`metadata.ci.buildHref`,
  * an http(s) address or nothing) for the run to open with — from the report, never from the machine
  * that imports it (#790 AC-04b). Its `metadata.ci` goes up as written, for the commit and branch the
- * run opens with (plune-ai/plune#927): the record is Playwright's, and `ciCommit` reads what it needs.
+ * run opens with: the record is Playwright's, and `ciCommit` reads what it needs.
  */
 export function readPlaywrightJson(
   source: string,

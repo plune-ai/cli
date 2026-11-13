@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /**
- * Input shapes of the tools, mirrored from the platform's contracts (`plune-ai/plune` `src/contracts/mission.ts`,
+ * Input shapes of the tools, mirrored from the platform's contracts (`src/contracts/mission.ts`,
  * `mission-strategy.ts`, `review-item.ts`, `cairn-ingest.ts`, `api-endpoint.ts`). Mirrored, not imported: the platform
  * depends on this package, not the other way round. The platform validates every body again, so a drift here shows up
  * as its 400 with the field named — never as a write the caller did not mean.

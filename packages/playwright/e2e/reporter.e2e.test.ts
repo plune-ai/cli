@@ -350,7 +350,7 @@ describe('a slow platform has every result before the run closes (#790 AC-15)', 
 });
 
 /**
- * plune-ai/plune#913 on the published bundle: a screenshot a test attached by path reaches its result.
+ * On the published bundle: a screenshot a test attached by path reaches its result.
  * Playwright hands the reporter the copy it saved as `<name>-<sha1>.png`; what has to leave is one upload
  * under the attachment's own name, as the PNG's bytes, to the id the batch was answered with — before
  * the run is closed, since the platform takes no file on a closed run.
@@ -381,7 +381,7 @@ describe('a screenshot a test kept reaches its result (plune#913)', () => {
 });
 
 /**
- * plune-ai/plune#928 on the published bundle and on the real runner. A JSON a test attached as a body and a
+ * On the published bundle and on the real runner. A JSON a test attached as a body and a
  * log it attached as a file reach the result — from the reporter as the run happens, and from `plune run
  * import` of the JSON report of the same run, whose `body` is base64 — and a text a byte over what Plune
  * keeps stays behind, with a line that says so and no word to the runner's exit code.

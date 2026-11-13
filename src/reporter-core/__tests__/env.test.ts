@@ -177,7 +177,7 @@ describe('PLUNE_CONFIGURATION — the combination a job of a matrix runs (plune#
 });
 
 /**
- * plune-ai/plune#927. The panel of a run says where it ran: the branch and the commit. Neither
+ * The panel of a run says where it ran: the branch and the commit. Neither
  * reached the platform before, so every row read empty.
  *
  * The `ci` objects below are what Playwright 1.63's own `ciInfo()` builds (`lib/runner/index.js`): under

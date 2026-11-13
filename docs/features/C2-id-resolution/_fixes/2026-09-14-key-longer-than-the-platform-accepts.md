@@ -22,8 +22,8 @@ Too big: expected string to have <=1024 characters; …350 …351 …352). Resul
 plune: 0 accepted · 1861 written to .plune/pending-results.jsonl
 ```
 
-— і в CI fallback-файл гине разом із джобом. Масштаб: **кожен** CI-прогін `plune-ai/plune` з мержу
-[#659](https://github.com/plune-ai/plune/pull/659) (12.09) і локальні гейти гілки B-7 з 11.09;
+— і в CI fallback-файл гине разом із джобом. Масштаб: **кожен** CI-прогін платформи з мержу
+12.09 і локальні гейти гілки B-7 з 11.09;
 на беті `GET /v1/runs` акаунта `+dogfood-platform` показує 16 прогонів 09.09, 6 — 10.09, далі нуль
 (доказ: лог CI PR #664, run `34695873210`). Крок звітування `continue-on-error`, тож збірка
 лишалася зеленою, а календар епіка B-4 стояв.

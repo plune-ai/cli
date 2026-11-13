@@ -18,8 +18,8 @@ plune --version
 
 > **Pre-release note.** Until the npm package is published, build from source:
 > ```bash
-> git clone https://github.com/plune-ai/plune.git
-> cd plune
+> git clone https://github.com/plune-ai/cli.git
+> cd cli
 > pnpm install        # pnpm ≥ 8
 > pnpm build
 > npm link            # makes `plune` available globally
