@@ -14,6 +14,21 @@
 
 import type { CatalogEntry, Era, SpecRef } from './catalog.js';
 
+/**
+ * The revisions of the extension text the entries cite, apart from the revisions of the core protocol (REVISIONS in
+ * catalog.ts, whose status comes from the versioning page): the same date could later name a core revision. `status`
+ * is what the text itself says on the day it was read: apps.mdx, "**Status:** Stable (2026-01-26)", and the table of
+ * https://modelcontextprotocol.io/extensions/overview.md, which lists MCP Apps as Stable.
+ */
+export const EXTENSION_REVISIONS = [
+  {
+    extension: 'io.modelcontextprotocol/ui',
+    revision: '2026-01-26',
+    status: 'Stable',
+    checkedOn: '2026-11-13',
+  },
+] as const;
+
 const BOTH: Era[] = ['legacy', 'modern'];
 export const APPS_SPEC_URL =
   'https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/2026-01-26/apps.mdx';
