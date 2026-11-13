@@ -476,6 +476,17 @@ function junit(r: ScanReport): string {
           else cases.push({ classname, name, kind: 'pass', type: '', message: '' });
         }
       }
+      // A reason that belongs to no probe (the journal could not be written) is a case of its own.
+      for (const n of r.notEvaluated.filter(
+        (x) => x.group === 'active' && x.reason.startsWith('the journal'),
+      ))
+        cases.push({
+          classname,
+          name: 'journal',
+          kind: 'skipped',
+          type: 'not-evaluated',
+          message: `not evaluated: ${n.reason}`,
+        });
       continue;
     }
     if (g.state === 'not-evaluated') {
