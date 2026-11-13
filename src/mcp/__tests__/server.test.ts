@@ -7,7 +7,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/server';
 import { serveStdio, type StdioServerHandle } from '@modelcontextprotocol/server/stdio';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MAX_VISIBLE_TOOLS, PLUNE_TOOLS, defaultVisibleTools } from '../../mcp-tools/index.js';
-import { createPluneMcpServer } from '../server.js';
+import { createPluneMcpServer, unsupportedClaim } from '../server.js';
 import { CREATED, REFUSAL, fakeFetch, platformAnswer, type AnswerFn } from './fixtures/platform.js';
 import { FIXTURE_MISSION_ID } from '../../mcp-testing/__tests__/plune-budget.fixtures.js';
 
@@ -246,5 +246,23 @@ describe('plune mcp serve, modern era: a fixed tool list', () => {
     const modern = (await (await connect('modern')).listResult())['tools'];
     const legacy = (await (await connect('legacy')).listResult())['tools'];
     expect(modern).toEqual(legacy);
+  });
+});
+
+// Every request is checked for the revision it claims, not the opening one only.
+describe('plune mcp serve: the revision a request claims', () => {
+  const claim = (v: unknown) => ({ _meta: { 'io.modelcontextprotocol/protocolVersion': v } });
+  it('refuses a request for a revision the server does not speak with -32022 and the supported list', () => {
+    expect(unsupportedClaim({ jsonrpc: '2.0', id: 7, method: 'server/discover', params: claim('1900-01-01') })).toEqual({
+      jsonrpc: '2.0',
+      id: 7,
+      error: { code: -32022, message: 'Unsupported protocol version: 1900-01-01', data: { supported: ['2026-07-28'], requested: '1900-01-01' } },
+    });
+  });
+  it('passes a supported claim, a request without a claim, and a notification', () => {
+    expect(unsupportedClaim({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: claim('2026-07-28') })).toBeUndefined();
+    expect(unsupportedClaim({ jsonrpc: '2.0', id: 2, method: 'tools/list' })).toBeUndefined();
+    expect(unsupportedClaim({ jsonrpc: '2.0', id: 3, method: 'initialize', params: { protocolVersion: '1900-01-01' } })).toBeUndefined();
+    expect(unsupportedClaim({ jsonrpc: '2.0', method: 'notifications/cancelled', params: claim('1900-01-01') })).toBeUndefined();
   });
 });
