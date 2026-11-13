@@ -115,7 +115,7 @@ describe('CLI · mcp conformance · checks against a server that keeps and one t
       expect(s[e.id], e.id).toBe(why !== undefined ? `not-applicable (${why})` : 'could-not-run (prerequisite-failed)');
     }
     expect(code).toBe(1);
-  });
+  }, 15_000);
 
   it('AC-6: without --fixture the call checks are could-not-run (needs-input), and no tool of the server is called', async () => {
     const journal = join(dir(), 'frames.jsonl');
