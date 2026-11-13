@@ -654,7 +654,7 @@ describe('CLI · mcp scan · client config · across servers', () => {
 // ---- no value in any output --------------------------------------------------------------------------------------
 
 describe('CLI · mcp scan · client config · no value reaches the output (AC-2)', () => {
-  // Values of the reviewer, not of the task: one is a substring of another, one is full of pattern characters.
+  // Values of our own, not of the task: one is a substring of another, one is full of pattern characters.
   const A = 'lq7-Zed.marker+(41)';
   const B = `${A}-and-more`;
   const C = '[a-z]*\\d{2}|^$.(x)';

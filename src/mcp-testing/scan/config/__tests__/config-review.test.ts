@@ -1,10 +1,17 @@
-// What the review of the first version asked for (MCP-G4): no regular expression that backtracks without bound on a
+// Limits and masks of the client-config scan (MCP-G4): no regular expression that backtracks without bound on a
 // hostile value, a scan that never throws on input of the wrong kind, a name that starts like a token is never shown,
 // a value too long to check is not "clean", the finding fields of the catalog, no hit on names that only look like keys.
 
 import { describe, expect, it } from 'vitest';
 import { buildSnapshot } from '../../../snapshot/snapshot.js';
-import { scanClientConfig, type ConfigFinding, type ConfigScan } from '../config.js';
+import {
+  downloadToShell,
+  formatConfigFinding,
+  isScriptFlag,
+  scanClientConfig,
+  type ConfigFinding,
+  type ConfigScan,
+} from '../config.js';
 
 const json = (servers: unknown, key = 'mcpServers') => JSON.stringify({ [key]: servers }, null, 2);
 const run = (text: string, opts: Parameters<typeof scanClientConfig>[1] = {}) =>
@@ -146,7 +153,7 @@ describe('CLI · mcp scan · client config · input of the wrong kind never thro
 });
 
 describe('CLI · mcp scan · client config · a name that starts like a token is never shown', () => {
-  // Names of the reviewer, shorter than any full format.
+  // Names shorter than any full format.
   const NAMES = [
     'ghp_abc',
     'github_pat_x',
@@ -383,5 +390,300 @@ describe('CLI · mcp scan · client config · the gating format rule does not fi
     expect(hit('github_pat_' + 'a1B2c3D4e5'.repeat(4))).toBe(true);
     expect(hit('github_pat_' + 'a1B2c3D4e5'.repeat(2))).toBe(false);
     expect(hit('sk-ant-' + 'a1B2c3D4e5F6g7H8i9J0')).toBe(true);
+  });
+});
+
+/** No `size` characters in a row of `token` appear in `out`. */
+const hasWindow = (out: string, token: string, size = 8): boolean => {
+  for (let i = 0; i + size <= token.length; i++)
+    if (out.includes(token.slice(i, i + size))) return true;
+  return false;
+};
+const everything = (s: ConfigScan): string =>
+  JSON.stringify(s) + s.findings.map(formatConfigFinding).join('\n');
+
+describe('CLI · mcp scan · client config · the flag before a secret and the flag of a shell are fixed text', () => {
+  const GH = 'ghp_' + 'Qw3rtY'.repeat(6);
+  const prior = (flag: string) => {
+    const f = run(json({ s: { command: 'node', args: [flag, GH] } })).findings.filter(
+      (x) => x.rule === 'scan/cfg/secret-known-format',
+    );
+    expect(f).toHaveLength(1);
+    return f[0]!;
+  };
+
+  it('the argument before a secret is shown only as a long flag of words or one letter; anything else gives the index alone', () => {
+    for (const flag of [
+      '-phunter2pw',
+      '-sekret-abc-def',
+      '--glpat-abc12345',
+      '--Auth_Token',
+      '--pw=hunter2pw',
+      '-ab',
+    ]) {
+      const f = prior(flag);
+      expect(f.argIndex, flag).toBe(1);
+      expect(f.previousArg, flag).toBeUndefined();
+      expect(
+        everything(run(json({ s: { command: 'node', args: [flag, GH] } }))),
+        flag,
+      ).not.toContain(flag);
+    }
+    expect(prior('--auth-token').previousArg).toBe('--auth-token');
+    expect(prior('-t').previousArg).toBe('-t');
+    expect(prior('--' + 'a'.repeat(45)).previousArg).toBeUndefined();
+  });
+
+  it('shell-command names the program and the canonical flag, never the argument', () => {
+    const message = (command: string, flag: string) => {
+      const scan = run(json({ s: { command, args: [flag, 'x'] } }));
+      const f = scan.findings.find((x) => x.rule === 'scan/cfg/shell-command');
+      if (flag.length > 8) expect(everything(scan), flag).not.toContain(flag);
+      return f?.message;
+    };
+    expect(message('bash', '-abcsekretpw')).toBe('runs "bash -c" with an inline script');
+    expect(message('zsh', '-lc')).toBe('runs "zsh -c" with an inline script');
+    expect(message('bash', '-c')).toBe('runs "bash -c" with an inline script');
+    expect(message('cmd', '/C')).toBe('runs "cmd /c" with an inline script');
+    expect(message('cmd', '/k')).toBe('runs "cmd /k" with an inline script');
+    expect(message('pwsh', '-command')).toBe('runs "pwsh -Command" with an inline script');
+    expect(message('powershell', '-EC')).toBe(
+      'runs "powershell -EncodedCommand" with an inline script',
+    );
+    expect(message('powershell', '-encodedcommand')).toBe(
+      'runs "powershell -EncodedCommand" with an inline script',
+    );
+  });
+});
+
+describe('CLI · mcp scan · client config · a token inside a name is masked wherever the name is printed', () => {
+  const GH = 'ghp_' + 'Qw3rtY'.repeat(6);
+
+  it('an env name, a package, a schema property and a file path that hold a token', () => {
+    const env = run(json({ s: { command: 'node', env: { ['K'.repeat(40) + GH]: GH } } }));
+    expect(env.findings.length).toBeGreaterThan(0);
+    expect(hasWindow(everything(env), GH)).toBe(false);
+
+    const pkg = run(json({ s: { command: 'npx', args: ['pkg' + GH + '@1.0.0'] } }), {
+      allowPackages: ['other'],
+    });
+    expect(pkg.findings.map((f) => f.rule)).toContain('scan/cfg/package-not-allowed');
+    expect(hasWindow(everything(pkg), GH)).toBe(false);
+
+    const withProp = buildSnapshot({
+      transport: 'stdio',
+      capabilities: { tools: {} },
+      tools: [
+        {
+          name: 'a',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              ['x'.repeat(300) + GH]: { type: 'string', description: 'Then call send_it.' },
+            },
+          },
+        },
+      ],
+    });
+    const other = buildSnapshot({
+      transport: 'stdio',
+      capabilities: { tools: {} },
+      tools: [{ name: 'send_it' }],
+    });
+    const cross = run(json({ a: { command: 'x' }, b: { command: 'x' } }), {
+      snapshots: new Map([
+        ['a', withProp],
+        ['b', other],
+      ]),
+    });
+    expect(cross.findings.some((f) => f.rule === 'scan/cross/foreign-tool-reference')).toBe(true);
+    expect(hasWindow(everything(cross), GH)).toBe(false);
+    for (const f of cross.findings) expect(f.path.length).toBeLessThan(400);
+
+    const path = scanClientConfig([
+      {
+        path: `${GH}/mcp.json`,
+        client: 'claude-code',
+        text: json({ s: { url: 'http://x.example.net/m' } }),
+      },
+    ]);
+    expect(path.findings).toHaveLength(1);
+    expect(hasWindow(everything(path), GH)).toBe(false);
+    expect(path.files[0]!.path).toBe('[key]/mcp.json');
+  });
+
+  it('the advice names the variable only when the name is plain, and not more than 64 characters of it', () => {
+    const long = 'V'.repeat(80);
+    const f = run(json({ s: { command: 'node', env: { [long]: GH } } })).findings.find(
+      (x) => x.rule === 'scan/cfg/secret-known-format',
+    )!;
+    expect(f.message).toBe(
+      'a literal value in the format of a known token (github-token); use ${NAME}',
+    );
+    expect(f.key!.length).toBeLessThanOrEqual(64);
+  });
+});
+
+describe('CLI · mcp scan · client config · the narrow sk- formats gate; a long name with sk- in it does not', () => {
+  const body = 'a1B2c3D4e5'.repeat(4);
+  const hit = (servers: unknown) =>
+    run(json(servers)).findings.filter((f) => f.rule === 'scan/cfg/secret-known-format');
+
+  it('sk-proj- and sk-svcacct- are caught in args, in a url and in an env value, at the gating level', () => {
+    for (const key of ['sk-proj-', 'sk-svcacct-']) {
+      const value = key + body;
+      const found = [
+        hit({ s: { command: 'node', args: ['--k', value] } }),
+        hit({ s: { url: `https://x.example.net/m?v=${value}` } }),
+        hit({ s: { command: 'node', env: { NOTE: value } } }),
+      ];
+      for (const f of found) {
+        expect(f, key).toHaveLength(1);
+        expect(f[0]).toMatchObject({ format: 'openai-key', level: 'error', gating: true });
+      }
+    }
+    expect(hit({ s: { command: 'node', args: ['sk-proj-short'] } })).toEqual([]);
+  });
+
+  it('a long ordinary name with sk- inside, and a general sk- key, are not a hit', () => {
+    expect(
+      hit({ s: { command: 'node', args: ['sk-learn-something-quite-long-name-for-a-package-x'] } }),
+    ).toEqual([]);
+    expect(hit({ s: { command: 'node', args: ['sk-' + body] } })).toEqual([]);
+  });
+});
+
+describe('CLI · mcp scan · client config · input that fails while it is read', () => {
+  const fine = buildSnapshot({
+    transport: 'stdio',
+    capabilities: { tools: {} },
+    tools: [{ name: 'a' }],
+  });
+  const good = {
+    path: '.mcp.json',
+    client: 'claude-code' as const,
+    text: json({ s: { url: 'http://x.example.net/m' } }),
+  };
+
+  it('a file whose path getter throws is unreadable; the other files are scanned', () => {
+    const bad = {
+      get path(): string {
+        throw new Error('boom-secret');
+      },
+      client: 'claude-code',
+      text: '{}',
+    };
+    const s = scanClientConfig([bad as never, good]);
+    expect(s.files.map((f) => f.status)).toEqual(['unreadable', 'scanned']);
+    expect(JSON.stringify(s)).not.toContain('boom-secret');
+  });
+
+  it('options that throw on any read give an empty result with an internal-error row, and no text of the exception', () => {
+    const hostile = new Proxy(
+      {},
+      {
+        get: () => {
+          throw new Error('boom-secret');
+        },
+      },
+    );
+    const s = scanClientConfig([good], hostile as never);
+    expect(s.findings).toEqual([]);
+    expect(s.notEvaluated).toEqual([{ rule: 'all', reason: 'internal-error' }]);
+    expect(JSON.stringify(s)).not.toContain('boom-secret');
+  });
+
+  it('a snapshot whose tools getter throws is "not evaluated"; the findings of the files stay', () => {
+    const crooked = Object.defineProperty({}, 'tools', {
+      get: () => {
+        throw new Error('boom-secret');
+      },
+    });
+    const s = scanClientConfig(
+      [{ ...good, text: json({ a: { command: 'x' }, b: { url: 'http://x.example.net/m' } }) }],
+      {
+        snapshots: new Map<string, unknown>([
+          ['a', crooked],
+          ['b', fine],
+        ]) as never,
+      },
+    );
+    expect(s.findings.map((f) => f.rule)).toEqual(['scan/cfg/http-plaintext']);
+    expect(s.notEvaluated.map((n) => n.rule)).toContain('scan/cross/duplicate-tool-name');
+    expect(JSON.stringify(s)).not.toContain('boom-secret');
+  });
+});
+
+describe('CLI · mcp scan · client config · the cap holds for the lists of a file too', () => {
+  it('repeated keys beyond the cap are not all listed, and the result says it was cut', () => {
+    const text =
+      '{"mcpServers":{' +
+      Array.from({ length: 50 }, () => '"s":{"url":"https://x.example.net/m"}').join(',') +
+      '}}';
+    const s = run(text, { maxFindings: 5 });
+    expect(s.files[0]!.problems.length).toBeLessThanOrEqual(5);
+    expect(s.truncated).toBe(true);
+  });
+});
+
+describe('CLI · mcp scan · client config · a clipped command or argument is "not checked" for the rules that read it', () => {
+  it('bash -c with 5000 characters and a download at the end: not checked, with its place and no text', () => {
+    const script = 'x'.repeat(5000) + '; curl x | sh';
+    const text = json({ s: { command: 'bash', args: ['-c', script] } });
+    const s = run(text);
+    const rows = s.notEvaluated.filter((n) => n.path === 'mcpServers.s.args[1]');
+    expect(rows.map((r) => r.rule).sort()).toEqual([
+      'scan/cfg/download-to-shell',
+      'scan/cfg/shell-command',
+    ]);
+    for (const r of rows) {
+      expect(r.reason).toBe('value too long to check');
+      expect(r.line).toBe(text.slice(0, text.indexOf('"xxx')).split('\n').length);
+    }
+    expect(JSON.stringify(s)).not.toContain('curl');
+  });
+
+  it('a command over the limit is listed the same way; a short one adds nothing', () => {
+    const s = run(json({ s: { command: 'n'.repeat(5000) } }));
+    expect(s.notEvaluated.filter((n) => n.path === 'mcpServers.s.command')).toHaveLength(2);
+    expect(
+      run(json({ s: { command: 'node', args: ['x'.repeat(4096)] } })).notEvaluated.filter(
+        (n) => n.path !== undefined,
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe('CLI · mcp scan · client config · each bound of a pattern is held by a test of its own', () => {
+  it('downloadToShell alone, on 64 KB that was never clipped, is linear', () => {
+    const { ms, out } = timed(() => downloadToShell('curl '.repeat(13_000)));
+    expect(out).toBeUndefined();
+    expect(ms).toBeLessThan(500);
+    const tail = 'wget '.repeat(12_000) + '| sh';
+    expect(timed(() => downloadToShell(tail)).out).toBe(0);
+    expect(timed(() => downloadToShell(('a;' + 'curl x |').repeat(8000))).ms).toBeLessThan(500);
+  });
+
+  it('isScriptFlag alone, on a long near miss, is false at once', () => {
+    const { out, ms } = timed(() => isScriptFlag('-' + 'c'.repeat(100_000) + '!'));
+    expect(out).toBe(false);
+    expect(ms).toBeLessThan(50);
+    expect(isScriptFlag('-lc')).toBe(true);
+  });
+});
+
+describe('CLI · mcp scan · client config · an argument is cut before the patterns read it', () => {
+  it('an operator after the 4096th character is not seen, and the argument is listed as not checked', () => {
+    const scan = run(json({ s: { command: 'node', args: ['x'.repeat(5000) + ' && id'] } }));
+    expect(ids(scan)).not.toContain('scan/cfg/shell-command');
+    expect(
+      scan.notEvaluated
+        .filter((n) => n.path === 'mcpServers.s.args[0]')
+        .map((n) => n.rule)
+        .sort(),
+    ).toEqual(['scan/cfg/download-to-shell', 'scan/cfg/shell-command']);
+    expect(
+      ids(run(json({ s: { command: 'node', args: ['x'.repeat(4000) + ' && id'] } }))),
+    ).toContain('scan/cfg/shell-command');
   });
 });

@@ -203,7 +203,8 @@ export interface FileResult {
 
 /** A rule, or one field for a rule, that was not checked, and why; the reason is fixed text, never a value. */
 export interface NotEvaluated {
-  rule: ConfigRuleId;
+  /** `all`: the scan itself failed (`internal-error`), and no rule was evaluated. */
+  rule: ConfigRuleId | 'all';
   reason: string;
   file?: string;
   path?: string;
@@ -241,8 +242,10 @@ const TYPES: ReadonlySet<string> = new Set(['stdio', 'http', 'sse', 'streamable-
 
 /**
  * Formats of a token that is a secret on its own, by the prefix its provider documents. A closed list; a token of
- * another shape is for `secret-by-name` to suspect. ponytail: lengths and prefixes from the providers' public
- * descriptions, not re-checked against each provider's current documentation; MCP-G7 measures false hits.
+ * another shape is for `secret-by-name` to suspect. Only a prefix that no ordinary word starts with: a bare `sk-` and
+ * the three-part JWT were left out, being hits on long names and on public keys; MCP-G7 measures them first.
+ * ponytail: prefixes and lengths (`github_pat_`, `sk-proj-`, `sk-svcacct-` and the others) are from the providers'
+ * public descriptions and are NOT checked against each provider's current documentation; MCP-G7 measures false hits.
  */
 const KNOWN_FORMATS: readonly [id: string, re: RegExp][] = [
   ['github-token', /(?<![A-Za-z0-9])(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]{36,}/],
@@ -250,6 +253,7 @@ const KNOWN_FORMATS: readonly [id: string, re: RegExp][] = [
   ['slack-token', /(?<![A-Za-z0-9])xox[abprs]-[A-Za-z0-9-]{10,}/],
   ['stripe-key', /(?<![A-Za-z0-9])[rs]k_live_[A-Za-z0-9]{16,}/],
   ['anthropic-key', /(?<![A-Za-z0-9])sk-ant-[A-Za-z0-9_-]{20,}/],
+  ['openai-key', /(?<![A-Za-z0-9])sk-(?:proj|svcacct)-[A-Za-z0-9_-]{32,}/],
   ['google-api-key', /(?<![A-Za-z0-9])AIza[0-9A-Za-z_-]{35}/],
   ['npm-token', /(?<![A-Za-z0-9])npm_[A-Za-z0-9]{36}(?![A-Za-z0-9])/],
   ['gitlab-token', /(?<![A-Za-z0-9])glpat-[A-Za-z0-9_-]{20}/],
@@ -263,21 +267,39 @@ const knownFormat = (value: string): string | undefined => {
 /** A name that starts with the prefix of a token, even one too short for the whole format, or holds a whole token. */
 const KEY_PREFIX =
   /^\s*(?:gh[pousr]_|github_pat_|AKIA|ASIA|AGPA|AIDA|AROA|xox[abprs]-|[rs]k_live_|sk-ant-|AIza|npm_|glpat-|-----BEGIN )/;
+/** The same formats with no anchor before them: a name may hold a token anywhere in it, glued to other letters. */
+const NAME_FORMATS = KNOWN_FORMATS.map(
+  ([, re]) =>
+    new RegExp(re.source.replace('(?<![A-Za-z0-9])', '').replace('(?![A-Za-z0-9])', ''), re.flags),
+);
 const tokenish = (name: string): boolean => {
   const head = name.slice(0, 256);
-  return KEY_PREFIX.test(head) || knownFormat(head) !== undefined;
+  return KEY_PREFIX.test(head) || NAME_FORMATS.some((re) => re.test(head));
 };
 
 /** A name from the file as it may be printed: not a token, escaped, bounded, and not a workflow command. */
 const safe = (name: string): string =>
   noCommands(visible(tokenish(name) ? '[key]' : name, SHOWN_NAME));
-const safeText = (text: string): string => noCommands(visible(text, 400));
+/** A path of a file as it may be printed: each segment through the mask of a name. */
+const safeText = (text: string): string =>
+  noCommands(
+    visible(
+      text.slice(0, 1024).replace(/[^\\/]+/g, (seg) => (tokenish(seg) ? '[key]' : seg)),
+      400,
+    ),
+  );
 /** A JSON Pointer of a snapshot text: each segment through the same mask as a name. */
 const safePointer = (pointer: string): string =>
   noCommands(
     pointer
       .split('/')
-      .map((seg) => (tokenish(seg) ? '[key]' : seg))
+      .map((seg) =>
+        tokenish(seg)
+          ? '[key]'
+          : seg.length > SHOWN_NAME
+            ? `${seg.slice(0, SHOWN_NAME - 3)}...`
+            : seg,
+      )
       .join('/'),
   );
 
@@ -370,11 +392,18 @@ const programOf = (command: string): string =>
   (command.split(/[\\/]/).pop() ?? '').toLowerCase().replace(/\.(?:exe|cmd|bat)$/, '');
 const SHELLS: ReadonlySet<string> = new Set(['sh', 'bash', 'zsh', 'cmd', 'powershell', 'pwsh']);
 /** `-c`, `-lc`, `/c`, `-Command`: linear, and a flag is never long. */
-const isScriptFlag = (s: string): boolean =>
+export const isScriptFlag = (s: string): boolean =>
   s.length <= 40 &&
   ((/^-[a-z]+$/.test(s) && s.includes('c')) ||
     /^\/[ck]$/i.test(s) ||
     /^-(?:command|c|encodedcommand|ec)$/i.test(s));
+/** The flag of a shell as a fixed word, whatever was written: `-lc` and `-abcsecret` are `-c`; the argument is never printed. */
+const canonicalFlag = (s: string): string => {
+  if (/^\/[ck]$/i.test(s)) return s.toLowerCase();
+  if (/^-(?:encodedcommand|ec)$/i.test(s)) return '-EncodedCommand';
+  if (/^-command$/i.test(s)) return '-Command';
+  return '-c';
+};
 const OPERATORS = /&&|\|\||\$\(|`|(?:^|\s)[;|](?:\s|$)|;\s/;
 const DOWNLOADER = /\b(?:curl|wget|iwr|irm|invoke-webrequest|invoke-restmethod)\b/i;
 const SHELL_AFTER = /^\s*(?:sudo\s+(?:-\S+\s+)*)?(?:(?:ba|z|da|k)?sh|iex|invoke-expression)\b/i;
@@ -385,7 +414,7 @@ const DOWNLOAD_NESTED = [/\b(?:ba|z|da)?sh\s+<\(\s*(?:curl|wget)\b/i, /\$\(\s*(?
  * pattern runs over one segment and the whole is linear (a pattern that reaches from `curl` to `|` backtracks to
  * every `curl`). The caller bounds `text`.
  */
-function downloadToShell(text: string): number | undefined {
+export function downloadToShell(text: string): number | undefined {
   let start = 0;
   let prev: { from: number; segment: string } | undefined;
   const cuts = /\|\||&&|[|;&\n]/g;
@@ -554,24 +583,34 @@ function emit(
 }
 
 /** A field whose value is too long for the token formats to read to its end: listed, never clean. */
-function notChecked(fc: FileCtx, parts: readonly Part[], at: number): void {
-  if (fc.run.notChecked.length >= fc.run.cap) {
-    fc.run.truncated = true;
-    return;
+function notChecked(
+  fc: FileCtx,
+  parts: readonly Part[],
+  at: number,
+  rules: readonly ConfigRuleId[] = ['scan/cfg/secret-known-format'],
+): void {
+  for (const rule of rules) {
+    if (fc.run.notChecked.length >= fc.run.cap) {
+      fc.run.truncated = true;
+      return;
+    }
+    fc.run.notChecked.push({
+      rule,
+      reason: 'value too long to check',
+      file: safeText(fc.file),
+      path: pathOf(parts),
+      ...fc.locate(at),
+    });
   }
-  fc.run.notChecked.push({
-    rule: 'scan/cfg/secret-known-format',
-    reason: 'value too long to check',
-    file: safeText(fc.file),
-    path: pathOf(parts),
-    ...fc.locate(at),
-  });
 }
+/** The rules that read a command or an argument cut at `MAX_TOKEN`. */
+const CLIPPED: readonly ConfigRuleId[] = ['scan/cfg/shell-command', 'scan/cfg/download-to-shell'];
 
 /** The flag before the argument at `index`, when it looks like one (`--auth-token`); the catalog shows it, nothing else of the neighbours. */
 function flagBefore(nodes: readonly JsonNode[], index: number): string | undefined {
   const prev = nodes[index - 1];
-  return isString(prev) && /^--?[a-z0-9-]{1,40}$/.test(prev.value) && !tokenish(prev.value)
+  if (!isString(prev) || prev.value.length > 40 || tokenish(prev.value)) return undefined;
+  return /^--[a-z]+(?:-[a-z]+)*$/.test(prev.value) || /^-[a-z]$/.test(prev.value)
     ? prev.value
     : undefined;
 }
@@ -588,10 +627,8 @@ function knownIn(
   if (text.length > MAX_VALUE) notChecked(fc, parts, at);
   const format = knownFormat(text);
   if (format === undefined) return;
-  const name =
-    where.key !== undefined && /^[A-Za-z_]\w*$/.test(where.key) && !tokenish(where.key)
-      ? where.key
-      : 'NAME';
+  const shown = where.key === undefined ? '' : safe(where.key);
+  const name = /^[A-Za-z_]\w*$/.test(shown) ? shown : 'NAME';
   emit(
     fc,
     'scan/cfg/secret-known-format',
@@ -786,6 +823,12 @@ function scanCommand(
     });
   }
 
+  if (fullCommand.length > MAX_TOKEN) notChecked(fc, [...parts, 'command'], commandAt, CLIPPED);
+  for (const t of tokens) {
+    const n = nodes[t.index];
+    if (isString(n) && n.value.length > MAX_TOKEN) notChecked(fc, argPath(t), argAt(t), CLIPPED);
+  }
+
   // From here on every rule reads a clipped text: a flag, a package or a path is never as long as a megabyte.
   const commandText = fullCommand.slice(0, MAX_TOKEN);
   const program = programOf(commandText);
@@ -797,7 +840,7 @@ function scanCommand(
       server,
       [...parts, 'command'],
       commandAt,
-      `runs "${program} ${scriptFlag.text}" with an inline script`,
+      `runs "${program} ${canonicalFlag(scriptFlag.text)}" with an inline script`,
     );
   } else {
     const op = tokens.find((t) => OPERATORS.test(t.text));
@@ -986,13 +1029,16 @@ function scanFile(run: Run, file: ConfigFile): FileResult {
       );
       continue;
     }
-    for (const entry of unique(list.members, (m) =>
-      result.problems.push({
-        kind: 'duplicate-key',
-        path: pathOf([...base, m.key]),
-        ...locate(m.keyAt),
-      }),
-    )) {
+    const repeated = (m: JsonMember) => {
+      if (result.problems.length >= run.cap) run.truncated = true;
+      else
+        result.problems.push({
+          kind: 'duplicate-key',
+          path: pathOf([...base, m.key]),
+          ...locate(m.keyAt),
+        });
+    };
+    for (const entry of unique(list.members, repeated)) {
       if (result.servers.length >= run.cap || full(run)) {
         run.truncated = true;
         break;
@@ -1012,6 +1058,14 @@ function scanFile(run: Run, file: ConfigFile): FileResult {
 
 /** `scanFile` that cannot throw: what a crooked input trips over is a status of the file, not an exception. */
 function scanFileSafely(run: Run, file: ConfigFile): FileResult {
+  /** A property read that may itself throw (a getter). */
+  const read = <T>(get: () => T, fallback: T): T => {
+    try {
+      return get();
+    } catch {
+      return fallback;
+    }
+  };
   const before = { findings: run.findings.length, notChecked: run.notChecked.length };
   try {
     return scanFile(run, file);
@@ -1019,8 +1073,14 @@ function scanFileSafely(run: Run, file: ConfigFile): FileResult {
     run.findings.length = before.findings;
     run.notChecked.length = before.notChecked;
     return {
-      path: typeof file?.path === 'string' ? safeText(file.path) : '(unnamed)',
-      client: typeof file?.client === 'string' ? file.client : '(unknown)',
+      path: read(
+        () => (typeof file?.path === 'string' ? safeText(file.path) : '(unnamed)'),
+        '(unnamed)',
+      ),
+      client: read(
+        () => (typeof file?.client === 'string' ? safeText(file.client) : '(unknown)'),
+        '(unknown)',
+      ),
       status: 'unreadable',
       servers: [],
       problems: [{ kind: 'internal-error' }],
@@ -1048,12 +1108,12 @@ function scanCross(
   snapshots: ReadonlyMap<string, McpSnapshot>,
   files: FileResult[],
 ): void {
-  const where = (label: string) => {
-    for (const f of files)
-      for (const s of f.servers)
-        if (s.label === safe(label)) return { file: f.path, line: s.line, column: s.column };
-    return undefined;
-  };
+  const places = new Map<string, { file: string; line: number; column: number }>();
+  for (const f of files)
+    for (const s of f.servers)
+      if (!places.has(s.label))
+        places.set(s.label, { file: f.path, line: s.line, column: s.column });
+  const where = (label: string) => places.get(safe(label));
   const add = (rule: ConfigRuleId, label: string, path: string, message: string) => {
     if (full(run)) {
       run.truncated = true;
@@ -1130,6 +1190,21 @@ export function scanClientConfig(
   files: readonly ConfigFile[],
   options: ConfigOptions = {},
 ): ConfigScan {
+  try {
+    return scanUnguarded(files, options);
+  } catch {
+    // The text of the exception is not shown: it may quote what was being read.
+    return {
+      status: 'nothing-to-scan',
+      files: [],
+      notEvaluated: [{ rule: 'all', reason: 'internal-error' }],
+      truncated: false,
+      findings: [],
+    };
+  }
+}
+
+function scanUnguarded(files: readonly ConfigFile[], options: ConfigOptions): ConfigScan {
   const opts: ConfigOptions = typeof options === 'object' && options !== null ? options : {};
   /** The strings of a list, trimmed and lower-cased; `undefined` for no list, a list that is not one, or one with no string. */
   const set = (list: unknown): ReadonlySet<string> | undefined => {
@@ -1157,20 +1232,19 @@ export function scanClientConfig(
       { rule: 'scan/cross/duplicate-tool-name', reason },
       { rule: 'scan/cross/foreign-tool-reference', reason },
     );
-  if (!(snapshots instanceof Map) || snapshots.size < 2)
-    crossReason('needs the snapshots of at least two servers of the file (--snapshot)');
-  else if (
-    ![...snapshots.entries()].every(([label, s]) => typeof label === 'string' && readable(s))
-  )
-    crossReason('the snapshots could not be read');
-  else {
-    const before = run.findings.length;
-    try {
-      scanCross(run, snapshots, results);
-    } catch {
-      run.findings.length = before;
+  const before = run.findings.length;
+  try {
+    if (!(snapshots instanceof Map) || snapshots.size < 2)
+      crossReason('needs the snapshots of at least two servers of the file (--snapshot)');
+    else if (
+      ![...snapshots.entries()].every(([label, s]) => typeof label === 'string' && readable(s))
+    )
       crossReason('the snapshots could not be read');
-    }
+    else scanCross(run, snapshots, results);
+  } catch {
+    run.findings.length = before;
+    if (!notEvaluated.some((n) => n.rule === 'scan/cross/duplicate-tool-name'))
+      crossReason('the snapshots could not be read');
   }
   if (run.allowHosts === undefined)
     notEvaluated.push({
