@@ -55,9 +55,15 @@ const listed = (tool: PluneToolDefinition): Tool => ({
   annotations: annotationsOf(tool),
 });
 
+/**
+ * The text block repeats structuredContent because the specification asks for it ("For backwards compatibility, a tool
+ * that returns structured content SHOULD also return the serialized JSON in a TextContent block",
+ * https://modelcontextprotocol.io/specification/2025-11-25/server/tools#structured-content). Unindented: a model reads
+ * the text, and the indentation cost about a quarter of every answer's tokens.
+ */
 function toResult(outcome: ToolOutcome): CallToolResult {
   if (outcome.ok) {
-    return { content: [{ type: 'text', text: JSON.stringify(outcome.data, null, 2) }], structuredContent: outcome.data };
+    return { content: [{ type: 'text', text: JSON.stringify(outcome.data) }], structuredContent: outcome.data };
   }
   return {
     isError: true,

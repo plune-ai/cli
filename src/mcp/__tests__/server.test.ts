@@ -133,6 +133,14 @@ describe.each(['legacy', 'modern'] as const)('plune mcp serve, %s era', (era) =>
     expect(c.platform.calls).toHaveLength(0);
   });
 
+  it('a result is its structuredContent, and once more as unindented JSON text for clients that read only text', async () => {
+    const c = await connect(era, { answer: platformAnswer });
+    const r = await c.callTool('plune_mission_get', { missionId: FIXTURE_MISSION_ID });
+    expect(r.isError).toBeFalsy();
+    expect(r.content).toHaveLength(1);
+    expect(text(r)).toBe(JSON.stringify(r.structuredContent));
+  });
+
   it('sends X-Plune-Session on every call, the same one for the whole process', async () => {
     const c = await connect(era, { answer: platformAnswer });
     await c.callTool('plune_mission_get', { missionId: FIXTURE_MISSION_ID });
