@@ -208,6 +208,8 @@ export interface McpConformanceReport {
   checks: ConformanceResult[];
   /** The checks that count for nothing yet: not in the profile, or no result. */
   pendingCheckIds: string[];
+  /** The sessions of its own the Streamable HTTP checks opened: how many were closed with DELETE and how many left open. */
+  ownSessions?: { opened: number; closed: number; leftOpen: number };
   /** One summary per selected suite, each from its own counts. */
   bySuite: Partial<Record<import('./conformance/catalog.js').Suite, import('./conformance/score.js').Summary>>;
   /** Every selected check: the counts of all suites added up, not an average of their scores. */

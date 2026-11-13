@@ -37,7 +37,7 @@ async function run(flags: McpConformanceFlags) {
     env: {},
     clientVersion: '9.9.9',
   });
-  return { code, out, err, report: out === '' ? undefined : (JSON.parse(out) as McpConformanceReport) };
+  return { code, out, err, report: out.startsWith('{') ? (JSON.parse(out) as McpConformanceReport) : undefined };
 }
 
 const states = (r: McpConformanceReport) =>
@@ -454,4 +454,39 @@ describe('CLI · mcp conformance · a status that proves nothing is could-not-ru
     const got = states((await run({ url: s.url, check: ['http-concurrent-posts-matched'] })).report!);
     expect(got['http-concurrent-posts-matched']).toBe('could-not-run (timeout)');
   }, 30_000);
+});
+
+describe('CLI · mcp conformance · the sessions a run opens', () => {
+  it('each session the run opened and did not end is closed with DELETE, and the report counts them', async () => {
+    const s = await serve({});
+    const { report } = await run({ url: s.url });
+    const deletes = s.requests.filter((r) => r.method === 'DELETE');
+    // One is the DELETE of http-session-terminated-404 itself; the other closes the session the checks shared.
+    expect(deletes).toHaveLength(2);
+    expect(new Set(deletes.map((d) => d.headers['mcp-session-id'])).size).toBe(2);
+    expect(report!.ownSessions).toEqual({ opened: 2, closed: 2, leftOpen: 0 });
+  });
+
+  it('a server that does not let a client end a session: the sessions are reported as left open, in JSON and in the human report', async () => {
+    const s = await serve({ del: '405' });
+    const json = await run({ url: s.url });
+    expect(json.report!.ownSessions).toEqual({ opened: 2, closed: 0, leftOpen: 2 });
+    const human = await run({ url: s.url, format: 'human' });
+    expect(human.out).toMatch(/2 sessions? of this run (was|were) left open/);
+  });
+
+  it('a session id is a secret: masked in every header of every detail and absent from the output', async () => {
+    const s = await serve({ sessions: (n) => `sess-abcdefgh-${n}` });
+    const { out, report } = await run({ url: s.url });
+    expect(out).not.toContain('sess-abcdefgh');
+    const sent = report!.checks.flatMap((c) => c.details ?? []).flatMap((d) => d.request.headers);
+    expect(sent.filter(([n]) => n.toLowerCase() === 'mcp-session-id').every(([, v]) => v === '***')).toBe(true);
+    expect(sent.some(([n]) => n.toLowerCase() === 'mcp-session-id')).toBe(true);
+  });
+
+  it('a session id that the server prints in a body is masked there too', async () => {
+    const s = await serve({ sessions: (n) => `sess-abcdefgh-${n}`, echoSession: true });
+    const { out } = await run({ url: s.url });
+    expect(out).not.toContain('sess-abcdefgh');
+  });
 });

@@ -868,6 +868,14 @@ its own session with an `initialize` POST (the client's session is never touched
 `http-sse-no-broadcast`, which change the server's state, each make one more and run last. An SSE stream is read for
 at most 5 seconds.
 
+A status that says nothing of a requirement is never a verdict: a redirect (not followed), `429` or a server error
+to any of these requests is `could-not-run` (`transport-error`), and `401` is `could-not-run` (`prerequisite-failed`)
+until `--header` gives the login. A refusal passes only for the status the text names, and only after the same request
+in its valid form was accepted (a session id, the negotiated version, a local `Origin`). The session id is masked in
+every `details` header and wherever the server prints it. Each session the run opened is closed with `DELETE` at the
+end; the report's `ownSessions` says how many were opened, closed and left open (a server that answers `DELETE` with
+`405` keeps them), and the human report names the ones left open.
+
 - **On the wire:** a notification is `202` with no body or an error status; a request is answered as
   `application/json` or `text/event-stream`, in UTF-8 JSON, at one endpoint that takes POST; concurrent POSTs each get
   the answer with their own id. Legacy era: GET opens an SSE stream or is `405`; a session id is visible ASCII; a

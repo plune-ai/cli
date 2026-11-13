@@ -67,6 +67,8 @@ const isSse = (res: RawResponse) => mediaTypeOf(header(res.headers, 'content-typ
 export interface OwnSession {
   version: string;
   sessionId?: string;
+  /** The session was ended by a DELETE of a check: it is not closed again. */
+  ended?: boolean;
   /** The notification sent after initialize (legacy) or alone (modern), and its answer. */
   notification: { req: RawRequest; res: RawResponse };
   details: Exchange[];
@@ -200,7 +202,41 @@ export async function openOwn(ctx: ConformanceContext): Promise<OwnSession | Che
   const req = message(ctx, s, 'notifications/initialized', undefined);
   const res = await rawRequest(t, req);
   details.push(exchange(t, req, res));
-  return { ...s, notification: { req, res }, details };
+  const own: OwnSession = { ...s, notification: { req, res }, details };
+  if (own.sessionId !== undefined) (await opened(ctx)).push(own);
+  return own;
+}
+
+/** The sessions with an id that this run opened, to be closed at the end. */
+const opened = (ctx: ConformanceContext) => ctx.memo<OwnSession[]>('http own sessions', async () => []);
+
+export interface OwnSessions {
+  opened: number;
+  closed: number;
+  leftOpen: number;
+}
+
+/**
+ * Closes with DELETE every session of its own the run opened and no check ended. A session the server will not let a
+ * client end (405, an error, no answer) is left open, and counted so. Undefined when the run opened none.
+ */
+export async function closeOwnSessions(ctx: ConformanceContext): Promise<OwnSessions | undefined> {
+  if (ctx.http === undefined) return undefined;
+  const sessions = await opened(ctx);
+  if (sessions.length === 0) return undefined;
+  let closed = 0;
+  for (const s of sessions) {
+    if (s.ended === true) {
+      closed += 1;
+      continue;
+    }
+    try {
+      if (ok((await bare(ctx, s, 'DELETE')).res)) closed += 1;
+    } catch (err) {
+      if (!(err instanceof ConnectError)) throw err;
+    }
+  }
+  return { opened: sessions.length, closed, leftOpen: sessions.length - closed };
 }
 
 /** The session could not be had: the outcome stands for the check. */
@@ -536,6 +572,7 @@ const sessionTerminated404: ConformanceCheck = async (ctx) => {
       ...(unjudged(del.res, [del.detail]) ?? prerequisite(`DELETE of the session got HTTP ${del.res.status}.`)),
       details: [del.detail],
     };
+  s.ended = true;
   const a = await ask(ctx, s, 'ping');
   const details = [before.detail, del.detail, a.detail];
   if (a.res.status === 404) return { ...passed('After DELETE, a request with the ended session id got 404.'), details };

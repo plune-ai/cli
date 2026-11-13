@@ -30,6 +30,8 @@ export interface Opts {
   del?: 'ends' | '405' | number;
   /** The status of every refusal (a foreign Origin or Host, no session, an ended one, a bad version) instead of its own: 429, 503... */
   refuse?: number;
+  /** Every JSON answer carries the session id of the request in its body, too. */
+  echoSession?: boolean;
   /** A `ping` that carries a session is answered with this status: a server whose valid request is refused too. */
   pingStatus?: number;
   /** A `ping` is answered with an SSE stream that sends no event and stays open. */
@@ -177,6 +179,7 @@ export async function serve(o: Opts = {}): Promise<Served> {
         jsonrpc: '2.0',
         id: o.wrongId === true ? 'not-yours' : msg.id,
         result,
+        ...(o.echoSession === true && sid !== undefined ? { session: sid } : {}),
       });
       const answer = o.answer ?? 'json';
       if (answer === 'json')

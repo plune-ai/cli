@@ -229,11 +229,14 @@ export interface Exchange {
 
 export function exchange(target: HttpTarget, req: RawRequest, res?: RawResponse): Exchange {
   const r = target.redact;
+  const sessions = [...req.headers, ...(res?.headers ?? [])]
+    .filter(([n, v]) => isSessionHeader(n) && v.length >= SESSION_MIN)
+    .map(([, v]) => v);
   const headers = (list: HeaderList): HeaderList =>
-    list.map(([n, v]) => [n, isSecretHeader(n) ? MASK : r.text(v)]);
+    list.map(([n, v]) => [n, isSecretHeader(n) || isSessionHeader(n) ? MASK : r.text(v)]);
   // Masked whole, then cut: a secret that straddles the cut would otherwise be left in part.
   const text = (t: string) => {
-    const masked = r.text(t);
+    const masked = sessions.reduce((s, id) => s.split(id).join(MASK), r.text(t));
     return masked.length <= BODY_TEXT ? masked : `${masked.slice(0, BODY_TEXT)}… (cut: ${t.length} characters)`;
   };
   return {
@@ -259,6 +262,10 @@ export function exchange(target: HttpTarget, req: RawRequest, res?: RawResponse)
         }),
   };
 }
+
+/** A session id is a credential of the session: shown as *** by name, and found by value in every text of an exchange. */
+const isSessionHeader = (name: string): boolean => name.toLowerCase() === 'mcp-session-id';
+const SESSION_MIN = 4;
 
 /** The header's value, by name in any case; undefined when absent. */
 export const header = (headers: HeaderList, name: string): string | undefined =>

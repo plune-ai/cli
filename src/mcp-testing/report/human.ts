@@ -290,6 +290,10 @@ export function conformanceHuman(r: McpConformanceReport): string {
     if (summary !== undefined) lines.push(`${s}: ${summaryLine(summary, reasons)}`);
   }
   if (r.suites.length > 1) lines.push(`all suites: ${summaryLine(r.summary, reasons)}`);
+  if (r.ownSessions !== undefined && r.ownSessions.leftOpen > 0)
+    lines.push(
+      `${r.ownSessions.leftOpen} ${r.ownSessions.leftOpen === 1 ? 'session' : 'sessions'} of this run ${r.ownSessions.leftOpen === 1 ? 'was' : 'were'} left open on the server (it did not accept DELETE).`,
+    );
   lines.push(`Verdict: ${r.summary.verdict} (exit ${r.exitCode}): ${WHY[r.summary.verdict](r.summary)}.`);
   return `${lines.join('\n')}\n`;
 }
