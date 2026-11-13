@@ -769,7 +769,7 @@
         "readOnlyHint": true,
         "title": "Find more tools"
       },
-      "description": "Look for a capability that is not in your tool list — editing cases, writing results, starting runs, cataloguing API endpoints, a raw API call — and switch the ones you need on for this session.",
+      "description": "Look for a capability that is not in your tool list — editing cases (plune_cases_update), writing results into a run (plune_results_write), starting runs (plune_run_create), cataloguing API endpoints (plune_endpoint_propose), a raw API call (plune_api_request) — and switch the ones you need on for this session by name, in one call. A tool switched on can be called from the next step, and its description in this answer says what it needs: call it, nothing has to be read first.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1053,7 +1053,7 @@
         "readOnlyHint": true,
         "title": "Read one object"
       },
-      "description": "Read one test case, run or review queue entry in full when you already hold its id — steps, state, history fields and everything the platform keeps on it.",
+      "description": "Read one test case, run or review queue entry in full when you already hold its id — steps, state, history fields and everything the platform keeps on it. A write never needs its target read first: the id is enough.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {

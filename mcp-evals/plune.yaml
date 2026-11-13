@@ -16,8 +16,9 @@
 #
 # Cost. `plune run --dry-run` prices `max_steps` calls of each prompt, times `runs`, per model; it does not count the
 # tool list sent with every step (~8.3k estimated tokens for the 17 tools listed first, ~2.4k for the 8 of a read
-# token; src/mcp-testing/lint/thresholds.ts) or the tool answers. The first real run (both models, 3 repeats a
-# scenario) cost about $2, so the workflow runs weekly.
+# token; src/mcp-testing/lint/thresholds.ts) or the tool answers. Measured on the first real run (2026-11-11, both
+# models, 3 repeats a scenario): $2.01 a run, of which claude-sonnet-5-5 $1.94 (875,420 input and 18,977 output
+# tokens) and gpt-6-luna $0.07 (670,070 and 5,844). So the workflow runs weekly, about $8-9 a month.
 #
 # Offline: src/mcp/__tests__/mcp-agent-scenarios.e2e.test.ts plays every scenario with PLUNE_MOCK_PROVIDER=1 and a
 # scripted model, once with the expected calls (it must pass) and once with a wrong one (it must fail).
@@ -214,6 +215,9 @@ evals:
     description: Writing results needs a hidden tool, and the model looks for it rather than misusing a listed one.
     # The prompt names two cases of the recorded project by their exact titles (one case each), so a model can find
     # their ids: a result names its case by testCaseId, and a name that matches no case leaves nothing to write.
+    # max_steps stays 6: switching the writer on by name, the searches (one step, or two), the write and the answer take
+    # four or five. The discovery tool names the hidden tools and says a switched-on one needs nothing read first, so
+    # a read of the run between discovery and the write is a step the descriptions do not ask for.
     prompt: >-
       Record last night's results in run run-1: "Оплата карткою Mastercard проходить" passed and "Прострочена картка
       відхиляється з поясненням" failed.
