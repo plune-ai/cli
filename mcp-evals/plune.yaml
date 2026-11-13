@@ -71,17 +71,19 @@ mcp:
 
 evals:
   - id: find-smoke-cases
-    description: Finding cases by a tag goes straight to the case search, with the tag as its filter.
+    description: Finding cases by a tag searches the cases with the tag as their filter, and changes nothing.
     prompt: Which test cases in this project are tagged smoke?
     dataset: { examples: [{ vars: {} }] }
     mcp: { server: plune }
     assertions:
-      - type: first-tool
-        tool: plune_cases_search
-      # The form the tool's own description shows; a plain string is accepted by the server too, and fails here.
+      # The outcome, not the shape: the tool sends a string and a one-item list as the same query (tag=smoke), so
+      # either form finds the same cases. Nor is the order checked: a look at the project first is a read, not a
+      # mistake. A wrong tag fails here, a write fails only-tools.
       - type: tool-args
         tool: plune_cases_search
-        args: { filters: { tag: [smoke] } }
+        args:
+          - { filters: { tag: smoke } }
+          - { filters: { tag: [smoke] } }
       - type: only-tools
         tools: &read-tools
           - plune_project_context

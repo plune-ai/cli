@@ -75,14 +75,18 @@ export const toolArgs = check<ToolArgsAssertion>((ctx) => {
   const { tool, match = 'partial', min_count: min = 1 } = ctx.params;
   const t = transcriptOf('tool-args', ctx);
   checkNames('tool-args', t, [tool]);
-  const args = interpolateDeep(ctx.params.args, ctx);
+  // A list is alternatives: a call that fits any one of them matches.
+  const sets = (Array.isArray(ctx.params.args) ? ctx.params.args : [ctx.params.args]).map((a) =>
+    interpolateDeep(a, ctx),
+  );
   const matches = (actual: unknown): boolean =>
-    match === 'ignore' || (match === 'exact' ? sameJson(args, actual) : partialMatch(args, actual));
+    match === 'ignore' ||
+    sets.some((args) => (match === 'exact' ? sameJson(args, actual) : partialMatch(args, actual)));
   const calls = callsFor(t, tool);
   const hits = calls.filter((c) => matches(c.call.args)).length;
   if (hits >= min) return pass;
   return fail(
-    `expected a call to "${tool}" with arguments ${describeArgs(args)} (${match}) at least ${plural(min, 'time')}; ` +
+    `expected a call to "${tool}" with arguments ${sets.map(describeArgs).join(' or ')} (${match}) at least ${plural(min, 'time')}; ` +
       `got ${hits} of ${plural(calls.length, 'call')}: ${describeCalls(calls)}; ` +
       `check the argument names and values against the tool's input schema`,
   );

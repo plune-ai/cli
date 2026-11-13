@@ -246,6 +246,28 @@ describe('CLI · assertions · tool-args', () => {
     expect(await ok({ list: [1] })).toBe(false);
   });
 
+  it('CLI · assertions · tool-args · a list of argument sets matches a call that fits any one of them', async () => {
+    // A filter a server takes as a string or as a list: either form is the same search.
+    const t = withCalls(COMPLETE, [
+      { name: 'echo', args: { filters: { tag: 'smoke' }, limit: 100 } },
+    ]);
+    const ok = async (args: Record<string, unknown>[], match?: 'exact') =>
+      (await run({ type: 'tool-args', tool: 'echo', args, ...(match ? { match } : {}) }, t)).passed;
+    const forms = [{ filters: { tag: 'smoke' } }, { filters: { tag: ['smoke'] } }];
+    expect(await ok(forms)).toBe(true);
+    expect(await ok([{ filters: { tag: ['smoke'] } }])).toBe(false);
+    expect(
+      await ok([{ filters: { tag: 'regression' } }, { filters: { tag: ['regression'] } }]),
+    ).toBe(false);
+    expect(await ok(forms, 'exact')).toBe(false);
+    expect(await ok([{}, { filters: { tag: 'smoke' }, limit: 100 }], 'exact')).toBe(true);
+    const reason = await failed(
+      { type: 'tool-args', tool: 'echo', args: [{ a: 1 }, { a: [1] }] },
+      withCalls(COMPLETE, [{ name: 'echo', args: { a: 2 } }]),
+    );
+    expect(reason).toMatch(/with arguments \{"a":1\} or \{"a":\[1\]\} \(partial\)/);
+  });
+
   it('CLI · assertions · tool-args · arguments that are not an object never match partial', async () => {
     const t = withCalls(COMPLETE, [
       { name: 'echo', args: 'not an object' },
