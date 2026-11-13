@@ -96,9 +96,6 @@ export function supportedVersions(ctx: ConformanceContext): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
 }
 
-/** A modern server that serves the legacy era as well: server/discover names a revision before 2026-07-28. */
-export const dualEra = (ctx: ConformanceContext): boolean => supportedVersions(ctx).some((v) => v < '2026-07-28');
-
 export const declares = (ctx: ConformanceContext, name: string): boolean => {
   const value = capabilities(ctx)[name];
   return value !== undefined && value !== null;

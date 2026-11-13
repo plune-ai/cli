@@ -46,10 +46,16 @@ export interface Opts {
   /** Every POST but the handshake answered with a 307 to this origin. */
   redirect?: string;
   bind?: string;
-  /** server/discover answered with a DiscoverResult that names 2025-11-25 as well: the dual-era server of a modern run. */
-  discover?: boolean | 'modern-only';
+  /**
+   * server/discover answered with a DiscoverResult. `true`: it names 2025-11-25 as well (the dual-era server of a modern
+   * run). `names-modern`: it names 2026-07-28 only, and initialize is still answered (a dual-era server that says so only
+   * by answering initialize). `modern-only`: it names 2026-07-28 only, and initialize is refused.
+   */
+  discover?: boolean | 'modern-only' | 'names-modern';
   /** Every request after the handshake answered 404 with no body: nothing is served at the endpoint. */
   noEndpoint?: boolean;
+  /** A body that is not JSON answered with a result, as if it were a request, instead of 400. */
+  parseResult?: boolean;
 }
 
 export interface Served extends Fixture {
@@ -111,8 +117,14 @@ export async function serve(o: Opts = {}): Promise<Served> {
       try {
         msg = JSON.parse(body) as typeof msg;
       } catch {
+        if (o.parseResult === true)
+          return res.writeHead(200, { 'content-type': 'application/json' }).end('{"jsonrpc":"2.0","id":"x","result":{}}');
         return res.writeHead(400).end();
       }
+      if (msg.method === 'initialize' && o.discover === 'modern-only')
+        return res
+          .writeHead(400, { 'content-type': 'application/json' })
+          .end(JSON.stringify({ jsonrpc: '2.0', id: msg.id, error: { code: -32601, message: 'Method not found' } }));
       if (msg.method === 'initialize') {
         const id = sessionIds === false ? undefined : sessionIds(++count);
         if (id !== undefined) sessions.set(id, { alive: true, streams: [] });
@@ -181,7 +193,7 @@ export async function serve(o: Opts = {}): Promise<Served> {
               ? {
                   resultType: 'complete',
                   supportedVersions:
-                    o.discover === 'modern-only' ? ['2026-07-28'] : ['2026-07-28', '2025-11-25'],
+                    o.discover === true ? ['2026-07-28', '2025-11-25'] : ['2026-07-28'],
                   capabilities: { tools: {} },
                   ttlMs: 0,
                   cacheScope: 'public',

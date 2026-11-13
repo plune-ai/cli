@@ -198,14 +198,24 @@ export const CATALOG: readonly CatalogEntry[] = [
   check({
     id: 'base-jsonrpc-parse-error',
     title: 'Invalid JSON is a parse error',
-    description: 'A message that is not valid JSON gets the error -32700 with id: null.',
+    description:
+      'A message that is not valid JSON gets the error -32700 with id: null. Over HTTP only: on stdio the client may not send such a line at all, and stdio-parse-error-advice reads the answer there.',
     level: 'MUST',
     derived: true,
     derivation:
       'basic/index, Messages: MCP messages MUST follow JSON-RPC 2.0; JSON-RPC 2.0 section 5 gives -32700 and a null id to a parse error.',
     specRefs: [ref(L, 'basic/index', 'Messages')],
     eras: BOTH,
-    transports: ANY,
+    transports: HTTP,
+  }),
+  unscored('advice', {
+    id: 'stdio-parse-error-advice',
+    title: 'Invalid JSON on stdio is answered with a parse error (advice)',
+    description:
+      "A line that is not valid JSON gets the error -32700 with id: null. Advice, not a requirement: the client \"MUST NOT write anything to the server's stdin that is not a valid MCP message\", so what a server does with one is not specified.",
+    specRefs: [ref(L, LT, 'stdio')],
+    eras: BOTH,
+    transports: ['stdio'],
   }),
   check({
     id: 'base-unknown-method-error',
@@ -624,7 +634,7 @@ export const CATALOG: readonly CatalogEntry[] = [
     id: 'http-modern-get-delete-405',
     title: 'A modern-only server answers GET and DELETE with 405',
     description:
-      'A server of the 2026-07-28 revision only answers GET and DELETE on its endpoint with 405 Method Not Allowed. A server that also answers initialize (dual-era) is not-applicable.',
+      'A server of the 2026-07-28 revision only answers GET and DELETE on its endpoint with 405 Method Not Allowed. A server that also serves 2025-11-25 (dual-era) is not-applicable: its server/discover names an earlier revision, or it answers an initialize sent as a 2025-11-25 client sends it.',
     level: 'SHOULD',
     specRefs: [ref(M, MT, 'Earlier Streamable HTTP Revisions')],
     eras: ['modern'],
@@ -812,7 +822,7 @@ export const CATALOG: readonly CatalogEntry[] = [
     id: 'mod-no-session-id',
     title: 'A modern-only server neither mints nor echoes a session id',
     description:
-      'server/discover sent with an Mcp-Session-Id gets an answer without Mcp-Session-Id. A dual-era server (supportedVersions names a revision before 2026-07-28) is not-applicable.',
+      'server/discover sent with an Mcp-Session-Id gets an answer without Mcp-Session-Id. A dual-era server (supportedVersions names a revision before 2026-07-28, or it answers an initialize sent as a 2025-11-25 client sends it) is not-applicable.',
     level: 'SHOULD',
     specRefs: [ref(M, MT, 'Earlier Streamable HTTP Revisions')],
     eras: MODERN,

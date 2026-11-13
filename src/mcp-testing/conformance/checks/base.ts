@@ -96,6 +96,8 @@ const invalidParams: ConformanceCheck = async (ctx) => {
 
 export const BASE: Record<string, ConformanceCheck> = {
   'base-jsonrpc-parse-error': parseError,
+  // The same probe on stdio, as advice: a client may not write invalid JSON there (basic/transports, stdio).
+  'stdio-parse-error-advice': parseError,
   'base-unknown-method-error': unknownMethod,
   'base-response-id-matches': responseId,
   'base-invalid-params-error': invalidParams,

@@ -11,6 +11,14 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Fixed
+
+- **`plune mcp conformance`: three checks the cross-check against the official suite showed wrong** (`docs/conformance-crosscheck.md`).
+  - `http-modern-get-delete-405` and `mod-no-session-id` find a dual-era server that names only `2026-07-28` in `server/discover` but answers an `initialize` sent as a `2025-11-25` client sends it, and are `not-applicable` for it, as their catalog entries say.
+  - `mod-meta-required-fields` and `mod-unsupported-version` send their probes on a connection of their own. A dual-era server that keeps a stdio process in the legacy era after a request without a protocol version no longer changes what later checks read, so a full run gives each check the verdict it gets alone.
+  - `base-jsonrpc-parse-error` is a requirement over HTTP only. On stdio the client "MUST NOT write anything to the server's stdin that is not a valid MCP message", so the same probe there is the advice `stdio-parse-error-advice`, outside the score.
+- **`scripts/conformance-crosscheck.mjs`** runs every process in an empty `work/` folder, never in the folder of the third-party packages (`packages/`). Both sides check one revision (`--revision`, default `2025-11-25`), and the official suite runs with `--suite all` and saves each scenario's `checks.json` under `official/`.
+
 ### Added
 
 - **`plune ingest` uploads a Cairn run's recordings with its proposals.** For a run recorded with `--screencast`, each case's video (`.webm`) and trace go to what the ingest made of the case: the proposal in the review queue, so a reviewer watches it before approving (the platform moves the files to the result on approval), or the result of a case approved before. Cases are matched by the `stableId` Cairn writes into `screencasts/screencasts.json`; a recording that names no case stays behind. A file over 100 MiB is skipped, and every file that does not go is a line under the counters: no file ever fails the ingest or changes its exit code. A platform that does not say what each case became is told nothing, with one line saying the files were not uploaded; a repeat ingest of the same run sends only the files its proposal or result does not hold yet. A path that leads out of the run directory, by its text or through a symlink or junction, is not uploaded. Matching needs a Cairn release that writes the `stableId` annotation (after 0.11.0). The uploads use the reporter's file machinery (bucket link, PUT, complete, or the platform's own route without a bucket, where a video or a trace has no place), four at a time.

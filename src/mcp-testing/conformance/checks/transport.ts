@@ -22,7 +22,7 @@ import {
 } from '../raw-http.js';
 import type { ConformanceCheck, ConformanceContext } from './index.js';
 import { CLIENT, modernMeta } from './modern/meta.js';
-import { dualEra, failed, isObject, nextId, notOffered, passed, prerequisite, some, supportedVersions } from './wire.js';
+import { failed, isObject, nextId, notOffered, passed, prerequisite, some, supportedVersions } from './wire.js';
 
 const ACCEPT = 'application/json, text/event-stream';
 /** How long a stream is watched for its end once the response came on it. */
@@ -361,13 +361,46 @@ const getStreamOr405: ConformanceCheck = async (ctx) => {
   };
 };
 
-const modernGetDelete405: ConformanceCheck = async (ctx) => {
-  if (dualEra(ctx))
-    return {
-      state: 'not-applicable',
-      reason: 'era',
-      actual: `server/discover names ${some(supportedVersions(ctx))}: the server serves the legacy era as well (dual-era).`,
+/**
+ * Why a server of a modern run serves the legacy era as well (dual-era), or undefined when it does not: server/discover
+ * names a revision before 2026-07-28, or an initialize sent as a 2025-11-25 client sends it (no MCP-Protocol-Version,
+ * no modern _meta) is answered with an initialize result. A server may name 2026-07-28 only and still answer it. Asked
+ * once per run; a session the probe opened is ended with a DELETE.
+ */
+export function servesLegacy(ctx: ConformanceContext): Promise<string | undefined> {
+  return ctx.memo('serves legacy', async () => {
+    const named = supportedVersions(ctx).filter((v) => v < '2026-07-28');
+    if (named.length > 0) return `server/discover names ${some(supportedVersions(ctx))}`;
+    const t = target(ctx);
+    const id = nextId();
+    const params = { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: CLIENT };
+    const req: RawRequest = {
+      method: 'POST',
+      headers: [
+        ['Content-Type', 'application/json'],
+        ['Accept', ACCEPT],
+      ],
+      body: JSON.stringify({ jsonrpc: '2.0', id, method: 'initialize', params }),
     };
+    const res = await rawRequest(t, req).catch(() => undefined);
+    if (res === undefined) return undefined;
+    const sid = header(res.headers, 'mcp-session-id');
+    if (sid !== undefined)
+      await rawRequest(t, { method: 'DELETE', headers: [['Mcp-Session-Id', sid], ['MCP-Protocol-Version', '2025-11-25']] }, { headersOnly: true }).catch(
+        () => undefined,
+      );
+    const frame = frameOf(res, id);
+    const result = isObject(frame) ? frame['result'] : undefined;
+    return isObject(result) && typeof result['protocolVersion'] === 'string'
+      ? `initialize sent as a 2025-11-25 client answered protocolVersion ${result['protocolVersion']}`
+      : undefined;
+  });
+}
+
+const modernGetDelete405: ConformanceCheck = async (ctx) => {
+  const legacy = await servesLegacy(ctx);
+  if (legacy !== undefined)
+    return { state: 'not-applicable', reason: 'era', actual: `${legacy}: the server serves the legacy era as well (dual-era).` };
   const s = await session(ctx);
   if (isOutcome(s)) return s;
   const got = [await bare(ctx, s, 'GET'), await bare(ctx, s, 'DELETE')];
