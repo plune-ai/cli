@@ -138,7 +138,19 @@ const rowResultSchema = z.object({
       }),
       collection: z.enum(['complete', 'partial']),
       /** Heuristic findings, never a verdict. Optional and additive. */
-      advice: z.array(z.object({ type: z.string(), reason: z.string() })).optional(),
+      advice: z
+        .array(
+          z.object({
+            type: z.string(),
+            reason: z.string(),
+            tool: z.string().optional(),
+            steps: z.array(z.number()).optional(),
+            count: z.number().optional(),
+            paths: z.array(z.string()).optional(),
+          }),
+        )
+        .optional(),
+      description_overrides: z.array(z.object({ tool: z.string(), sha256: z.string() })).optional(),
     })
     .optional(),
 });

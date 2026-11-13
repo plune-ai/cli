@@ -20,7 +20,7 @@ import {
 } from '../../orchestrator/index.js';
 import type { Cache } from '../../cache/index.js';
 import type { Config } from '../../types/config.js';
-import type { RunResult } from '../../types/results.js';
+import type { AgentRecord, RunResult } from '../../types/results.js';
 
 // Used for --dry-run so the run never opens/creates the cache file (FR-8).
 const NOOP_CACHE: Cache = { get: () => undefined, set: () => {}, delete: () => {}, clear: () => {}, close: () => {} };
@@ -46,6 +46,48 @@ export interface RunOptions {
   cacheMaxAgeMs?: number;
   /** `--runs`: every row runs this many times (1–100), over `runs` in the config. */
   runs?: number;
+  /** `--tool-description`, each as typed: `<tool>=<text>` or `<tool>=@<file>`. */
+  toolDescription?: string[];
+}
+
+/** The most of one description the model is shown from `--tool-description`: it goes into every request. */
+export const MAX_DESCRIPTION_BYTES = 64 * 1024;
+
+/** `--tool-description` values to tool name → text; a bad one is a config error (exit 2). `@file` is read from the working directory. */
+export function parseToolDescriptions(values: string[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const v of values) {
+    const eq = v.indexOf('=');
+    const tool = eq < 0 ? '' : v.slice(0, eq).trim();
+    let text = eq < 0 ? '' : v.slice(eq + 1);
+    if (tool === '' || text === '')
+      throw new RunConfigError(
+        `--tool-description must be <tool>=<text> or <tool>=@<file> (got "${tool === '' ? v : tool + '='}")`,
+      );
+    if (Object.hasOwn(out, tool))
+      throw new RunConfigError(`--tool-description names "${tool}" twice`);
+    if (text.startsWith('@')) {
+      const file = text.slice(1);
+      try {
+        const full = path.resolve(file);
+        const stat = fs.statSync(full);
+        if (!stat.isFile())
+          throw new RunConfigError(`--tool-description ${tool}: ${file} is not a file`);
+        // Checked before the read, so a huge file is never loaded.
+        if (stat.size > MAX_DESCRIPTION_BYTES)
+          throw new RunConfigError(`--tool-description ${tool}: ${file} is over 64 KB`);
+        text = fs.readFileSync(full, 'utf8').replace(/\r?\n$/, '');
+      } catch (err) {
+        if (err instanceof RunConfigError) throw err;
+        throw new RunConfigError(`--tool-description ${tool}: cannot read ${file}`);
+      }
+      if (text === '') throw new RunConfigError(`--tool-description ${tool}: ${file} is empty`);
+    }
+    if (Buffer.byteLength(text, 'utf8') > MAX_DESCRIPTION_BYTES)
+      throw new RunConfigError(`--tool-description ${tool}: the text is over 64 KB`);
+    out[tool] = text;
+  }
+  return out;
 }
 
 /** `PLUNE_MOCK_SCRIPT`: the scripted model steps of an agentic eval under the mock provider; a config error if unreadable. */
@@ -133,6 +175,10 @@ export async function handleRun(
   // Advice, never a gate: it does not change the exit code.
   for (const warning of mcpSecretWarnings(config)) process.stderr.write(`warning: ${warning}\n`);
 
+  const toolDescriptions =
+    options.toolDescription !== undefined && options.toolDescription.length > 0
+      ? parseToolDescriptions(options.toolDescription)
+      : undefined;
   const factory = depsFactory ?? ((c, d) => buildRealDeps(c, d, options.dryRun));
   const deps = factory(config, baseDir);
   try {
@@ -152,9 +198,24 @@ export async function handleRun(
         ...(options.cacheStrict === true ? { cacheStrict: true } : {}),
         ...(options.cacheMaxAgeMs !== undefined ? { cacheMaxAgeMs: options.cacheMaxAgeMs } : {}),
         ...(options.runs !== undefined ? { runs: options.runs } : {}),
+        ...(toolDescriptions !== undefined ? { toolDescriptions } : {}),
       },
       deps,
     );
+    // A name no row's server offered changed nothing: said, so an experiment is not read as run when it was not.
+    for (const tool of Object.keys(toolDescriptions ?? {})) {
+      const used = result.evals.some((ev) =>
+        ev.rows.some((r) =>
+          ((r.agent as AgentRecord | undefined)?.description_overrides ?? []).some(
+            (o) => o.tool === tool,
+          ),
+        ),
+      );
+      if (!used && !options.dryRun)
+        process.stderr.write(
+          `warning: --tool-description ${tool}: no row offered a tool of that name, nothing was replaced\n`,
+        );
+    }
     if (options.dryRun) {
       const agentic = new Set(config.evals.filter((ev) => ev.mcp !== undefined).map((ev) => ev.id));
       if (result.evals.some((ev) => agentic.has(ev.id)))

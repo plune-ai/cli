@@ -69,3 +69,81 @@ describe('diff output never leaks secrets (NFR-2, AC-5.3)', () => {
     }
   });
 });
+
+describe('CLI · diff · advice · the advice sections show names and numbers, never row content or the environment (AC-12)', () => {
+  it('CLI · diff · advice · repeats, arguments, results and the environment are not echoed in any format', async () => {
+    const { adviceFor } = await import('../../diff/advice.js');
+    process.env['OPENROUTER_API_KEY'] = SECRET;
+    const side = (passed: number, swap: boolean): RunResult => {
+      const agent = {
+        server: 'fx',
+        tools: [],
+        steps: [
+          {
+            index: 1,
+            text: SECRET,
+            usage: { input_tokens: 0, output_tokens: 0, cost_usd: 0 },
+            calls: [
+              {
+                id: 'c',
+                name: 'search',
+                args: { token: SECRET },
+                executed: true,
+                is_error: false,
+                result: { text: `{"id":"${SECRET}"}`, bytes: 10, truncated: false },
+              },
+            ],
+          },
+        ],
+        stop: { reason: 'complete' as const },
+        collection: 'complete' as const,
+        advice: [{ type: 'search-after-id', reason: 'x', tool: 'search', paths: ['items[].id'] }],
+        ...(swap ? { description_overrides: [{ tool: 'search', sha256: 'f'.repeat(64) }] } : {}),
+      };
+      const e: EvalResult = {
+        id: 'a',
+        tags: [],
+        passed: true,
+        measured: {
+          runs: 10,
+          rows: 1,
+          rows_hash: 'r',
+          assertions_hash: 'c',
+        },
+        rows: [
+          {
+            vars: { q: SECRET },
+            output: SECRET,
+            cached: false,
+            assertions: [{ type: 'exact-match', passed: true }],
+            agent,
+            attempts: {
+              runs: 10,
+              pass_threshold: 0.1,
+              passed,
+              failed: 10 - passed,
+              errored: 0,
+              results: Array.from({ length: 10 }, (_, i) => ({
+                output: SECRET,
+                cached: false,
+                assertions: [{ type: 'first-tool', passed: i < passed, reason: SECRET }],
+              })),
+            },
+          },
+        ],
+      };
+      return run([e]);
+    };
+    const baseline = side(9, false);
+    const current = side(3, true);
+    const advice = adviceFor(baseline, current)!;
+    expect(advice.experiment!.evals).toHaveLength(1);
+    expect(advice.evals[0]!.comparison!.word).toBe('worse');
+    const d = { ...diffRuns(baseline, current), advice };
+    for (const fmt of ['console', 'json', 'markdown'] as const) {
+      const text = renderDiff(d, fmt);
+      expect(text, fmt).toContain('worse');
+      expect(text, fmt).not.toContain(SECRET);
+    }
+  });
+});

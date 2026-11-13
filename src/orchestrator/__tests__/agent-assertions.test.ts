@@ -127,9 +127,20 @@ describe('CLI · run · agent loop · tool-call assertions', () => {
     const r = await runWith([{ type: 'no-repeated-call', tool: 'nope' }], REPEAT);
     const row = r.evals[0]!.rows[0]!;
     expect(row.error).toBeUndefined();
+    // The check names another tool, so it does not cover `echo`: that repeat is still told as a friction signal.
     expect(adviceOf(row)).toEqual([
       { type: 'no-repeated-call', reason: expect.stringMatching(/"nope"/) as unknown },
+      expect.objectContaining({ type: 'identical-retry', tool: 'echo' }),
     ]);
+  });
+
+  it('CLI · run · friction · without no-repeated-call a repeat is an identical-retry; with it, only no-repeated-call tells it', async () => {
+    const without = await runWith([{ type: 'tool-called', tool: 'echo' }], REPEAT);
+    expect(adviceOf(without.evals[0]!.rows[0]!).map((a) => a.type)).toEqual(['identical-retry']);
+    const withIt = await runWith([{ type: 'no-repeated-call' }], REPEAT);
+    expect(adviceOf(withIt.evals[0]!.rows[0]!).map((a) => a.type)).toEqual(['no-repeated-call']);
+    const named = await runWith([{ type: 'no-repeated-call', tool: 'echo' }], REPEAT);
+    expect(adviceOf(named.evals[0]!.rows[0]!).map((a) => a.type)).toEqual(['no-repeated-call']);
   });
 
   it('CLI · run · agent loop · tool-call assertions · max_steps: 1 and tool-not-called: errored ASSERTION_UNMEASURED, exit 2 (AC-3)', async () => {
