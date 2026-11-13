@@ -49,14 +49,16 @@ interface BatchItem {
 }
 
 /** What a result's file is to the platform: a picture, a text — each with limits of its own — or any other file (a trace, a video), which only a bucket takes. */
-type Kind = 'screenshot' | 'text' | 'file';
+export type Kind = 'screenshot' | 'text' | 'file';
 
 /**
  * A file on its way: the result it goes to, its kind, the name and type it goes by, and where the bytes
  * are — on this machine at `path`, or in `body` where a test attached them from memory.
  */
-interface Upload {
+export interface Upload {
+  /** The result's id — or the review item's, with `owner: 'review-items'` (one file a request: the bulk routes take results only). */
   id: string;
+  owner?: 'review-items';
   kind: Kind;
   name: string;
   type: string;
@@ -318,80 +320,26 @@ function chunk<T>(items: readonly T[], size: number): T[][] {
   return out;
 }
 
-/**
- * Start a run, or join the one that already carries this key.
- *
- * `expected` — one list of candidate identifiers per test the runner knows about — is used twice
- * on purpose. It becomes `configuration.expected`, from which the platform derives what never ran
- * (AC-09); and it is the input to the single up-front resolve, so the per-test path afterwards is
- * a map lookup rather than a request (AC-10). A runner that cannot enumerate its tests passes
- * nothing and resolves lazily on the first flush — same function, later moment.
- */
-/** As much of the run as the reporter reads back — enough to tell a stored field from a dropped one. */
-interface RunEcho {
-  id: string;
-  title?: string | null;
-  environment?: string | null;
-  labels?: string[] | null;
+/** What the file machinery needs from whoever owns the files: a run's session, or an ingest's proposals and results. */
+export interface FileSenderOptions {
+  client: PlatformClient;
+  log: (line: string) => void;
+  /** Counted into, by kind. */
+  stats: Pick<RunStats, 'screenshots' | 'textFiles' | 'otherFiles'>;
+  uploadsAtOnce: number;
+  uploadRetries: number;
+  /** How a line about a file that did not go ends: what stands without it. */
+  without?: string;
 }
 
 /**
- * Say so when a deployment took the run's description and kept none of it.
- *
- * This is the failure the run's title, environment and label fields exist to end, and it is the
- * one the client can see and the server cannot:
- * a deployment older than those columns validates the body, stores what it knows, and answers 201.
- * Nothing about that is distinguishable from success — which is exactly why the reporter refused
- * these variables out loud before there was anywhere to put them.
- *
- * Only when EVERY field we sent came back empty. A joiner is told a title it did not set, and the
- * platform keeps the first shard's — so one field disagreeing is the rule working, not a gap.
+ * The files of results (or of an ingest's proposals): asked about, PUT to a bucket and completed, or sent to the platform's own
+ * route — in bulk where the platform has the bulk routes, a request or three per file where it does not. One machine for
+ * every caller, so the rules about which file goes where are written once.
  */
-function warnIfDropped(
-  sent: { title?: string; environment?: string; labels?: string[] },
-  run: RunEcho,
-  log: (line: string) => void,
-): void {
-  const names = Object.keys(sent) as (keyof typeof sent)[];
-  if (names.length === 0) return;
-  if (names.some((name) => run[name] != null)) return;
-
-
-  log(
-    `plune: this deployment stored none of ${names.join(', ')} — it is older than the fields. ` +
-      'The run is otherwise reported in full.',
-  );
-}
-
-export async function startRun(
-  passed: ReporterConfig,
-  declared?: readonly (readonly KeyRef[])[],
-): Promise<RunSession> {
-  // A committed config cannot know the run key of a job that does not exist yet, so the environment
-  // fills what the caller left open. Explicitly PASSED wins — but an explicit `undefined` does not:
-  // that is a caller spreading an optional field, not a decision to unset one.
-  const env = readEnv();
-  // A typo here must not turn into a run that never closes: refuse before anything is sent.
-  if (env.shardError !== undefined) throw new Error(env.shardError);
-  // A caller that states the combination (a replay, from its line) never reads the variable, so a typo in it is not theirs.
-  if (env.configurationError !== undefined && passed.configuration === undefined) throw new Error(env.configurationError);
-  const stated = Object.fromEntries(Object.entries(passed).filter(([, v]) => v !== undefined));
-  const cfg: ReporterConfig = { ...env.config, ...stated };
-  /** The combination every batch names; `{}` names none, and the platform takes a batch with at least one group. */
-  const configuration = cfg.configuration !== undefined && Object.keys(cfg.configuration).length > 0 ? cfg.configuration : undefined;
-
-  const log = cfg.log ?? ((line: string) => void process.stderr.write(`${line}\n`));
-  const fallbackPath = cfg.fallbackPath ?? DEFAULT_FALLBACK_PATH;
-  const externalKey = cfg.externalKey ?? null;
-  /** Made once, and written on every line this session defers: what tells `plune run report` that they are one run's (cli#45). */
-  const sessionMarker = randomUUID();
-  const batchSize = Math.min(cfg.batchSize ?? BATCH_DEFAULT, BATCH_MAX);
-  const offerDiscovered = cfg.offerDiscovered ?? false;
-
-  const token = cfg.token ?? loadToken() ?? '';
-  /** Files in flight at once: with a round trip per file, this is what a suite of screenshots waits on. */
-  const uploadsAtOnce = Math.min(Math.max(Math.floor(cfg.uploadConcurrency ?? UPLOAD_CONCURRENCY.default), UPLOAD_CONCURRENCY.min), UPLOAD_CONCURRENCY.max);
-  const uploadRetries = Math.min(Math.max(Math.floor(cfg.uploadRetries ?? UPLOAD_RETRIES.default), UPLOAD_RETRIES.min), UPLOAD_RETRIES.max);
+export function fileSender(options: FileSenderOptions) {
+  const { client, log, stats, uploadsAtOnce, uploadRetries } = options;
+  const without = options.without ?? 'its result is reported without it';
   /** For the closing line about files: the retries the platform and the buckets asked for, and the time the uploads took. */
   let retried = 0;
   let uploadMs = 0;
@@ -400,56 +348,6 @@ export async function startRun(
   let existed = 0;
   /** A platform older than the bulk routes has none (404, no JSON): the files go one request each, as before. Decided by the answer, not by a version. */
   let batchMissing = false;
-  const client: PlatformClient = createClient({
-    apiUrl: resolveApiUrl(cfg.apiUrl),
-    token,
-    uploadRetries,
-    onRetry: () => void (retried += 1),
-    ...(cfg.fetchImpl !== undefined ? { fetchImpl: cfg.fetchImpl } : {}),
-  });
-
-  const stats: RunStats = {
-    accepted: 0,
-    duplicate: 0,
-    conflict: 0,
-    rejected: 0,
-    unresolved: 0,
-    offered: 0,
-    created: 0,
-    unoffered: 0,
-    deferred: 0,
-    screenshots: { uploaded: 0, skipped: 0, failed: 0 },
-    textFiles: { uploaded: 0, skipped: 0, failed: 0 },
-    otherFiles: { uploaded: 0, skipped: 0, failed: 0 },
-  };
-  /** `null` records a key we already asked about and the platform did not know — asking twice
-   * would cost a request to learn the same thing. */
-  const resolved = new Map<KeyId, string | null>();
-  let buffer: PendingResult[] = [];
-  /**
-   * Tests that resolved to nothing, held until the run ends.
-   *
-   * Accumulated rather than offered per batch for one reason: a retried test appears several times,
-   * and a queue that grew a row per attempt would be unusable by the second flaky suite. Keyed by
-   * the first key as sent - a retry carries the same keys - so a repeat replaces rather than adds.
-   * The platform names the test by its highest-ranked key instead; `held` below answers to that.
-   */
-  const discoveries = new Map<KeyId, DiscoveredTest>();
-  /**
-   * The results behind `discoveries`, by each of their keys: a case the platform creates from an offer gets its result recorded,
-   * and the platform names that test by its highest-ranked key, which need not be the first one sent (cli#156).
-   */
-  const held = new Map<KeyId, PendingResult>();
-  /** Cases created from an offer, and how many of them have a result delivered; the summary says "recorded" only when they match. */
-  let createdWithResult = 0;
-  let createdUndelivered = 0;
-  let runId: string | null = null;
-  let joined = false;
-  /** Set once the platform has told us it will not accept anything more from this process. */
-  let offline = token === '';
-  let done = false;
-  /** Names shortened to fit a key or a title, by original value — said once, counted once. */
-  const shortened = new Set<string>();
   /** Why files stayed behind, as far as it has been said — once per reason and kind; the summary counts them all. */
   const skipsSaid = new Set<string>();
   const countsOf = (kind: Kind) => (kind === 'text' ? stats.textFiles : kind === 'file' ? stats.otherFiles : stats.screenshots);
@@ -466,260 +364,6 @@ export async function startRun(
   /** How many more files of a kind the route of the database takes for a result — by result and kind. */
   const rooms = new Map<string, number>();
 
-  function bound(keys: readonly KeyRef[]): KeyRef[] {
-    return keys.map((key) => {
-      const fit = boundKey(key);
-      if (fit !== key && !shortened.has(key.value)) {
-        shortened.add(key.value);
-        if (shortened.size === 1) {
-          log(
-            `plune: a test name longer than ${KEY_MAX} characters was shortened to fit its key — ` +
-              `${JSON.stringify(printable(key.value.slice(0, 80)))}… Give the test a shorter name; until then this is its identity.`,
-          );
-        }
-      }
-      return fit;
-    });
-  }
-  const expected = declared?.map(bound);
-
-  if (offline) {
-    log('plune: no API token — run "plune login" first. Results will be written to the fallback file.');
-  }
-  for (const warning of env.warnings) log(`plune: ${warning}`);
-  if (env.ignored.length > 0) {
-    // Said out loud rather than dropped: a run has nowhere to store these yet, and a caller who
-    // set them would otherwise have every reason to believe they arrived.
-    log(`plune: ignoring ${env.ignored.join(', ')} — a run has nowhere to store them yet.`);
-  }
-
-  function defer(results: DeferredResult[]): void {
-    appendBatch(fallbackPath, {
-      runId,
-      externalKey,
-      session: sessionMarker,
-      ...(cfg.meta !== undefined ? { meta: cfg.meta } : {}),
-      ...(configuration !== undefined ? { configuration } : {}),
-      results: results.map(onDisk),
-    });
-    stats.deferred += results.length;
-  }
-
-  /** Ask the platform about every key we have not asked about yet. */
-  async function resolveKeys(values: readonly KeyRef[]): Promise<void> {
-    const unknown = values.filter((k) => !resolved.has(keyId(k)));
-    // Deliberately not gated on a run: `/v1/test-cases/resolve` is about cases, not runs, and
-    // needing the run first is what made the run's own configuration unusable (see below).
-    if (unknown.length === 0 || offline) return;
-
-    for (const part of chunk(unknown, RESOLVE_CHUNK)) {
-      const out = await client.post<{ results: { key: KeyRef; testCaseId: string | null }[] }>(
-        '/v1/test-cases/resolve',
-        { keys: part },
-      );
-      // A 2xx without its list is no answer either.
-      if (!out.ok || !Array.isArray(out.body?.results)) {
-        // Not fatal: an unresolved key defers its result rather than losing it.
-        log(`plune: could not look up test cases (${out.ok ? 'the answer had no results' : out.detail || out.kind}).`);
-        return;
-      }
-      for (const row of out.body.results) {
-        // A row with no key names no test: its result stays unanswered, and so deferred.
-        if (typeof row?.key?.value === 'string') resolved.set(keyId(row.key), row.testCaseId);
-      }
-    }
-  }
-
-  /**
-   * Look every test up FIRST, then start the run — and that order is the whole point.
-   *
-   * `configuration.expected` is what the platform derives `notRun` from, and it can only match an
-   * entry it can identify. Built before the lookup, it could carry nothing but a raw external key,
-   * and a project whose cases are keyed some other way got an empty `notRun` while its results
-   * landed perfectly — a crashed shard would have looked exactly like a green run. Resolving first
-   * costs nothing (the lookup is about cases, not runs) and lets each entry name its actual case.
-   */
-  if (!offline) {
-    if (expected !== undefined) await resolveKeys(expected.flat());
-
-    const stated = expected?.slice(0, EXPECTED_MAX) ?? [];
-    const configuration =
-      stated.length === 0
-        ? undefined
-        : {
-            expected: stated.flatMap<ExpectedEntry>((keys) => {
-              const hit = keys.map((k) => resolved.get(keyId(k))).find((v) => typeof v === 'string');
-              if (typeof hit === 'string') return [{ testCaseId: hit }];
-              // Unresolved: say what we know rather than dropping the entry. The platform cannot
-              // count it, but the run still declares how many tests it meant to run.
-              return keys[0] === undefined ? [] : [{ externalKey: keys[0] }];
-            }),
-            // The claim travels with the list it is about. A runner that could not enumerate
-            // its tests has no list, and a claim without one is nothing the platform can check —
-            // so it is not sent, rather than sent and silently meaningless.
-            ...(cfg.full === true ? { full: true } : {}),
-          };
-    if (expected !== undefined && expected.length > EXPECTED_MAX) {
-      log(`plune: ${expected.length} tests is more than the run configuration holds — reporting the first ${EXPECTED_MAX}.`);
-    }
-
-    // Sent as they are — the platform states the limits and refuses what exceeds them by
-    // name, and its refusal costs no results: the run fails to start, this says why, and every
-    // result goes to the fallback file. A second copy of the caps here would only drift.
-    const described = {
-      ...(cfg.title !== undefined ? { title: cfg.title } : {}),
-      ...(cfg.environment !== undefined ? { environment: cfg.environment } : {}),
-      ...(cfg.labels !== undefined ? { labels: cfg.labels } : {}),
-    };
-
-    const request = {
-      schemaVersion: 2,
-      kind: cfg.kind ?? 'automated',
-      ...(externalKey !== null ? { externalKey } : {}),
-      ...(cfg.meta !== undefined ? { meta: cfg.meta } : {}),
-      ...(configuration !== undefined ? { configuration } : {}),
-      // Named even when nobody named it — the list has to read without opening a row. Only what
-      // the caller DESCRIBED goes to `warnIfDropped` below: a title this side invented is not one
-      // a person will miss, and a deployment older than the field must not be nagged on every run.
-      title: defaultRunTitle(),
-      ...described,
-    };
-    let start = await client.post<{ run: RunEcho; joined: boolean }>('/v1/runs', request);
-
-    // The one refusal that is worth a second start. A 413 is the run being too large to keep, and the
-    // list of expected tests is nearly all of a start's bytes: over the 1 MiB a run keeps, 9 512 results of the
-    // platform's own CI went to a fallback file the job then deleted. Without the list the run still takes every
-    // result; what it loses is said here — no not-run count, and no full-run claim, which travels with the list.
-    // The limit stays the platform's to state: this reacts to its refusal rather than copying the number.
-    if (!start.ok && start.status === 413 && configuration !== undefined) {
-      log(
-        `plune: the platform refused the run's list of expected tests as too large (${start.detail || start.kind}) — ` +
-          'starting without it: the results still land, but this run counts no tests that did not run, and claims no full run.',
-      );
-      start = await client.post<{ run: RunEcho; joined: boolean }>('/v1/runs', { ...request, configuration: undefined });
-    }
-
-    if (start.ok && typeof start.body?.run?.id === 'string') {
-      runId = start.body.run.id;
-      joined = start.status === 200;
-      warnIfDropped(described, start.body.run, log);
-    } else {
-      const why = start.ok ? 'the answer had no run' : start.detail || start.kind;
-      log(`plune: could not start the run (${why}). Results will be written to ${fallbackPath}.`);
-    }
-  }
-
-  /**
-   * What the platform has told us about this result's identity.
-   *
-   * `unmatched` and `unanswered` look the same from a distance and must not be treated the same.
-   * `unmatched` means the platform looked and there is no case — the result cannot be sent, and
-   * C2's ladder decides what to do about it. `unanswered` means the lookup itself failed, so we
-   * know nothing; reporting that as unmatched would drop a result the run really produced, on
-   * the strength of a question nobody answered.
-   */
-  type Match =
-    | { kind: 'found'; testCaseId: string }
-    | { kind: 'unmatched' }
-    | { kind: 'unanswered' };
-
-  function matchFor(result: PendingResult): Match {
-    // The test named its case outright. Nothing to look up, and nothing to rank against.
-    if (result.testCaseId !== undefined) return { kind: 'found', testCaseId: result.testCaseId };
-    let unanswered = false;
-    for (const key of result.keys) {
-      const hit = resolved.get(keyId(key));
-      if (typeof hit === 'string') return { kind: 'found', testCaseId: hit };
-      if (hit === undefined) unanswered = true;
-    }
-    return unanswered ? { kind: 'unanswered' } : { kind: 'unmatched' };
-  }
-
-  /**
-   * Hold on to a test nothing resolved, if it said enough to be judged.
-   *
-   * A result missing either half is skipped in silence rather than sent with a guess: the platform
-   * requires both and would refuse the whole batch, so one thin adapter would cost every other
-   * test's offer. `unresolved` still counts it, which is the honest report — the test had no case,
-   * and this reporter had nothing to offer about it.
-   */
-  function remember(result: PendingResult): void {
-    if (!offerDiscovered) return;
-    if (result.title === undefined || result.specRef === undefined) return;
-    if (result.keys.length === 0) return;
-    const title = boundTitle(result.title);
-    if (title !== result.title) shortened.add(result.title);
-    discoveries.set(keyId(result.keys[0]!), {
-      keys: result.keys,
-      title,
-      source: result.source,
-      specRef: result.specRef,
-      rawStatus: result.rawStatus,
-    });
-    for (const key of result.keys) held.set(keyId(key), result);
-  }
-
-  /**
-   * Offer everything this run found no case for, once, as the run closes.
-   *
-   * Failure here is reported and dropped, never deferred: the fallback file replays RESULTS, and an
-   * offer is not a result — it is a question about a test the next run will ask again anyway. Writing
-   * it there would mean a replay silently posts to a different endpoint than the file promises.
-   */
-  async function offer(): Promise<void> {
-    if (discoveries.size === 0 || offline || runId === null) return;
-    const batches = chunk([...discoveries.values()], DISCOVER_MAX);
-    for (const [index, batch] of batches.entries()) {
-      const out = await client.post<{ results: DiscoveryOutcome[] }>('/v1/review-items/discovered', {
-        discovered: batch,
-        runId,
-      });
-      // A 2xx without its list is no answer either.
-      if (!out.ok || !Array.isArray(out.body?.results)) {
-        // The number that matters is not the batch that was refused — it is everything still
-        // unoffered, which is that batch plus every one behind it, because this loop stops here.
-        // Naming only the batch understates the work left by however many batches remain, and the
-        // reader has no way to see the difference: the rest were never mentioned at all.
-        stats.unoffered = batches.slice(index).reduce((n, rest) => n + rest.length, 0);
-        stats.unofferedWhy = whyUnoffered(out);
-        log(
-          `plune: could not offer ${stats.unoffered} unknown test(s) for review ` +
-            `(${out.ok ? 'the answer had no results' : out.detail || out.kind}).`,
-        );
-        return;
-      }
-      // Only what a person now has to look at. `duplicate`, `refused` and `known` are the platform
-      // saying "already handled" — reporting them as offers would make a repeat run look like new
-      // work every time, which is how a queue stops being read.
-      stats.offered += out.body.results.filter((r) => r?.outcome === 'queued').length;
-      // `created` is the opposite of work to do, and it is counted for exactly that reason: the
-      // project trusts this source, so the case exists already. Left out, a run that filled a
-      // project with two thousand cases would print "0 offered for review" and read as a run where
-      // nothing happened.
-      const made = out.body.results.filter((r) => r?.outcome === 'created');
-      stats.created += made.length;
-      // The case exists but its own result was not recorded: send it to the same run now, the way a
-      // matched result goes. Only `created` with an `id` (the new case); an older server sends none,
-      // and then nothing is sent, as before. `queued`, `duplicate`, `refused` and `known` never get here.
-      const submissions: ResultSubmission[] = [];
-      const filesByKey = new Map<string, ResultFile[]>();
-      for (const r of made) {
-        const pending = typeof r.id === 'string' && r.id !== '' && typeof r.key?.value === 'string' ? held.get(keyId(r.key)) : undefined;
-        if (pending === undefined) continue;
-        for (const key of pending.keys) held.delete(keyId(key)); // never twice in one process
-        const { keys: _keys, files, ...rest } = pending;
-        submissions.push({ ...rest, testCaseId: r.id! });
-        if (files !== undefined) filesByKey.set(pending.resultKey, files);
-      }
-      if (submissions.length > 0) {
-        const before = stats.deferred;
-        await send(submissions, filesByKey);
-        createdWithResult += submissions.length;
-        createdUndelivered += stats.deferred - before;
-      }
-    }
-  }
-
   function skip(kind: Kind, name: string, why: keyof typeof SKIPPED): void {
     countsOf(kind).skipped += 1;
     if (why === 'noStorage') noStorage += 1;
@@ -731,6 +375,9 @@ export async function startRun(
     else log(`plune: ${KINDS[kind].label} "${name}" not uploaded — ${SKIPPED[why]}.`);
   }
 
+  /** The files of the file's owner: a result's, or a review item's. */
+  const filesOf = (job: Upload): string => `/v1/${job.owner ?? 'results'}/${encodeURIComponent(job.id)}/files`;
+
   /**
    * Ask where one file goes: into the customer's bucket by a link, to the route that has
    * always taken a picture or a text, or nowhere. One file to a call: a refusal of one (a file over the
@@ -738,7 +385,7 @@ export async function startRun(
    */
   function ask(job: Upload, size: number) {
     requests += 1;
-    return client.post<{ files?: unknown[] }>(`/v1/results/${encodeURIComponent(job.id)}/files/uploads`, {
+    return client.post<{ files?: unknown[] }>(`${filesOf(job)}/uploads`, {
       files: [{ name: job.name, contentType: job.type, size }],
     }, uploadRetries);
   }
@@ -748,7 +395,7 @@ export async function startRun(
     countsOf(job.kind).failed += 1;
     if (!failedSaid.has(job.kind)) {
       failedSaid.add(job.kind);
-      log(`plune: could not upload a ${KINDS[job.kind].label} (${why}) — its result is reported without it.`);
+      log(`plune: could not upload a ${KINDS[job.kind].label} (${why}) — ${without}.`);
     }
   }
 
@@ -757,7 +404,7 @@ export async function startRun(
     countsOf(job.kind).failed += 1;
     if (codesSaid.has(code)) return;
     codesSaid.add(code);
-    log(`plune: "${job.name}" not uploaded to your bucket (${code}) — its result is reported without it.`);
+    log(`plune: "${job.name}" not uploaded to your bucket (${code}) — ${without}.`);
   }
 
   /** Why the platform's own routes would not have this file, when it is known here — better than "no bucket". */
@@ -789,7 +436,7 @@ export async function startRun(
     if (refusal !== undefined) return skip(kind, job.name, refusal);
     requests += 1;
     const out = await client.upload(
-      `/v1/results/${encodeURIComponent(job.id)}/files?name=${encodeURIComponent(job.name)}`,
+      `${filesOf(job)}?name=${encodeURIComponent(job.name)}`,
       bytes,
       job.type,
     );
@@ -1197,6 +844,412 @@ export async function startRun(
     uploadMs += Date.now() - started;
   }
 
+  return {
+    upload,
+    uploadEach,
+    onRetry: (): void => void (retried += 1),
+    get bucketSeen() {
+      return bucketSeen;
+    },
+    get noStorage() {
+      return noStorage;
+    },
+    get existed() {
+      return existed;
+    },
+    get retried() {
+      return retried;
+    },
+    get uploadMs() {
+      return uploadMs;
+    },
+    get requests() {
+      return requests;
+    },
+  };
+}
+
+/**
+ * Start a run, or join the one that already carries this key.
+ *
+ * `expected` — one list of candidate identifiers per test the runner knows about — is used twice
+ * on purpose. It becomes `configuration.expected`, from which the platform derives what never ran
+ * (AC-09); and it is the input to the single up-front resolve, so the per-test path afterwards is
+ * a map lookup rather than a request (AC-10). A runner that cannot enumerate its tests passes
+ * nothing and resolves lazily on the first flush — same function, later moment.
+ */
+/** As much of the run as the reporter reads back — enough to tell a stored field from a dropped one. */
+interface RunEcho {
+  id: string;
+  title?: string | null;
+  environment?: string | null;
+  labels?: string[] | null;
+}
+
+/**
+ * Say so when a deployment took the run's description and kept none of it.
+ *
+ * This is the failure the run's title, environment and label fields exist to end, and it is the
+ * one the client can see and the server cannot:
+ * a deployment older than those columns validates the body, stores what it knows, and answers 201.
+ * Nothing about that is distinguishable from success — which is exactly why the reporter refused
+ * these variables out loud before there was anywhere to put them.
+ *
+ * Only when EVERY field we sent came back empty. A joiner is told a title it did not set, and the
+ * platform keeps the first shard's — so one field disagreeing is the rule working, not a gap.
+ */
+function warnIfDropped(
+  sent: { title?: string; environment?: string; labels?: string[] },
+  run: RunEcho,
+  log: (line: string) => void,
+): void {
+  const names = Object.keys(sent) as (keyof typeof sent)[];
+  if (names.length === 0) return;
+  if (names.some((name) => run[name] != null)) return;
+
+
+  log(
+    `plune: this deployment stored none of ${names.join(', ')} — it is older than the fields. ` +
+      'The run is otherwise reported in full.',
+  );
+}
+
+export async function startRun(
+  passed: ReporterConfig,
+  declared?: readonly (readonly KeyRef[])[],
+): Promise<RunSession> {
+  // A committed config cannot know the run key of a job that does not exist yet, so the environment
+  // fills what the caller left open. Explicitly PASSED wins — but an explicit `undefined` does not:
+  // that is a caller spreading an optional field, not a decision to unset one.
+  const env = readEnv();
+  // A typo here must not turn into a run that never closes: refuse before anything is sent.
+  if (env.shardError !== undefined) throw new Error(env.shardError);
+  // A caller that states the combination (a replay, from its line) never reads the variable, so a typo in it is not theirs.
+  if (env.configurationError !== undefined && passed.configuration === undefined) throw new Error(env.configurationError);
+  const stated = Object.fromEntries(Object.entries(passed).filter(([, v]) => v !== undefined));
+  const cfg: ReporterConfig = { ...env.config, ...stated };
+  /** The combination every batch names; `{}` names none, and the platform takes a batch with at least one group. */
+  const configuration = cfg.configuration !== undefined && Object.keys(cfg.configuration).length > 0 ? cfg.configuration : undefined;
+
+  const log = cfg.log ?? ((line: string) => void process.stderr.write(`${line}\n`));
+  const fallbackPath = cfg.fallbackPath ?? DEFAULT_FALLBACK_PATH;
+  const externalKey = cfg.externalKey ?? null;
+  /** Made once, and written on every line this session defers: what tells `plune run report` that they are one run's (cli#45). */
+  const sessionMarker = randomUUID();
+  const batchSize = Math.min(cfg.batchSize ?? BATCH_DEFAULT, BATCH_MAX);
+  const offerDiscovered = cfg.offerDiscovered ?? false;
+
+  const token = cfg.token ?? loadToken() ?? '';
+  /** Files in flight at once: with a round trip per file, this is what a suite of screenshots waits on. */
+  const uploadsAtOnce = Math.min(Math.max(Math.floor(cfg.uploadConcurrency ?? UPLOAD_CONCURRENCY.default), UPLOAD_CONCURRENCY.min), UPLOAD_CONCURRENCY.max);
+  const uploadRetries = Math.min(Math.max(Math.floor(cfg.uploadRetries ?? UPLOAD_RETRIES.default), UPLOAD_RETRIES.min), UPLOAD_RETRIES.max);
+  const client: PlatformClient = createClient({
+    apiUrl: resolveApiUrl(cfg.apiUrl),
+    token,
+    uploadRetries,
+    onRetry: () => files.onRetry(),
+    ...(cfg.fetchImpl !== undefined ? { fetchImpl: cfg.fetchImpl } : {}),
+  });
+
+  const stats: RunStats = {
+    accepted: 0,
+    duplicate: 0,
+    conflict: 0,
+    rejected: 0,
+    unresolved: 0,
+    offered: 0,
+    created: 0,
+    unoffered: 0,
+    deferred: 0,
+    screenshots: { uploaded: 0, skipped: 0, failed: 0 },
+    textFiles: { uploaded: 0, skipped: 0, failed: 0 },
+    otherFiles: { uploaded: 0, skipped: 0, failed: 0 },
+  };
+  const files = fileSender({ client, log, stats, uploadsAtOnce, uploadRetries });
+  /** `null` records a key we already asked about and the platform did not know — asking twice
+   * would cost a request to learn the same thing. */
+  const resolved = new Map<KeyId, string | null>();
+  let buffer: PendingResult[] = [];
+  /**
+   * Tests that resolved to nothing, held until the run ends.
+   *
+   * Accumulated rather than offered per batch for one reason: a retried test appears several times,
+   * and a queue that grew a row per attempt would be unusable by the second flaky suite. Keyed by
+   * the first key as sent - a retry carries the same keys - so a repeat replaces rather than adds.
+   * The platform names the test by its highest-ranked key instead; `held` below answers to that.
+   */
+  const discoveries = new Map<KeyId, DiscoveredTest>();
+  /**
+   * The results behind `discoveries`, by each of their keys: a case the platform creates from an offer gets its result recorded,
+   * and the platform names that test by its highest-ranked key, which need not be the first one sent (cli#156).
+   */
+  const held = new Map<KeyId, PendingResult>();
+  /** Cases created from an offer, and how many of them have a result delivered; the summary says "recorded" only when they match. */
+  let createdWithResult = 0;
+  let createdUndelivered = 0;
+  let runId: string | null = null;
+  let joined = false;
+  /** Set once the platform has told us it will not accept anything more from this process. */
+  let offline = token === '';
+  let done = false;
+  /** Names shortened to fit a key or a title, by original value — said once, counted once. */
+  const shortened = new Set<string>();
+
+  function bound(keys: readonly KeyRef[]): KeyRef[] {
+    return keys.map((key) => {
+      const fit = boundKey(key);
+      if (fit !== key && !shortened.has(key.value)) {
+        shortened.add(key.value);
+        if (shortened.size === 1) {
+          log(
+            `plune: a test name longer than ${KEY_MAX} characters was shortened to fit its key — ` +
+              `${JSON.stringify(printable(key.value.slice(0, 80)))}… Give the test a shorter name; until then this is its identity.`,
+          );
+        }
+      }
+      return fit;
+    });
+  }
+  const expected = declared?.map(bound);
+
+  if (offline) {
+    log('plune: no API token — run "plune login" first. Results will be written to the fallback file.');
+  }
+  for (const warning of env.warnings) log(`plune: ${warning}`);
+  if (env.ignored.length > 0) {
+    // Said out loud rather than dropped: a run has nowhere to store these yet, and a caller who
+    // set them would otherwise have every reason to believe they arrived.
+    log(`plune: ignoring ${env.ignored.join(', ')} — a run has nowhere to store them yet.`);
+  }
+
+  function defer(results: DeferredResult[]): void {
+    appendBatch(fallbackPath, {
+      runId,
+      externalKey,
+      session: sessionMarker,
+      ...(cfg.meta !== undefined ? { meta: cfg.meta } : {}),
+      ...(configuration !== undefined ? { configuration } : {}),
+      results: results.map(onDisk),
+    });
+    stats.deferred += results.length;
+  }
+
+  /** Ask the platform about every key we have not asked about yet. */
+  async function resolveKeys(values: readonly KeyRef[]): Promise<void> {
+    const unknown = values.filter((k) => !resolved.has(keyId(k)));
+    // Deliberately not gated on a run: `/v1/test-cases/resolve` is about cases, not runs, and
+    // needing the run first is what made the run's own configuration unusable (see below).
+    if (unknown.length === 0 || offline) return;
+
+    for (const part of chunk(unknown, RESOLVE_CHUNK)) {
+      const out = await client.post<{ results: { key: KeyRef; testCaseId: string | null }[] }>(
+        '/v1/test-cases/resolve',
+        { keys: part },
+      );
+      // A 2xx without its list is no answer either.
+      if (!out.ok || !Array.isArray(out.body?.results)) {
+        // Not fatal: an unresolved key defers its result rather than losing it.
+        log(`plune: could not look up test cases (${out.ok ? 'the answer had no results' : out.detail || out.kind}).`);
+        return;
+      }
+      for (const row of out.body.results) {
+        // A row with no key names no test: its result stays unanswered, and so deferred.
+        if (typeof row?.key?.value === 'string') resolved.set(keyId(row.key), row.testCaseId);
+      }
+    }
+  }
+
+  /**
+   * Look every test up FIRST, then start the run — and that order is the whole point.
+   *
+   * `configuration.expected` is what the platform derives `notRun` from, and it can only match an
+   * entry it can identify. Built before the lookup, it could carry nothing but a raw external key,
+   * and a project whose cases are keyed some other way got an empty `notRun` while its results
+   * landed perfectly — a crashed shard would have looked exactly like a green run. Resolving first
+   * costs nothing (the lookup is about cases, not runs) and lets each entry name its actual case.
+   */
+  if (!offline) {
+    if (expected !== undefined) await resolveKeys(expected.flat());
+
+    const stated = expected?.slice(0, EXPECTED_MAX) ?? [];
+    const configuration =
+      stated.length === 0
+        ? undefined
+        : {
+            expected: stated.flatMap<ExpectedEntry>((keys) => {
+              const hit = keys.map((k) => resolved.get(keyId(k))).find((v) => typeof v === 'string');
+              if (typeof hit === 'string') return [{ testCaseId: hit }];
+              // Unresolved: say what we know rather than dropping the entry. The platform cannot
+              // count it, but the run still declares how many tests it meant to run.
+              return keys[0] === undefined ? [] : [{ externalKey: keys[0] }];
+            }),
+            // The claim travels with the list it is about. A runner that could not enumerate
+            // its tests has no list, and a claim without one is nothing the platform can check —
+            // so it is not sent, rather than sent and silently meaningless.
+            ...(cfg.full === true ? { full: true } : {}),
+          };
+    if (expected !== undefined && expected.length > EXPECTED_MAX) {
+      log(`plune: ${expected.length} tests is more than the run configuration holds — reporting the first ${EXPECTED_MAX}.`);
+    }
+
+    // Sent as they are — the platform states the limits and refuses what exceeds them by
+    // name, and its refusal costs no results: the run fails to start, this says why, and every
+    // result goes to the fallback file. A second copy of the caps here would only drift.
+    const described = {
+      ...(cfg.title !== undefined ? { title: cfg.title } : {}),
+      ...(cfg.environment !== undefined ? { environment: cfg.environment } : {}),
+      ...(cfg.labels !== undefined ? { labels: cfg.labels } : {}),
+    };
+
+    const request = {
+      schemaVersion: 2,
+      kind: cfg.kind ?? 'automated',
+      ...(externalKey !== null ? { externalKey } : {}),
+      ...(cfg.meta !== undefined ? { meta: cfg.meta } : {}),
+      ...(configuration !== undefined ? { configuration } : {}),
+      // Named even when nobody named it — the list has to read without opening a row. Only what
+      // the caller DESCRIBED goes to `warnIfDropped` below: a title this side invented is not one
+      // a person will miss, and a deployment older than the field must not be nagged on every run.
+      title: defaultRunTitle(),
+      ...described,
+    };
+    let start = await client.post<{ run: RunEcho; joined: boolean }>('/v1/runs', request);
+
+    // The one refusal that is worth a second start. A 413 is the run being too large to keep, and the
+    // list of expected tests is nearly all of a start's bytes: over the 1 MiB a run keeps, 9 512 results of the
+    // platform's own CI went to a fallback file the job then deleted. Without the list the run still takes every
+    // result; what it loses is said here — no not-run count, and no full-run claim, which travels with the list.
+    // The limit stays the platform's to state: this reacts to its refusal rather than copying the number.
+    if (!start.ok && start.status === 413 && configuration !== undefined) {
+      log(
+        `plune: the platform refused the run's list of expected tests as too large (${start.detail || start.kind}) — ` +
+          'starting without it: the results still land, but this run counts no tests that did not run, and claims no full run.',
+      );
+      start = await client.post<{ run: RunEcho; joined: boolean }>('/v1/runs', { ...request, configuration: undefined });
+    }
+
+    if (start.ok && typeof start.body?.run?.id === 'string') {
+      runId = start.body.run.id;
+      joined = start.status === 200;
+      warnIfDropped(described, start.body.run, log);
+    } else {
+      const why = start.ok ? 'the answer had no run' : start.detail || start.kind;
+      log(`plune: could not start the run (${why}). Results will be written to ${fallbackPath}.`);
+    }
+  }
+
+  /**
+   * What the platform has told us about this result's identity.
+   *
+   * `unmatched` and `unanswered` look the same from a distance and must not be treated the same.
+   * `unmatched` means the platform looked and there is no case — the result cannot be sent, and
+   * C2's ladder decides what to do about it. `unanswered` means the lookup itself failed, so we
+   * know nothing; reporting that as unmatched would drop a result the run really produced, on
+   * the strength of a question nobody answered.
+   */
+  type Match =
+    | { kind: 'found'; testCaseId: string }
+    | { kind: 'unmatched' }
+    | { kind: 'unanswered' };
+
+  function matchFor(result: PendingResult): Match {
+    // The test named its case outright. Nothing to look up, and nothing to rank against.
+    if (result.testCaseId !== undefined) return { kind: 'found', testCaseId: result.testCaseId };
+    let unanswered = false;
+    for (const key of result.keys) {
+      const hit = resolved.get(keyId(key));
+      if (typeof hit === 'string') return { kind: 'found', testCaseId: hit };
+      if (hit === undefined) unanswered = true;
+    }
+    return unanswered ? { kind: 'unanswered' } : { kind: 'unmatched' };
+  }
+
+  /**
+   * Hold on to a test nothing resolved, if it said enough to be judged.
+   *
+   * A result missing either half is skipped in silence rather than sent with a guess: the platform
+   * requires both and would refuse the whole batch, so one thin adapter would cost every other
+   * test's offer. `unresolved` still counts it, which is the honest report — the test had no case,
+   * and this reporter had nothing to offer about it.
+   */
+  function remember(result: PendingResult): void {
+    if (!offerDiscovered) return;
+    if (result.title === undefined || result.specRef === undefined) return;
+    if (result.keys.length === 0) return;
+    const title = boundTitle(result.title);
+    if (title !== result.title) shortened.add(result.title);
+    discoveries.set(keyId(result.keys[0]!), {
+      keys: result.keys,
+      title,
+      source: result.source,
+      specRef: result.specRef,
+      rawStatus: result.rawStatus,
+    });
+    for (const key of result.keys) held.set(keyId(key), result);
+  }
+
+  /**
+   * Offer everything this run found no case for, once, as the run closes.
+   *
+   * Failure here is reported and dropped, never deferred: the fallback file replays RESULTS, and an
+   * offer is not a result — it is a question about a test the next run will ask again anyway. Writing
+   * it there would mean a replay silently posts to a different endpoint than the file promises.
+   */
+  async function offer(): Promise<void> {
+    if (discoveries.size === 0 || offline || runId === null) return;
+    const batches = chunk([...discoveries.values()], DISCOVER_MAX);
+    for (const [index, batch] of batches.entries()) {
+      const out = await client.post<{ results: DiscoveryOutcome[] }>('/v1/review-items/discovered', {
+        discovered: batch,
+        runId,
+      });
+      // A 2xx without its list is no answer either.
+      if (!out.ok || !Array.isArray(out.body?.results)) {
+        // The number that matters is not the batch that was refused — it is everything still
+        // unoffered, which is that batch plus every one behind it, because this loop stops here.
+        // Naming only the batch understates the work left by however many batches remain, and the
+        // reader has no way to see the difference: the rest were never mentioned at all.
+        stats.unoffered = batches.slice(index).reduce((n, rest) => n + rest.length, 0);
+        stats.unofferedWhy = whyUnoffered(out);
+        log(
+          `plune: could not offer ${stats.unoffered} unknown test(s) for review ` +
+            `(${out.ok ? 'the answer had no results' : out.detail || out.kind}).`,
+        );
+        return;
+      }
+      // Only what a person now has to look at. `duplicate`, `refused` and `known` are the platform
+      // saying "already handled" — reporting them as offers would make a repeat run look like new
+      // work every time, which is how a queue stops being read.
+      stats.offered += out.body.results.filter((r) => r?.outcome === 'queued').length;
+      // `created` is the opposite of work to do, and it is counted for exactly that reason: the
+      // project trusts this source, so the case exists already. Left out, a run that filled a
+      // project with two thousand cases would print "0 offered for review" and read as a run where
+      // nothing happened.
+      const made = out.body.results.filter((r) => r?.outcome === 'created');
+      stats.created += made.length;
+      // The case exists but its own result was not recorded: send it to the same run now, the way a
+      // matched result goes. Only `created` with an `id` (the new case); an older server sends none,
+      // and then nothing is sent, as before. `queued`, `duplicate`, `refused` and `known` never get here.
+      const submissions: ResultSubmission[] = [];
+      const filesByKey = new Map<string, ResultFile[]>();
+      for (const r of made) {
+        const pending = typeof r.id === 'string' && r.id !== '' && typeof r.key?.value === 'string' ? held.get(keyId(r.key)) : undefined;
+        if (pending === undefined) continue;
+        for (const key of pending.keys) held.delete(keyId(key)); // never twice in one process
+        const { keys: _keys, files, ...rest } = pending;
+        submissions.push({ ...rest, testCaseId: r.id! });
+        if (files !== undefined) filesByKey.set(pending.resultKey, files);
+      }
+      if (submissions.length > 0) {
+        const before = stats.deferred;
+        await send(submissions, filesByKey);
+        createdWithResult += submissions.length;
+        createdUndelivered += stats.deferred - before;
+      }
+    }
+  }
+
+
   /**
    * The result batches being sent. Up to `SEND_CONCURRENCY` at once, but only ONE until a batch has been
    * answered with counts and its files are up: a refused token, a closed run or an old platform is then met
@@ -1298,7 +1351,7 @@ export async function startRun(
       if (told.length > 0) {
         for (const k of told) stats[k] += counts![k];
         progress();
-        await upload(out.ok ? out.body?.items : undefined, filesByKey);
+        await files.upload(out.ok ? out.body?.items : undefined, filesByKey);
         answered = true;
         continue;
       }
@@ -1350,13 +1403,13 @@ export async function startRun(
     }
     const kinds = [stats.screenshots, stats.textFiles, stats.otherFiles];
     const sum = (what: 'uploaded' | 'skipped' | 'failed') => kinds.reduce((n, counts) => n + counts[what], 0);
-    if (bucketSeen) {
+    if (files.bucketSeen) {
       // One count for the files of a project with a bucket: every kind goes the same way there. Only what the
       // platform said has no bucket is labelled so; the other skips have their reasons, said above once each.
-      const other = sum('skipped') - noStorage;
+      const other = sum('skipped') - files.noStorage;
       parts.push(
         `${sum('uploaded')} file(s) uploaded to your bucket` +
-          (noStorage > 0 ? `, ${noStorage} skipped (no bucket connected)` : '') +
+          (files.noStorage > 0 ? `, ${files.noStorage} skipped (no bucket connected)` : '') +
           (other > 0 ? `, ${other} skipped` : '') +
           (sum('failed') > 0 ? `, ${sum('failed')} failed to upload` : ''),
       );
@@ -1372,12 +1425,11 @@ export async function startRun(
     if (stats.deferred > 0) parts.push(`${stats.deferred} not delivered — written to ${fallbackPath}`);
     if (shortened.size > 0) parts.push(`${shortened.size} test name(s) shortened to fit a key`);
     // What the files cost, in one line before the summary: a dropped file never fails the import, so this is where it is counted.
-    const files = [stats.screenshots, stats.textFiles, stats.otherFiles];
-    const total = (what: 'uploaded' | 'skipped' | 'failed') => files.reduce((n, counts) => n + counts[what], 0);
-    if (total('uploaded') + total('skipped') + total('failed') + existed > 0) {
+    const total = (what: 'uploaded' | 'skipped' | 'failed') => kinds.reduce((n, counts) => n + counts[what], 0);
+    if (total('uploaded') + total('skipped') + total('failed') + files.existed > 0) {
       log(
-        `plune: files — ${total('uploaded')} uploaded, ${total('skipped')} skipped, ${existed} already there (skipped), ${retried} retried, ` +
-          `${total('failed')} dropped, in ${(uploadMs / 1000).toFixed(1)} s (${uploadsAtOnce} at once, ${requests} request(s) to Plune)`,
+        `plune: files — ${total('uploaded')} uploaded, ${total('skipped')} skipped, ${files.existed} already there (skipped), ${files.retried} retried, ` +
+          `${total('failed')} dropped, in ${(files.uploadMs / 1000).toFixed(1)} s (${uploadsAtOnce} at once, ${files.requests} request(s) to Plune)`,
       );
     }
     log(`plune: ${parts.join(' · ')}`);

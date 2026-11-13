@@ -540,3 +540,55 @@ export async function readCairnRun(
     cases,
   };
 }
+
+/** A run's recordings (`--screencast`): each case's video and trace files, by its `stableId`. */
+export interface CairnSessionFiles {
+  /** Absolute paths, inside the run directory, by the case's `stableId`. */
+  byCase: Map<string, string[]>;
+  /** Recordings that name no case: a hand-written spec, a test the model did not map, or a Cairn older than the id. */
+  unmapped: number;
+  /** Paths dropped because they lead out of the run directory, by their text or through a link. */
+  outside: number;
+}
+
+/**
+ * `screencasts/screencasts.json`: per recorded test its `.webm`, its trace when one was written, and the case's `stableId`.
+ * `undefined` when the run recorded nothing or the file cannot be read: the recordings are a review aid, never a reason to
+ * refuse the run. A path that leaves the run directory is dropped and counted: this file is input, and it must not pick what
+ * is uploaded.
+ */
+export async function readCairnSessionFiles(dir: string): Promise<CairnSessionFiles | undefined> {
+  const raw = await readJson(path.join(dir, 'screencasts', 'screencasts.json'));
+  if (!Array.isArray(raw)) return undefined;
+  // Compared as the disk resolves them: a symlink or a junction (the file's, or a directory's on its way) can lead out of the run.
+  const root = await fs.realpath(dir).catch(() => path.resolve(dir));
+  const within = (p: string): boolean => {
+    const rel = path.relative(root, p);
+    return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+  };
+  let outside = 0;
+  /** The file's real path when it stays inside the run; a missing file keeps its own, and the upload says it is missing. */
+  const inside = async (p: unknown): Promise<string | undefined> => {
+    if (typeof p !== 'string' || p === '') return undefined;
+    const abs = path.resolve(root, p);
+    const real = await fs.realpath(abs).catch(() => undefined);
+    if (within(abs) && (real === undefined || within(real))) return real ?? abs;
+    outside += 1;
+    return undefined;
+  };
+  const byCase = new Map<string, string[]>();
+  let unmapped = 0;
+  for (const entry of raw) {
+    const rec = asRecord(entry);
+    const files: string[] = [];
+    for (const p of [own(rec, 'video'), own(rec, 'trace')]) {
+      const file = await inside(p);
+      if (file !== undefined) files.push(file);
+    }
+    if (files.length === 0) continue; // whatever paths it named are counted in `outside`
+    const stableId = own(rec, 'stableId');
+    if (typeof stableId !== 'string' || stableId === '') unmapped += 1;
+    else byCase.set(stableId, [...(byCase.get(stableId) ?? []), ...files]);
+  }
+  return { byCase, unmapped, outside };
+}
