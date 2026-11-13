@@ -46,7 +46,7 @@ evals:                           # required — one or more evals
 | Field | Required | Meaning |
 |-------|----------|---------|
 | `version` | yes | Schema version. Always `1`. |
-| `provider` | yes | Default model for all evals (see below). |
+| `provider` | yes | Default model for all evals: one object, or a list of models to compare (see below). |
 | `defaults.assertions` | no | Assertions run on every eval (shared checks), ahead of the eval's own. A check listed both here and in an eval runs twice (an `llm-judge` one is also paid twice). An eval that relies on these alone still writes `assertions: []`. |
 | `pricing` | no | Per-model USD price overrides used for cost reporting. |
 | `runs` | no | How many times each dataset row runs, for every eval (default `1`). See [Repeats](#repeats-runs-and-pass_threshold). |
@@ -70,6 +70,39 @@ The **API key is never in this file** — it comes from an environment variable
 
 An eval can override any of these via its own `provider:` block (a partial override — unspecified
 fields fall back to the top-level provider).
+
+### Several models: a model × eval matrix
+
+`provider` may also be a **non-empty list**. Every eval then runs once on each model, and the report
+shows a table: one row per eval, one column per model, both in the order the config lists them.
+
+```yaml
+provider:
+  - type: anthropic
+    model: claude-sonnet-5-5
+  - type: openai
+    model: gpt-4o
+    temperature: 0
+```
+
+- **One result per cell.** A cell is an eval on one model. With several models its result `id` is
+  `<eval id>@<model>` (`faq-tone@gpt-4o`) and carries a `provider` field with the `type` and `model` it
+  ran on. With one model nothing changes: the id is the eval id and there is no `provider` field. A
+  list of one model is the same as the object: same ids, same report, same `config_hash`.
+- **No duplicates.** The same `type` and `model` twice is a config error (exit `2`). So is the same model
+  name under two types, because the cell id is built from the model name.
+- **Evals cannot change the model.** With more than one model, an eval's own `provider:` may tune
+  `temperature`, `max_tokens` and the like, but setting `type` or `model` there is an error: the models come
+  from the root list.
+- **`--only <eval id>`** selects every cell of that eval; `--only tag:<tag>` selects the cells of the tagged
+  evals.
+- **Environment.** `PLUNE_TIMEOUT` and `PLUNE_MAX_RETRIES` apply to every model; `PLUNE_PROVIDER` and
+  `PLUNE_MODEL` name one model, so with a list of several they are refused (exit `2`).
+- **The judge.** An `llm-judge` check without its own `provider` is judged by the model of the cell, so each
+  model grades its own answer. `plune run` says so on stderr (a warning, not an error) for each eval that has
+  one. Give the check a `provider` to use one judge for all cells.
+- **Cost.** Each cell is priced at its own model's rates, and `--dry-run` sums them and prints the number of
+  models. A model you pay more for costs more in every eval: the matrix multiplies a run by the number of models.
 
 ## `evals[]`
 

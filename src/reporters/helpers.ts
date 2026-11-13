@@ -10,6 +10,9 @@ import { noCommands } from '../mcp-testing/report/human.js';
  */
 export const safeLine = (t: string): string => noCommands(t.replace(/\s*[\r\n]+\s*/g, ' ').trim());
 
+/** `safeLine` for a cell of a Markdown table: a `|` in it does not split the cell. */
+export const mdCell = (t: string): string => safeLine(t).replace(/\|/g, '\\|');
+
 /** Shorten `s` to at most `maxChars`, appending a marker when it was cut. */
 export function truncate(s: string, maxChars: number): string {
   if (s.length <= maxChars) return s;

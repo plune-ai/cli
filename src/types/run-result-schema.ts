@@ -191,6 +191,8 @@ const evalResultSchema = z.object({
       model: z.string().optional(),
     })
     .optional(),
+  /** The type and model of a cell of a multi-model run. Optional and additive. */
+  provider: z.object({ type: z.string(), model: z.string() }).optional(),
 });
 
 export const runResultSchema = z.object({

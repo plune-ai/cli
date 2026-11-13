@@ -290,6 +290,17 @@ export interface EvalResult {
    * diff reads as an unknown population. `schemaVersion` stays 1.
    */
   measured?: { runs: number; rows: number; rows_hash: string; assertions_hash: string; model?: string };
+  /**
+   * The type and model this result ran on. Written only when the config lists several models, where `id` is
+   * `<eval id>@<model>`; absent for a single model, whose id is the eval id. Optional and additive.
+   */
+  provider?: { type: string; model: string };
+}
+
+/** The eval id of a cell result: the result id without its `@<model>` suffix. */
+export function baseEvalId(ev: EvalResult): string {
+  const suffix = ev.provider === undefined ? '' : `@${ev.provider.model}`;
+  return suffix !== '' && ev.id.endsWith(suffix) ? ev.id.slice(0, -suffix.length) : ev.id;
 }
 
 export interface RunResult {

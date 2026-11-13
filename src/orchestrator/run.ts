@@ -544,8 +544,8 @@ export function summarize(evals: EvalResult[], durationMs: number): Summary {
 
 /** The provider of an agentic eval, once the run is known to be able to measure it; a config error otherwise. */
 function agenticProvider(
-  config: Config,
   ev: EvalConfig,
+  providerConfig: ProviderConfig,
   deps: RunDeps,
   cacheStrict: boolean,
 ): Provider {
@@ -553,7 +553,6 @@ function agenticProvider(
     throw new RunConfigError(
       `Eval "${ev.id}" uses MCP server "${ev.mcp!.server}": its tool loop is never cached, so --cache-strict cannot answer it`,
     );
-  const providerConfig: ProviderConfig = { ...config.provider, ...ev.provider };
   const provider = deps.resolveProvider(providerConfig);
   if (provider.respond === undefined)
     throw new RunConfigError(
@@ -593,17 +592,25 @@ export async function runOrchestration(
   // Pre-flight (before any provider construction): resolve every template + dataset and validate
   // every prompt. A config error (unknown variable, missing prompt_file) surfaces as exit 2 before
   // a single model call (CLI_SPEC §4.2).
+  const models = config.providers ?? [config.provider];
   const prepared = selectEvals(config.evals, options.only).map((ev) => {
     const template = resolveTemplate(ev, deps.baseDir);
     const rows = deps.loadDataset(ev.dataset, deps.baseDir);
     for (const row of rows) {
       resolvePrompt(template, row.vars);
     }
-    // An agentic eval is checked here too, so a run that cannot measure it stops before the first model call: its
+    // One cell per model: the eval run on that model. A single model is the plain eval, under its own id.
+    // An agentic cell is checked here too, so a run that cannot measure it stops before the first model call: its
     // provider must take tools, and it never comes from the cache, so --cache-strict cannot hold for it.
-    const agentic =
-      ev.mcp === undefined || dryRun ? undefined : agenticProvider(config, ev, deps, cacheStrict);
-    return { ev, template, rows, agentic };
+    const cells = models.map((model) => {
+      const providerConfig: ProviderConfig = { ...model, ...ev.provider };
+      const agentic =
+        ev.mcp === undefined || dryRun
+          ? undefined
+          : agenticProvider(ev, providerConfig, deps, cacheStrict);
+      return { providerConfig, agentic };
+    });
+    return { ev, template, rows, cells };
   });
 
   const swapped = Object.keys(options.toolDescriptions ?? {}).length > 0;
@@ -612,61 +619,69 @@ export async function runOrchestration(
       '--tool-description needs an eval with mcp in this run: no tool is offered otherwise',
     );
 
-  for (const { ev, template, rows, agentic } of prepared) {
-    const providerConfig: ProviderConfig = { ...config.provider, ...ev.provider };
-    const provider = agentic ?? deps.resolveProvider(providerConfig);
-    // Agentic rows call one server whose state they may share: one at a time unless asked otherwise.
-    const limit =
-      options.concurrency ?? providerConfig.concurrency ?? (ev.mcp !== undefined ? 1 : 4);
+  cellLoop: for (const { ev, template, rows, cells } of prepared) {
+    for (const { providerConfig, agentic } of cells) {
+      const provider = agentic ?? deps.resolveProvider(providerConfig);
+      // Agentic rows call one server whose state they may share: one at a time unless asked otherwise.
+      const limit =
+        options.concurrency ?? providerConfig.concurrency ?? (ev.mcp !== undefined ? 1 : 4);
 
-    const runs = options.runs ?? ev.runs ?? config.runs ?? 1;
-    const passThreshold = ev.pass_threshold ?? config.pass_threshold ?? 1;
-    // `defaults.assertions` apply to every eval, ahead of its own.
-    const assertions = [...(config.defaults?.assertions ?? []), ...ev.assertions];
+      const runs = options.runs ?? ev.runs ?? config.runs ?? 1;
+      const passThreshold = ev.pass_threshold ?? config.pass_threshold ?? 1;
+      // `defaults.assertions` apply to every eval, ahead of its own.
+      const assertions = [...(config.defaults?.assertions ?? []), ...ev.assertions];
 
-    const rowResults = await mapLimit(rows, limit, (row) => {
-      const params: RowParams = {
-        template,
-        assertions,
-        row,
-        providerConfig,
-        provider,
-        embedder: deps.embedder,
-        cache: deps.cache,
-        now: deps.now,
-        dryRun,
-        noCache,
-        cacheStrict,
-        ...(options.cacheMaxAgeMs !== undefined ? { cacheMaxAgeMs: options.cacheMaxAgeMs } : {}),
+      const rowResults = await mapLimit(rows, limit, (row) => {
+        const params: RowParams = {
+          template,
+          assertions,
+          row,
+          providerConfig,
+          provider,
+          embedder: deps.embedder,
+          cache: deps.cache,
+          now: deps.now,
+          dryRun,
+          noCache,
+          cacheStrict,
+          ...(options.cacheMaxAgeMs !== undefined ? { cacheMaxAgeMs: options.cacheMaxAgeMs } : {}),
+        };
+        if (ev.mcp === undefined) return runRepeats(params, runs, passThreshold);
+        const agentParams: AgentRowParams = {
+          ...params,
+          server: ev.mcp.server,
+          ...(ev.mcp.allowed_tools !== undefined ? { allowedTools: ev.mcp.allowed_tools } : {}),
+          limits: mcpLimits(config, ev),
+          ...(options.toolDescriptions !== undefined
+            ? { toolDescriptions: options.toolDescriptions }
+            : {}),
+          // A dry run connects nowhere; the loop never calls this then.
+          connect: deps.connectMcp ?? (() => Promise.reject(new Error('no MCP connection'))),
+        };
+        return runRepeats(agentParams, runs, passThreshold, runAgentRow);
+      });
+
+      // A dry run measured nothing: no eval of it passed, an eval with no rows included.
+      const passed = !dryRun && rowResults.every((r) => rowStatus(r) === 'passed');
+      // What `plune diff` needs to know two runs measured the same thing; the prompt text is not part of it.
+      const measured = {
+        runs,
+        rows: rows.length,
+        rows_hash: sha256(canonicalJson(rows.map((r) => canonicalJson(r.vars)).sort())),
+        assertions_hash: sha256(canonicalJson(assertions)),
+        model: `${providerConfig.type}/${providerConfig.model}`,
       };
-      if (ev.mcp === undefined) return runRepeats(params, runs, passThreshold);
-      const agentParams: AgentRowParams = {
-        ...params,
-        server: ev.mcp.server,
-        ...(ev.mcp.allowed_tools !== undefined ? { allowedTools: ev.mcp.allowed_tools } : {}),
-        limits: mcpLimits(config, ev),
-        ...(options.toolDescriptions !== undefined
-          ? { toolDescriptions: options.toolDescriptions }
-          : {}),
-        // A dry run connects nowhere; the loop never calls this then.
-        connect: deps.connectMcp ?? (() => Promise.reject(new Error('no MCP connection'))),
-      };
-      return runRepeats(agentParams, runs, passThreshold, runAgentRow);
-    });
-
-    // A dry run measured nothing: no eval of it passed, an eval with no rows included.
-    const passed = !dryRun && rowResults.every((r) => rowStatus(r) === 'passed');
-    // What `plune diff` needs to know two runs measured the same thing; the prompt text is not part of it.
-    const measured = {
-      runs,
-      rows: rows.length,
-      rows_hash: sha256(canonicalJson(rows.map((r) => canonicalJson(r.vars)).sort())),
-      assertions_hash: sha256(canonicalJson(assertions)),
-      model: `${providerConfig.type}/${providerConfig.model}`,
-    };
-    evalResults.push({ id: ev.id, tags: ev.tags ?? [], rows: rowResults, passed, measured });
-    // `--bail` stops on an eval that did not pass; on a dry run none failed, and every eval is priced.
-    if (options.bail === true && !dryRun && !passed) break;
+      evalResults.push({
+        id: models.length > 1 ? `${ev.id}@${providerConfig.model}` : ev.id,
+        tags: ev.tags ?? [],
+        rows: rowResults,
+        passed,
+        measured,
+        ...(models.length > 1 ? { provider: { type: providerConfig.type, model: providerConfig.model } } : {}),
+      });
+      // `--bail` stops on an eval that did not pass; on a dry run none failed, and every eval is priced.
+      if (options.bail === true && !dryRun && !passed) break cellLoop;
+    }
   }
 
   const finished = deps.now();

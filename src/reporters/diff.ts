@@ -3,7 +3,7 @@
 // sticky marker so the Action can find-and-update a single comment (AC-3.2). It carries only eval
 // ids + statuses — no row outputs, no secrets (AC-5.3). Pure; never colored.
 
-import type { RunDiff, EvalDiffStatus } from '../diff/diff.js';
+import type { RunDiff, EvalDiff, DiffMatrix, EvalDiffStatus } from '../diff/diff.js';
 import type { GateName, GateState } from '../diff/gates.js';
 import type { Waiver } from '../diff/waivers.js';
 import type { Comparison, Word } from '../diff/stats.js';
@@ -205,7 +205,68 @@ function summaryLine(d: RunDiff): string {
   ].join(' · ');
 }
 
-export function renderDiffMarkdown(d: RunDiff): string {
+/**
+ * How long the markdown diff may be, in characters, so the sticky comment is accepted. The limit of a GitHub
+ * comment body is 65,536 characters, the commonly cited figure, not confirmed by GitHub's documentation
+ * (its REST reference for issue comments states no limit). This budget stays well below it.
+ */
+export const COMMENT_BUDGET = 60_000;
+
+// Most important first: what a reader must see before anything else when the table has to be cut.
+const IMPORTANCE: EvalDiffStatus[] = [
+  'regression',
+  'errored',
+  'unmeasured',
+  'new-fail',
+  'removed',
+  'pre-existing-fail',
+  'improvement',
+  'new-pass',
+  'stable-pass',
+];
+
+const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
+
+/**
+ * The matrix of a diff of several models: only the cells that changed or still fail (a stable pass is a check
+ * mark), as whole table rows. Rows are cut, least important first, until `room` characters are enough; what was
+ * cut is counted in the last line.
+ */
+function matrixMarkdown(d: RunDiff, room: number): string[] {
+  const m = d.matrix!;
+  const rank = (e: EvalDiff | null): number => (e === null ? IMPORTANCE.length : IMPORTANCE.indexOf(e.status));
+  const listed = m.rows
+    .map((r, i) => ({ r, i, best: Math.min(...r.cells.map(rank)), changed: r.cells.filter((c) => c !== null && c.status !== 'stable-pass').length }))
+    .filter((x) => x.changed > 0);
+  const head = [`| Eval | ${m.models.map((x) => cell(x.model)).join(' | ')} |`, `| --- | ${m.models.map(() => '---').join(' | ')} |`];
+  const line = (r: DiffMatrix['rows'][number]): string =>
+    `| ${cell(r.eval)} | ${r.cells.map((c) => (c === null ? '—' : c.status === 'stable-pass' ? '✅' : BADGE[c.status])).join(' | ')} |`;
+  const stable = m.rows.flatMap((r) => r.cells).filter((c) => c?.status === 'stable-pass').length;
+  const tail = stable > 0 ? [plural(stable, 'stable pass', 'stable passes') + ' not listed', ''] : [];
+  if (listed.length === 0) return tail.length > 0 ? ['_' + tail[0] + '_', ''] : [];
+
+  // Keep rows from the most important down; the first row that does not fit ends the table.
+  const byImportance = [...listed].sort((a, b) => a.best - b.best || a.i - b.i);
+  const note = (n: number): string => `_${plural(n, 'more cell', 'more cells')} in the job summary_`;
+  const total = listed.reduce((n, x) => n + x.changed, 0);
+  const keep: typeof listed = [];
+  let used = [...head, '', ...tail].join('\n').length + note(total).length + 2;
+  for (const x of byImportance) {
+    const cost = line(x.r).length + 1;
+    if (used + cost > room) break;
+    used += cost;
+    keep.push(x);
+  }
+  const shown = keep.sort((a, b) => a.i - b.i);
+  const left = total - shown.reduce((n, x) => n + x.changed, 0);
+  return [
+    ...(shown.length > 0 ? [...head, ...shown.map((x) => line(x.r)), ''] : []),
+    ...(left > 0 ? [note(left), ''] : []),
+    ...(tail.length > 0 ? ['_' + tail[0] + '_', ''] : []),
+  ];
+}
+
+export function renderDiffMarkdown(d: RunDiff, budget: number = COMMENT_BUDGET): string {
   const out: string[] = [STICKY_MARKER, '## Plune eval diff', ''];
   const head = headline(d);
   out.push(head ? `### ${head.mark} ${capital(head.text)}` : '### ✅ No regressions');
@@ -213,7 +274,10 @@ export function renderDiffMarkdown(d: RunDiff): string {
 
   // Stable passes are summarized, not listed — only changes are worth a row.
   const notable = d.evals.filter((e) => e.status !== 'stable-pass');
-  if (notable.length > 0) {
+  if (d.matrix !== undefined) {
+    const rest = [...gatesMarkdown(d), ...adviceMarkdown(d), `_${summaryLine(d)}_`].join('\n');
+    out.push(...matrixMarkdown(d, budget - out.join('\n').length - rest.length - 2));
+  } else if (notable.length > 0) {
     out.push('| Eval | Baseline → Current | Change |');
     out.push('| --- | --- | --- |');
     for (const e of notable) {

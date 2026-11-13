@@ -270,6 +270,8 @@ export interface EvalMcpConfig {
 export interface Config {
   version: 1;
   provider: ProviderConfig;
+  /** Set only when the config lists several models, in config order; `provider` is the first of them. */
+  providers?: ProviderConfig[];
   defaults?: { assertions?: AssertionConfig[] };
   pricing?: PricingMap;
   /** Default `runs` for every eval. */

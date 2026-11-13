@@ -4,7 +4,8 @@
 
 import type { RunResult, RowResult } from '../types/results.js';
 import { adviceOf, rowStatus } from '../types/results.js';
-import { repeatsText, safeLine, truncate } from './helpers.js';
+import { mdCell, repeatsText, safeLine, truncate } from './helpers.js';
+import { buildMatrix, matrixMarkdown } from './matrix.js';
 
 const DEFAULT_MAX_OUTPUT = 500;
 const TICK = String.fromCharCode(96); // backtick
@@ -36,11 +37,16 @@ export function renderMarkdown(result: RunResult, opts: MarkdownOptions = {}): s
     out.push('| --- | --- |');
     out.push(`| Rows priced | ${summary.total} |`);
     out.push(`| Estimated cost (USD) | ${summary.cost_usd.toFixed(4)} |`);
+    const matrix = buildMatrix(result);
+    if (matrix !== undefined) {
+      out.splice(out.length - 1, 0, `| Models | ${matrix.models.length} |`);
+      out.push('', '## Estimated cost per model', '', ...matrixMarkdown(matrix, true));
+    }
     // Only a repeated row is named: its estimate is one run times `runs`.
     const repeated = result.evals.flatMap((ev) =>
       ev.rows.flatMap((row) => {
         const repeats = repeatsText(row);
-        return repeats === undefined ? [] : [`- ${ev.id} ${JSON.stringify(row.vars)}: ${repeats}`];
+        return repeats === undefined ? [] : [`- ${safeLine(ev.id)} ${JSON.stringify(row.vars)}: ${repeats}`];
       }),
     );
     if (repeated.length > 0) out.push('', ...repeated);
@@ -62,6 +68,10 @@ export function renderMarkdown(result: RunResult, opts: MarkdownOptions = {}): s
   out.push(`| Duration (ms) | ${summary.duration_ms} |`);
   out.push('');
 
+  // Only for a run of several models; a run of one reads as it always has.
+  const matrix = buildMatrix(result);
+  if (matrix !== undefined) out.push('## Model matrix', '', ...matrixMarkdown(matrix), '');
+
   // Only when some eval repeats its rows (`runs` above 1), so a report without repeats is unchanged.
   const repeated = result.evals.flatMap((ev) =>
     ev.rows.flatMap((row) =>
@@ -76,7 +86,7 @@ export function renderMarkdown(result: RunResult, opts: MarkdownOptions = {}): s
     for (const { id, row, a } of repeated) {
       const vars = JSON.stringify(row.vars).replace(/\|/g, '\\|');
       const passed = a.results.length === 0 ? `dry run × ${a.runs}` : `${a.passed}/${a.runs}`;
-      out.push(`| ${id} | ${vars} | ${passed} | ${a.pass_threshold} | ${rowStatus(row)} |`);
+      out.push(`| ${mdCell(id)} | ${vars} | ${passed} | ${a.pass_threshold} | ${rowStatus(row)} |`);
     }
     out.push('');
   }
@@ -91,7 +101,7 @@ export function renderMarkdown(result: RunResult, opts: MarkdownOptions = {}): s
     out.push('Heuristic findings: they do not change any status.');
     out.push('');
     for (const { id, row, a } of advice)
-      out.push(`- ${id} ${JSON.stringify(row.vars)}: ${safeLine(a.type)}: ${safeLine(a.reason)}`);
+      out.push(`- ${safeLine(id)} ${JSON.stringify(row.vars)}: ${safeLine(a.type)}: ${safeLine(a.reason)}`);
     out.push('');
   }
 
@@ -114,7 +124,7 @@ export function renderMarkdown(result: RunResult, opts: MarkdownOptions = {}): s
   out.push('## Failures');
   out.push('');
   for (const f of failures) {
-    out.push(`### ${f.id} — ${f.state}`);
+    out.push(`### ${safeLine(f.id)} — ${f.state}`);
     out.push(`- vars: ${JSON.stringify(f.row.vars)}`);
     if (f.row.error !== undefined) {
       out.push(`- error: ${f.row.error.message}`);
