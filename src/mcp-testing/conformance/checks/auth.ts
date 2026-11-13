@@ -629,12 +629,12 @@ const challengeMetadataUrl: ConformanceCheck = async (c) => {
  * host and a default port do not count); undefined when they are the same. A difference in the path or in a trailing
  * slash of a path is a difference.
  */
-export function resourceDifference(actual: string, expected: string, ctx?: OauthContext): string | undefined {
+export function resourceDifference(actual: string, expected: string, ctx: OauthContext): string | undefined {
   let a: URL;
   try {
     a = new URL(actual);
   } catch {
-    return `resource ${JSON.stringify(ctx === undefined ? actual.slice(0, 200) : maskedCut(ctx, actual, 200))} is not an absolute URL`;
+    return `resource ${JSON.stringify(maskedCut(ctx, actual, 200))} is not an absolute URL`;
   }
   let e: URL;
   try {
@@ -903,12 +903,12 @@ export function collectIssued(ctx: OauthContext, value: unknown, key = '', depth
     for (const [k, v] of Object.entries(value)) collectIssued(ctx, v, k, depth + 1);
 }
 
-/** `{ access_token }` from a token response, else the error the authorization server gave. */
 /** Server text for a message: masked with the secrets of the run, then cut. Cut first, a secret would be left as a prefix. */
 export function maskedCut(ctx: OauthContext, text: string, length: number): string {
   return createRedactor(ctx.secrets, { named: ctx.secrets }).text(text).slice(0, length);
 }
 
+/** `{ access_token }` from a token response, else the error the authorization server gave. */
 export async function requestToken(
   ctx: OauthContext,
   endpoint: string,

@@ -15,6 +15,7 @@ import {
   challengesOf,
   inconclusive,
   isOutcome,
+  maskedCut,
   lostStatus,
   needsAuth,
   needsInput,
@@ -91,7 +92,7 @@ const insufficientScope: ConformanceCheck = async (c) => {
   if (wrongType !== undefined)
     return with_(
       prerequisite(
-        `The token type (${JSON.stringify(wrongType.slice(0, 40))}) is not supported by this check, which sends a Bearer token: the token was not sent.`,
+        `The token type (${JSON.stringify(maskedCut(ctx, wrongType, 40))}) is not supported by this check, which sends a Bearer token: the token was not sent.`,
         [full.detail],
       ),
       1,
@@ -147,7 +148,7 @@ const insufficientScope: ConformanceCheck = async (c) => {
   if (smallType !== undefined)
     return with_(
       prerequisite(
-        `The token type (${JSON.stringify(smallType.slice(0, 40))}) is not supported by this check, which sends a Bearer token: the narrow token was not sent.`,
+        `The token type (${JSON.stringify(maskedCut(ctx, smallType, 40))}) is not supported by this check, which sends a Bearer token: the narrow token was not sent.`,
         all,
       ),
       2,

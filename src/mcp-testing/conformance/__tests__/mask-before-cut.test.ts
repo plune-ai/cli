@@ -126,5 +126,47 @@ describe('CLI · mcp conformance · a secret is masked before a message is cut',
         expect(leaks(all, CLIENT_SECRET), format).toEqual([]);
       }
     });
+
+    it.each([
+      ['the token type of the full token', { tokenType: `${'e'.repeat(30)}${CLIENT_SECRET}` }],
+      [
+        'the token type of the narrow token',
+        { narrowTokenType: `${'e'.repeat(30)}${CLIENT_SECRET}` },
+      ],
+    ])('%s is masked before it is cut (scope check)', async (_name, opts) => {
+      const s = await authFixture({ scopeRule: 'require-full', ...opts });
+      open.push(s);
+      const config = join(dir, 'scope.json');
+      writeFileSync(
+        config,
+        JSON.stringify({
+          auth: 'client-credentials',
+          registration: {
+            method: 'preregistered',
+            clientId: CLIENT_ID,
+            clientSecretEnv: 'PLUNE_TEST_MASK_SECRET',
+          },
+          scopes: ['mcp:tools', 'mcp:read'],
+          narrowScopes: ['mcp:read'],
+        }),
+      );
+      for (const format of ['json', 'human']) {
+        const all = await run(
+          {
+            format,
+            suite: ['oauth'],
+            check: ['oauth-neg-insufficient-scope'],
+            protocolVersion: '2026-07-28',
+            url: s.url,
+            config,
+            allowOrigin: [new URL(s.url).origin],
+          },
+          [],
+          { PLUNE_TEST_MASK_SECRET: CLIENT_SECRET },
+        );
+        if (format === 'json') expect(all).toContain('token type');
+        expect(leaks(all, CLIENT_SECRET), format).toEqual([]);
+      }
+    });
   });
 });

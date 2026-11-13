@@ -24,7 +24,7 @@ let counter = 0;
 /** A request id of this checker: a string, so it never meets the SDK's own numbered ones. */
 export const nextId = (): string => `plune-conformance-${++counter}`;
 
-export function answerOf(reply: RawReply, redact?: Redactor): Answer {
+export function answerOf(reply: RawReply, redact: Redactor): Answer {
   const f = reply.frame;
   const status = reply.status !== undefined ? { status: reply.status } : {};
   if (f !== undefined) {
@@ -34,7 +34,7 @@ export function answerOf(reply: RawReply, redact?: Redactor): Answer {
       return {
         kind: 'error',
         code: error['code'],
-        message: typeof error['message'] === 'string' ? (redact?.text(error['message']) ?? error['message']) : '',
+        message: typeof error['message'] === 'string' ? redact.text(error['message']) : '',
         frame: f,
         ...status,
       };
