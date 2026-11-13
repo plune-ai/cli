@@ -787,8 +787,9 @@ Checks any MCP server against the text of the specification, check by check, and
 Plune account. The protocol suite checks the handshake, the declared capabilities against the methods served,
 ping, the JSON-RPC answers to invalid JSON, an unknown method and wrong parameters, the entries and schemas of the
 tools, resources, templates and prompts lists, pagination, logging, completions, on stdio what the server
-writes to stdout and whether it exits when stdin closes, and on Streamable HTTP what the server does on the wire and
-whether a local server is protected against DNS rebinding.
+writes to stdout and whether it exits when stdin closes, on Streamable HTTP what the server does on the wire and
+whether a local server is protected against DNS rebinding, and for a server of the 2026-07-28 revision what that
+revision changed (server/discover, per-request metadata, caching hints, request headers, subscriptions).
 
 ```bash
 plune mcp conformance --list-checks                       # the catalog, no server
@@ -848,6 +849,57 @@ at most 5 seconds.
   HTTP+SSE `could-not-run` (`transport-error`). None of them is in profile `2026-11.1`, so they show their verdict and
   stay out of the score until a new profile lists them.
 
+### The 2026-07-28 revision (modern era)
+
+The revision 2026-07-28 has no handshake: every request carries its protocol version and client capabilities in
+`_meta`, and `server/discover` tells the server's versions and capabilities. With `--protocol-version auto` (the
+default) the run finds the era of the server by the rule of the specification: it first sends `server/discover` with
+2026-07-28 in `_meta` (over HTTP with the `MCP-Protocol-Version` and `Mcp-Method` headers). A `DiscoverResult`, or a
+modern error (`-32020`, `-32021`, `-32022`), means a modern server and the run is modern; any other error, an HTTP
+error without a modern error in its body, or no answer within `--timeout` means a legacy server, and the run makes
+the `initialize` handshake on a new connection. The report says which era (`era`) and why (`eraDetection`). HTTP+SSE
+is always legacy. `--protocol-version 2026-07-28` makes a modern run without the probe; `--protocol-version both`
+runs a dual-era server twice, legacy and then modern: the JSON is then a `mcp-conformance-report-set` with one full
+report per era, each with its own score, and the exit code is the worse of the two (`1` before `3` before `0`).
+
+A modern run sends no `initialize`. Its first check is `mod-discover-result`; when server/discover gives no
+capabilities, every other check is `could-not-run` (`prerequisite-failed`), as a broken handshake does for a legacy
+run. Each request carries `_meta` with `io.modelcontextprotocol/protocolVersion`, `clientInfo` (`plune-conformance`)
+and empty `clientCapabilities`; over HTTP also `MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name` (Base64 when the
+value is not plain ASCII) and, for a `--fixture` call, the `Mcp-Param-{Name}` headers of its `x-mcp-header`
+parameters. The `mod-*` checks (31) are `not-applicable` (`era`) in a legacy run, and the legacy-only checks
+(`life-initialize-result`, `life-ping-empty-result`, ...) in a modern one:
+
+- **Discovery and metadata:** server/discover answers a complete `DiscoverResult` that names the revision, and names
+  the server in `_meta` (SHOULD); a request without a required `_meta` field is `-32602`, one for revision
+  `1900-01-01` is `-32022` with `data.supported` (over HTTP both with status `400`).
+- **What the revision removed or changed:** `ping`, `logging/setLevel`, `resources/subscribe`,
+  `resources/unsubscribe` and `initialize` are `-32601` (over HTTP `404`; `initialize` goes on a connection of its own
+  and is not counted for a dual-era server); a list answers as the first request of a new connection; the lists hold
+  the same entries on a new connection; an unknown resource is `-32602`, never `-32002` or empty contents.
+- **Caching:** every complete result of server/discover, the lists (each page) and one `resources/read` has `ttlMs`
+  (an integer, 0 or more) and `cacheScope` (`"public"` or `"private"`), the same on every page of a list.
+- **Subscriptions:** one `subscriptions/listen` for one kind of notification the server declares, watched for 1.5 s:
+  the acknowledgment comes first with the subscription id; every later notification is of the kind asked for and
+  tagged (`not-applicable` when nothing changed: no notification to judge); a subscription the server ends gets a successful
+  response (SHOULD; `not-applicable` while the server keeps it open).
+- **Request headers (HTTP only):** an unknown method is `404` and `-32601`; an `MCP-Protocol-Version`, `Mcp-Method`
+  or `Mcp-Name` unlike the body, a missing one, and a wrong or missing `Mcp-Param-{Name}` (for a `--fixture` tool
+  with `x-mcp-header`) are `400` and `-32020`; header names are read in any case; a Base64 `Mcp-Name` is decoded; every
+  `x-mcp-header` declaration is valid; a modern-only server neither mints nor echoes `Mcp-Session-Id` (SHOULD). A
+  tool outside `--fixture` is never the target of a probe.
+- **The whole run, read back:** every result has a known `resultType`; no error code of `-32099`..`-32020` other than
+  the three defined, nor the retired `-32002` and `-32042`; no `notifications/message` (no request sets
+  `logLevel`); every message validates against `schema.json` of 2026-07-28, which ships with the CLI (its SHA-256 is
+  in the result).
+- `mod-undeclared-capability` reads the `--fixture` calls: a call the server cannot serve without a client
+  capability must be `-32021` with `data.requiredCapabilities`, never an input request for sampling, elicitation or
+  roots. Without `--fixture` it is `could-not-run` (`needs-input`).
+
+Where the text of the specification leaves a choice, the catalog entry (`--explain <id>`) says which reading the
+check takes. None of the `mod-*` checks is in profile `2026-11.1`: they show their verdict and stay out of the score
+until a new profile lists them.
+
 ### Options
 
 The connection flags are those of every `plune mcp` command that tests a server. The command's own:
@@ -856,7 +908,7 @@ The connection flags are those of every `plune mcp` command that tests a server.
 |--------|---------|
 | `--suite <suite>` | `protocol` (default), `oauth`, `tasks` or `apps`; repeatable. |
 | `--check <id>` | Run only this check; repeatable. An id the catalog does not have, or one outside the selected suites, is exit `2`. |
-| `--protocol-version <revision>` | The revision to check against, or `auto` (default): the one the server answered the handshake with. A check for the other era (`legacy`: up to 2025-11-25, `modern`: 2026-07-28 on) is `not-applicable` (`era`). |
+| `--protocol-version <revision>` | The revision to check against; `auto` (default): the era found by a server/discover probe, then the revision the server answered with; `both`: a legacy and a modern run of a dual-era server, each scored on its own. A check for the other era (`legacy`: up to 2025-11-25, `modern`: 2026-07-28 on) is `not-applicable` (`era`). |
 | `--format <fmt>` | `human` (default) or `json`. |
 | `--reporter junit-xml` | A bare `--out <path>` is written as JUnit XML instead of JSON. It needs an `--out`. |
 | `--out [<format>=]<path>` | Also write the result to a file, whole or not at all; repeatable. Without a format the file is JSON (JUnit with `--reporter junit-xml`); with one, `json` or `junit-xml`. As for the other commands (see [Report formats](#report-formats-of-plune-mcp-lint-check-and-diff)), the files come from one run and are written before anything is printed. |
@@ -877,7 +929,7 @@ MUST NOT or REQUIRED about that behaviour of the server; without a keyword the l
 
 Each check is `passed`, `failed`, `not-applicable` (with a reason: `era`, `capability-not-declared`, `transport`,
 `no-auth`, `not-offered`: the capability is declared but the server offers nothing the check reads, such as no
-`outputSchema`; `not-local`: a check of a local server's protection, on another host), `could-not-run` (with a reason: `timeout`, `prerequisite-failed`, `needs-input`, `transport-error`,
+`outputSchema`, or no answer over SSE for a check that reads an SSE stream when every request was answered as JSON; `not-local`: a check of a local server's protection, on another host), `could-not-run` (with a reason: `timeout`, `prerequisite-failed`, `needs-input`, `transport-error`,
 `unsupported-dialect`) or `pending`. Each also lands in one bucket of the summary, so the buckets add up to the checks:
 
 | Bucket | Holds |
@@ -908,7 +960,7 @@ The score reads only the ids of a frozen profile, written out in the source and 
 `profileId`, `profileVersion` (`2026-11.1`), `manifestDigest` (SHA-256 of the sorted ids, one per line). A check
 added to the catalog later runs and shows its verdict, but stays in `pending` (and `pendingCheckIds`) until a new
 profile version lists it, so it never changes the score or the exit code of a server measured before. The result
-also records `checkerVersion` (this CLI's version), `protocolVersion`, `protocolVersionRequested`, `schemaVersion: 1`
+also records `checkerVersion` (this CLI's version), `protocolVersion`, `protocolVersionRequested`, `era`, `eraDetection`, `schemaVersion: 1`
 and, per check, `class`, `level`, `state`, `reason`, `expected`, `actual`, `fix`, `specRef` and, for the HTTP
 checks, `details` (each request with its method, URL and headers, and the status, headers, body, number of SSE events
 and time of its answer, secrets masked).

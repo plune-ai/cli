@@ -9,8 +9,10 @@ import type { Session } from '../../connect/session.js';
 import type { Era, Transport } from '../catalog.js';
 import type { CheckOutcome } from '../outcome.js';
 import type { HttpTarget } from '../raw-http.js';
+import type { Answer } from './wire.js';
 import { BASE } from './base.js';
 import { LIFECYCLE } from './lifecycle.js';
+import { MODERN } from './modern/index.js';
 import { PAGINATION } from './pagination.js';
 import { PROMPTS } from './prompts.js';
 import { RESOURCES } from './resources.js';
@@ -31,6 +33,10 @@ export interface ConformanceContext {
   era: Era;
   /** The revision the run is for: `--protocol-version`, or the one the server answered with. */
   protocolVersion: string | null;
+  /** The answer to server/discover (modern era): its capabilities stand where a legacy run reads initialize's. */
+  discover?: Answer;
+  /** A new connection to the same server, in the run's era (a new process over stdio); the caller closes it. */
+  connect?: () => Promise<Session>;
   /** The calls of `--fixture`; undefined without it, and then no tool is called. */
   fixture?: readonly FixtureCall[];
   /** The Streamable HTTP target, for the checks that send raw HTTP (undefined over stdio and HTTP+SSE). */
@@ -51,4 +57,5 @@ export const IMPLEMENTATIONS: Readonly<Record<string, ConformanceCheck>> = {
   ...TRANSPORT,
   ...SECURITY,
   ...STDIO,
+  ...MODERN,
 };

@@ -86,7 +86,13 @@ export interface Session {
    * an error with no id or a null one (the answer to a message whose id could not be read). Rejects with a
    * `ConnectError`: `timeout` when no such answer came. Not for HTTP+SSE.
    */
-  raw(body: string, id: string | number | null, options?: { timeoutMs?: number }): Promise<RawReply>;
+  raw(body: string, id: string | number | null, options?: RawOptions): Promise<RawReply>;
+  /**
+   * Every JSON-RPC message the server sent that the raw layer saw, in order: each line of a stdio server's stdout, and
+   * each message of a raw POST's answer (its SSE events included). A response carries the method of the raw request
+   * whose id it holds. Not masked: what is printed of it goes through `redact`.
+   */
+  traffic(): readonly Traffic[];
   /** How many lines a stdio server wrote on stdout that are not JSON-RPC messages, and the first few, masked. */
   stdoutNoise(): { count: number; first: string[] };
   /** Closes a stdio server's stdin and says whether the process exited within `waitMs` (true over HTTP). */
@@ -104,7 +110,51 @@ export interface RawReply {
   text: string;
 }
 
+export interface RawOptions {
+  timeoutMs?: number;
+  /** Streamable HTTP: headers set on this POST over the ones the session derives (a value of null drops the header). */
+  headers?: [string, string | null][];
+}
+
+export interface Traffic {
+  frame: Record<string, unknown>;
+  /** For a response: the method of the raw request with its id. */
+  method?: string;
+}
+
+/**
+ * `modern`: the 2026-07-28 era. No `initialize` handshake is made: every request carries its own `_meta`, and over
+ * Streamable HTTP a raw POST gets the standard headers from its body (`MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name`).
+ */
+export interface SessionOptions {
+  modern?: { version: string };
+}
+
 const RAW_TEXT = 2000;
+
+/** A header value as the 2026-07-28 Streamable HTTP transport writes it: plain when safe, else the Base64 sentinel. */
+export function headerValue(value: string): string {
+  const plain = /^[\x21-\x7e]([\x20-\x7e]*[\x21-\x7e])?$/.test(value) && !/^=\?base64\?.*\?=$/.test(value);
+  return plain ? value : `=?base64?${Buffer.from(value, 'utf8').toString('base64')}?=`;
+}
+
+/** The standard headers of a modern request, read from its body (Streamable HTTP, Request Metadata). */
+function modernHeaders(body: string, version: string): [string, string][] {
+  const m = parsed(body);
+  if (m === null || typeof m !== 'object' || Array.isArray(m)) return [];
+  const { method, params } = m as { method?: unknown; params?: Record<string, unknown> };
+  if (typeof method !== 'string') return [];
+  const meta = params?.['_meta'] as Record<string, unknown> | undefined;
+  const v = meta?.['io.modelcontextprotocol/protocolVersion'];
+  const headers: [string, string][] = [
+    ['mcp-protocol-version', typeof v === 'string' ? v : version],
+    ['mcp-method', method],
+  ];
+  const name = method === 'resources/read' ? params?.['uri'] : params?.['name'];
+  if (['tools/call', 'resources/read', 'prompts/get'].includes(method) && typeof name === 'string')
+    headers.push(['mcp-name', headerValue(name)]);
+  return headers;
+}
 
 /** Whether `frame` answers the message `id` (for null: an error with no id, or a null one). */
 function answers(frame: unknown, id: string | number | null): frame is Record<string, unknown> {
@@ -319,7 +369,7 @@ const LEAD: Record<ConnectErrorKind, [string, boolean]> = {
   network: ['Could not reach the server', true],
 };
 
-export async function openSession(config: ConnectConfig): Promise<Session> {
+export async function openSession(config: ConnectConfig, options: SessionOptions = {}): Promise<Session> {
   const { target } = config;
   const stdio = target.kind === 'stdio';
   const redact = redactorFor(target);
@@ -331,6 +381,8 @@ export async function openSession(config: ConnectConfig): Promise<Session> {
   let transportClosed = false;
   // On Windows a command that does not exist still "spawns"; the ENOENT comes after, as a transport error.
   let spawnError: Error | undefined;
+  // The raw layer's waiters on a stdio server that stops: a process that is gone answers nothing more.
+  const stopped = new Set<() => void>();
   // The initialize request and its answer, kept as they went (the SDK keeps only what its schema let through).
   const handshake: { id?: unknown; offered: unknown; result: unknown } = {
     offered: undefined,
@@ -350,13 +402,18 @@ export async function openSession(config: ConnectConfig): Promise<Session> {
       if (dir === 'in' && m.id === undefined && typeof m.method === 'string')
         notifications.set(m.method, (notifications.get(m.method) ?? 0) + 1);
     },
-    closed: () => (transportClosed = true),
+    closed: () => {
+      transportClosed = true;
+      for (const stop of [...stopped]) stop();
+    },
     error: (err) => {
       if (
         spawnError === undefined &&
         (err as NodeJS.ErrnoException).syscall?.startsWith('spawn') === true
-      )
+      ) {
         spawnError = err;
+        for (const stop of [...stopped]) stop();
+      }
     },
   });
 
@@ -373,6 +430,15 @@ export async function openSession(config: ConnectConfig): Promise<Session> {
 
   const tail: string[] = [];
   const noise = { count: 0, first: [] as string[] };
+  // What the raw layer saw come in, and the method of each raw request by its id.
+  const traffic: Traffic[] = [];
+  const methods = new Map<unknown, string>();
+  const heard = (frame: unknown) => {
+    if (frame === null || typeof frame !== 'object' || Array.isArray(frame)) return;
+    const f = frame as Record<string, unknown>;
+    const method = 'method' in f || f['id'] === undefined ? undefined : methods.get(f['id']);
+    traffic.push(method === undefined ? { frame: f } : { frame: f, method });
+  };
   // The raw layer's waiters on stdout: each sees every line until it settles.
   const listeners = new Set<(line: string) => void>();
   const seen = (line: string, isMessage: boolean) => {
@@ -380,6 +446,7 @@ export async function openSession(config: ConnectConfig): Promise<Session> {
       noise.count++;
       if (noise.first.length < 3) noise.first.push(clean(line).slice(0, 200));
     }
+    if (isMessage) heard(parsed(line));
     for (const listener of [...listeners]) listener(line);
   };
   let stderrDone: Promise<void> = Promise.resolve();
@@ -435,10 +502,18 @@ export async function openSession(config: ConnectConfig): Promise<Session> {
   const untrack = track(closable);
 
   const client = new Client({ name: 'plune', version: config.clientVersion ?? '0.0.0' });
+  const modern = options.modern;
+  if (modern !== undefined) {
+    // No client: the transport is only started, and the raw layer is all that speaks. Its handlers are set so that
+    // the tap hears a spawn error and the close.
+    transport.onmessage = () => {};
+    transport.onerror = () => {};
+    transport.onclose = () => {};
+  }
   let timer: NodeJS.Timeout | undefined;
   try {
     await Promise.race([
-      client.connect(transport, { timeout: config.timeoutMs }),
+      modern === undefined ? client.connect(transport, { timeout: config.timeoutMs }) : transport.start(),
       new Promise<never>((_, reject) => {
         timer = setTimeout(
           () => reject(new SdkError(SdkErrorCode.RequestTimeout, 'no answer')),
@@ -504,23 +579,38 @@ export async function openSession(config: ConnectConfig): Promise<Session> {
       journal.write('out', { raw: body });
       const noAnswer = () => new ConnectError('timeout', `${LEAD.timeout[0]}.`, [...tail]);
 
+      const sent = parsed(body) as { id?: unknown; method?: unknown } | undefined;
+      if (typeof sent?.method === 'string' && sent.id !== undefined) methods.set(sent.id, sent.method);
+
       if (target.kind === 'stdio') {
         const stdin = (transport as unknown as { _process?: { stdin?: Writable | null } })._process?.stdin;
         if (stdin === null || stdin === undefined || stdin.writableEnded)
-          throw new ConnectError('exited-early', `${LEAD['exited-early'][0]}.`, [...tail]);
+          throw spawnError !== undefined
+            ? await toConnectError(spawnError)
+            : new ConnectError('exited-early', `${LEAD['exited-early'][0]}.`, [...tail]);
         return new Promise<RawReply>((resolve, reject) => {
-          const timer = setTimeout(() => {
+          const done = () => {
+            clearTimeout(timer);
             listeners.delete(listener);
+            stopped.delete(stop);
+          };
+          const timer = setTimeout(() => {
+            done();
             reject(noAnswer());
           }, ms);
           const listener = (line: string) => {
             const frame = parsed(line);
             if (!answers(frame, id)) return;
-            clearTimeout(timer);
-            listeners.delete(listener);
+            done();
             resolve({ frame, text: clean(line).slice(0, RAW_TEXT) });
           };
+          // The process went away (or never started) while this waited: say why now, not after the time is out.
+          const stop = () => {
+            done();
+            void toConnectError(spawnError ?? new Error('closed')).then(reject);
+          };
           listeners.add(listener);
+          stopped.add(stop);
           stdin.write(`${body}\n`);
         });
       }
@@ -532,6 +622,11 @@ export async function openSession(config: ConnectConfig): Promise<Session> {
       headers.set('accept', 'application/json, text/event-stream');
       if (state.sessionId !== undefined) headers.set('mcp-session-id', state.sessionId);
       if (state._protocolVersion !== undefined) headers.set('mcp-protocol-version', state._protocolVersion);
+      if (modern !== undefined) for (const [name, value] of modernHeaders(body, modern.version)) headers.set(name, value);
+      for (const [name, value] of options?.headers ?? []) {
+        if (value === null) headers.delete(name);
+        else headers.set(name, value);
+      }
       const lost = async (err: unknown) =>
         (err as Error | undefined)?.name === 'TimeoutError' ? noAnswer() : toConnectError(err);
       let text = '';
@@ -565,13 +660,16 @@ export async function openSession(config: ConnectConfig): Promise<Session> {
           // One POST, one answer: kept whatever its id, so an answer under the wrong id is seen, not waited for.
           if (whole !== null && typeof whole === 'object' && !Array.isArray(whole))
             frame = whole as Record<string, unknown>;
-        }
+          heard(frame);
+        } else
+          for (const line of text.split(/\r?\n/)) if (line.startsWith('data:')) heard(parsed(line.slice(5).trim()));
       } catch (err) {
         throw await lost(err);
       }
       journal.write('in', frame !== undefined ? { frame } : { status, raw: text.slice(0, RAW_TEXT) });
       return { frame, status, text: clean(text).slice(0, RAW_TEXT) };
     },
+    traffic: () => traffic,
     stdoutNoise: () => ({ count: noise.count, first: [...noise.first] }),
     notified: (method) => notifications.get(method) ?? 0,
     async endInput(waitMs) {

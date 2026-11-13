@@ -52,6 +52,18 @@ export interface CatalogEntry {
   needsFixture: boolean;
 }
 
+/**
+ * The revisions the catalog cites, with their status as https://modelcontextprotocol.io/specification/versioning
+ * gave it on the day it was read. That page names 2026-07-28 the current revision; it does not name the status of
+ * 2025-11-25. The changelog of 2026-07-28 (Minor changes 12) still says "introduced in this draft", a leftover the
+ * versioning page outranks. Read again before a new profile version: a current revision can still change.
+ */
+export const REVISIONS = [
+  { revision: '2025-11-25', status: null, checkedOn: '2026-11-13' },
+  { revision: '2026-07-28', status: 'Current', checkedOn: '2026-11-13' },
+] as const;
+export const VERSIONING_URL = 'https://modelcontextprotocol.io/specification/versioning';
+
 /** Where a specification reference is published. */
 export const specUrl = (ref: SpecRef): string =>
   `https://modelcontextprotocol.io/specification/${ref.revision}/${ref.page}`;
@@ -59,6 +71,7 @@ export const specUrl = (ref: SpecRef): string =>
 const L = '2025-11-25';
 const M = '2026-07-28';
 const BOTH: Era[] = ['legacy', 'modern'];
+const MODERN: Era[] = ['modern'];
 const ANY: Transport[] = ['stdio', 'http'];
 
 type Spec = Omit<CatalogEntry, 'suite' | 'kind' | 'derived' | 'needsFixture'> &
@@ -134,6 +147,46 @@ export const CATALOG: readonly CatalogEntry[] = [
     level: 'MUST',
     specRefs: [ref(L, 'basic/utilities/ping', 'Behavior Requirements')],
     eras: ['legacy'],
+    transports: ANY,
+  }),
+  // The 2026-07-28 revision: server/discover and the per-request metadata, run first (the rest stands on discover).
+  check({
+    id: 'mod-discover-result',
+    title: 'server/discover answers a complete DiscoverResult',
+    description:
+      'server/discover answers resultType "complete", supportedVersions (a non-empty list of strings that names the revision of the run) and capabilities (an object). Without it every other modern check is could-not-run (prerequisite-failed).',
+    level: 'MUST',
+    specRefs: [ref(M, 'server/discover', 'Discovery'), ref(M, 'basic/versioning', 'Protocol Version Negotiation')],
+    eras: MODERN,
+    transports: ANY,
+  }),
+  check({
+    id: 'mod-discover-server-info',
+    title: 'server/discover names the server in _meta',
+    description: 'The DiscoverResult has _meta["io.modelcontextprotocol/serverInfo"] with a name and a version.',
+    level: 'SHOULD',
+    specRefs: [ref(M, 'server/discover', 'DiscoverResult'), ref(M, 'basic/index', '_meta')],
+    eras: MODERN,
+    transports: ANY,
+  }),
+  check({
+    id: 'mod-meta-required-fields',
+    title: 'A request without a required _meta field is Invalid params',
+    description:
+      'server/discover without io.modelcontextprotocol/protocolVersion, and again without io.modelcontextprotocol/clientCapabilities, each gets -32602, over HTTP with status 400. Ambiguous in the text: over HTTP a body without the version also differs from its MCP-Protocol-Version header, so -32020 (HeaderMismatch) is taken for that probe as well.',
+    level: 'MUST',
+    specRefs: [ref(M, 'basic/index', '_meta'), ref(M, MT, 'Server Validation')],
+    eras: MODERN,
+    transports: ANY,
+  }),
+  check({
+    id: 'mod-unsupported-version',
+    title: 'An unsupported protocol version is UnsupportedProtocolVersion',
+    description:
+      'server/discover for revision 1900-01-01 gets -32022 with data.supported, a non-empty list; over HTTP with status 400.',
+    level: 'MUST',
+    specRefs: [ref(M, 'basic/versioning', 'Protocol Version Negotiation'), ref(M, MT, 'Protocol Version Header')],
+    eras: MODERN,
     transports: ANY,
   }),
   // Base protocol
@@ -375,6 +428,144 @@ export const CATALOG: readonly CatalogEntry[] = [
     eras: BOTH,
     transports: ANY,
   }),
+  // The 2026-07-28 revision: what changed for every transport.
+  check({
+    id: 'mod-removed-methods',
+    title: 'The methods the revision removed are Method not found',
+    description:
+      'ping, logging/setLevel, resources/subscribe, resources/unsubscribe and initialize, each sent with the modern _meta, get -32601, over HTTP with status 404. initialize goes on a connection of its own; a dual-era server that answers it with an initialize result is not counted for it, since the text lets initialize select the legacy era (basic/versioning, Backward Compatibility) while a request with modern _meta is served in the modern one: the two rules meet there.',
+    level: 'MUST',
+    derived: true,
+    derivation:
+      'changelog, Major changes 2, 4 and 5 remove these methods; streamable-http, Protocol Version Header: a method the server does not implement MUST get 404 and -32601. No sentence names the answer to a removed method itself.',
+    specRefs: [ref(M, 'changelog', 'Major changes'), ref(M, MT, 'Protocol Version Header')],
+    eras: MODERN,
+    transports: ANY,
+  }),
+  check({
+    id: 'mod-stateless-no-prior-context',
+    title: 'A list answers on a fresh connection with no request before it',
+    description:
+      'On a new connection the first request is tools/list (else prompts/list, else resources/list, whichever is declared), not server/discover, and it answers a result.',
+    level: 'MUST',
+    specRefs: [ref(M, 'basic/index', 'Statelessness')],
+    eras: MODERN,
+    transports: ANY,
+  }),
+  check({
+    id: 'mod-list-stable-across-connections',
+    title: 'The lists do not vary per connection',
+    description:
+      'tools/list, prompts/list and resources/list (those declared) hold the same entries on the run\'s connection, after all its other requests, and on a new connection with the same credentials.',
+    level: 'MUST',
+    specRefs: [
+      ref(M, 'server/tools', 'Capabilities'),
+      ref(M, 'server/prompts', 'Capabilities'),
+      ref(M, 'server/resources', 'Capabilities'),
+    ],
+    eras: MODERN,
+    transports: ANY,
+  }),
+  check({
+    id: 'mod-resource-not-found',
+    title: 'Reading an unknown resource is Invalid params',
+    description: 'resources/read of a uri that does not exist gets -32602; -32002, the code of earlier revisions, fails.',
+    level: 'MUST',
+    specRefs: [ref(M, 'server/resources', 'Error Handling'), ref(M, 'basic/index', 'Error Codes')],
+    eras: MODERN,
+    transports: ANY,
+  }),
+  check({
+    id: 'mod-resource-no-empty-contents',
+    title: 'An unknown resource is not empty contents',
+    description: 'resources/read of a uri that does not exist does not answer a result with an empty contents list.',
+    level: 'MUST',
+    specRefs: [ref(M, 'server/resources', 'Error Handling')],
+    eras: MODERN,
+    transports: ANY,
+  }),
+  check({
+    id: 'mod-cache-hints-coverage',
+    title: 'Every cacheable result has ttlMs and cacheScope',
+    description:
+      'Each complete result of server/discover, tools/list, prompts/list, resources/list, resources/templates/list (every page) and resources/read (the first listed resource) has ttlMs and cacheScope; the lists only when their capability is declared.',
+    level: 'MUST',
+    specRefs: [ref(M, 'server/utilities/caching', 'Cacheable Results')],
+    eras: MODERN,
+    transports: ANY,
+  }),
+  check({
+    id: 'mod-cache-ttl-valid',
+    title: 'ttlMs is an integer of at least 0',
+    description: 'Every ttlMs on those results is an integer number of milliseconds, 0 or more.',
+    level: 'MUST',
+    specRefs: [ref(M, 'server/utilities/caching', 'Time-to-Live (TTL) Field')],
+    eras: MODERN,
+    transports: ANY,
+  }),
+  check({
+    id: 'mod-cache-scope-valid',
+    title: 'cacheScope is "public" or "private"',
+    description: 'Every cacheScope on those results is exactly "public" or "private".',
+    level: 'MUST',
+    derived: true,
+    derivation:
+      'server/utilities/caching, Cache Scope Field: the field "indicates ... either "public" or "private"" and its table has these two values, with no keyword on the value itself; the schema of the revision (schema.json, CacheableResult) makes it an enum of the two.',
+    specRefs: [ref(M, 'server/utilities/caching', 'Cache Scope Field')],
+    eras: MODERN,
+    transports: ANY,
+  }),
+  check({
+    id: 'mod-cache-scope-stable-pages',
+    title: 'All pages of a list have the same cacheScope',
+    description: 'Every page of a paginated list carries the cacheScope of its first page. Without a list of two pages, not-applicable.',
+    level: 'MUST',
+    specRefs: [ref(M, 'server/utilities/caching', 'Interaction with Pagination')],
+    eras: MODERN,
+    transports: ANY,
+  }),
+  check({
+    id: 'mod-undeclared-capability',
+    title: 'A capability the client did not declare is asked for with -32021',
+    description:
+      'This checker declares no client capability. A --fixture call the server cannot serve without one gets -32021 with data.requiredCapabilities naming it (over HTTP, status 400), never an input request for sampling, elicitation or roots. The schema makes requiredCapabilities a ClientCapabilities object while the text says it "lists" them: an object with at least one capability is taken. Without --fixture, could-not-run (needs-input).',
+    level: 'MUST',
+    specRefs: [ref(M, 'basic/index', '_meta')],
+    eras: MODERN,
+    transports: ANY,
+    needsFixture: true,
+  }),
+  // Subscriptions: one subscriptions/listen per run, watched for a short time and then cancelled.
+  check({
+    id: 'mod-sub-ack-first',
+    title: 'A subscription is acknowledged first',
+    description:
+      'The first message of subscriptions/listen with its subscription id is notifications/subscriptions/acknowledged, carrying that id in _meta. Without a subscribable capability (tools, prompts or resources listChanged, resources subscribe), not-applicable.',
+    level: 'MUST',
+    specRefs: [ref(M, 'basic/patterns/subscriptions', 'Acknowledgment')],
+    eras: MODERN,
+    transports: ANY,
+  }),
+  check({
+    id: 'mod-sub-filter-and-tag',
+    title: 'A subscription gets only what it asked for, each tagged',
+    description:
+      'The subscription asks for one kind of notification; every notification after the acknowledgment is of that kind and carries io.modelcontextprotocol/subscriptionId. When nothing changed while it was watched, there is no notification to judge: not-applicable (not-offered).',
+    level: 'MUST',
+    specRefs: [ref(M, 'basic/patterns/subscriptions', 'Opening a Stream'), ref(M, 'basic/index', '_meta')],
+    eras: MODERN,
+    transports: ANY,
+  }),
+  check({
+    id: 'mod-sub-graceful-close',
+    title: 'A subscription the server ends gets a successful response',
+    description:
+      'When the server ends the subscription while it is watched, it first answers subscriptions/listen with a result. The text asks this when the server ends a subscription on its own initiative; a cancel of the client asks for no response, so a subscription the server keeps open is not-applicable (not-offered).',
+    level: 'SHOULD',
+    specRefs: [ref(M, 'basic/patterns/subscriptions', 'Graceful Closure')],
+    eras: MODERN,
+    transports: ANY,
+  }),
   // Streamable HTTP on the wire: raw requests, never an MCP client (../raw-http.ts).
   check({
     id: 'http-notification-202',
@@ -523,6 +714,105 @@ export const CATALOG: readonly CatalogEntry[] = [
     transports: HTTP,
     needsFixture: true,
   }),
+  // The request headers of the 2026-07-28 revision, each probe a POST of its own.
+  check({
+    id: 'mod-unimplemented-method',
+    title: 'An unknown method over HTTP is 404 with -32601',
+    description: 'A POST of a method the server does not implement gets 404 Not Found and the JSON-RPC error -32601.',
+    level: 'MUST',
+    specRefs: [ref(M, MT, 'Protocol Version Header')],
+    eras: MODERN,
+    transports: HTTP,
+  }),
+  check({
+    id: 'mod-header-protocol-version-mismatch',
+    title: 'An MCP-Protocol-Version unlike the body is HeaderMismatch',
+    description: 'server/discover with MCP-Protocol-Version: 2025-11-25 and 2026-07-28 in _meta gets 400 and -32020.',
+    level: 'MUST',
+    specRefs: [ref(M, MT, 'Protocol Version Header'), ref(M, MT, 'Server Validation')],
+    eras: MODERN,
+    transports: HTTP,
+  }),
+  check({
+    id: 'mod-header-method-mismatch',
+    title: 'An Mcp-Method unlike the body is HeaderMismatch',
+    description: 'server/discover sent with Mcp-Method: tools/list gets 400 and -32020.',
+    level: 'MUST',
+    specRefs: [ref(M, MT, 'Server Validation')],
+    eras: MODERN,
+    transports: HTTP,
+  }),
+  check({
+    id: 'mod-header-name-mismatch',
+    title: 'An Mcp-Name unlike the body is HeaderMismatch',
+    description:
+      'resources/read of the first listed resource (else prompts/get of the first prompt, else tools/call of the first --fixture tool) with Mcp-Name in another case gets 400 and -32020: header values are case-sensitive. A tool outside --fixture is never the target. Without a target, not-applicable.',
+    level: 'MUST',
+    specRefs: [ref(M, MT, 'Standard Request Headers'), ref(M, MT, 'Server Validation'), ref(M, MT, 'Case Sensitivity')],
+    eras: MODERN,
+    transports: HTTP,
+  }),
+  check({
+    id: 'mod-header-missing-rejected',
+    title: 'A request without a required header is HeaderMismatch',
+    description:
+      'server/discover without MCP-Protocol-Version, server/discover without Mcp-Method, and the Mcp-Name target without Mcp-Name, each get 400 and -32020. The first is not counted for a server whose supportedVersions names a revision before 2025-06-18: it MAY take a request without the header as 2025-03-26.',
+    level: 'MUST',
+    specRefs: [ref(M, MT, 'Server Validation'), ref(M, MT, 'Standard Request Headers'), ref(M, MT, 'Protocol Version Header')],
+    eras: MODERN,
+    transports: HTTP,
+  }),
+  check({
+    id: 'mod-header-names-case-insensitive',
+    title: 'Header names are read in any case',
+    description:
+      'server/discover with its standard headers named in lower case, and again in upper case, answers a result both times. The names go out as written (node:http), not as fetch would normalise them.',
+    level: 'MUST',
+    specRefs: [ref(M, MT, 'Case Sensitivity')],
+    eras: MODERN,
+    transports: HTTP,
+  }),
+  check({
+    id: 'mod-header-name-base64-decoded',
+    title: 'A Base64 Mcp-Name is decoded before it is compared',
+    description:
+      'The Mcp-Name target (a name or uri that is not plain ASCII when there is one) sent as =?base64?…?= is not refused with -32020. The text obliges clients to encode only values that are not plain ASCII, and servers to decode any encoded value; when every name is plain ASCII, one is encoded all the same.',
+    level: 'MUST',
+    specRefs: [ref(M, MT, 'Value Encoding')],
+    eras: MODERN,
+    transports: HTTP,
+  }),
+  check({
+    id: 'mod-param-header-mismatch',
+    title: 'An Mcp-Param header unlike the body, or missing, is HeaderMismatch',
+    description:
+      'For a --fixture tool whose inputSchema marks a property with x-mcp-header and whose arguments give it a value: a wrong Mcp-Param-{Name}, and no Mcp-Param-{Name} at all, each get 400 and -32020. Only a --fixture tool is the target. Without such a tool, not-applicable.',
+    level: 'MUST',
+    specRefs: [ref(M, MT, 'Server Behavior for Custom Headers')],
+    eras: MODERN,
+    transports: HTTP,
+    needsFixture: true,
+  }),
+  check({
+    id: 'mod-x-mcp-header-declarations',
+    title: 'Every x-mcp-header declaration is valid',
+    description:
+      'Each x-mcp-header in an inputSchema is a non-empty HTTP token, unique without regard to case in its schema, on a string, integer or boolean property reached only through properties (not items, a composition, a condition or $ref). Over stdio a client MAY ignore the annotation, so the check is for HTTP only.',
+    level: 'MUST',
+    specRefs: [ref(M, 'server/tools', 'x-mcp-header'), ref(M, MT, 'Schema Extension')],
+    eras: MODERN,
+    transports: HTTP,
+  }),
+  check({
+    id: 'mod-no-session-id',
+    title: 'A modern-only server neither mints nor echoes a session id',
+    description:
+      'server/discover sent with an Mcp-Session-Id gets an answer without Mcp-Session-Id. A dual-era server (supportedVersions names a revision before 2026-07-28) is not-applicable.',
+    level: 'SHOULD',
+    specRefs: [ref(M, MT, 'Earlier Streamable HTTP Revisions')],
+    eras: MODERN,
+    transports: HTTP,
+  }),
   // These two change the server's state, each in a session of its own made for it, so they come last.
   check({
     id: 'http-session-terminated-404',
@@ -592,6 +882,50 @@ export const CATALOG: readonly CatalogEntry[] = [
     specRefs: [ref(L, LT, 'Security Warning'), ref(M, MT, 'Security & Endpoint')],
     eras: BOTH,
     transports: HTTP,
+  }),
+  // The 2026-07-28 revision over the whole run: these read every message the run got back, so they come after the rest.
+  check({
+    id: 'mod-result-type-present',
+    title: 'Every result has a known resultType',
+    description:
+      'Every result the run got has resultType "complete" or "input_required". Extensions MAY add values, which the text does not let a client name in advance: another value passes only when the server declares capabilities.extensions, and is said so.',
+    level: 'MUST',
+    specRefs: [ref(M, 'basic/index', 'ResultType')],
+    eras: MODERN,
+    transports: ANY,
+  }),
+  check({
+    id: 'mod-error-code-range',
+    title: 'No error code of the reserved range is invented',
+    description:
+      'No error the run got has a code from -32099 to -32020 other than -32020, -32021 and -32022, nor -32002 or -32042, which the revision retired. Whether a defined code is used for its meaning is not judged here.',
+    level: 'MUST',
+    specRefs: [ref(M, 'basic/index', 'Error Codes')],
+    eras: MODERN,
+    transports: ANY,
+  }),
+  check({
+    id: 'mod-logs-need-log-level',
+    title: 'No log message for a request without logLevel',
+    description:
+      'No request of the run set io.modelcontextprotocol/logLevel, so no notifications/message came back. Logging is deprecated in this revision: a server that does not declare logging is not-applicable.',
+    level: 'MUST',
+    specRefs: [ref(M, 'server/utilities/logging', 'Per-request log level')],
+    eras: MODERN,
+    transports: ANY,
+  }),
+  check({
+    id: 'mod-wire-schema-valid',
+    title: 'Every message conforms to the schema of the revision',
+    description:
+      'Every message the run got validates against schema.json of 2026-07-28: a response against the result of the method it answers (InputRequiredResult for input_required), an error against JSONRPCErrorResponse, a notification of a known method against its definition. The schema file is shipped with the checker, its SHA-256 in the result. The schema gives an error no null id, while JSON-RPC 2.0 answers a message whose id could not be read with id: null: that null is taken as the absent id.',
+    level: 'MUST',
+    derived: true,
+    derivation:
+      'basic/index, Messages: every message MUST follow JSON-RPC 2.0; basic/index, Schema: the TypeScript schema is the source of truth for all protocol messages and structures, and schema.json is generated from it. No sentence says MUST about conforming to the schema itself.',
+    specRefs: [ref(M, 'basic/index', 'Schema')],
+    eras: MODERN,
+    transports: ANY,
   }),
   // stdio
   check({
