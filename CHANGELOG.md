@@ -121,7 +121,7 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 ## [0.34.6] - 2026-11-10
 
 ### Fixed
-- **`--fail-on-failures` no longer passes a run that no result reached (plune-ai/plune#2575).** `plune run import` of a report
+- **`--fail-on-failures` no longer passes a run that no result reached.** `plune run import` of a report
   whose cases the project does not have yet sends nothing to the run (`0 accepted · 28 with no matching test case`), and the gate
   then read `gate passed — 0 failed` and exited `0`, even when the report held failures. Without a runner of its own
   (`run import`, `run finish`, `sync`), such a run now exits `1`: `gate failed — no result reached the run, so there is nothing
@@ -131,20 +131,20 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ### Added
 
-- **`plune mcp lint`: why a model will stumble over an MCP server's tools (plune-ai/plune#2427).** It reads the server's `tools/list` to its last page and runs deterministic rules that cite the MCP specification, plus heuristics that report `warn` at most; English and Ukrainian descriptions are read alike. `--fail-on error|warn|info|never` (default `error`); `--list-rules` prints the catalog without connecting; `--call` calls only the tools that are read-only, not destructive and need no argument, and checks their answers. Exceptions live in `plune-mcp-ignore.yaml`, each with a required `reason` and an optional `expires`; an entry that covers nothing is reported as stale. Over 1000 tools the two pairwise rules, and on an input schema nested deeper than 64 levels the two schema rules, report `could-not-run` instead of hanging or crashing, and no exception hides that (plune-ai/plune#2562, plune-ai/plune#2564).
-- **`plune mcp check`: does an MCP server start and answer (plune-ai/plune#2429).** In order: `start`, `initialize`, `protocol-version`, `capabilities`, `tools-list`, `resources-list`, `resource-templates-list`, `prompts-list`, `ping`, each `passed`, `failed`, `not-applicable` or `could-not-run`. No answer within `--check-timeout` (default `15s`) is `could-not-run`, never `failed`, and two timeouts in a row end the run. `--wait` keeps trying a `--url` server that CI starts beside the step. `--smoke` calls up to `--smoke-limit` (5) tools that say `readOnlyHint: true`, are not destructive and need no argument, always with `{}`; `--allow-write-calls` adds only tools that say `destructiveHint: false`, and a tool that says `destructiveHint: true` is never called. It needs no Plune account and never calls the platform.
-- **`plune mcp snapshot` and `plune mcp diff`: an MCP server's contract in a file, and what changed in it (plune-ai/plune#2428).** `snapshot` writes the server's tools, resources, resource templates, prompts, name, capabilities and instructions as one stable JSON file to commit (`schemaVersion: 2`, sorted, without time, command, URL or headers). `diff <baseline> [current]` compares it with a second file or with a live server and classifies each change as `breaking`, `non-breaking` or `informational`, with a one-sentence reason; a change it cannot classify is shown and counted apart. A changed description or instructions, or a tool that becomes less safe, carries the `security` signal, a changed server name `identity`; signals never change the class or the exit code. `--fail-on breaking|any|none` (default `breaking`).
-- **One connection for every `plune mcp` command that tests a server (plune-ai/plune#2426).** The server is a command after `--` (stdio) or `--url` (Streamable HTTP; `--sse` for the older SSE transport), with `--header "Name: value"`, `--header-env Name=VAR`, `--env KEY=VALUE` / `--env KEY`, `--cwd`, `--timeout` and `--debug-out`. Headers go to the server's own origin only, and a redirect to another origin is not followed. Header, env and URL secrets, and each argument of 8 characters or more of the command after `--`, are masked wherever the server repeats them; a secret the server prints encoded or in pieces gets past the mask. The server and every process it started are ended when the command finishes or is interrupted. Over stdio one message holds at most 10 MB; a larger one is exit `2` that names the limit, not «exited before it answered» (plune-ai/plune#2565). Duration flags take at most 2147483647 ms, the longest a timer can wait.
-- **One set of report formats for `plune mcp lint`, `check` and `diff` (plune-ai/plune#2430).** `--format human|json|github|markdown` on stdout, `--reporter junit-xml`, and a repeatable `--out [<format>=]<path>` (`json`, `junit-xml`, `markdown`), all from one connection; a bare `--out path` is JSON. Every JSON document carries `kind` and `schemaVersion`. `github` writes `::error`, `::warning` and `::notice` annotations, at most 10 of each per step; `markdown` is a pull request comment with a hidden marker per command, in which server text cannot mention anyone, link or embed; the JUnit file has stable case names and agrees with the exit code. No other output lets server text start a workflow command.
+- **`plune mcp lint`: why a model will stumble over an MCP server's tools.** It reads the server's `tools/list` to its last page and runs deterministic rules that cite the MCP specification, plus heuristics that report `warn` at most; English and Ukrainian descriptions are read alike. `--fail-on error|warn|info|never` (default `error`); `--list-rules` prints the catalog without connecting; `--call` calls only the tools that are read-only, not destructive and need no argument, and checks their answers. Exceptions live in `plune-mcp-ignore.yaml`, each with a required `reason` and an optional `expires`; an entry that covers nothing is reported as stale. Over 1000 tools the two pairwise rules, and on an input schema nested deeper than 64 levels the two schema rules, report `could-not-run` instead of hanging or crashing, and no exception hides that.
+- **`plune mcp check`: does an MCP server start and answer.** In order: `start`, `initialize`, `protocol-version`, `capabilities`, `tools-list`, `resources-list`, `resource-templates-list`, `prompts-list`, `ping`, each `passed`, `failed`, `not-applicable` or `could-not-run`. No answer within `--check-timeout` (default `15s`) is `could-not-run`, never `failed`, and two timeouts in a row end the run. `--wait` keeps trying a `--url` server that CI starts beside the step. `--smoke` calls up to `--smoke-limit` (5) tools that say `readOnlyHint: true`, are not destructive and need no argument, always with `{}`; `--allow-write-calls` adds only tools that say `destructiveHint: false`, and a tool that says `destructiveHint: true` is never called. It needs no Plune account and never calls the platform.
+- **`plune mcp snapshot` and `plune mcp diff`: an MCP server's contract in a file, and what changed in it.** `snapshot` writes the server's tools, resources, resource templates, prompts, name, capabilities and instructions as one stable JSON file to commit (`schemaVersion: 2`, sorted, without time, command, URL or headers). `diff <baseline> [current]` compares it with a second file or with a live server and classifies each change as `breaking`, `non-breaking` or `informational`, with a one-sentence reason; a change it cannot classify is shown and counted apart. A changed description or instructions, or a tool that becomes less safe, carries the `security` signal, a changed server name `identity`; signals never change the class or the exit code. `--fail-on breaking|any|none` (default `breaking`).
+- **One connection for every `plune mcp` command that tests a server.** The server is a command after `--` (stdio) or `--url` (Streamable HTTP; `--sse` for the older SSE transport), with `--header "Name: value"`, `--header-env Name=VAR`, `--env KEY=VALUE` / `--env KEY`, `--cwd`, `--timeout` and `--debug-out`. Headers go to the server's own origin only, and a redirect to another origin is not followed. Header, env and URL secrets, and each argument of 8 characters or more of the command after `--`, are masked wherever the server repeats them; a secret the server prints encoded or in pieces gets past the mask. The server and every process it started are ended when the command finishes or is interrupted. Over stdio one message holds at most 10 MB; a larger one is exit `2` that names the limit, not «exited before it answered». Duration flags take at most 2147483647 ms, the longest a timer can wait.
+- **One set of report formats for `plune mcp lint`, `check` and `diff`.** `--format human|json|github|markdown` on stdout, `--reporter junit-xml`, and a repeatable `--out [<format>=]<path>` (`json`, `junit-xml`, `markdown`), all from one connection; a bare `--out path` is JSON. Every JSON document carries `kind` and `schemaVersion`. `github` writes `::error`, `::warning` and `::notice` annotations, at most 10 of each per step; `markdown` is a pull request comment with a hidden marker per command, in which server text cannot mention anyone, link or embed; the JUnit file has stable case names and agrees with the exit code. No other output lets server text start a workflow command.
 - Exit codes of `plune mcp lint`, `check`, `snapshot` and `diff`: `0` nothing at the `--fail-on` level and everything measured, `1` a finding, failed check or change at that level (`snapshot` has no `1`), `2` a flag, a file or the connection is wrong and you can fix it, `3` nothing measured — never a pass.
-- **`plune mcp serve` answers both MCP protocol eras (plune-ai/plune#2421, plune-ai/plune#2551).** A client of the `initialize` line (`2025-11-25` and older) is served as before, and a client of revision `2026-07-28` (`server/discover`, no handshake) now too. In that era `tools/list` stays the same for the whole connection: `plune_discover_tools` describes the hidden tools with their `inputSchema`, switches nothing on and sends no `notifications/tools/list_changed`, and a hidden tool is called by its name. In the 2025 era discovery reveals tools as before.
-- **The tool contract of `plune mcp serve` is pinned and measured (plune-ai/plune#2418, plune-ai/plune#2419).** The repository holds a snapshot of every tool and a context budget for each list a client can see; a renamed tool, a new required parameter, a changed description or a list that grows past its budget fails a test before it merges. A provider's token counter puts the first list of a write token (17 tools) at 8922 tokens and the read list (8 tools) at 1864.
-- The package ships `THIRD_PARTY_NOTICES`, the MIT attribution for the lint rule groups (plune-ai/plune#2417).
+- **`plune mcp serve` answers both MCP protocol eras.** A client of the `initialize` line (`2025-11-25` and older) is served as before, and a client of revision `2026-07-28` (`server/discover`, no handshake) now too. In that era `tools/list` stays the same for the whole connection: `plune_discover_tools` describes the hidden tools with their `inputSchema`, switches nothing on and sends no `notifications/tools/list_changed`, and a hidden tool is called by its name. In the 2025 era discovery reveals tools as before.
+- **The tool contract of `plune mcp serve` is pinned and measured.** The repository holds a snapshot of every tool and a context budget for each list a client can see; a renamed tool, a new required parameter, a changed description or a list that grows past its budget fails a test before it merges. A provider's token counter puts the first list of a write token (17 tools) at 8922 tokens and the read list (8 tools) at 1864.
+- The package ships `THIRD_PARTY_NOTICES`, the MIT attribution for the lint rule groups.
 
 ### Changed
 
-- **`plune mcp serve` in the 2025 era: two differences a client can see (plune-ai/plune#2421).** Tool schemas declare JSON Schema 2020-12 instead of draft-07 (every keyword they use exists in draft-07 too), and calling a tool that is not in the list, a hidden tool before `plune_discover_tools` included, is the protocol error `-32602` instead of a result with `isError`, as the tools page of both revisions requires. The output schema of `plune_discover_tools` gains the optional `available[].inputSchema`, filled only in the `2026-07-28` era (plune-ai/plune#2551).
-- **Line separators and bidirectional controls are replaced in report text plune prints (plune-ai/plune#2427).** U+2028, U+2029, U+202A–U+202E and U+2066–U+2069 now become `?`, as control characters already did: in the file names, test titles and attachment names of `plune run import`, and in the test name of the reporter's «shortened to fit its key» warning.
+- **`plune mcp serve` in the 2025 era: two differences a client can see.** Tool schemas declare JSON Schema 2020-12 instead of draft-07 (every keyword they use exists in draft-07 too), and calling a tool that is not in the list, a hidden tool before `plune_discover_tools` included, is the protocol error `-32602` instead of a result with `isError`, as the tools page of both revisions requires. The output schema of `plune_discover_tools` gains the optional `available[].inputSchema`, filled only in the `2026-07-28` era.
+- **Line separators and bidirectional controls are replaced in report text plune prints.** U+2028, U+2029, U+202A–U+202E and U+2066–U+2069 now become `?`, as control characters already did: in the file names, test titles and attachment names of `plune run import`, and in the test name of the reporter's «shortened to fit its key» warning.
 
 `@plune-ai/playwright` stays 0.7.1: its own code did not change, but it embeds `reporter-core`, so the replacement above reaches the Playwright reporter only with its next version.
 
@@ -152,7 +152,7 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ### Fixed
 
-- **`plune diff` no longer calls an eval passed when none of its rows was judged (plune-ai/plune#2497).** An eval whose rows were all blocked or skipped, or whose dataset was empty, had no verdict but counted as passed, so `--fail-on-regression` exited `0` under «✅ No regressions». Such an eval is now `unmeasured` and the flag exits `3`. An eval with one passed row and the rest skipped still passes. In `--format json`, `evals[].current` and `evals[].baseline` can now hold `unjudged`; an unjudged baseline counts like an errored one. The badge reads «⚠️ not measured» for every unmeasured eval. A CI gate whose evals were all skipped now fails.
+- **`plune diff` no longer calls an eval passed when none of its rows was judged.** An eval whose rows were all blocked or skipped, or whose dataset was empty, had no verdict but counted as passed, so `--fail-on-regression` exited `0` under «✅ No regressions». Such an eval is now `unmeasured` and the flag exits `3`. An eval with one passed row and the rest skipped still passes. In `--format json`, `evals[].current` and `evals[].baseline` can now hold `unjudged`; an unjudged baseline counts like an errored one. The badge reads «⚠️ not measured» for every unmeasured eval. A CI gate whose evals were all skipped now fails.
 
 The adapter stays 0.7.1: nothing it embeds changed.
 
@@ -160,27 +160,27 @@ The adapter stays 0.7.1: nothing it embeds changed.
 
 ### Changed
 
-- **`plune_review_decide` names `policy_refused` (plune-ai/plune#2499).** The tool's description now tells the agent that an entry the platform skips as `policy_refused` was refused by the project's review policy: it is not retried, it needs another reviewer, and its `detail` says why.
+- **`plune_review_decide` names `policy_refused`.** The tool's description now tells the agent that an entry the platform skips as `policy_refused` was refused by the project's review policy: it is not retried, it needs another reviewer, and its `detail` says why.
 
 ### Fixed
 
-- A dataset line that is not valid JSON, or a row without a `vars` object, now stops `plune run` with `<file>:<line>` and exit 2 instead of an internal error (plune-ai/plune#2543).
+- A dataset line that is not valid JSON, or a row without a `vars` object, now stops `plune run` with `<file>:<line>` and exit 2 instead of an internal error.
 
 ## [0.34.2] - 2026-11-09
 
 ### Added
 
-- **`plune mcp serve`: cases from pasted text (plune-ai/plune#1876).** `plune_cases_generate` starts a run of the project's AI on pasted text (`POST /v1/projects/:id/case-generations`) with the platform's own body: `input: { kind: 'pasted-text', text, title? }`, `maxCases` (1–12, 8 when left out), `language`, `confirmDuplicates`, plus `dry_run` and an optional `projectId`. The run spends the project's AI budget; its proposals land in the review queue and none becomes a case until a person approves it. The Jira-ticket input is refused before any request. `plune_cases_generation_get` reads a run by the id the start answered with — its state (`queued`, `running`, `done`, `failed`, `cancelled`), counters and cost. A platform refusal (409 `duplicate_source`, 422 `ticket_too_empty` / `text_too_long`, 429, 503 / 409 for the project's AI) comes back with its status, `code` and body unchanged. Both tools are listed from the start; the default list grows from 15 to 17 of at most 20. Starting a run with a token needs a platform version that lets a token start one from pasted text; an older one answers 403.
+- **`plune mcp serve`: cases from pasted text.** `plune_cases_generate` starts a run of the project's AI on pasted text (`POST /v1/projects/:id/case-generations`) with the platform's own body: `input: { kind: 'pasted-text', text, title? }`, `maxCases` (1–12, 8 when left out), `language`, `confirmDuplicates`, plus `dry_run` and an optional `projectId`. The run spends the project's AI budget; its proposals land in the review queue and none becomes a case until a person approves it. The Jira-ticket input is refused before any request. `plune_cases_generation_get` reads a run by the id the start answered with — its state (`queued`, `running`, `done`, `failed`, `cancelled`), counters and cost. A platform refusal (409 `duplicate_source`, 422 `ticket_too_empty` / `text_too_long`, 429, 503 / 409 for the project's AI) comes back with its status, `code` and body unchanged. Both tools are listed from the start; the default list grows from 15 to 17 of at most 20. Starting a run with a token needs a platform version that lets a token start one from pasted text; an older one answers 403.
 
 ## [0.34.1] - 2026-11-09
 
 ### Changed
 
-- **`plune diff --fail-on-regression` exits `3` when an eval was not measured (plune-ai/plune#2414).** An eval that errored in the current run, or errored in the baseline and fails now, has no verdict. Before, such a run exited `0` under a «✅ No regressions» headline, so a gate passed when the model never answered. The summary gains `unmeasured`; the headline reads «⚠️ N eval(s) not measured»; a regression still exits `1` first. An eval that errored in the baseline and fails now gets the new status `unmeasured` instead of `pre-existing-fail`. The `errored` status and every other field are unchanged, and without the flag the exit stays `0`. A CI script that runs `plune diff --fail-on-regression` now fails when the provider was down during the current run.
+- **`plune diff --fail-on-regression` exits `3` when an eval was not measured.** An eval that errored in the current run, or errored in the baseline and fails now, has no verdict. Before, such a run exited `0` under a «✅ No regressions» headline, so a gate passed when the model never answered. The summary gains `unmeasured`; the headline reads «⚠️ N eval(s) not measured»; a regression still exits `1` first. An eval that errored in the baseline and fails now gets the new status `unmeasured` instead of `pre-existing-fail`. The `errored` status and every other field are unchanged, and without the flag the exit stays `0`. A CI script that runs `plune diff --fail-on-regression` now fails when the provider was down during the current run.
 
 ### Fixed
 
-- **`defaults.assertions` in `plune.yaml` now run on every eval (plune-ai/plune#2415).** The schema accepted them and the guide promised them, but no eval ran them, so a run stayed green with a shared check that could never pass. They run ahead of each eval's own assertions; a check listed in both places runs twice. An eval still needs its own `assertions` key (`[]` when the shared checks are enough). A suite that relied on them being ignored can now go red.
+- **`defaults.assertions` in `plune.yaml` now run on every eval.** The schema accepted them and the guide promised them, but no eval ran them, so a run stayed green with a shared check that could never pass. They run ahead of each eval's own assertions; a check listed in both places runs twice. An eval still needs its own `assertions` key (`[]` when the shared checks are enough). A suite that relied on them being ignored can now go red.
 
 The adapter stays 0.7.1: nothing it embeds changed.
 
@@ -188,7 +188,7 @@ The adapter stays 0.7.1: nothing it embeds changed.
 
 ### Added
 
-- **`plune mcp serve`: the Plune tools for AI agents over MCP stdio (#146, plune-ai/plune#1284).** Claude Code, Codex or any MCP client gets the Plune a token reaches — project context, cases, the review queue, missions, sources, questions, strategy, reports — as tools. At most 20 are listed at once; the rest are found with `plune_discover_tools`. Every write tool takes `dry_run`, a batch stops at 100 items, and every request carries `X-Plune-Session`, so the platform holds the caller to its agent rules: a proposed case lands in the review queue, a bulk decision needs a confirm, and a delete is refused. The token is read as every platform command reads it (`PLUNE_TOKEN`, else the saved login); `--project <id>` (default `PLUNE_PROJECT`) picks the project and `--read-only` offers only the read tools. Without a token it exits 2. stdout carries only the protocol.
+- **`plune mcp serve`: the Plune tools for AI agents over MCP stdio (#146).** Claude Code, Codex or any MCP client gets the Plune a token reaches — project context, cases, the review queue, missions, sources, questions, strategy, reports — as tools. At most 20 are listed at once; the rest are found with `plune_discover_tools`. Every write tool takes `dry_run`, a batch stops at 100 items, and every request carries `X-Plune-Session`, so the platform holds the caller to its agent rules: a proposed case lands in the review queue, a bulk decision needs a confirm, and a delete is refused. The token is read as every platform command reads it (`PLUNE_TOKEN`, else the saved login); `--project <id>` (default `PLUNE_PROJECT`) picks the project and `--read-only` offers only the read tools. Without a token it exits 2. stdout carries only the protocol.
 - **`@plune-ai/cli/mcp-tools`: the same tool contract without a transport.** The tool definitions, their input and output schemas and the executor, importing only `zod`, `node:crypto` and `fetch`, so a service can give an agent the same tools without the CLI or MCP.
 
 The adapter stays 0.7.1: nothing it embeds changed.
@@ -217,7 +217,7 @@ Playwright reporter only with this version.
 
 ### Fixed
 
-- **A JUnit report without a suite `timestamp` keeps its durations (plune-ai/plune#2310).** Maven Surefire writes no `timestamp` on `<testsuite>`, and `plune run import` dropped every Maven test's `time` with the missing start, so a Java run arrived with no durations at all. Now a case with a `time` sends it as the span that ends when the import read the report, as Plune's dashboard sends a duration a person typed: the duration is what Plune sorts and averages results by. A suite with a `timestamp` (Gradle, pytest, Jest) is read as before; a `timestamp` that does not parse as a date counts as none, and a `time` too large for any date sends no execution instead of stopping the import. A case with neither a `timestamp` nor a `time` still sends no execution. The file's mtime is still not used: a report copied from another job would carry the copy's time.
+- **A JUnit report without a suite `timestamp` keeps its durations.** Maven Surefire writes no `timestamp` on `<testsuite>`, and `plune run import` dropped every Maven test's `time` with the missing start, so a Java run arrived with no durations at all. Now a case with a `time` sends it as the span that ends when the import read the report, as Plune's dashboard sends a duration a person typed: the duration is what Plune sorts and averages results by. A suite with a `timestamp` (Gradle, pytest, Jest) is read as before; a `timestamp` that does not parse as a date counts as none, and a `time` too large for any date sends no execution instead of stopping the import. A case with neither a `timestamp` nor a `time` still sends no execution. The file's mtime is still not used: a report copied from another job would carry the copy's time.
 
 ## [0.32.0] - 2026-11-03
 
@@ -225,7 +225,7 @@ Playwright reporter only with this version.
 
 ### Added
 
-- **`plune run import` reads a folder of JUnit XML files (plune-ai/plune#2309).** Maven Surefire (`target/surefire-reports`) and Gradle (`build/test-results/test`) write a `TEST-<class>.xml` per class, so a Java suite no longer needs Allure to reach Plune: `plune run import target/surefire-reports` reads every `*.xml` of the folder that is a JUnit report, in the order of the file names, and sends them as one run (`meta.runner` is `junit`, as for one file). Only the folder's own regular files are read: subfolders (Gradle's `binary/`) and links are not opened. An `*.xml` that is not JUnit is skipped with one line in the output. A `[[ATTACHMENT|path]]` counts from the folder the XML file is in, as for one file. A folder with a `*-result.json` in it is still read as `allure-results`; `--format junit` reads a folder as JUnit files, and `--format playwright-json` on a folder is refused. A folder with neither is an error that names both, and up to three of the files it skipped as not JUnit (exit 2, as before for a folder without `*-result.json`); a file in it that cannot be read is `Cannot read <file>.` with exit 1, as one file is. Maven tests arrive without a duration for now: Surefire writes no `timestamp` on a suite (plune-ai/plune#2310). A file name in `XmlParseError` and in `Cannot read` is now printed without control characters, for one file as for a folder. The README's Java section now starts with Maven and Gradle without Allure, and names the Allure adapter `io.qameta.allure:allure-jupiter` (`allure-junit5` is a relocation to it since 2.35.1) and `allure.results.directory` for where its folder goes.
+- **`plune run import` reads a folder of JUnit XML files.** Maven Surefire (`target/surefire-reports`) and Gradle (`build/test-results/test`) write a `TEST-<class>.xml` per class, so a Java suite no longer needs Allure to reach Plune: `plune run import target/surefire-reports` reads every `*.xml` of the folder that is a JUnit report, in the order of the file names, and sends them as one run (`meta.runner` is `junit`, as for one file). Only the folder's own regular files are read: subfolders (Gradle's `binary/`) and links are not opened. An `*.xml` that is not JUnit is skipped with one line in the output. A `[[ATTACHMENT|path]]` counts from the folder the XML file is in, as for one file. A folder with a `*-result.json` in it is still read as `allure-results`; `--format junit` reads a folder as JUnit files, and `--format playwright-json` on a folder is refused. A folder with neither is an error that names both, and up to three of the files it skipped as not JUnit (exit 2, as before for a folder without `*-result.json`); a file in it that cannot be read is `Cannot read <file>.` with exit 1, as one file is. Maven tests arrive without a duration for now: Surefire writes no `timestamp` on a suite. A file name in `XmlParseError` and in `Cannot read` is now printed without control characters, for one file as for a folder. The README's Java section now starts with Maven and Gradle without Allure, and names the Allure adapter `io.qameta.allure:allure-jupiter` (`allure-junit5` is a relocation to it since 2.35.1) and `allure.results.directory` for where its folder goes.
 
 ## [0.31.0] - 2026-10-30
 
@@ -234,8 +234,8 @@ Playwright reporter only with this version.
 
 ### Added
 
-- **`PLUNE_CONFIGURATION` names the combination a CI job runs (plune-ai/plune#1251).** `PLUNE_CONFIGURATION="Browser=Chrome;Operating system=Windows"` sends `configuration` (group name → value label) on every results batch of the Playwright reporter and `plune run import`, so the jobs of a matrix that share `PLUNE_RUN` land in one run, each under its own combination: one the run already has, or one Plune adds. Pairs split at `;`, a pair at its first `=`, both sides trimmed; blank pairs are dropped, and an unset or blank variable sends the batch as before. A pair without `=`, a name or a value, or a group named twice (case not mattering), stops the command before anything is sent, as a bad `PLUNE_SHARD` does. A 422 from the platform (other groups than the run's, past 25 combinations or 40 000 results to expect) is printed as it came, and the batch goes to the fallback file, whose line now records the combination. `plune run report` sends a batch with the combination its line recorded, and with none for a line that recorded none; it does not read `PLUNE_CONFIGURATION`, so a replay in another cell of the matrix cannot move results into its own, and a typo in the variable there does not stop it. Needs a platform that takes `configuration` on `POST /v1/runs/:id/results` (plune-ai/plune#2131, release 0.1.50).
-- **`plune ingest` shows up in the platform's job queue (plune-ai/plune#2047).** A long import from Cairn used to leave no trace in the queue, so an import that died half-way was noticed late. Now an ingest opens a job of kind `ingest` once the run reads cleanly, sized by the cases it sends (`0 / N`), reports the upload through `PATCH /v1/jobs/:id/progress` with the run the import landed in as the job's `subjectId`, so the run's page lists it, and ends it completed, or failed with the line the CLI prints. As with `plune sync`: an older platform without `POST /v1/jobs` is not told, a job report never fails the ingest or changes its exit code, and when the ingest goes through, a report the platform did not take is said once on stderr (`plune: could not report this ingest to the job queue (…)`). Naming the run needs a platform that takes `subjectId` in a progress report (beta 0.1.45 and later); an older one refuses that one report, which is said on stderr, and the job still ends.
+- **`PLUNE_CONFIGURATION` names the combination a CI job runs.** `PLUNE_CONFIGURATION="Browser=Chrome;Operating system=Windows"` sends `configuration` (group name → value label) on every results batch of the Playwright reporter and `plune run import`, so the jobs of a matrix that share `PLUNE_RUN` land in one run, each under its own combination: one the run already has, or one Plune adds. Pairs split at `;`, a pair at its first `=`, both sides trimmed; blank pairs are dropped, and an unset or blank variable sends the batch as before. A pair without `=`, a name or a value, or a group named twice (case not mattering), stops the command before anything is sent, as a bad `PLUNE_SHARD` does. A 422 from the platform (other groups than the run's, past 25 combinations or 40 000 results to expect) is printed as it came, and the batch goes to the fallback file, whose line now records the combination. `plune run report` sends a batch with the combination its line recorded, and with none for a line that recorded none; it does not read `PLUNE_CONFIGURATION`, so a replay in another cell of the matrix cannot move results into its own, and a typo in the variable there does not stop it. Needs a platform that takes `configuration` on `POST /v1/runs/:id/results` (release 0.1.50).
+- **`plune ingest` shows up in the platform's job queue.** A long import from Cairn used to leave no trace in the queue, so an import that died half-way was noticed late. Now an ingest opens a job of kind `ingest` once the run reads cleanly, sized by the cases it sends (`0 / N`), reports the upload through `PATCH /v1/jobs/:id/progress` with the run the import landed in as the job's `subjectId`, so the run's page lists it, and ends it completed, or failed with the line the CLI prints. As with `plune sync`: an older platform without `POST /v1/jobs` is not told, a job report never fails the ingest or changes its exit code, and when the ingest goes through, a report the platform did not take is said once on stderr (`plune: could not report this ingest to the job queue (…)`). Naming the run needs a platform that takes `subjectId` in a progress report (beta 0.1.45 and later); an older one refuses that one report, which is said on stderr, and the job still ends.
 
 ## [0.30.2] - 2026-10-25
 
@@ -251,58 +251,58 @@ the fix below included.
 
 ### Fixed
 
-- **A run whose list of expected tests is too large no longer loses its results (plune-ai/plune#1949).** When the platform answers the start of a run with 413 (the run's configuration is over the 1 MiB a run keeps, or the request over its body limit), the reporter starts the run again without `configuration` and says so. The results land as before; that run has no not-run count and no full-run claim (`PLUNE_FULL_RUN`), since both travel with the list. Before, the refused start sent every result of the run to the fallback file, which a CI job deletes with itself. Any other refusal of the start behaves as before. Applies to `plune run import` and the Playwright reporter, the two that send a list; `plune run start` and `plune run exec` start a run without one.
+- **A run whose list of expected tests is too large no longer loses its results.** When the platform answers the start of a run with 413 (the run's configuration is over the 1 MiB a run keeps, or the request over its body limit), the reporter starts the run again without `configuration` and says so. The results land as before; that run has no not-run count and no full-run claim (`PLUNE_FULL_RUN`), since both travel with the list. Before, the refused start sent every result of the run to the fallback file, which a CI job deletes with itself. Any other refusal of the start behaves as before. Applies to `plune run import` and the Playwright reporter, the two that send a list; `plune run start` and `plune run exec` start a run without one.
 
 ## [0.30.0] - 2026-10-22
 
 ### Added
 
-- **`plune sync` reports itself as a job (plune-ai/plune#1769).** Against a platform that has `POST /v1/jobs`, a sync opens a job of kind `cli-sync` named after the project directory (or the `--file` name), reports progress with the run id as the cursor once the upload is in, and finishes it, as failed with the error text when the sync fails. A platform that answers 404 or 405 for the route, or any error on a job report, changes nothing: the sync runs as before and its exit code is the same. The request shapes for updating and finishing a job are not confirmed against a real platform.
+- **`plune sync` reports itself as a job.** Against a platform that has `POST /v1/jobs`, a sync opens a job of kind `cli-sync` named after the project directory (or the `--file` name), reports progress with the run id as the cursor once the upload is in, and finishes it, as failed with the error text when the sync fails. A platform that answers 404 or 405 for the route, or any error on a job report, changes nothing: the sync runs as before and its exit code is the same. The request shapes for updating and finishing a job are not confirmed against a real platform.
 
 ## [0.29.0] - 2026-10-22
 
 ### Added
 
-- **`plune requirements links <file.md>` (plune-ai/plune#1608).** Imports a traceability matrix (requirement key to test) as links between requirements and cases. No flags lists the tables; `--table <n> --requirement-column <header> --test-column <header>` is a dry run until `--yes`, with `--separator` (1 to 3 characters, default `,`) for several keys in one cell and `--project`. The report lists links to make, links already there and every unmatched key or test with its reason; `--json` prints the platform's answer, `--fail-on-unmatched` exits `1` on any unmatched row. Same errors and exit codes as `requirements import`. Not run against a real platform.
-- **`errorContextOmitted` when the reporter cuts an error text (plune-ai/plune#1281).** An error text over the 512 KiB transport limit is cut by whole lines, with `…[omitted N lines]…` where they were. Now the result also carries `errorContextOmitted`: how many characters that cut took out (counted in characters, not bytes, the marker not included). The platform keeps it as `errorContextMeta.omittedByReporter` and ends Copy prompt with `[truncated by the reporter: N characters omitted]`. The key is left out when nothing was cut, never 0. Applies to `plune run import` (Playwright JSON, Allure) and the Playwright reporter; JUnit text is not cut by the CLI.
-- **`plune ids [--write]` (plune-ai/plune#1291).** Writes the Plune case id of each Playwright test that names none into `plune/ids.json` (`{ "<path-title>": "<case id>" }`), not into your test files. A dry run unless `--write`. Only tests whose case Plune holds get an entry; entries are only added (never overwritten or removed), the file is sorted, a rerun writes nothing, and a broken mapfile is refused with exit `2`. The Playwright reporter reads the mapfile: an entry names the case after the `PluneId` annotation, `@P<id>` and a metadata attachment and before the `playwright-id` and `path-title` keys, so a renamed test keeps its case. The path is `plune/ids.json` under the directory the run starts in, or `PLUNE_IDS_FILE` / the `idsFile` reporter option; a missing file changes nothing, an invalid one is warned about once and ignored.
+- **`plune requirements links <file.md>`.** Imports a traceability matrix (requirement key to test) as links between requirements and cases. No flags lists the tables; `--table <n> --requirement-column <header> --test-column <header>` is a dry run until `--yes`, with `--separator` (1 to 3 characters, default `,`) for several keys in one cell and `--project`. The report lists links to make, links already there and every unmatched key or test with its reason; `--json` prints the platform's answer, `--fail-on-unmatched` exits `1` on any unmatched row. Same errors and exit codes as `requirements import`. Not run against a real platform.
+- **`errorContextOmitted` when the reporter cuts an error text.** An error text over the 512 KiB transport limit is cut by whole lines, with `…[omitted N lines]…` where they were. Now the result also carries `errorContextOmitted`: how many characters that cut took out (counted in characters, not bytes, the marker not included). The platform keeps it as `errorContextMeta.omittedByReporter` and ends Copy prompt with `[truncated by the reporter: N characters omitted]`. The key is left out when nothing was cut, never 0. Applies to `plune run import` (Playwright JSON, Allure) and the Playwright reporter; JUnit text is not cut by the CLI.
+- **`plune ids [--write]`.** Writes the Plune case id of each Playwright test that names none into `plune/ids.json` (`{ "<path-title>": "<case id>" }`), not into your test files. A dry run unless `--write`. Only tests whose case Plune holds get an entry; entries are only added (never overwritten or removed), the file is sorted, a rerun writes nothing, and a broken mapfile is refused with exit `2`. The Playwright reporter reads the mapfile: an entry names the case after the `PluneId` annotation, `@P<id>` and a metadata attachment and before the `playwright-id` and `path-title` keys, so a renamed test keeps its case. The path is `plune/ids.json` under the directory the run starts in, or `PLUNE_IDS_FILE` / the `idsFile` reporter option; a missing file changes nothing, an invalid one is warned about once and ignored.
 
 ## [0.28.0] - 2026-10-22
 
 ### Added
 
-- **`plune run start --name` and `plune run exec --name` (plune-ai/plune#1715).** Same as `plune run import --name`: the text is the run's title and wins over `PLUNE_RUN_TITLE`; without it the name is what it was. For `exec`, the reporter inside the command joins the run and keeps that title.
-- **`plune verify` (plune-ai/plune#1291).** Compares the project's automated cases with the Playwright tests in the code and prints both sides of the drift: cases the code no longer has (already `detached`, or one a full run would detach) and tests with no case yet. A test is matched by the id it names (`PluneId` annotation or `@P<id>`), else by its `path-title` key. Read-only: nothing is written to the platform or to your source. `--from <file>` takes a saved `playwright test --list --reporter=json`, `--fail-on-drift` exits 1 on any difference. Playwright only; writing ids back into the source is not part of this.
-- **`plune run import --name <text>` (plune-ai/plune#1715).** Names the run in the list; before, every import was called after the current folder and two imports from one folder could not be told apart. Without the flag the name is what it was (`PLUNE_RUN_TITLE`, then folder, time and where it ran). Renaming runs already created is not part of this.
-- **`plune run --cache-strict` and `--cache-max-age` (plune-ai/plune#1696).** `--cache-strict` answers every row from the cache and never calls the model for a completion (judge assertions still do); a row with no entry ends the run with exit code `5` and a list of those rows (`--no-cache` with it, or with `--cache-max-age`, is exit `2`). `--cache-max-age 12h` (also `90s`, `15m`, `7d`) opens the existing expiry. The console report and `summary.cache` in the JSON now say how many rows came from the cache, from the model, or had no entry, and the tokens and cost the cache saved.
+- **`plune run start --name` and `plune run exec --name`.** Same as `plune run import --name`: the text is the run's title and wins over `PLUNE_RUN_TITLE`; without it the name is what it was. For `exec`, the reporter inside the command joins the run and keeps that title.
+- **`plune verify`.** Compares the project's automated cases with the Playwright tests in the code and prints both sides of the drift: cases the code no longer has (already `detached`, or one a full run would detach) and tests with no case yet. A test is matched by the id it names (`PluneId` annotation or `@P<id>`), else by its `path-title` key. Read-only: nothing is written to the platform or to your source. `--from <file>` takes a saved `playwright test --list --reporter=json`, `--fail-on-drift` exits 1 on any difference. Playwright only; writing ids back into the source is not part of this.
+- **`plune run import --name <text>`.** Names the run in the list; before, every import was called after the current folder and two imports from one folder could not be told apart. Without the flag the name is what it was (`PLUNE_RUN_TITLE`, then folder, time and where it ran). Renaming runs already created is not part of this.
+- **`plune run --cache-strict` and `--cache-max-age`.** `--cache-strict` answers every row from the cache and never calls the model for a completion (judge assertions still do); a row with no entry ends the run with exit code `5` and a list of those rows (`--no-cache` with it, or with `--cache-max-age`, is exit `2`). `--cache-max-age 12h` (also `90s`, `15m`, `7d`) opens the existing expiry. The console report and `summary.cache` in the JSON now say how many rows came from the cache, from the model, or had no entry, and the tokens and cost the cache saved.
 
 ### Changed
 
-- **`better-sqlite3` is an optional dependency (plune-ai/plune#1716).** When its prebuilt binary cannot be fetched and the machine has no compiler, `npm i -g @plune-ai/cli` used to stop on the node-gyp build; now npm skips the module, the install succeeds, and `plune run` prints `completion cache disabled` and runs with the cache off. README lists the install requirements and the rebuild step.
-- **The completion cache keeps only usable answers (plune-ai/plune#1696).** An empty answer, one cut off by the token limit, one carrying a provider error, or one without the format the eval expects (JSON for `json-schema`) is no longer stored; a stored answer that no longer has that format is deleted and the model is asked once in the same run. `CACHE_POLICY_VERSION` is now part of the cache key, so raising it makes older entries unreachable (the run reports `cache policy changed, N entries are stale` once). Entries written by 0.27.0 and earlier are dropped on the first run.
+- **`better-sqlite3` is an optional dependency.** When its prebuilt binary cannot be fetched and the machine has no compiler, `npm i -g @plune-ai/cli` used to stop on the node-gyp build; now npm skips the module, the install succeeds, and `plune run` prints `completion cache disabled` and runs with the cache off. README lists the install requirements and the rebuild step.
+- **The completion cache keeps only usable answers.** An empty answer, one cut off by the token limit, one carrying a provider error, or one without the format the eval expects (JSON for `json-schema`) is no longer stored; a stored answer that no longer has that format is deleted and the model is asked once in the same run. `CACHE_POLICY_VERSION` is now part of the cache key, so raising it makes older entries unreachable (the run reports `cache policy changed, N entries are stale` once). Entries written by 0.27.0 and earlier are dropped on the first run.
 
 ## [0.27.0] - 2026-10-18
 
 ### Added
 
-- **`plune run import` has a time limit of its own (plune-ai/plune#1473).** The whole import gives up after 600 s by default (`--timeout <seconds>` or `PLUNE_IMPORT_TIMEOUT`, the flag wins; `0` turns the limit off). Before, a platform that stopped answering kept the command waiting until CI killed the job, and the run it had opened stayed in progress. On a timeout the command tries to send `terminate` for the run it opened (waiting up to 15 s for it), prints one line that says the platform may have received part of the results and whether the run was terminated, and exits 1. A run shared with other jobs (`--key` with `PLUNE_SHARD`, `PLUNE_PROCEED` or `PLUNE_SHARED_RUN`) is left open and named; if the run was never started the line says its id is not known. Not run against a real platform.
+- **`plune run import` has a time limit of its own.** The whole import gives up after 600 s by default (`--timeout <seconds>` or `PLUNE_IMPORT_TIMEOUT`, the flag wins; `0` turns the limit off). Before, a platform that stopped answering kept the command waiting until CI killed the job, and the run it had opened stayed in progress. On a timeout the command tries to send `terminate` for the run it opened (waiting up to 15 s for it), prints one line that says the platform may have received part of the results and whether the run was terminated, and exits 1. A run shared with other jobs (`--key` with `PLUNE_SHARD`, `PLUNE_PROCEED` or `PLUNE_SHARED_RUN`) is left open and named; if the run was never started the line says its id is not known. Not run against a real platform.
 
 ## [0.26.0] - 2026-10-18
 
 ### Added
 
-- **`plune requirements import` maps several tables in one run (plune-ai/plune#1624).** Repeat `--table "<n>:key=ID,text=Requirement,fixed-category=functional"`, each with its own columns (`key`, `title`/`text`, `description`, `priority`, `category`, `type`, `status`, `criteria`, `fixed-category`, `fixed-type`); the request carries them as `tables`, and `--map-priority`, `--type` and `--map-category` are shared. `--table 0 --key-column ...` works as before; the two forms are not mixed (exit 2). The plan names the table of each row, shows the new skip reasons (`template placeholder`, `first on line N, again on line M`), and says `this file is an empty template` when the platform reports one (exit 0, like any skipped row). Not run against a real platform.
+- **`plune requirements import` maps several tables in one run.** Repeat `--table "<n>:key=ID,text=Requirement,fixed-category=functional"`, each with its own columns (`key`, `title`/`text`, `description`, `priority`, `category`, `type`, `status`, `criteria`, `fixed-category`, `fixed-type`); the request carries them as `tables`, and `--map-priority`, `--type` and `--map-category` are shared. `--table 0 --key-column ...` works as before; the two forms are not mixed (exit 2). The plan names the table of each row, shows the new skip reasons (`template placeholder`, `first on line N, again on line M`), and says `this file is an empty template` when the platform reports one (exit 0, like any skipped row). Not run against a real platform.
 
 ### Changed
 
-- **Faster result upload (plune-ai/plune#1393).** Result batches of one run go four at a time (the first alone, so a refused token or a closed run is met by one request), over reused connections; the default batch is still 500, so 7 000 results are 14 requests, not 70. Ordering is kept: the run starts before the first result and closes after the last is answered; a failed batch still goes to the fallback file. Gain estimated from measured round trips, not measured on a real platform.
+- **Faster result upload.** Result batches of one run go four at a time (the first alone, so a refused token or a closed run is met by one request), over reused connections; the default batch is still 500, so 7 000 results are 14 requests, not 70. Ordering is kept: the run starts before the first result and closes after the last is answered; a failed batch still goes to the fallback file. Gain estimated from measured round trips, not measured on a real platform.
 
 ## [0.25.0] - 2026-10-17
 
 ### Added
 
-- **`plune requirements import <file.md>` (#113, plune-ai/plune#1594).** Requirements from a Markdown file, in the two steps of the
-  platform's import (plune-ai/plune#1621). With no mapping flags it lists the tables and sections the file has (and which look like
+- **`plune requirements import <file.md>` (#113).** Requirements from a Markdown file, in the two steps of the
+  platform's import. With no mapping flags it lists the tables and sections the file has (and which look like
   requirements) and exits 0; `--table <n>` with `--key-column`, `--title-column` or `--text-column`, `--description-column`,
   `--priority-column`, `--category-column`, `--type-column`, `--status-column`, `--criteria-column`, `--map-priority`, `--map-category`,
   or `--sections <heading|n>` with `--unit`, `--key-prefix`, `--priority-from`, runs a **dry run** (`create 3 · update 0 · unchanged 12 ·
@@ -311,7 +311,7 @@ the fix below included.
   one message ("This platform does not support requirements import yet") instead of a stack trace. `--project <id>` / `PLUNE_PROJECT`
   names the project when the account has several. Not run against a platform that has the routes (not deployed yet).
 - **`PLUNE_SHARD=k/N` closes a sharded run by itself (#110).** A shard that sets it uploads as before, then sends
-  `{"event":"finish","shardIndex":k,"shardsExpected":N}`; the platform (plune-ai/plune#1601) closes the run when N distinct shards have
+  `{"event":"finish","shardIndex":k,"shardsExpected":N}`; the platform closes the run when N distinct shards have
   reported. It implies `PLUNE_SHARED_RUN`. The job prints `plune: shard k of N done — R of N shards reported` as its last line and
   `plune: run closed` when it was the Nth; exit codes do not depend on the counts, and `--fail-on-failures` gates on the summary the closing
   shard receives. A value that is not `k/N` with `1 <= k <= N <= 1000`, or a different N than the run already holds (409
@@ -321,7 +321,7 @@ the fix below included.
 
 ### Changed
 
-- **A trusted source's first import records the results of the cases it creates (plune-ai/plune#1581).** `plune run import --create`
+- **A trusted source's first import records the results of the cases it creates.** `plune run import --create`
   (and the reporters, with offering on) created the cases of a trusted source but sent nothing for them, so the run showed zeros and
   the new cases had empty histories until a second import. When the platform answers `created` with the new case's `id`, the result of
   that test now goes to the same run, files included, and the summary reads `3 added as cases (trusted source) and their results
@@ -337,7 +337,7 @@ the fix below included.
 
 ### Fixed
 
-- **A quota 429 is told by the `quota` object in the body, not by a missing `Retry-After` (#111).** plune-ai/plune#1599 adds
+- **A quota 429 is told by the `quota` object in the body, not by a missing `Retry-After` (#111).** The platform now adds
   `Retry-After` to the quota 429 that has a reset time (the daily runs quota); the CLI would have read it as a throttle, waited
   and retried for nothing. A 429 whose JSON body has a `quota` object now stops at once, with the exit code as before, and the
   message names the limit: `quota exceeded (runs: 50 of 50 used, resets 2026-10-18T00:00:00.000Z) — <server words>`. A 429
@@ -391,7 +391,7 @@ the fix below included.
 
 ### Changed
 
-- **Results go in batches of 500, not 100 (plune-ai/plune#1393).** The platform's ceiling per request is 500 and the 8 MiB
+- **Results go in batches of 500, not 100.** The platform's ceiling per request is 500 and the 8 MiB
   byte packing of a call is unchanged, so a run of 7 000 results is 14 requests instead of 70 (about 2.3 times faster per
   result against a local platform; the time on a real network is not measured). `PLUNE_BATCH_SIZE` still sets it, up to 500.
   The "N of M results sent" line only appears for a run larger than one batch, so it now starts at 501 results (it did at
@@ -410,23 +410,23 @@ the fix below included.
   anything else is refused with exit 2 before a request is sent, and a key no run carries exits 1. `--failed` asks
   the platform for the cases whose latest result it counts as failed or broken (`?status=failed,broken`), so a muted
   case's failure is left out by the platform's rule, not by a copy of it in the CLI. stderr says how many cases were
-  taken and how many left out. Needs a Plune with plune-ai/plune#1333; an older one answers 404.
+  taken and how many left out. Needs a Plune that serves `GET /v1/runs/:id/cases`; an older one answers 404.
 
 ## [0.20.0] - 2026-10-13
 
 ### Changed
 
-- **`plune ingest`: a Cairn case whose request got no answer arrives as `blocked` (plune-ai/plune#1327).** Cairn's
+- **`plune ingest`: a Cairn case whose request got no answer arrives as `blocked`.** Cairn's
   API evidence records a transport error when a request gets no response after the retries; the case used to be
   sent as `failed`, blaming the product for an unreachable target. It now carries the verdict `blocked`, so the
-  platform records a `blocked` result. Needs a Plune that accepts the verdict (plune-ai/plune#1330); an older one
+  platform records a `blocked` result. Needs a Plune that accepts the verdict; an older one
   refuses the whole ingest with a validation error.
 
 ## [0.19.0] - 2026-10-12
 
 ### Added
 
-- **`--fail-on-failures`: a release gate that honours mute (plune-ai/plune#1247).** `plune run finish`,
+- **`--fail-on-failures`: a release gate that honours mute.** `plune run finish`,
   `plune run exec`, `plune run import` and `plune sync` take the flag, and the exit code is then the
   platform's verdict on the run rather than the runner's. The run commands read the summary the platform
   freezes at `finish`, which the `finish` event already answers with (the CLI used to throw it away); `sync`
@@ -467,7 +467,7 @@ the fix below included.
 
 ### Changed
 
-- **The run summary counts `blocked` and `skipped` apart from `failed` (plune-ai/plune#1245).** A row
+- **The run summary counts `blocked` and `skipped` apart from `failed`.** A row
   that reports `inconclusive` (ADR 0045) now counts by that word, not by its assertions or its error:
   a blocked row whose assertions failed is `blocked`, not `failed`, and a skipped row with an error is
   `skipped`, not `errored`. This is the order the platform already uses when it stores the row. **The
@@ -490,7 +490,7 @@ the fix below included.
   - `is_muted` — human decision: "we execute and record it, but it does not count toward the run summary" (policy).
   Both are purely additive: a producer that does not send them validates exactly as before, so `schemaVersion` stays at 2.
   The platform already validates these fields on `POST /v1/test-cases` (plune#1246, ADR 0045).
-- **A result row can say the product was never judged (`inconclusive`) (plune-ai/plune#1244, ADR 0045).**
+- **A result row can say the product was never judged (`inconclusive`).**
   `RowResult.inconclusive?: 'blocked' | 'skipped'` — optional and purely additive, so a runner that
   does not send it validates exactly as before and `schemaVersion` stays 1. Until now a row stopped
   by a dependency or an environment had exactly one word available to it, `failed`, and the word was
@@ -499,7 +499,7 @@ the fix below included.
   field on `POST /v1/runs`; this is the producer's half of the same contract. `invalid` is
   deliberately not accepted — Qase's `invalid` is Plune's `broken`, and a second word for one idea
   would fork the contract at both ends.
-- **`plune run import <folder>` reads an Allure `allure-results` folder (plune-ai/plune#1221).** One reader for
+- **`plune run import <folder>` reads an Allure `allure-results` folder.** One reader for
   every Allure adapter (pytest, JUnit 5, TestNG, Playwright, Cypress, Jest, Vitest, WebdriverIO, .NET): each
   `*-result.json` is a test with its status (`passed`, `failed`, `broken`, `skipped`, sent as written), time,
   failure message and trace, and steps; `*-container.json` names the suite. The files in `attachments[]` of the
@@ -512,13 +512,13 @@ the fix below included.
   works as a JUnit report's does. Only regular files named `*-result.json` and `*-container.json` are read, none over
   64 MB; a file in a shape nobody wrote ends the import with exit 2 and its name, never a stack trace; at most 100
   files of one test are read, as for JUnit. This is how Jest gets files per test, which `jest-junit` cannot give.
-- **Trace, video, screenshots and text go to the project's bucket (plune-ai/plune#946).** When the project has
+- **Trace, video, screenshots and text go to the project's bucket.** When the project has
   a storage bucket connected, every file an attempt kept is uploaded straight to it over short-lived links
   Plune hands out per file: streamed from disk, four at a time, retried on network failures, 5xx and 429, with one
   new link on a 403. The links are never printed; a warning names the file and a code, and never fails the import.
   The run says once that the bucket was found, and the summary reads `N file(s) uploaded to your bucket`.
   Without a bucket nothing changes for screenshots and text; a trace or a video is counted as not stored.
-- **`plune run import` of a JUnit report sends the files its tests announce (plune-ai/plune#1220).** A test that
+- **`plune run import` of a JUnit report sends the files its tests announce.** A test that
   prints `[[ATTACHMENT|path]]` on a line of its own to `system-out` or `system-err` (pytest, Maven Surefire, Vitest,
   PHPUnit, .NET's JunitXml.TestLogger and Cypress's `mocha-junit-reporter` all carry it into the report) has that
   file uploaded to its result by the path the Playwright reporter's files take: the project's bucket, the
@@ -540,12 +540,12 @@ the fix below included.
 
 Also `@plune-ai/playwright` **0.5.0** - the adapter embeds `reporter-core`, where the upload of a result's
 text files lives, and it now hands the core the bytes of an attachment kept as a `body`. Plune's dashboard
-opens what is uploaded in the result's panel (plune-ai/plune#981); a platform that does not keep text files
+opens what is uploaded in the result's panel; a platform that does not keep text files
 refuses them, and the results arrive as before.
 
 ### Added
 
-- **A test's JSON and text files reach Plune with their results (plune-ai/plune#928).** When
+- **A test's JSON and text files reach Plune with their results.** When
   `@plune-ai/playwright` reports a run, or `plune run import` reads a Playwright JSON report, what each
   attempt attached as `application/json` or `text/plain` — a log is `text/plain` — is uploaded to its
   result once the platform has stored it, as the screenshots are: a passed test's as well as a failed
@@ -561,8 +561,8 @@ refuses them, and the results arrive as before.
   a `body`. The name is the attachment's, cut to the 200 characters the platform takes, and the
   extension of its file follows a name that has none of its own — `testInfo.attach('api-response', { path })`
   arrives as `api-response.json`; a body goes by its name as it is. Nothing is cleaned or cut on this
-  side: the platform cleans a text before it keeps it. Needs a platform that keeps text files
-  (plune-ai/plune#928); with an older one each is refused, counted, and said once.
+  side: the platform cleans a text before it keeps it. Needs a platform that keeps text files;
+  with an older one each is refused, counted, and said once.
 - **What stays behind is counted, and costs nothing else.** A text over 512 KiB, one that is not UTF-8 or
   holds a NUL byte, an empty one, one past the 10th of its result, one named with a leading `_` (hidden in
   Playwright's own reports too) or not on this machine is skipped, with one line for each reason —
@@ -584,7 +584,7 @@ refuses them, and the results arrive as before.
 
 Also `@plune-ai/playwright` **0.4.0** - the adapter embeds `reporter-core`, where the commit and the branch,
 the reason an offer was refused and the marker that ties a replayed run together live. A run panel shows
-the commit and the branch only on a platform that hands them out (plune-ai/plune#964); on an older one
+the commit and the branch only on a platform that hands them out; on an older one
 the results arrive as before and the panel shows none.
 
 ### Added
@@ -598,7 +598,7 @@ the results arrive as before and the panel shows none.
   reporter reads it; from any other runner's report it is read from the whole name, which is all that
   report holds.
 
-- **A run says where it ran: the commit and the branch (plune-ai/plune#927).** `@plune-ai/playwright` and
+- **A run says where it ran: the commit and the branch.** `@plune-ai/playwright` and
   `plune run import` open the run with `meta.sha` and `meta.branch` beside the `runner` and `ciUrl` they
   already sent, so the platform's run panel has something to show; until now no client sent either.
   - The reporter takes the commit from `metadata.ci.commitHash`, which Playwright writes itself, and the
@@ -687,12 +687,12 @@ the results arrive as before and the panel shows none.
 ## [0.15.0] - 2026-09-29
 
 Also `@plune-ai/playwright` **0.3.0** - the adapter embeds `reporter-core`, where the upload below lives, and it
-hands the core every attempt's files. Needs a platform that stores a result's files
-(plune-ai/plune#915); with an older one the results arrive as before and the screenshots do not.
+hands the core every attempt's files. Needs a platform that stores a result's files;
+with an older one the results arrive as before and the screenshots do not.
 
 ### Added
 
-- **A Playwright run's screenshots reach Plune with their results (plune-ai/plune#913).** When
+- **A Playwright run's screenshots reach Plune with their results.** When
   `@plune-ai/playwright` reports a run, or `plune run import` reads a Playwright JSON report, the images
   each attempt kept as files are uploaded to its result once the platform has stored it — a passed
   test's as well as a failed one's — so a run in Plune shows every test with what it looked at. PNG,
@@ -725,7 +725,7 @@ The adapter `@plune-ai/playwright` stays at **0.2.8**: nothing below is in the p
 
 ### Changed
 
-- **Where to get a token says Account → API tokens (plune-ai/plune#868).** The dashboard moved API
+- **Where to get a token says Account → API tokens.** The dashboard moved API
   tokens out of a project's Settings into the person's account, where a token is minted for the
   project picked beside Generate. `plune login`'s description, the messages for a missing or rejected
   token and the README name the new place.
@@ -737,8 +737,8 @@ it too.
 
 ### Fixed
 
-- **An address whose host is named as the repository or the home folder is left alone
-  (plune-ai/plune#790).** A posix root's leading slash matched as many slashes as there were, so it
+- **An address whose host is named as the repository or the home folder is left alone.**
+  A posix root's leading slash matched as many slashes as there were, so it
   also took the `//` after a scheme: with the root `/app`, `http://app/login` — a compose service named
   after the image's `WORKDIR` — became `http:login`, and with the home `/root`, `http://root/x` became
   `http:~/x`. A posix path now starts with exactly one slash, escaped or not; a UNC path keeps both.
@@ -771,7 +771,7 @@ it too, and it now closes the run only after every batch is answered.
 
 ### Fixed
 
-- **`@plune-ai/playwright` closes the run only after every batch is answered (plune-ai/plune#790).**
+- **`@plune-ai/playwright` closes the run only after every batch is answered.**
   The adapter handed each result to the core without waiting for it, and the core sends a batch from
   inside that hand-over once enough results are buffered. So the run could be closed while batches were
   still in flight: the platform froze the run's never-run tests without them, refused the batches
@@ -811,13 +811,13 @@ it too, and it now closes the run only after every batch is answered.
 
 Also `@plune-ai/playwright` **0.2.6** - the adapter embeds `reporter-core`, where the failure detail
 and the batches packed by bytes below live, and it sends the detail from the reporter API itself.
-Needs a platform that stores the detail (plune-ai/plune#806, on the beta since 2026-09-24): an older
+Needs a platform that stores the detail (on the beta since 2026-09-24): an older
 one drops the unknown field without a word.
 
 ### Added
 
 - **The failure detail of a failed attempt — what failed, the declared steps down to it, where, what
-  the runner kept, and the CI run (plune-ai/plune#790).** `failureOf` in `@plune-ai/cli/reporter-core`
+  the runner kept, and the CI run.** `failureOf` in `@plune-ai/cli/reporter-core`
   derives it from one normalized attempt, so `plune run import` and the reporter cannot disagree: the
   first non-empty line of the error (on a test timeout, the line of the action that was still waiting,
   not "Test timeout of N ms exceeded"), the chain of failed declared steps, the first stack frame in
@@ -865,8 +865,8 @@ one drops the unknown field without a word.
 
 ### Fixed
 
-- **A run whose failures carry long texts no longer loses them to one refused batch
-  (plune-ai/plune#790).** Results went in batches by count alone, so fifty failures with 10 KB of text
+- **A run whose failures carry long texts no longer loses them to one refused batch.**
+  Results went in batches by count alone, so fifty failures with 10 KB of text
   each were already over the route's ceiling: the batch was refused and written to the fallback file,
   which in CI goes with the runner. A batch is now at most `batchSize` results **and** at most 8 MiB of
   serialized JSON — under the 10 MiB the platform admits for it, the CLI's own number and not a copy of
@@ -1328,7 +1328,7 @@ rather than depending on it, so the fix below reaches Playwright projects only t
   top-level `schema` key must switch to `schemaVersion`** — a reader that does not will see the field
   as absent rather than fail loudly, which is the dangerous half of this change.
 
-  It aligns the CLI's output with the frozen TMS data contracts (plune-ai/plune#75). The rename also
+  It aligns the CLI's output with the frozen TMS data contracts. The rename also
   reaches the exported types (`RunResult`), so a TypeScript consumer is told at compile time; a
   consumer parsing the JSON by hand is not, which is why it is spelled out here.
 

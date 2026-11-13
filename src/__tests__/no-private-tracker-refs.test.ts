@@ -1,6 +1,5 @@
 // This repository is public and its source ships in the npm package, so no tracked file may point
-// at the private tracker the platform is developed in. CHANGELOG.md is the one exception: its
-// history is left as it was written.
+// at the private tracker the platform is developed in — CHANGELOG.md included, since GitHub shows it.
 
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -14,13 +13,13 @@ const PRIVATE_REF = new RegExp(`plune-ai/${'plune'}(#|/|[^-a-z]|$)`, 'm');
 describe('no references to the private tracker', () => {
   const files = execFileSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf8' })
     .split('\0')
-    .filter((f) => f !== '' && f !== 'CHANGELOG.md');
+    .filter((f) => f !== '');
 
   it('scans the tracked files', () => {
     expect(files.length).toBeGreaterThan(100);
   });
 
-  it('finds none outside CHANGELOG.md', () => {
+  it('finds none in any tracked file', () => {
     const hits = files.flatMap((file) =>
       readFileSync(`${ROOT}${file}`, 'utf8')
         .split('\n')
