@@ -29,6 +29,7 @@ import {
   type ScanLevel,
 } from './descriptions.js';
 import { covers, type ScanException } from './exceptions.js';
+import type { ImportedConformance } from './import.js';
 import type { ProbeSection } from './probes/runner.js';
 import { PROBE_REASONS } from './probes/types.js';
 import {
@@ -73,6 +74,8 @@ export interface ScanInput {
   active: boolean;
   /** What the active probes did (`--active`); undefined when none was run. */
   probes?: ProbeSection;
+  /** The report of `plune mcp conformance` the user named (`--import-conformance`), as imported. */
+  imported?: ImportedConformance;
   allowHosts: string[];
   allowPackages: string[];
 }
@@ -112,6 +115,12 @@ const PROBE_RULES = {
     level: 'error',
     gating: 'yes',
     fix: 'Check that the account of the token owns the object the call names, before the tool runs.',
+  },
+  'scan/probe/untrusted-content-verbatim': {
+    class: 'heuristic',
+    level: 'advice',
+    gating: 'no',
+    fix: 'Return content that comes from outside with a boundary the client can see: a wrapper, an annotation or a separate field, so that it is not read as the voice of the server.',
   },
   'scan/probe/error-detail-leak': {
     class: 'heuristic',
@@ -716,6 +725,10 @@ function runScanUncached(input: ScanInput, opts: ScanOptions): ScanReport {
     else exitCode = MCP_EXIT.unmeasured;
   }
   const notes: string[] = [];
+  if (input.imported !== undefined)
+    notes.push(
+      `Imported: ${input.imported.reports.reduce((n, r) => n + r.rows.length, 0)} rows of a conformance report (${input.imported.file}). They were not run by this scan, are not findings, and do not change its exit code.`,
+    );
   if (findings.some((f) => f.location === undefined))
     notes.push(
       'Some findings have no place in a file (a live server without --save-snapshot): SARIF counts them in omittedResults instead of showing them.',
@@ -766,6 +779,7 @@ function runScanUncached(input: ScanInput, opts: ScanOptions): ScanReport {
       metadata: asked.active ? section.metadata : null,
     },
     notEvaluated: rows,
+    imported: input.imported ?? null,
     exceptions: {
       file: ex === undefined ? null : safeText(ex.file),
       expired: ex?.expired.length ?? 0,

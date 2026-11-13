@@ -12,6 +12,9 @@ import {
   type Reply,
 } from './guard.js';
 import { httpTransport } from './http.js';
+import { markerVerdict, pageReachable, startPage, type Page } from './page.js';
+import { stdioTransport } from './stdio.js';
+import { openSession, type Session } from '../../connect/session.js';
 import type { ProbeJournal } from './journal.js';
 import { LEAK_PATTERNS, errorTextOf, findLeak } from './leak.js';
 import { isThisMachine } from './local.js';
@@ -27,6 +30,15 @@ import type { ProbeEntry, ProbeReason, ProbeRow } from './types.js';
 
 /** The rule of a malformed probe (`malformed: true`): not a rule of an `as`, so it is not in the map below. */
 export const LEAK_RULE = 'scan/probe/error-detail-leak';
+/** What a row of a `fetches` probe says; "did not come back" is never "safe", and what was not judged is said apart. */
+const VERDICT_NOTE = {
+  verbatim: 'the marker came back verbatim, with no boundary',
+  bounded: 'the marker came back inside a boundary',
+  absent: 'the marker did not come back in the text that was read',
+  'too-large': 'the answer was over 64 KiB: not judged',
+  'no-text': 'the answer had no text to read: not judged',
+} as const;
+export const FETCH_RULE = 'scan/probe/untrusted-content-verbatim';
 
 export const PROBE_RULE_OF = {
   none: 'scan/probe/unauthenticated-call',
@@ -35,7 +47,7 @@ export const PROBE_RULE_OF = {
 } as const;
 
 export interface ProbeFinding {
-  rule: (typeof PROBE_RULE_OF)[keyof typeof PROBE_RULE_OF] | typeof LEAK_RULE;
+  rule: (typeof PROBE_RULE_OF)[keyof typeof PROBE_RULE_OF] | typeof LEAK_RULE | typeof FETCH_RULE;
   id: string;
   tool: string;
   severity: 'error' | 'info' | 'advice';
@@ -62,6 +74,9 @@ export interface ProbeRunOptions {
   maxCalls?: number;
   maxRequests?: number;
   timeoutMs: number;
+  /** `--yes`: the command of a stdio server may be started by a probe. */
+  yes?: boolean;
+  clientVersion?: string;
   /** Where the frames and answers are written (`--journal`), opened before anything is sent. */
   journal?: ProbeJournal;
   /** The line "probes will go to ..." goes here, before the first frame. */
@@ -118,7 +133,7 @@ function decide(reply: Reply, expectMessage: boolean): Decision {
 
 /** What one probe came to, before the expectation and the control are applied. */
 type Attempt =
-  | { kind: 'allowed' }
+  | { kind: 'allowed'; result?: unknown }
   | { kind: 'http-refused'; step: string }
   /**
    * A JSON-RPC error or `isError` on the declared call itself: a refusal only if a control proves the call can run.
@@ -138,14 +153,20 @@ const notRun = (e: ProbeEntry, reason: ProbeReason): ProbeRow => ({
 });
 
 export async function runProbes(opts: ProbeRunOptions): Promise<ProbeSection> {
+  // What a run starts (a stdio child, the page of the scan) is stopped on every way out, a thrown error included.
+  const cleanups: (() => Promise<void>)[] = [];
   try {
-    return await runProbesWith(opts);
+    return await runProbesWith(opts, cleanups);
   } finally {
+    await Promise.allSettled(cleanups.map((stop) => stop()));
     opts.journal?.close?.();
   }
 }
 
-async function runProbesWith(opts: ProbeRunOptions): Promise<ProbeSection> {
+async function runProbesWith(
+  opts: ProbeRunOptions,
+  cleanups: (() => Promise<void>)[],
+): Promise<ProbeSection> {
   const section: ProbeSection = { rows: [], findings: [], calls: 0, requests: 0, metadata: null };
   const all = (reason: ProbeReason) => {
     section.rows =
@@ -167,8 +188,9 @@ async function runProbesWith(opts: ProbeRunOptions): Promise<ProbeSection> {
   if (opts.entries === undefined) return all('no-probe-file');
   const { target } = opts;
   if (target === undefined) return all('no-target');
+  const stdio = target.kind === 'stdio';
   if (target.kind === 'stdio') {
-    // The command is shown in full, so the person sees what a probe would start; no probe of this version runs on it.
+    // The command is shown in full, so the person sees what a probe would start. It is started only with --yes.
     // The arguments go through the masking the connection layer already applies to a command line.
     const shown = describeTarget(target, redactorFor(target)) as {
       command: string;
@@ -177,33 +199,57 @@ async function runProbesWith(opts: ProbeRunOptions): Promise<ProbeSection> {
     opts.announce(
       `probes target the server started by: ${[shown.command, ...shown.args].join(' ')}`,
     );
-    return all('stdio');
+    if (opts.yes !== true) return all('no-yes');
+  } else {
+    if (target.kind === 'sse') return all('no-target');
+    const url = new URL(target.url);
+    if (!isThisMachine(target.url) && opts.confirmHost?.toLowerCase() !== url.host.toLowerCase())
+      return all('no-consent');
+    opts.announce(`probes will go to ${maskUrl(target.url)}`);
   }
-  if (target.kind === 'sse') return all('no-target');
-  const url = new URL(target.url);
-  if (!isThisMachine(target.url) && opts.confirmHost?.toLowerCase() !== url.host.toLowerCase())
-    return all('no-consent');
-  opts.announce(`probes will go to ${maskUrl(target.url)}`);
 
   const garbage = `plune-probe-${randomBytes(24).toString('hex')}`;
   const secrets = [garbage, opts.tokens.accountA, opts.tokens.accountB].filter(
     (t): t is string => t !== undefined,
   );
-  const redact = createRedactor(secrets.flatMap((t) => [t, b64(t), b64url(t)]));
+  const forms = secrets.flatMap((t) => [t, b64(t), b64url(t)]);
+  const redact =
+    target.kind === 'stdio'
+      ? createRedactor(forms, { named: Object.values(target.env) })
+      : createRedactor(forms);
+  let session: Session | undefined;
+  if (target.kind === 'stdio') {
+    try {
+      session = await openSession(
+        {
+          target,
+          timeoutMs: opts.timeoutMs,
+          ...(opts.clientVersion === undefined ? {} : { clientVersion: opts.clientVersion }),
+        },
+        { modern: { version: REVISION } },
+      );
+    } catch {
+      return all('start-failed');
+    }
+    const started = session;
+    cleanups.push(() => started.close());
+  }
   const guard = new ProbeGuard(
     opts.entries,
     {
       maxCalls: opts.maxCalls ?? DEFAULT_MAX_CALLS,
       maxRequests: opts.maxRequests ?? DEFAULT_MAX_REQUESTS,
     },
-    httpTransport(target.url, redact, opts.timeoutMs),
+    session !== undefined
+      ? stdioTransport(session, opts.timeoutMs)
+      : httpTransport((target as { url: string }).url, redact, opts.timeoutMs),
     opts.journal,
   );
   opts.journal?.bind?.(redact);
   try {
     opts.journal?.record({
       dir: 'meta',
-      url: maskUrl(target.url),
+      ...(target.kind === 'stdio' ? { transport: 'stdio' } : { url: maskUrl(target.url) }),
       maxCalls: opts.maxCalls ?? DEFAULT_MAX_CALLS,
       maxRequests: opts.maxRequests ?? DEFAULT_MAX_REQUESTS,
       probes: opts.entries.length,
@@ -212,7 +258,7 @@ async function runProbesWith(opts: ProbeRunOptions): Promise<ProbeSection> {
     return all('journal-failed');
   }
 
-  const meta = await guard.send({ type: 'discovery' });
+  const meta = stdio ? ({ sent: false } as const) : await guard.send({ type: 'discovery' });
   if (meta.sent)
     section.metadata =
       meta.reply.kind === 'failure'
@@ -287,7 +333,11 @@ async function runProbesWith(opts: ProbeRunOptions): Promise<ProbeSection> {
     if (!listed.has(entry.tool)) return { kind: 'not-run', reason: 'tool-missing' };
     // A malformed probe sends the derived arguments; the wrapper allows exactly those for it.
     let args = entry.arguments;
-    if (entry.malformed === true) {
+    if (entry.fetches === true) {
+      const f = guard.fetchArgumentsFor(entry);
+      if (f === undefined) return { kind: 'not-run', reason: 'inconclusive' };
+      args = f;
+    } else if (entry.malformed === true) {
       const m = guard.malformedFor(entry.tool);
       if ('reason' in m) return { kind: 'not-run', reason: m.reason };
       args = m.args;
@@ -307,7 +357,7 @@ async function runProbesWith(opts: ProbeRunOptions): Promise<ProbeSection> {
     if ('stop' in call) return call.stop;
     return (call.ok.message as { isError?: unknown } | undefined)?.isError === true
       ? { kind: 'errored', text: errorTextOf(call.ok.message) }
-      : { kind: 'allowed' };
+      : { kind: 'allowed', result: call.ok.message };
   }
 
   /** The controls that ran and were allowed, by tool and arguments: the id of the probe. */
@@ -322,28 +372,53 @@ ${canonical(e.arguments)}`;
 
   // Controls first: a probe that expects a refusal is read against what the control showed.
   const order = [...opts.entries.filter(isControl), ...opts.entries.filter((e) => !isControl(e))];
+  let page: Page | undefined;
   for (const entry of order) {
     let credential: Credential | undefined;
     let missing: ProbeReason | undefined;
-    switch (entry.as) {
-      case 'none':
-        credential = { kind: 'none' };
-        break;
-      case 'garbage':
-        credential = { kind: 'bearer', token: garbage };
-        break;
-      case 'account-a':
-        if (opts.tokens.accountA === undefined) missing = 'no-credential';
-        else credential = { kind: 'bearer', token: opts.tokens.accountA };
-        break;
-      case 'account-b':
-        if (opts.tokens.accountB === undefined) missing = 'no-account-b';
-        else credential = { kind: 'bearer', token: opts.tokens.accountB };
-        break;
-      case 'wrong-audience':
-        missing = 'wrong-audience';
-        break;
+    // On stdio there is no credential: only the probes that are about the answer (malformed, fetches) have anything to run.
+    if (stdio && entry.malformed !== true && entry.fetches !== true) {
+      section.rows.push(notRun(entry, 'stdio'));
+      continue;
     }
+    if (entry.fetches === true) {
+      if (!pageReachable(target)) {
+        section.rows.push(notRun(entry, 'remote-server'));
+        continue;
+      }
+      if (page === undefined) {
+        try {
+          page = await startPage();
+        } catch {
+          section.rows.push(notRun(entry, 'inconclusive'));
+          continue;
+        }
+        const started = page;
+        cleanups.push(() => started.close());
+        guard.setPageUrl(page.url);
+      }
+    }
+    if (stdio) credential = { kind: 'none' };
+    else
+      switch (entry.as) {
+        case 'none':
+          credential = { kind: 'none' };
+          break;
+        case 'garbage':
+          credential = { kind: 'bearer', token: garbage };
+          break;
+        case 'account-a':
+          if (opts.tokens.accountA === undefined) missing = 'no-credential';
+          else credential = { kind: 'bearer', token: opts.tokens.accountA };
+          break;
+        case 'account-b':
+          if (opts.tokens.accountB === undefined) missing = 'no-account-b';
+          else credential = { kind: 'bearer', token: opts.tokens.accountB };
+          break;
+        case 'wrong-audience':
+          missing = 'wrong-audience';
+          break;
+      }
     if (credential === undefined) {
       section.rows.push(notRun(entry, missing!));
       continue;
@@ -351,6 +426,37 @@ ${canonical(e.arguments)}`;
     const got = await attempt(entry, credential);
     if (got.kind === 'not-run') {
       section.rows.push(notRun(entry, got.reason));
+      continue;
+    }
+    if (entry.fetches === true) {
+      const base = { id: entry.id, tool: entry.tool, as: entry.as, expect: 'none' } as const;
+      if (got.kind === 'http-refused') {
+        section.rows.push({
+          ...base,
+          answer: 'refused',
+          refusedAt: got.step,
+          outcome: 'as-expected',
+        });
+        continue;
+      }
+      const verdict = got.kind === 'allowed' ? markerVerdict(got.result, page!.marker) : undefined;
+      section.rows.push({
+        ...base,
+        answer: got.kind === 'errored' ? 'refused' : 'allowed',
+        outcome: 'as-expected',
+        note:
+          verdict === undefined
+            ? 'the tool did not run: the call failed or was refused'
+            : VERDICT_NOTE[verdict],
+      });
+      if (verdict === 'verbatim')
+        section.findings.push({
+          rule: FETCH_RULE,
+          id: entry.id,
+          tool: entry.tool,
+          severity: 'advice',
+          message: `${entry.tool}: returned the probe marker verbatim with no boundary; treat its output as untrusted (advice)`,
+        });
       continue;
     }
     if (entry.malformed === true) {

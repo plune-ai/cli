@@ -31,6 +31,7 @@ import { parseScanExceptions } from '../../mcp-testing/scan/exceptions.js';
 import { parseProbeFile } from '../../mcp-testing/scan/probes/file.js';
 import { DEFAULT_MAX_CALLS, DEFAULT_MAX_REQUESTS } from '../../mcp-testing/scan/probes/guard.js';
 import { isThisMachine } from '../../mcp-testing/scan/probes/local.js';
+import { MAX_IMPORT_BYTES, parseConformanceImport } from '../../mcp-testing/scan/import.js';
 import { openProbeJournal } from '../../mcp-testing/scan/probes/journal.js';
 import { runProbes, type ProbeRunOptions } from '../../mcp-testing/scan/probes/runner.js';
 import { GROUPS, renderScan, type FailOn, type ScanGroup } from '../../mcp-testing/scan/report.js';
@@ -64,6 +65,8 @@ export interface McpScanFlags extends ConnectionFlags, ReportFlags {
   yes?: boolean;
   maxCalls?: string;
   maxRequests?: string;
+  /** `--import-conformance`: the report of `plune mcp conformance`, shown in the summary as imported. */
+  importConformance?: string;
   /** `--journal`: every frame and answer of the probes, one JSON line each, with no secret and no body. */
   journal?: string;
   tokenEnv?: string;
@@ -127,7 +130,13 @@ function shown(cwd: string, path: string): string {
     : basename(full);
 }
 
-function readText(cwd: string, path: string, flag: string, limit = true): string {
+function readText(
+  cwd: string,
+  path: string,
+  flag: string,
+  limit = true,
+  max = MAX_FILE_BYTES,
+): string {
   const full = resolve(cwd, path);
   if (!existsSync(full)) throw new UsageError(`${flag}: ${path} does not exist.`);
   // A fixed message: the text of an OS error holds the full path.
@@ -140,9 +149,9 @@ function readText(cwd: string, path: string, flag: string, limit = true): string
     } catch {
       throw unreadable();
     }
-  if (size > MAX_FILE_BYTES)
+  if (size > max)
     throw new TooLargeError(
-      `${flag}: ${path} is too large to read (over ${MAX_FILE_BYTES / 1024 / 1024} MiB).`,
+      `${flag}: ${path} is too large to read (over ${max >= 1024 * 1024 ? `${max / 1024 / 1024} MiB` : `${max / 1024} KiB`}).`,
     );
   try {
     return readFileSync(full, 'utf8');
@@ -228,6 +237,9 @@ function noSharedFiles(
       ? []
       : ([['--ignore-file', flags.ignoreFile]] as [string, string][])),
     ...(flags.probes === undefined ? [] : ([['--probes', flags.probes]] as [string, string][])),
+    ...(flags.importConformance === undefined
+      ? []
+      : ([['--import-conformance', flags.importConformance]] as [string, string][])),
   ];
   const writes: [string, string][] = [
     ...(flags.journal === undefined ? [] : ([['--journal', flags.journal]] as [string, string][])),
@@ -274,6 +286,15 @@ async function scan(flags: McpScanFlags, server: string[], io: ScanIo): Promise<
   const only = groupsOf('--only', flags.only);
   const skip = groupsOf('--skip', flags.skip);
   const live = flags.url !== undefined || server.length > 0;
+
+  // An imported report is untrusted input: size-limited, read strictly, shown as imported. Read before anything is opened.
+  const imported =
+    flags.importConformance === undefined
+      ? undefined
+      : parseConformanceImport(
+          readText(io.cwd, flags.importConformance, '--import-conformance', true, MAX_IMPORT_BYTES),
+          shown(io.cwd, flags.importConformance),
+        );
 
   // The active probes are planned first: a bad probe file, token or budget is a usage error before any connection.
   let plan: Omit<ProbeRunOptions, 'announce'> | undefined;
@@ -472,6 +493,7 @@ async function scan(flags: McpScanFlags, server: string[], io: ScanIo): Promise<
       ...(pinProblem === undefined ? {} : { pinProblem }),
       active: flags.active === true,
       ...(probes === undefined ? {} : { probes }),
+      ...(imported === undefined ? {} : { imported }),
       allowHosts: flags.allowHost ?? [],
       allowPackages: flags.allowPackage ?? [],
     },
@@ -554,6 +576,8 @@ function planProbes(
     ...(flags.confirmHost === undefined ? {} : { confirmHost: flags.confirmHost }),
     maxCalls: count('--max-calls', flags.maxCalls, DEFAULT_MAX_CALLS),
     maxRequests: count('--max-requests', flags.maxRequests, DEFAULT_MAX_REQUESTS),
+    ...(flags.yes === true ? { yes: true } : {}),
+    ...(io.clientVersion === undefined ? {} : { clientVersion: io.clientVersion }),
     ...(flags.journal === undefined
       ? {}
       : { journal: openProbeJournal(resolve(io.cwd, flags.journal)) }),
