@@ -177,7 +177,7 @@ function human(r: ScanReport): string {
         `  ${p.id === '' ? '(none)' : p.id} / ${p.expect === 'none' ? 'no expectation' : `expect ${p.expect}`} / ${probeResult(p)}${probeControl(p)}${p.reason === undefined ? '' : ` / ${PROBE_REASONS[p.reason]}`}${p.note === undefined ? '' : ` (${p.note})`}`,
       );
     out.push(
-      `  ${r.probes.calls} tools/call and ${r.probes.requests} requests sent. Step 1 keeps no record of the frames beyond this table.`,
+      `  ${r.probes.calls} tools/call and ${r.probes.requests} requests sent. The frames are kept only with --journal, and then without a response body.`,
     );
   }
   const live = r.findings.filter((f) => f.suppressed === undefined);
@@ -471,9 +471,22 @@ function junit(r: ScanReport): string {
             cases.push({ classname, name, kind: 'failure', type: f.severity, message: f.message });
           else if (f !== undefined)
             cases.push({ classname, name, kind: 'skipped', type: 'advisory', message: f.message });
+          else if (p.note !== undefined)
+            cases.push({ classname, name, kind: 'skipped', type: 'advisory', message: p.note });
           else cases.push({ classname, name, kind: 'pass', type: '', message: '' });
         }
       }
+      // A reason that belongs to no probe (the journal could not be written) is a case of its own.
+      for (const n of r.notEvaluated.filter(
+        (x) => x.group === 'active' && x.reason.startsWith('the journal'),
+      ))
+        cases.push({
+          classname,
+          name: 'journal',
+          kind: 'skipped',
+          type: 'not-evaluated',
+          message: `not evaluated: ${n.reason}`,
+        });
       continue;
     }
     if (g.state === 'not-evaluated') {

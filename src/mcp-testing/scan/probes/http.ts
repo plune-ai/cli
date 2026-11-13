@@ -51,7 +51,7 @@ export function httpTransport(
           { method: 'GET', headers: [['Accept', 'application/json']] },
           { timeoutMs, headersOnly: true },
         );
-        return { kind: 'http', status: res.status };
+        return { kind: 'http', status: res.status, bytes: Buffer.byteLength(res.body, 'utf8') };
       }
       const id = frame.notification === true ? undefined : nextId++;
       const headers: HeaderList = [
@@ -89,6 +89,7 @@ export function httpTransport(
       return {
         kind: 'http',
         status: res.status,
+        bytes: Buffer.byteLength(res.body, 'utf8'),
         ...(message === undefined ? {} : { message }),
         ...(sessionId === undefined ? {} : { sessionId }),
       };

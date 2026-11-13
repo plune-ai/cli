@@ -12,7 +12,7 @@ import {
 import type { McpConformanceReport, McpConformanceReportSet } from '../../result.js';
 import { CATALOG } from '../catalog.js';
 import { PROFILE } from '../profile.js';
-import { bearerParams, resourceDifference } from '../checks/auth.js';
+import { bearerParams, resourceDifference, type OauthContext } from '../checks/auth.js';
 import { outsideAddresses } from '../checks/security.js';
 import {
   authFixture,
@@ -606,15 +606,16 @@ describe('CLI · mcp conformance · oauth · the metadata is read as a client wo
   });
 
   it('oauth-prm-valid: resource is compared as a URL, and a difference says what differs', async () => {
+    const none = { secrets: [] } as unknown as OauthContext;
     expect(
-      resourceDifference('HTTP://Example.COM:80/mcp', 'http://example.com/mcp'),
+      resourceDifference('HTTP://Example.COM:80/mcp', 'http://example.com/mcp', none),
     ).toBeUndefined();
-    expect(resourceDifference('https://h.example', 'https://h.example/')).toBeUndefined();
-    expect(resourceDifference('https://h.example/mcp/', 'https://h.example/mcp')).toContain('path');
-    expect(resourceDifference('https://h.example:8443/mcp', 'https://h.example/mcp')).toContain(
+    expect(resourceDifference('https://h.example', 'https://h.example/', none)).toBeUndefined();
+    expect(resourceDifference('https://h.example/mcp/', 'https://h.example/mcp', none)).toContain('path');
+    expect(resourceDifference('https://h.example:8443/mcp', 'https://h.example/mcp', none)).toContain(
       'origin',
     );
-    expect(resourceDifference('not a url', 'https://h.example/mcp')).toContain(
+    expect(resourceDifference('not a url', 'https://h.example/mcp', none)).toContain(
       'not an absolute URL',
     );
     const s = await serve({ prmResource: '{origin}/mcp/' });

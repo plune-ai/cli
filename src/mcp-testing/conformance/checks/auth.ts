@@ -629,12 +629,12 @@ const challengeMetadataUrl: ConformanceCheck = async (c) => {
  * host and a default port do not count); undefined when they are the same. A difference in the path or in a trailing
  * slash of a path is a difference.
  */
-export function resourceDifference(actual: string, expected: string): string | undefined {
+export function resourceDifference(actual: string, expected: string, ctx: OauthContext): string | undefined {
   let a: URL;
   try {
     a = new URL(actual);
   } catch {
-    return `resource ${JSON.stringify(actual.slice(0, 200))} is not an absolute URL`;
+    return `resource ${JSON.stringify(maskedCut(ctx, actual, 200))} is not an absolute URL`;
   }
   let e: URL;
   try {
@@ -670,7 +670,7 @@ const prmValid: ConformanceCheck = async (c) => {
   const expected = ctx.config.resource ?? ctx.url;
   const differs =
     typeof doc['resource'] === 'string'
-      ? resourceDifference(doc['resource'], expected)
+      ? resourceDifference(doc['resource'], expected, ctx)
       : 'resource is missing';
   if (differs !== undefined) problems.push(differs);
   const details = [prm.found.detail];
@@ -903,6 +903,11 @@ export function collectIssued(ctx: OauthContext, value: unknown, key = '', depth
     for (const [k, v] of Object.entries(value)) collectIssued(ctx, v, k, depth + 1);
 }
 
+/** Server text for a message: masked with the secrets of the run, then cut. Cut first, a secret would be left as a prefix. */
+export function maskedCut(ctx: OauthContext, text: string, length: number): string {
+  return createRedactor(ctx.secrets, { named: ctx.secrets }).text(text).slice(0, length);
+}
+
 /** `{ access_token }` from a token response, else the error the authorization server gave. */
 export async function requestToken(
   ctx: OauthContext,
@@ -942,7 +947,7 @@ export async function requestToken(
   }
   const code = isObject(doc) && typeof doc['error'] === 'string' ? doc['error'] : undefined;
   return {
-    error: `HTTP ${res.status}${code === undefined ? '' : ` ${code.slice(0, 60)}`}`,
+    error: `HTTP ${res.status}${code === undefined ? '' : ` ${maskedCut(ctx, code, 60)}`}`,
     status: res.status,
     doc,
     detail: detail(),

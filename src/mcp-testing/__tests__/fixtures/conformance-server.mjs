@@ -5,7 +5,9 @@
 // - `bad`: breaks each requirement the protocol suite checks, one way per check (see the comments below);
 // - `undeclared`: `good`, but declares only tools while it still answers resources/list and prompts/list;
 // - `no-server-info`: answers initialize without serverInfo;
-// - `silent`: answers initialize, then nothing.
+// - `silent`: answers initialize, then nothing;
+// - `secret-error`: an unknown method gets an error whose message is 100 characters and then SECRET_TEXT (from the
+//   environment), so a cut at 120 falls inside the secret.
 
 import { createInterface } from 'node:readline';
 
@@ -89,6 +91,7 @@ function answer(msg) {
     case 'completion/complete':
       return ok(id, { completion: good ? { values: ['world'], hasMore: false } : { values: [1, 2] } });
     default:
+      if (mode === 'secret-error') return fail(id, -32000, `${'e'.repeat(100)}${process.env.SECRET_TEXT ?? ''}`);
       // bad: an unknown method gets a result.
       return good ? fail(id, -32601, 'Method not found') : ok(id, {});
   }

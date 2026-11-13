@@ -1197,6 +1197,8 @@ and an empty `path` are errors.
 | `2` | Usage: nothing to scan or every group left out, a bad flag, a file that does not exist, a malformed snapshot, pin file or exceptions file (also an exception without `reason` or `expires`, an exceptions file over 8 MiB or one that cannot be read), two snapshots with one label. |
 | `3` | Something asked for could not be measured: an empty snapshot, a snapshot or pin file over 8 MiB or one that cannot be read (it vanished, or no permission), a client configuration file that cannot be parsed or holds no servers, a config scan cut at its cap of findings, a description over 1 MB (only its first 1 MB is scanned), a live server that could not be read, a probe that did not run (no probe file, no consent, a spent budget, an answer that decides nothing). |
 
+`scan/hint/destructive-missing` (info, never gates, needs no `--active`): a tool whose annotations do not say `destructiveHint` and do not say `readOnlyHint: true`. A client must treat such a tool as destructive. A tool with no annotations at all, or whose name says it writes while it is `readOnlyHint: true`, is a case of `plune mcp lint`.
+
 Only deterministic findings of a rule marked as gating change the exit code. Heuristics (`override-instruction`, ...)
 are advice and print as `note` in SARIF.
 
@@ -1221,10 +1223,11 @@ plune mcp scan --active --url http://127.0.0.1:3000/mcp --probes probes.json --t
 
 | Flag | Meaning |
 | --- | --- |
-| `--probes <file>` | The calls, as above. `as`: `none`, `garbage` (a random value made for each run), `account-a`, `account-b` (the tokens of `--token-env` and `--other-token-env`), `wrong-audience`. `expect`: `refuse`, `allow` or left out. `allowDestructive: true` lets a tool marked `destructiveHint: true` be called. An unknown key, a repeated id or a file over 256 KiB is exit `2`. |
+| `--probes <file>` | The calls, as above. `as`: `none`, `garbage` (a random value made for each run), `account-a`, `account-b` (the tokens of `--token-env` and `--other-token-env`), `wrong-audience`. `expect`: `refuse`, `allow` or left out. `allowDestructive: true` lets a tool marked `destructiveHint: true` be called. `malformed: true` (only with `as: account-a`, no `expect`) is [the error-detail check](#a-malformed-call). An unknown key, a repeated id or a file over 256 KiB is exit `2`. |
 | `--token-env`, `--other-token-env` | The names of variables, never the tokens. A token goes only to the origin of `--url`, over https or to this machine, and a redirect is never followed. The `--header` values are not sent by a probe. |
 | `--confirm-host <host>` | For a `--url` that is not on this machine: the host of the URL exactly as written (with the port, if the URL has one). Without it nothing is sent, and the probes are "not run: no consent". The line `probes will go to <url>` is printed to stderr before the first probe frame. |
 | `--max-calls <n>`, `--max-requests <n>` | At most `n` `tools/call` (default 8) and `n` requests of any kind (default 40). A frame over a budget is refused before it is sent. |
+| `--journal <file>` | Writes one JSON line for every frame a probe sends, every answer and every frame the wrapper refuses, as it happens (so the file is there after a crash or a budget stop). The file is created `0600` and replaces an older one of the same name, like `--debug-out`. A file that cannot be opened is exit `2` before the first frame; a line that cannot be written stops the probes (the rest are "not run: journal"), because no frame is sent unrecorded. The path must not be a file the scan reads (`--probes`, `--snapshot`, `--config`, `--pin-file`, `--ignore-file`) or writes elsewhere (`--out`, `--save-snapshot`, `--debug-out`): that is exit `2`, compared by file identity (device and inode, so a relative spelling, a link, a hard link and a Windows 8.3 short name are the same file) and by real path, case-folded on Windows. A line that cannot be written, on any kind of line, makes the scan exit `3` ("the journal is incomplete"). See [the journal](#the-journal). |
 | `--yes` | Accepts the command printed for a stdio server. No probe of this version runs on stdio (the authentication probes are "not applicable (stdio)"). |
 
 Every probe goes through one wrapper. It refuses a `tools/call` for a tool and arguments that are not an entry of the
@@ -1264,7 +1267,7 @@ decides nothing. The table shows which probe was the control for which.
 A verdict of "violated" comes only from the answer of the server: a call that ran (a result without `isError`) for a probe
 that expects a refusal (for `account-b`, one that has its control). The table of the report lists every probe with what it expected, what the server
 did and why it did not run: no probe file, no consent, no token for account A or B, stdio, a spent budget, the transport
-stopped, the tool is not on the server, the tool is destructive, no control, or an answer that decides nothing. A probe that
+stopped, the tool is not on the server, the tool is destructive, the journal could not be written, the tool declares nothing to break (a malformed probe), no control, or an answer that decides nothing. A probe that
 did not run is never a pass. `--allow-partial` exits `0` although probes did not run: with probes, do not use it unless the
 unrun ones are in the table you read. `wrong-audience` is checked by the oauth suite of `plune mcp conformance` and is not
 run here.
@@ -1274,8 +1277,39 @@ name under `.localhost` is decided by its name and is not this machine here. Ses
 not closed by the scan; the server drops them on its own timeout.
 
 Findings and the table hold the probe id, the rule, the tool name and the category: no response body, no error text and no
-argument value. Step 1 keeps no record of the frames beyond this table. Probes are for your own server only, and no finding
+argument value. The frames are kept only with `--journal`. Probes are for your own server only, and no finding
 does not mean the server is protected.
+
+#### The journal
+
+A line has a timestamp, a sequence number and a direction: `out` (a frame that was sent), `in` (its answer) or `refused`
+(a frame the wrapper did not send, with the reason). An `out` line holds the method, the tool and the probe id, which kind
+of credential went with it (`none` or `bearer`, never its value), the size of the parameters and the headers, in which
+`Authorization`, `Cookie`, `Set-Cookie`, any header whose name says it is a credential, and `Mcp-Session-Id` are `***`.
+An `in` line holds the status, the JSON-RPC id, whether the answer held a `result`, an `error` or `isError`, and its size.
+**A response body is never written**, and neither is an argument value: a body may echo a token or hold somebody's data.
+This is stricter than a full frame log on purpose; use `plune mcp snapshot --debug-out` for that on a server you own. The
+tokens of the run, in plain, URL-encoded, base64 and base64url form, are removed from every line before it is written.
+
+#### A malformed call
+
+An entry with `"malformed": true` (and `"as": "account-a"`) sends its tool one call with arguments derived from the tool's
+`inputSchema` in a fixed way: the first required property is left out (the other required ones get a placeholder of their
+type); a tool with no required property gets its first property with a value of the wrong type. The `arguments` of the
+entry are not sent, the call counts in both budgets, and a tool marked `destructiveHint: true` is not called without
+`allowDestructive`. The error in the answer (the JSON-RPC message and data, or the text of an `isError` result), read up to
+its first 64 KiB, is matched against five patterns: `stack-js`, `stack-py`, `abs-path`, `sql`, `internal-host`. A match is
+the advice finding `scan/probe/error-detail-leak` with the pattern id and the tool; the text is never printed or journaled.
+The patterns are heuristics: they have false hits and misses, and "no pattern matched" is not "safe".
+
+**A malformed call may run.** A server that does not check arguments against its own schema will execute it: the call goes
+to a real tool, with a missing or wrongly typed argument, and what the tool does with that is up to the tool. It is blocked
+for a tool marked `destructiveHint: true` unless the entry says `allowDestructive`, exactly like a declared probe, and
+`readOnlyHint` is not read (a server's own hint widens nothing). So name only tools that are safe to run on a test account.
+A row whose call returned a result and no error says `ran; no error text to read`; `no pattern matched` is only for an
+error that was read. Only JSON-RPC errors and `isError` results are searched: an HTTP 400 or 422 with a body is "not run"
+(an answer that decides nothing) and its body is not read. A tool whose schema has more than 256 `required` or property
+names, or whose derived arguments pass 16 KiB, is "not run: the inputSchema is too large".
 
 GitHub Actions (replace `X.Y.Z` with the version of `@plune-ai/cli` you have tested):
 

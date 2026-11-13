@@ -995,6 +995,7 @@ export function createProgram(): Command {
     .option('--yes', 'With --active: accept the command printed for a stdio server (no probe of this version runs on stdio)', false)
     .option('--max-calls <n>', 'With --active: at most this many tools/call (default 8)')
     .option('--max-requests <n>', 'With --active: at most this many requests of any kind (default 40)')
+    .option('--journal <file>', 'With --active: write every frame the probes send and every answer here, one JSON line each, with no token and no response body')
     .option('--token-env <name>', 'With --active: the variable that holds the token of account A')
     .option('--other-token-env <name>', 'With --active: the variable that holds the token of account B')
     .option('--fail-on <level>', 'Exit 1 on a finding that gates at this level or above: error, warn or never', 'error')
