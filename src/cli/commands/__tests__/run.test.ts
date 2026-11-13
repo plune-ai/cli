@@ -149,7 +149,10 @@ describe('run command — config errors (exit 2)', () => {
       const cfgPath = path.join(tmpDir, 'nodata.yaml');
       // The config every test here runs, with its inline rows swapped for a file that is not there.
       const rows = 'dataset:\n      examples:\n        - vars: { q: hi }\n          expected: hi\n';
-      fs.writeFileSync(cfgPath, CONFIG.replace(rows, 'dataset: datasets/none.jsonl\n'));
+      const config = CONFIG.replace(rows, 'dataset: datasets/none.jsonl\n');
+      // Checked before the command runs: with the inline rows still in place this would be a real run.
+      expect(config).toContain('dataset: datasets/none.jsonl\n');
+      fs.writeFileSync(cfgPath, config);
       const stderr: string[] = [];
       vi.spyOn(process.stderr, 'write').mockImplementation((c: string | Uint8Array) => {
         stderr.push(typeof c === 'string' ? c : Buffer.from(c).toString());
