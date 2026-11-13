@@ -1,0 +1,24 @@
+{
+  "servers": {
+    "tasks": {
+      "tools": [
+        {
+          "name": "create_task",
+          "description": "Creates a task. Already-listed tasks are skipped; the thread of reading is kept."
+        }
+      ]
+    },
+    "files": {
+      "tools": [
+        {
+          "name": "list",
+          "description": "Lists files in a folder."
+        },
+        {
+          "name": "read",
+          "description": "Reads a file."
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "servers": {
+    "docs": {
+      "tools": [
+        {
+          "name": "search",
+          "description": "Searches the project documents."
+        }
+      ]
+    },
+    "web": {
+      "tools": [
+        {
+          "name": "search",
+          "description": "Searches the web."
+        }
+      ]
+    }
+  }
+}

@@ -25,6 +25,7 @@ import { SECURITY } from './security.js';
 import { STDIO } from './stdio.js';
 import { TOOLS } from './tools.js';
 import { TRANSPORT } from './transport.js';
+import { APPS } from './apps/index.js';
 
 /** One call of `--fixture`: a tool the user named as safe to call, and its arguments. */
 export interface FixtureCall {
@@ -70,4 +71,5 @@ export const IMPLEMENTATIONS: Readonly<Record<string, ConformanceCheck>> = {
   ...AUTH_PROBES,
   ...AUTH_TOKEN,
   ...AUTH_SCOPE,
+  ...APPS,
 };

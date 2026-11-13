@@ -1,0 +1,28 @@
+{
+  "servers": {
+    "weather": {
+      "tools": [
+        {
+          "name": "forecast",
+          "description": "Gives the forecast for a city."
+        }
+      ]
+    },
+    "time": {
+      "tools": [
+        {
+          "name": "now",
+          "description": "Gives the current time in a zone."
+        }
+      ]
+    },
+    "units": {
+      "tools": [
+        {
+          "name": "convert",
+          "description": "Converts a value between units."
+        }
+      ]
+    }
+  }
+}

@@ -14,7 +14,26 @@ import { ALL_RULES, GATING_RULES, runScan, failsAt, type ScanInput } from '../sc
 import { buildSnapshot, serializeSnapshot, type McpSnapshot } from '../snapshot/index.js';
 
 // The scan of files starts no process, opens no socket and makes no request: these would be the ways to do it.
-const io = vi.hoisted(() => ({ spawn: vi.fn(), connect: vi.fn(), fetch: vi.fn() }));
+const io = vi.hoisted(() => ({
+  spawn: vi.fn(),
+  connect: vi.fn(),
+  fetch: vi.fn(),
+  // A path part: `statSync` of a path holding it fails the way a file that vanished or is not readable does.
+  statFails: '',
+}));
+vi.mock('node:fs', async (orig) => {
+  const fs = await orig<typeof import('node:fs')>();
+  return {
+    ...fs,
+    statSync: ((path: string, ...rest: unknown[]) => {
+      if (io.statFails !== '' && String(path).includes(io.statFails))
+        throw Object.assign(new Error(`EACCES: permission denied, stat '${String(path)}'`), {
+          code: 'EACCES',
+        });
+      return (fs.statSync as (...a: unknown[]) => unknown)(path, ...rest);
+    }) as typeof fs.statSync,
+  };
+});
 vi.mock('node:child_process', async (orig) => ({
   ...(await orig<typeof import('node:child_process')>()),
   spawn: io.spawn,
@@ -885,6 +904,95 @@ describe('CLI · mcp scan · usage · labels and exceptions files', () => {
     expect(typo.err).toContain('ignroe');
     put(dir, 'e3.yaml', entry('/tools/0'));
     expect((await scan(dir, flags('e3.yaml'))).code).toBe(0);
+  });
+});
+
+describe('CLI · mcp scan · input that cannot be measured · a file whose size cannot be read', () => {
+  const failing = async <T>(name: string, run: () => Promise<T>): Promise<T> => {
+    io.statFails = name;
+    try {
+      return await run();
+    } finally {
+      io.statFails = '';
+    }
+  };
+
+  it('a snapshot file that cannot be statted is a could-not-run row and exit 3, with a fixed reason and no OS text or full path', async () => {
+    const dir = tmp();
+    putSnap(dir, 'ok.json', snap(CLEAN));
+    putSnap(dir, 'locked.json', snap(CLEAN));
+    const r = await failing('locked.json', () =>
+      scan(dir, asJson({ snapshot: ['ok.json', 'x=locked.json'] })),
+    );
+    expect(r.code).toBe(3);
+    const row = r
+      .json()
+      ['notEvaluated'].find((n: { reason: string }) => /cannot be read/.test(n.reason));
+    expect(row).toMatchObject({ group: 'descriptions', kind: 'could-not-run' });
+    expect(JSON.stringify(row)).toContain('locked.json');
+    for (const text of [r.out, r.err]) {
+      expect(text).not.toContain('EACCES');
+      expect(text).not.toContain('permission denied');
+      expect(text).not.toContain(dir);
+    }
+  });
+
+  it('a pin file that cannot be statted is a pins row and exit 3', async () => {
+    const dir = tmp();
+    putSnap(dir, 'ok.json', snap(CLEAN));
+    put(dir, 'locked.lock', '{}');
+    const r = await failing('locked.lock', () =>
+      scan(dir, asJson({ snapshot: ['ok.json'], pinFile: 'locked.lock' })),
+    );
+    expect(r.code).toBe(3);
+    expect(r.json()['notEvaluated'].some((n: { group: string }) => n.group === 'pins')).toBe(true);
+    expect(r.out).not.toContain('EACCES');
+    expect(r.out).not.toContain(dir);
+  });
+
+  it('an exceptions file that cannot be statted is exit 2 with a fixed message', async () => {
+    const dir = tmp();
+    putSnap(dir, 'ok.json', snap(CLEAN));
+    put(dir, 'locked.yaml', 'ignore: []\n');
+    const r = await failing('locked.yaml', () =>
+      scan(dir, asJson({ snapshot: ['ok.json'], ignoreFile: 'locked.yaml' })),
+    );
+    expect(r.code).toBe(2);
+    expect(r.err).toContain('--ignore-file');
+    expect(r.err).toContain('locked.yaml');
+    expect(r.err).not.toContain('EACCES');
+    expect(r.err).not.toContain('permission denied');
+    expect(r.err).not.toContain(dir);
+  });
+
+  it('a file that is not there at all is still exit 2 as before', async () => {
+    const r = await scan(tmp(), asJson({ snapshot: ['nope.json'] }));
+    expect(r.code).toBe(2);
+    expect(r.err).toContain('does not exist');
+  });
+});
+
+describe('CLI · mcp scan · usage · the duplicate-label message prints paths as the report does', () => {
+  it('a file inside the folder is relative, a file outside is its name alone, a token-shaped or bidi name is cleaned', async () => {
+    const dir = tmp();
+    const outer = tmp();
+    const odd = `${TOKEN}\u202e.json`;
+    putSnap(dir, 'a.json', snap(CLEAN));
+    putSnap(dir, `sub/${odd}`, snap(CLEAN));
+    putSnap(outer, 'a.json', snap(CLEAN));
+    const inside = await scan(dir, asJson({ snapshot: ['t=a.json', `t=sub/${odd}`] }));
+    expect(inside.code).toBe(2);
+    expect(inside.err).toContain('two snapshots are called');
+    expect(inside.err).not.toContain(TOKEN);
+    expect(inside.err).not.toContain('\u202e');
+    expect(inside.err).toContain('[key]');
+    const outside = await scan(
+      dir,
+      asJson({ snapshot: ['t=a.json', `t=${join(outer, 'a.json')}`] }),
+    );
+    expect(outside.code).toBe(2);
+    expect(outside.err).not.toContain(outer);
+    expect(outside.err).toContain('(a.json and a.json)');
   });
 });
 

@@ -12,6 +12,7 @@ import { handleMcpConformance, type McpConformanceFlags } from '../../../cli/com
 import { render } from '../../report/index.js';
 import { conformanceSetRun } from '../../report/runs.js';
 import type { McpConformanceReport, McpConformanceReportSet } from '../../result.js';
+import { EXTENSION_REVISIONS } from '../apps-catalog.js';
 import { CATALOG, REVISIONS } from '../catalog.js';
 import { discoverProblems } from '../checks/modern/core.js';
 import { headerDeclarationProblems } from '../checks/modern/headers.js';
@@ -334,8 +335,16 @@ describe('CLI · mcp conformance · the 2026-07-28 checks on recorded messages',
   });
 
   it('AC-8: the catalog cites only the revisions whose status it records, each read on a date', () => {
-    const cited = [...new Set(CATALOG.flatMap((e) => e.specRefs.map((r) => r.revision)))].sort();
+    // A reference with its own `url` is to the text of an extension: its revision is recorded in EXTENSION_REVISIONS.
+    const refs = CATALOG.flatMap((e) => e.specRefs);
+    const cited = [...new Set(refs.filter((r) => r.url === undefined).map((r) => r.revision))].sort();
     expect(REVISIONS.map((r) => r.revision)).toEqual(cited);
+    const extensionCited = [...new Set(refs.filter((r) => r.url !== undefined).map((r) => r.revision))].sort();
+    expect(EXTENSION_REVISIONS.map((r) => r.revision)).toEqual(extensionCited);
+    for (const r of EXTENSION_REVISIONS) {
+      expect(r.status.trim(), r.revision).not.toBe('');
+      expect(r.checkedOn, r.revision).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    }
     expect(REVISIONS.find((r) => r.revision === '2026-07-28')).toMatchObject({ status: 'Current', checkedOn: '2026-11-13' });
   });
 });
