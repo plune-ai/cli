@@ -14,7 +14,6 @@ import type { Era } from '../catalog.js';
 import type { CheckOutcome } from '../outcome.js';
 import {
   exchange,
-  header,
   rawRequest,
   type Exchange,
   type HeaderList,
@@ -176,6 +175,12 @@ export interface Probed {
   detail: Exchange;
 }
 
+/** Every `WWW-Authenticate` line as one text (RFC 9110 joins repeated fields with a comma); undefined when absent. */
+function challengeText(headers: HeaderList): string | undefined {
+  const lines = headers.filter(([n]) => n.toLowerCase() === 'www-authenticate').map(([, v]) => v);
+  return lines.length === 0 ? undefined : lines.join(', ');
+}
+
 /** One request to the MCP endpoint, with `token` as the bearer when given. */
 export async function probe(ctx: OauthContext, token?: string): Promise<Probed> {
   const { headers, body } = mcpRequest(ctx);
@@ -186,7 +191,7 @@ export async function probe(ctx: OauthContext, token?: string): Promise<Probed> 
   const { res, detail } = await send(ctx, ctx.url, { method: 'POST', headers, body });
   return {
     status: res.status,
-    challenge: header(res.headers, 'www-authenticate'),
+    challenge: challengeText(res.headers),
     detail: detail(),
   };
 }

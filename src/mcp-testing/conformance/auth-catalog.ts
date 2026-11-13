@@ -219,6 +219,19 @@ export const OAUTH_CATALOG: readonly CatalogEntry[] = [
     needsFixture: true,
   }),
   oauth({
+    id: 'oauth-e2e-token-works',
+    title: 'A token issued for the server is accepted',
+    description:
+      'With the client-credentials grant given in --config, the client asks the token endpoint of the authorization server for a token for the server (the resource parameter), and makes the one request the suite uses to tell a protected server from an open one with it. The request that got 401 without a token must now succeed. A 2xx is a pass. A 401 is a failure only when the token is of type Bearer, is a JWT whose aud holds the resource asked for, and the challenge does not name insufficient_scope; in every other case (another token type, an opaque token or an aud that does not show the audience, insufficient_scope, a token endpoint that refuses the client, 403 or another answer) the check is could-not-run. The token is masked in every output and is not revoked.',
+    level: 'MUST',
+    derived: true,
+    derivation:
+      'Token Handling quotes "MCP servers MUST only accept tokens that are valid for use with their own resources" and "Invalid or expired tokens MUST receive a HTTP 401 response". That a token is valid for the server is not a given: the check verifies from the token what it can (a Bearer token type, and a JWT aud that holds the resource asked for) and, when it cannot, the verdict is could-not-run. A 401 to a token so shown is the converse of what is quoted: derived, and not higher than the quoted MUST. Assumption stated: clock skew between the authorization server and the server cannot be told apart from a refusal.',
+    specRefs: [ref(L, AUTH, 'Token Handling'), ref(M, AUTH, 'Token Handling')],
+    eras: BOTH,
+    needsFixture: true,
+  }),
+  oauth({
     id: 'oauth-reg-prereg',
     title: 'A pre-registered client is accepted',
     description:
