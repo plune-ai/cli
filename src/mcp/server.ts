@@ -1,6 +1,6 @@
 import { Transform } from 'node:stream';
 import { StringDecoder } from 'node:string_decoder';
-import { McpServer, type CallToolResult, type ProtocolEra, type RegisteredTool, type Tool } from '@modelcontextprotocol/server';
+import { McpServer, PROTOCOL_VERSION_META_KEY, UnsupportedProtocolVersionError, type CallToolResult, type JSONRPCMessage, type ProtocolEra, type RegisteredTool, type Tool } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 // A static import on purpose: the CLI bundle is CommonJS, where a dynamic import() of the package loads its ESM build, and
 // an McpServer from one build cannot be served by serveStdio from the other (the discover handler fails with -32603).
@@ -169,6 +169,15 @@ export async function serveMcpStdio(opts: PluneMcpServerOptions): Promise<void> 
         process.stderr.write(`plune mcp: ${said}\n`);
       },
     });
+    // 2026-07-28: «the server accepts or rejects each request independently»
+    // (https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning). serveStdio checks the version the opening
+    // message claims and then pins the connection, so a later claim of another version reached the instance unchecked.
+    const served = transport.onmessage;
+    transport.onmessage = (message: JSONRPCMessage) => {
+      const refused = unsupportedClaim(message);
+      if (refused === undefined) served?.(message);
+      else void transport.send(refused).catch(() => undefined);
+    };
     // serveStdio owns the transport and sets its onclose; chain onto it to learn when stdin is closed.
     const owned = transport.onclose;
     transport.onclose = () => {
@@ -176,4 +185,20 @@ export async function serveMcpStdio(opts: PluneMcpServerOptions): Promise<void> 
       resolve();
     };
   });
+}
+
+/**
+ * The revisions of the 2026-07-28 era this server speaks: what its `server/discover` answers in `supportedVersions`.
+ * ponytail: written out because SDK 2.4.0 does not export its modern list; serve-stdio.e2e compares the two.
+ */
+const MODERN_REVISIONS = ['2026-07-28'];
+
+/** The -32022 answer to a request whose envelope claims a revision this server does not speak; undefined for any other message. */
+export function unsupportedClaim(message: JSONRPCMessage): JSONRPCMessage | undefined {
+  if (!('method' in message) || !('id' in message)) return undefined;
+  const meta = (message.params as { _meta?: Record<string, unknown> } | undefined)?._meta;
+  const requested = meta?.[PROTOCOL_VERSION_META_KEY];
+  if (typeof requested !== 'string' || MODERN_REVISIONS.includes(requested)) return undefined;
+  const error = new UnsupportedProtocolVersionError({ supported: [...MODERN_REVISIONS], requested });
+  return { jsonrpc: '2.0', id: message.id, error: { code: error.code, message: error.message, data: error.data } };
 }

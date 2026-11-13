@@ -24,6 +24,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 - **`plune diff --fail-on-regression` on a current run with no evals exits `3`, not `0`.** Nothing was measured, so the gate has no verdict.
 
+### Fixed
+
+- **`plune mcp serve` refuses an unsupported revision on every request, not only the first.** Over stdio the SDK checks the revision the opening message claims and then pins the connection, so a later `server/discover` or `tools/list` claiming `1900-01-01` was answered as if it were supported. It now gets `-32022` with `data.supported` and `data.requested`, as revision 2026-07-28 asks: «the server accepts or rejects each request independently».
+
 ## [0.37.0] - 2026-11-13
 
 ### Added
