@@ -408,7 +408,16 @@ export async function runAgentRow(p: AgentRowParams): Promise<RowResult> {
     output,
     agent,
   );
-  const findings = [...advice, ...((mask?.value(friction) ?? friction) as AgentAdvice[])];
+  // `no-repeated-call` already tells a repeat of the tools it covers: one advice for one finding.
+  const covered = p.assertions.filter((x) => x.type === 'no-repeated-call') as { tool?: string }[];
+  const signals = ((mask?.value(friction) ?? friction) as AgentAdvice[]).filter(
+    (f) =>
+      !(
+        f.type === 'identical-retry' &&
+        covered.some((c) => c.tool === undefined || c.tool === f.tool)
+      ),
+  );
+  const findings = [...advice, ...signals];
   if (findings.length > 0) (agent as AgentRecord).advice = findings;
   const usage = sumUsage(usages);
   return {

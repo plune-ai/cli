@@ -13,6 +13,8 @@ export interface EvalComparison {
   /** Absent when the two sides cannot be compared; `unavailable` says why. */
   comparison?: Comparison;
   unavailable?: string[];
+  /** True when the tool descriptions the model was shown differed between the two runs: it is an experiment. */
+  descriptionsDiffer?: boolean;
 }
 
 export interface Experiment {
@@ -34,27 +36,43 @@ export interface DiffAdvice {
   /** Always the same sentence: this section never changes an exit code. */
   note: string;
   evals: EvalComparison[];
-  overall: { comparison?: Comparison; unavailable?: string[] };
+  overall: { comparison?: Comparison; unavailable?: string[]; descriptionsDiffer?: boolean };
   experiment?: Experiment;
 }
 
 export const ADVICE_NOTE =
   'Advice only: nothing here changes the exit code, the state of an eval or a gate.';
 
-/** Passed attempts of all attempts of an eval: a repeated row counts each run, a plain row one. */
+/**
+ * Passed attempts of the attempts that got a verdict (passed or failed): a repeated row counts each run, a plain row
+ * one. An attempt that errored, was blocked or skipped has no verdict: it is not in the share, only counted as
+ * `unmeasured` so the line can name it.
+ */
 function attemptsOf(e: EvalResult): Proportion {
-  let [passed, total] = [0, 0];
+  let [passed, total, unmeasured] = [0, 0, 0];
   for (const row of e.rows) {
     if (row.attempts !== undefined) {
+      const verdicts = row.attempts.passed + row.attempts.failed;
       passed += row.attempts.passed;
-      total += row.attempts.runs;
+      total += verdicts;
+      unmeasured += Math.max(0, row.attempts.runs - verdicts);
     } else {
-      passed += rowStatus(row) === 'passed' ? 1 : 0;
-      total += 1;
+      const status = rowStatus(row);
+      if (status === 'passed' || status === 'failed') {
+        total += 1;
+        if (status === 'passed') passed += 1;
+      } else unmeasured += 1;
     }
   }
-  return { passed, total };
+  return { passed, total, unmeasured };
 }
+
+const NO_DRY = 'not compared: a dry run measures nothing';
+/** Which of the two runs is a dry run, or empty. */
+const dryRuns = (baseline: RunResult, current: RunResult): string[] => [
+  ...(baseline.dry_run === true ? [`${NO_DRY} (the baseline)`] : []),
+  ...(current.dry_run === true ? [`${NO_DRY} (the current run)`] : []),
+];
 
 const hasRepeats = (e: EvalResult): boolean =>
   (e.measured?.runs ?? 1) > 1 || e.rows.some((r) => r.attempts !== undefined);
@@ -62,34 +80,51 @@ const hasRepeats = (e: EvalResult): boolean =>
 const only = (run: RunResult, e: EvalResult): RunResult => ({ ...run, evals: [e] });
 
 function evalComparisons(baseline: RunResult, current: RunResult): EvalComparison[] {
+  const dry = dryRuns(baseline, current);
   const base = new Map(baseline.evals.map((e) => [e.id, e]));
   const out: EvalComparison[] = [];
   for (const cur of current.evals) {
     const b = base.get(cur.id);
     if (b === undefined || !hasRepeats(b) || !hasRepeats(cur)) continue;
     // The shares of two different datasets, assertions or models are not shares of the same thing.
-    const diffs = populationDiffs(only(baseline, b), only(current, cur));
+    const diffs = dry.length > 0 ? dry : populationDiffs(only(baseline, b), only(current, cur));
+    const swapped = swaps(cur).join(SEP) !== swaps(b).join(SEP) ? { descriptionsDiffer: true } : {};
     out.push(
       diffs.length > 0
-        ? { id: cur.id, unavailable: diffs }
-        : { id: cur.id, comparison: compareProportions(attemptsOf(cur), attemptsOf(b)) },
+        ? { id: cur.id, unavailable: diffs, ...swapped }
+        : {
+            id: cur.id,
+            comparison: compareProportions(attemptsOf(cur), attemptsOf(b)),
+            ...swapped,
+          },
     );
   }
   return out;
 }
 
 function overallComparison(baseline: RunResult, current: RunResult): DiffAdvice['overall'] {
-  const diffs = populationDiffs(baseline, current);
-  if (diffs.length > 0) return { unavailable: diffs };
+  const diffs = [...dryRuns(baseline, current), ...populationDiffs(baseline, current)];
+  const base = new Map(baseline.evals.map((e) => [e.id, e]));
+  const swapped = current.evals.some((e) => {
+    const b = base.get(e.id);
+    return b !== undefined && swaps(e).join(SEP) !== swaps(b).join(SEP);
+  })
+    ? { descriptionsDiffer: true }
+    : {};
+  if (diffs.length > 0) return { unavailable: diffs, ...swapped };
   const sum = (run: RunResult): Proportion =>
-    run.evals
-      .map(attemptsOf)
-      .reduce((a, p) => ({ passed: a.passed + p.passed, total: a.total + p.total }), {
-        passed: 0,
-        total: 0,
-      });
-  return { comparison: compareProportions(sum(current), sum(baseline)) };
+    run.evals.map(attemptsOf).reduce(
+      (a, p) => ({
+        passed: a.passed + p.passed,
+        total: a.total + p.total,
+        unmeasured: (a.unmeasured ?? 0) + (p.unmeasured ?? 0),
+      }),
+      { passed: 0, total: 0, unmeasured: 0 },
+    );
+  return { comparison: compareProportions(sum(current), sum(baseline)), ...swapped };
 }
+
+const SEP = String.fromCharCode(10);
 
 // The descriptions the model was shown in place of the server's, as the rows of the eval record them.
 const swaps = (e: EvalResult): string[] =>
@@ -125,7 +160,8 @@ function firstToolHits(e: EvalResult): Proportion | undefined {
     }
   };
   for (const row of e.rows) {
-    if (row.attempts !== undefined) row.attempts.results.forEach((r) => count(r.assertions));
+    if (row.attempts !== undefined)
+      row.attempts.results.filter((r) => r.error === undefined).forEach((r) => count(r.assertions));
     else count(row.assertions);
   }
   return total === 0 ? undefined : { passed, total };
@@ -136,11 +172,12 @@ function firstToolHits(e: EvalResult): Proportion | undefined {
  * built only when the populations are the same; otherwise the section says how they differ and nothing is compared.
  */
 function experiment(baseline: RunResult, current: RunResult): Experiment | undefined {
+  if (dryRuns(baseline, current).length > 0) return undefined; // nothing was measured, so nothing to compare
   const base = new Map(baseline.evals.map((e) => [e.id, e]));
   const agentic = current.evals.filter(
     (e) => e.rows.some((r) => r.agent !== undefined) && base.has(e.id),
   );
-  const differs = agentic.filter((e) => swaps(e).join('\n') !== swaps(base.get(e.id)!).join('\n'));
+  const differs = agentic.filter((e) => swaps(e).join(SEP) !== swaps(base.get(e.id)!).join(SEP));
   if (differs.length === 0) return undefined;
   const list = (run: RunResult): string[] => [...new Set(run.evals.flatMap(swaps))].sort();
   const head = { baseline: list(baseline), current: list(current) };

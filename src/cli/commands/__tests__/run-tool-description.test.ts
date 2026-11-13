@@ -40,4 +40,15 @@ describe('CLI · run · tool-description · the flag', () => {
     fs.writeFileSync(empty, '\n');
     expect(() => parseToolDescriptions([`search=@${empty}`])).toThrow(RunConfigError);
   });
+
+  it('CLI · run · tool-description · a file over 64 KB, a directory and inline text over 64 KB are config errors', () => {
+    const big = path.join(tmp, 'big.txt');
+    fs.writeFileSync(big, 'x'.repeat(64 * 1024 + 1));
+    expect(() => parseToolDescriptions([`search=@${big}`])).toThrow(/64 KB/);
+    const ok = path.join(tmp, 'ok.txt');
+    fs.writeFileSync(ok, 'x'.repeat(64 * 1024));
+    expect(parseToolDescriptions([`search=@${ok}`]).search).toHaveLength(64 * 1024);
+    expect(() => parseToolDescriptions([`search=@${tmp}`])).toThrow(RunConfigError);
+    expect(() => parseToolDescriptions([`search=${'y'.repeat(64 * 1024 + 1)}`])).toThrow(/64 KB/);
+  });
 });

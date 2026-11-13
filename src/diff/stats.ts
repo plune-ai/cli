@@ -10,8 +10,11 @@ export const Z = 1.959963984540054;
 export const MIN_ATTEMPTS = 5;
 
 export interface Proportion {
+  /** Attempts that passed, of `total` attempts that got a verdict (passed or failed). */
   passed: number;
   total: number;
+  /** Attempts with no verdict (errored, blocked, skipped): not in the share, but named on the line. */
+  unmeasured?: number;
 }
 
 export interface Interval {
@@ -62,7 +65,28 @@ export interface Comparison {
 }
 
 const pp = (n: number): number => Math.round(n * 1e4) / 1e2;
-const sign = (n: number): string => (n > 0 ? `+${n}` : String(n));
+const signed = (s: string): string => (/^[1-9.]|^0\./.test(s) ? `+${s}` : s);
+
+/**
+ * A share difference in percentage points for the line. A bound that rounds to 0 while the word says better or worse
+ * is shown with two significant figures, so the line never reads «0 to +25» next to «better».
+ */
+export function fmtPp(share: number, directional: boolean): string {
+  const rounded = pp(share);
+  if (rounded === 0 && share !== 0 && directional)
+    return signed(String(Number((share * 100).toPrecision(2))));
+  return signed(String(rounded === 0 ? 0 : rounded));
+}
+
+const EPS = 1e-12;
+
+/** The word for an interval of a difference: touching 0, to within rounding of the arithmetic, is no difference. */
+export function wordFor(lower: number, upper: number): Exclude<Word, 'too-few'> {
+  return upper < -EPS ? 'worse' : lower > EPS ? 'better' : 'no-difference';
+}
+
+const valid = (x: Proportion): boolean =>
+  Number.isInteger(x.passed) && Number.isInteger(x.total) && x.passed >= 0 && x.passed <= x.total;
 
 export function compareProportions(
   current: Proportion,
@@ -72,21 +96,33 @@ export function compareProportions(
   // Zero attempts is never a share: a minimum of 0 (or a nonsense one) does not make it one.
   const floor = Number.isFinite(min) ? Math.max(1, min) : MIN_ATTEMPTS;
   const sides = { current: current.total, base: base.total, min: floor };
+  if (!valid(current) || !valid(base))
+    return {
+      word: 'too-few',
+      ...sides,
+      reason:
+        'the attempt counts are not whole numbers inside 0 and the total, so no share was computed',
+    };
+  // Attempts with no verdict (errored, blocked, skipped) are not in the share; each side's number is named.
+  const [uc, ub] = [current.unmeasured ?? 0, base.unmeasured ?? 0];
+  const dropped =
+    uc + ub > 0 ? `; not measured and left out: current ${uc}, baseline ${ub} attempt(s)` : '';
   if (current.total < floor || base.total < floor)
     return {
       word: 'too-few',
       ...sides,
-      reason: `at least ${floor} attempts are needed on each side (current ${current.total}, baseline ${base.total})`,
+      reason: `at least ${floor} attempts with a verdict are needed on each side (current ${current.total}, baseline ${base.total})${dropped}`,
     };
   const r = newcombeDifference(current, base);
   const [diffPp, lowerPp, upperPp] = [pp(r.diff), pp(r.lower), pp(r.upper)];
-  const word: Word = r.upper < 0 ? 'worse' : r.lower > 0 ? 'better' : 'no-difference';
+  const word = wordFor(r.lower, r.upper);
+  const directional = word !== 'no-difference';
   return {
     word,
     ...sides,
     diffPp,
     lowerPp,
     upperPp,
-    reason: `${current.passed}/${current.total} against ${base.passed}/${base.total}: ${sign(diffPp)} pp, 95% interval ${sign(lowerPp)} to ${sign(upperPp)} pp`,
+    reason: `${current.passed}/${current.total} against ${base.passed}/${base.total}: ${fmtPp(r.diff, false)} pp, 95% interval ${fmtPp(r.lower, directional)} to ${fmtPp(r.upper, directional)} pp${dropped}`,
   };
 }

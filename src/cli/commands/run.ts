@@ -50,6 +50,9 @@ export interface RunOptions {
   toolDescription?: string[];
 }
 
+/** The most of one description the model is shown from `--tool-description`: it goes into every request. */
+export const MAX_DESCRIPTION_BYTES = 64 * 1024;
+
 /** `--tool-description` values to tool name → text; a bad one is a config error (exit 2). `@file` is read from the working directory. */
 export function parseToolDescriptions(values: string[]): Record<string, string> {
   const out: Record<string, string> = {};
@@ -66,12 +69,22 @@ export function parseToolDescriptions(values: string[]): Record<string, string> 
     if (text.startsWith('@')) {
       const file = text.slice(1);
       try {
-        text = fs.readFileSync(path.resolve(file), 'utf8').replace(/\r?\n$/, '');
-      } catch {
+        const full = path.resolve(file);
+        const stat = fs.statSync(full);
+        if (!stat.isFile())
+          throw new RunConfigError(`--tool-description ${tool}: ${file} is not a file`);
+        // Checked before the read, so a huge file is never loaded.
+        if (stat.size > MAX_DESCRIPTION_BYTES)
+          throw new RunConfigError(`--tool-description ${tool}: ${file} is over 64 KB`);
+        text = fs.readFileSync(full, 'utf8').replace(/\r?\n$/, '');
+      } catch (err) {
+        if (err instanceof RunConfigError) throw err;
         throw new RunConfigError(`--tool-description ${tool}: cannot read ${file}`);
       }
       if (text === '') throw new RunConfigError(`--tool-description ${tool}: ${file} is empty`);
     }
+    if (Buffer.byteLength(text, 'utf8') > MAX_DESCRIPTION_BYTES)
+      throw new RunConfigError(`--tool-description ${tool}: the text is over 64 KB`);
     out[tool] = text;
   }
   return out;

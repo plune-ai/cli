@@ -125,43 +125,50 @@ const comparisonText = (c: Comparison): string => `${WORD[c.word]}: ${c.reason}`
 const countsText = (counts: Record<string, number>): string =>
   Object.entries(counts)
     .sort(([a], [b]) => (a < b ? -1 : 1))
-    .map(([tool, n]) => `${tool} ${n}`)
+    .map(([tool, n]) => `${oneLine(tool)} ${n}`)
     .join(', ') || '(no rows)';
 
 // The advice as plain lines; each format only decides how a line is marked up. Names and numbers only, never row content.
+const NOT_COMPARED = 'not compared';
+const DIFFERED =
+  ' (the descriptions of the tools differed between the runs: this is the experiment, not a change of the same thing)';
+
+// Names that came from a server or a file stay on their own line.
 function adviceLines(a: DiffAdvice): { heading: string; lines: string[] }[] {
   const sections: { heading: string; lines: string[] }[] = [];
-  const stats = a.evals.map((e) =>
-    e.comparison !== undefined
-      ? `${e.id}: ${comparisonText(e.comparison)}`
-      : `${e.id}: not compared, ${e.unavailable!.map(oneLine).join('; ')}`,
+  const unavailable = (lines: string[]): string => {
+    const text = lines.map(oneLine).join('; ');
+    return text.startsWith(NOT_COMPARED) ? text : `${NOT_COMPARED}, ${text}`;
+  };
+  const stats = a.evals.map(
+    (e) =>
+      `${oneLine(e.id)}: ${e.comparison !== undefined ? comparisonText(e.comparison) : unavailable(e.unavailable!)}${e.descriptionsDiffer === true ? DIFFERED : ''}`,
   );
-  if (a.overall.comparison !== undefined)
-    stats.push(`all evals together: ${comparisonText(a.overall.comparison)}`);
-  else if (a.overall.unavailable !== undefined)
+  if (a.overall.comparison !== undefined || a.overall.unavailable !== undefined)
     stats.push(
-      `all evals together: not compared, the two runs did not measure the same population: ${a.overall.unavailable.map(oneLine).join('; ')}`,
+      `all evals together: ${a.overall.comparison !== undefined ? comparisonText(a.overall.comparison) : unavailable(a.overall.unavailable!)}${a.overall.descriptionsDiffer === true ? DIFFERED : ''}`,
     );
   if (stats.length > 0)
     sections.push({
-      heading: `Pass rates (at least ${MIN_ATTEMPTS} attempts on each side; a guide, not a proof)`,
+      heading: `Pass rates (at least ${MIN_ATTEMPTS} attempts with a verdict on each side; a guide, not a proof)`,
       lines: stats,
     });
   const x = a.experiment;
   if (x !== undefined) {
+    const names = (l: string[]): string => l.map(oneLine).join(', ') || 'none';
     const lines = [
-      `descriptions replaced: baseline ${x.baseline.join(', ') || 'none'}; current ${x.current.join(', ') || 'none'}`,
+      `descriptions replaced: baseline ${names(x.baseline)}; current ${names(x.current)}`,
     ];
     if (x.unavailable !== undefined)
       lines.push(
-        `not compared, the two runs differ in more than the descriptions: ${x.unavailable.map(oneLine).join('; ')}`,
+        `${NOT_COMPARED}, the two runs differ in more than the descriptions: ${x.unavailable.map(oneLine).join('; ')}`,
       );
     for (const e of x.evals) {
       lines.push(
-        `${e.id}: first tool called, baseline ${countsText(e.firstTool.baseline)}; current ${countsText(e.firstTool.current)}`,
+        `${oneLine(e.id)}: first tool called, baseline ${countsText(e.firstTool.baseline)}; current ${countsText(e.firstTool.current)}`,
       );
       if (e.hit !== undefined)
-        lines.push(`${e.id}: first-tool hit, ${comparisonText(e.hit.comparison)}`);
+        lines.push(`${oneLine(e.id)}: first-tool hit, ${comparisonText(e.hit.comparison)}`);
     }
     sections.push({ heading: 'Experiment with descriptions', lines });
   }

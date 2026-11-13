@@ -47,7 +47,7 @@ plune run [options]
 | `--cache-max-age <duration>` | Treat cache entries older than this (`90s`, `15m`, `12h`, `7d`) as a miss. |
 | `--bail` | Stop after the first eval that fails. |
 | `--runs <n>` | Run every dataset row `n` times (`1` to `100`) for this run, over `runs` in the config; `pass_threshold` still comes from the config. A value outside the range exits `2`. See [Repeats](./configuration.md#repeats-runs-and-pass_threshold). |
-| `--tool-description <tool>=<text\|@file>` | For an eval with `mcp`: show the model this text as the description of that tool, in place of the server's, **for this run only**. **Repeatable.** `@file` reads the text from a file. The server is not changed and is asked nothing different; the tools the model was offered keep the server's own list in the transcript. The swap is recorded with the SHA-256 of the new text, as `description_overrides` on each row's `agent`. A name that no row offered changes nothing and is said on stderr. Exit `2` for a malformed value, a name given twice, an unreadable or empty file, or a run with no `mcp` eval. See [the experiment with descriptions](#advice-in-plune-diff). |
+| `--tool-description <tool>=<text\|@file>` | For an eval with `mcp`: show the model this text as the description of that tool, in place of the server's, **for this run only**. **Repeatable.** `@file` reads the text from a file (at most 64 KB; a directory or an unreadable file is exit `2`); the text goes into every request to the model. The server is not changed and is asked nothing different; the tools the model was offered keep the server's own list in the transcript. The swap is recorded with the SHA-256 of the new text, as `description_overrides` on each row's `agent`. A name that no row offered changes nothing and is said on stderr. Exit `2` for a malformed value, a name given twice, an unreadable or empty file, or a run with no `mcp` eval. See [the experiment with descriptions](#advice-in-plune-diff). |
 | `--format <fmt>` | Output format: `console` (default), `json`, or `markdown`. |
 | `-o, --output <path>` | Write the report to a file instead of stdout. |
 
@@ -199,7 +199,10 @@ over Wilson intervals, and one of four words:
 | no difference visible | the interval holds zero: this is not «no regression» |
 | too few attempts | either side has fewer than 5 attempts (the message names the minimum and both counts); a side with none is always too few, whatever the minimum |
 
-Attempts are all repeats of all rows of the eval. A single row repeated twice has 2 attempts, so it never gets a verdict,
+Attempts are all repeats of all rows of the eval **that got a verdict** (passed or failed). A repeat that errored (a timeout,
+a provider error) or was blocked or skipped is not in the share: the line says how many were not measured on each side, and
+a side left with fewer than 5 is «too few attempts». A dry run measures nothing, so a diff with one is not compared. When the
+descriptions of the tools differed between the two runs, the line says so: that is the experiment below. A single row repeated twice has 2 attempts, so it never gets a verdict,
 and a run with two repeats never says «worse» for one row. The attempts of one row are correlated and the interval treats
 them as independent: it is a guide, not a proof, and the more different rows there are, the more it can be trusted.
 
