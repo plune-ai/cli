@@ -1,0 +1,8 @@
+{
+  "origin": "synthetic",
+  "description": "A VS Code file with comments and input references.",
+  "client": "vscode",
+  "path": ".vscode/mcp.json",
+  "author": "Maievskyi Leonid",
+  "date": "2026-11-13"
+}

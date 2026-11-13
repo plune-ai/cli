@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "s": {
+      "url": "HTTP://API.EXAMPLE.NET/mcp"
+    }
+  }
+}

@@ -218,4 +218,74 @@ export const OAUTH_CATALOG: readonly CatalogEntry[] = [
     eras: BOTH,
     needsFixture: true,
   }),
+  oauth({
+    id: 'oauth-reg-prereg',
+    title: 'A pre-registered client is accepted',
+    description:
+      'The client_id of a pre-registered client (from --config) is accepted at the authorization endpoint: the request is answered with a redirect that carries no error, not with invalid_client. Only the client_id and the redirect URI are sent; no secret goes to the authorization endpoint. A page that shows a sign-in cannot be told from one that shows an error, and is could-not-run.',
+    level: 'SHOULD',
+    derived: true,
+    derivation:
+      'The text says "MCP clients SHOULD support an option for static client credentials such as those supplied by a pre-registration flow", a duty of the client. That a server accepts such a client is derived, and its level is not higher than the quoted SHOULD.',
+    specRefs: [ref(L, AUTH, 'Preregistration'), ref(M, REGISTRATION, 'Pre-registration')],
+    eras: BOTH,
+  }),
+  oauth({
+    id: 'oauth-reg-dcr',
+    title: 'Dynamic client registration works',
+    description:
+      'When the metadata names a registration_endpoint and --config allows a client to be created, a registration (RFC 7591) with a correct body (application_type native, a loopback redirect URI) answers 201 with a client_id. The client is deleted afterwards (RFC 7592) when the server gave the means; otherwise the report names the client that remains on the authorization server. In 2026-07-28 the method is deprecated in favour of Client ID Metadata Documents.',
+    level: 'MAY',
+    specRefs: [
+      ref(L, AUTH, 'Dynamic Client Registration'),
+      ref(M, REGISTRATION, 'Dynamic Client Registration'),
+    ],
+    eras: BOTH,
+  }),
+  oauth({
+    id: 'oauth-reg-dcr-http-redirect-rejected',
+    title: 'A redirect over http outside loopback is not registered',
+    description:
+      'A registration whose redirect URI is http on a name that is not loopback is refused, while the same registration with a loopback redirect URI (the control) is accepted. A client made by a server that accepts the fault is deleted, or named in the report when it cannot be.',
+    level: 'MUST',
+    derived: true,
+    derivation:
+      'Communication Security: "All redirect URIs MUST be either localhost or use HTTPS." The sentence is about redirect URIs; that an authorization server refuses to register one is derived.',
+    specRefs: [
+      ref(L, AUTH, 'Communication Security'),
+      ref(L, AUTH, 'Open Redirection'),
+      ref(M, SECURITY, 'Communication Security'),
+      ref(M, SECURITY, 'Open Redirection'),
+    ],
+    eras: BOTH,
+  }),
+  oauth({
+    id: 'oauth-reg-cimd',
+    title: 'A client_id that is a URL is read as a document',
+    description:
+      'When the metadata advertises client_id_metadata_document_supported, the client_id URL of a document the user hosts (--config registration.clientIdMetadataUrl) is accepted at the authorization endpoint, and the URL of a document whose client_id does not match it (clientIdMetadataMismatchUrl) is refused. Without the second URL only the first half is seen, and the check is could-not-run.',
+    level: 'MUST',
+    derived: true,
+    derivation:
+      'Authorization servers "MUST validate that the fetched document’s client_id matches the URL exactly" (quoted). That a server takes a good document and completes the authorization is derived.',
+    specRefs: [
+      ref(L, AUTH, 'Client ID Metadata Documents'),
+      ref(M, REGISTRATION, 'Client ID Metadata Documents'),
+    ],
+    eras: BOTH,
+    needsFixture: true,
+  }),
+  oauth({
+    id: 'oauth-token-format',
+    title: 'The token response has access_token and token_type Bearer',
+    description:
+      'The answer of the token endpoint (client-credentials, from --config) is a JSON object with access_token and token_type Bearer (the value is case insensitive). An absent expires_in is said in the result but does not fail the check: RFC 6749 only recommends it. A token_type other than Bearer (for example DPoP) fails the check: the text of MCP has the token sent as Authorization: Bearer.',
+    level: 'MUST',
+    derived: true,
+    derivation:
+      'RFC 6749 section 5.1: access_token and token_type are REQUIRED, expires_in is RECOMMENDED; the Token Requirements of the specification use the token as "Authorization: Bearer". No MCP sentence says MUST about the response of the token endpoint.',
+    specRefs: [ref(L, AUTH, 'Token Requirements'), ref(M, AUTH, 'Token Requirements')],
+    eras: BOTH,
+    needsFixture: true,
+  }),
 ];

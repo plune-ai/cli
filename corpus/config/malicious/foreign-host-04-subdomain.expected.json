@@ -1,0 +1,27 @@
+{
+  "client": "claude-code",
+  "path": ".mcp.json",
+  "options": {
+    "allowHosts": [
+      "mcp.example.net"
+    ]
+  },
+  "expected": [
+    {
+      "rule": "scan/cfg/foreign-host",
+      "path": "mcpServers.s.url"
+    }
+  ],
+  "notChecked": [],
+  "provenance": {
+    "catalogClass": "risky commands",
+    "mechanism": "The server address names a host outside the list the person allows, sometimes one that looks like an allowed one.",
+    "concealment": "subdomain",
+    "source": "not verified",
+    "catalogRefs": [
+      "DOC-LSS"
+    ],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-13"
+  }
+}

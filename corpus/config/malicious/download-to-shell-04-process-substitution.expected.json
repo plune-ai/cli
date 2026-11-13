@@ -1,0 +1,22 @@
+{
+  "client": "claude-code",
+  "path": ".mcp.json",
+  "expected": [
+    {
+      "rule": "scan/cfg/download-to-shell",
+      "path": "mcpServers.s.args[1]"
+    }
+  ],
+  "notChecked": [],
+  "provenance": {
+    "catalogClass": "risky commands",
+    "mechanism": "The start command downloads a script and pipes it into a shell.",
+    "concealment": "process-substitution",
+    "source": "not verified",
+    "catalogRefs": [
+      "DOC-SBP"
+    ],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-13"
+  }
+}

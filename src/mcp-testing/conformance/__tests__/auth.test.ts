@@ -44,6 +44,7 @@ const CLIENT = {
   auth: 'client-credentials',
   registration: { method: 'preregistered', clientId: CLIENT_ID, clientSecretEnv: SECRET_ENV },
   scopes: ['mcp:tools'],
+  redirectUri: 'http://127.0.0.1:8765/callback',
 };
 const credentials = () => configFile('client.json', CLIENT);
 
@@ -121,8 +122,13 @@ describe('CLI · mcp conformance · oauth · a server that keeps its requirement
     const s = await serve({ as: { iss: true, cimd: true } });
     const { report } = await run(s.url, { config: credentials() });
     const v = verdicts(report);
+    // The pre-registered client passes too; the checks of the other two registration methods are not for this config
+    // (one run has one method: auth-registration.test.ts runs those).
     expect(Object.entries(v).filter(([, state]) => state !== 'passed')).toEqual([
       ['oauth-as-https', 'not-applicable (not-offered)'],
+      ['oauth-reg-dcr', 'not-applicable (not-offered)'],
+      ['oauth-reg-dcr-http-redirect-rejected', 'not-applicable (not-offered)'],
+      ['oauth-reg-cimd', 'not-applicable (not-offered)'],
     ]);
     expect(report?.era).toBe('modern');
   });

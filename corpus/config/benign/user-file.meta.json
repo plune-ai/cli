@@ -1,0 +1,8 @@
+{
+  "origin": "synthetic",
+  "description": "A ~/.claude.json with a project list.",
+  "client": "claude-code",
+  "path": ".claude.json",
+  "author": "Maievskyi Leonid",
+  "date": "2026-11-13"
+}

@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "s": {
+      "command": "cmd",
+      "args": [
+        "/c",
+        "node",
+        "server.js"
+      ]
+    }
+  }
+}

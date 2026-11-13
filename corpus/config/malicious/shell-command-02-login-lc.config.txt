@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "s": {
+      "command": "/bin/sh",
+      "args": [
+        "-lc",
+        "node server.js"
+      ]
+    }
+  }
+}

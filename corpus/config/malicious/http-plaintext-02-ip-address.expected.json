@@ -1,0 +1,20 @@
+{
+  "client": "claude-code",
+  "path": ".mcp.json",
+  "expected": [
+    {
+      "rule": "scan/cfg/http-plaintext",
+      "path": "mcpServers.s.url"
+    }
+  ],
+  "notChecked": [],
+  "provenance": {
+    "catalogClass": "risky commands",
+    "mechanism": "A remote server is reached over plain http.",
+    "concealment": "ip-address",
+    "source": "not verified",
+    "catalogRefs": [],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-13"
+  }
+}
