@@ -15,6 +15,7 @@ import type { McpPinFlags } from './cli/commands/mcp-pin.js';
 // The connection flags of `plune mcp` commands: commander and a duration parser, no MCP client (that loads in the action).
 import { addConnectionOptions } from './mcp-testing/connect/options.js';
 import { addReportOptions } from './mcp-testing/report/options.js';
+import { configFlagValues, rawArgsOf, subcommandPath } from './cli/config-flag.js';
 
 // COLD-START (NFR-1, <300ms): keep this module's top-level imports tiny — commander + node
 // builtins only. The command handlers transitively load heavy deps (@huggingface/transformers,
@@ -138,7 +139,11 @@ export function createProgram(): Command {
   // `--help` and an unknown command never pay for it (cold start, above).
   program.hook('preAction', async (_program, action) => {
     const { loadEnv } = await import('./cli/env.js');
-    const { config } = action.optsWithGlobals() as { config?: string };
+    let { config } = action.optsWithGlobals() as { config?: string };
+    // `mcp conformance --config` and `mcp scan --config` are those commands' own files, not a plune.yaml: only a -c
+    // written before the subcommand names the config whose `.env` is read (and none of its own files does).
+    const own = subcommandPath(action);
+    if (own !== undefined) config = configFlagValues(rawArgsOf(_program), own).before.at(-1);
     if (config !== undefined) loadEnv(dirname(resolve(config)));
     loadEnv(process.cwd());
   });
@@ -963,10 +968,9 @@ export function createProgram(): Command {
     .action(async (server: string[], options: import('./cli/commands/mcp-conformance.js').McpConformanceFlags, command: Command) => {
       const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
       const { handleMcpConformance } = await import('./cli/commands/mcp-conformance.js');
-      // The program has a global -c/--config (the plune.yaml of `plune run`), and commander gives a --config written
-      // after a subcommand to that global option: the file of the oauth suite arrives there, not in `options`.
-      const globalConfig = (command.optsWithGlobals() as { config?: string }).config;
-      const flags = options.config === undefined && globalConfig !== undefined ? { ...options, config: globalConfig } : options;
+      // Commander gives a --config written after the subcommand to the program's global -c/--config: read it here.
+      const given = configFlagValues(rawArgsOf(command.parent?.parent ?? {}), ['mcp', 'conformance']).after.at(-1);
+      const flags = given === undefined ? options : { ...options, config: given };
       try {
         process.exitCode = await handleMcpConformance(flags, server, {
           out: (s) => process.stdout.write(s),
@@ -1017,8 +1021,11 @@ export function createProgram(): Command {
     .action(async (server: string[], options: import('./cli/commands/mcp-scan.js').McpScanFlags, command: Command) => {
       const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
       const { handleMcpScan } = await import('./cli/commands/mcp-scan.js');
+      // Commander gives every --config written after the subcommand to the program's global -c/--config: read them here.
+      const given = configFlagValues(rawArgsOf(command.parent?.parent ?? {}), ['mcp', 'scan']).after;
+      const flags = given.length === 0 ? options : { ...options, config: given };
       try {
-        process.exitCode = await handleMcpScan(options, server, {
+        process.exitCode = await handleMcpScan(flags, server, {
           out: (s) => process.stdout.write(s),
           err: (s) => process.stderr.write(s),
           env: process.env,
