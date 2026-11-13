@@ -97,7 +97,7 @@ describe('CLI · mcp connect · cold start', () => {
   it('CLI · mcp connect · mcp is a group: serve and lint under it', () => {
     const mcp = createProgram().commands.find((c) => c.name() === 'mcp');
     expect(
-      mcp?.commands.map((c) => c.name()).filter((n) => !['snapshot', 'diff', 'conformance'].includes(n)),
+      mcp?.commands.map((c) => c.name()).filter((n) => !['snapshot', 'diff', 'pin', 'conformance'].includes(n)),
     ).toEqual(['serve', 'check', 'lint']);
   });
 
@@ -106,6 +106,6 @@ describe('CLI · mcp connect · cold start', () => {
       createProgram()
         .commands.find((c) => c.name() === 'mcp')
         ?.commands.map((c) => c.name()) ?? [];
-    expect(names).toEqual(['serve', 'check', 'lint', 'snapshot', 'diff', 'conformance']);
+    expect(names).toEqual(['serve', 'check', 'lint', 'snapshot', 'diff', 'pin', 'conformance']);
   });
 });

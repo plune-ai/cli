@@ -97,6 +97,8 @@ export interface Session {
   stdoutNoise(): { count: number; first: string[] };
   /** Closes a stdio server's stdin and says whether the process exited within `waitMs` (true over HTTP). */
   endInput(waitMs: number): Promise<boolean>;
+  /** How many notifications named `method` the server has sent on this connection so far. */
+  notified(method: string): number;
 }
 
 export interface RawReply {
@@ -386,6 +388,7 @@ export async function openSession(config: ConnectConfig, options: SessionOptions
     offered: undefined,
     result: undefined,
   };
+  const notifications = new Map<string, number>();
   tap(transport, journal, {
     frame: (dir, message) => {
       const m = message as { id?: unknown; method?: unknown; params?: unknown; result?: unknown };
@@ -396,6 +399,8 @@ export async function openSession(config: ConnectConfig, options: SessionOptions
         )?.protocolVersion;
       } else if (dir === 'in' && handshake.id !== undefined && m.id === handshake.id)
         handshake.result = m.result;
+      if (dir === 'in' && m.id === undefined && typeof m.method === 'string')
+        notifications.set(m.method, (notifications.get(m.method) ?? 0) + 1);
     },
     closed: () => {
       transportClosed = true;
@@ -666,6 +671,7 @@ export async function openSession(config: ConnectConfig, options: SessionOptions
     },
     traffic: () => traffic,
     stdoutNoise: () => ({ count: noise.count, first: [...noise.first] }),
+    notified: (method) => notifications.get(method) ?? 0,
     async endInput(waitMs) {
       const proc = (transport as unknown as { _process?: ChildProcess })._process;
       if (proc === undefined) return true;
