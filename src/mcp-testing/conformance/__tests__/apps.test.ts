@@ -14,6 +14,7 @@ import {
 } from '../../../cli/commands/mcp-conformance.js';
 import type { McpConformanceReport } from '../../result.js';
 import { CATALOG } from '../catalog.js';
+import { opensWithDoctype } from '../checks/apps/index.js';
 import { PROFILE } from '../profile.js';
 
 const SERVER = fileURLToPath(new URL('../../__tests__/fixtures/apps-server.mjs', import.meta.url));
@@ -344,6 +345,31 @@ describe('CLI · mcp conformance · apps · what the server sends is never print
 });
 
 describe('CLI · mcp conformance · apps · after review', () => {
+  it('a missing resource is the error of its revision: -32002 before 2026-07-28, -32602 from it; the code of the other revision is could-not-run', async () => {
+    const id = 'apps-ui-resource-exists';
+    expect(states((await run('missing')).report)[id]).toBe('failed');
+    expect(
+      states((await run('missing', { protocolVersion: '2026-07-28' }, 'modern')).report)[id],
+    ).toBe('failed');
+    expect(states((await run('missing-other-code')).report)[id]).toBe(
+      'could-not-run (prerequisite-failed)',
+    );
+    expect(
+      states((await run('missing-other-code', { protocolVersion: '2026-07-28' }, 'modern')).report)[
+        id
+      ],
+    ).toBe('could-not-run (prerequisite-failed)');
+  });
+
+  it('a complete empty comment <!--> or <!---> before the doctype is skipped', () => {
+    expect(opensWithDoctype('<!--><!doctype html>')).toBe('yes');
+    expect(opensWithDoctype('<!---><!doctype html>')).toBe('yes');
+    expect(opensWithDoctype('<!----><!doctype html>')).toBe('yes');
+    const t0 = Date.now();
+    expect(opensWithDoctype(`${'<!---->'.repeat(290)}x`)).toBe('no');
+    expect(Date.now() - t0).toBeLessThan(500);
+  });
+
   it('the visibility quote is the saved text, character for character', () => {
     const e = APPS.find((x) => x.id === 'apps-ui-visibility-values');
     expect(e?.derivation).toContain('`"model"`: Tool is visible to and callable by the agent');

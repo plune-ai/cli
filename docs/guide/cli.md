@@ -1102,7 +1102,7 @@ say; read the list of checks.**
 | Check | Level | What it asks |
 |-------|-------|--------------|
 | `apps-ui-resource-uri-scheme` | MUST (derived) | `_meta.ui.resourceUri` of a tool, and a listed resource of the MCP Apps media type, starts with `ui://` |
-| `apps-ui-resource-exists` | MUST | `resources/read` of each `ui://` address a tool names answers content; only the error `-32002` is a failure, any other error or an empty list is `could-not-run` |
+| `apps-ui-resource-exists` | MUST | `resources/read` of each `ui://` address a tool names answers content; only the error that means "not found" in the revision of the run (`-32002` up to 2025-11-25, `-32602` from 2026-07-28) is a failure, any other error or an empty list is `could-not-run` |
 | `apps-ui-mime-type` | MUST | the content's `mimeType` is `text/html;profile=mcp-app` |
 | `apps-ui-content-payload` | MUST (derived) | exactly one of `text` and `blob` (base64), and an HTML5 doctype; the specification gives no other criterion for a valid HTML5 document |
 | `apps-ui-listed-mime` | SHOULD | a `ui://` resource in `resources/list` has that `mimeType` too (a listed resource with no `mimeType` is not judged: the field is optional) |

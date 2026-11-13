@@ -140,7 +140,8 @@ export function opensWithDoctype(html: string): 'yes' | 'no' | 'far' {
     while (i < LOOK && /\s/.test(html.charAt(i))) i++;
     if (i >= LOOK) return html.length > i ? 'far' : 'no';
     if (!html.startsWith('<!--', i)) break;
-    const end = html.indexOf('-->', i + 4);
+    // From i + 2: `<!-->` and `<!--->` are complete, empty comments. end >= i + 2, so i grows by 5 or more.
+    const end = html.indexOf('-->', i + 2);
     if (end < 0) return 'no';
     i = end + 3;
     if (i >= LOOK) return html.length > i ? 'far' : 'no';

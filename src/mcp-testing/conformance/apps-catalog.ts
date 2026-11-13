@@ -55,9 +55,11 @@ export const APPS_CATALOG: readonly CatalogEntry[] = [
     id: 'apps-ui-resource-exists',
     title: 'The resource a tool names can be read',
     description:
-      'resources/read of each ui:// resource a tool names in _meta.ui.resourceUri answers a result with contents. The error -32002 (Resource not found) is a failure; any other error, and an empty contents list, say nothing of whether the resource exists and are could-not-run. Over 32 addresses, the rest are not read and the verdict is could-not-run.',
+      'resources/read of each ui:// resource a tool names in _meta.ui.resourceUri answers a result with contents. The error of the revision of the session for a resource that does not exist (-32002 up to 2025-11-25, -32602 from 2026-07-28) is a failure; any other error, and an empty contents list, say nothing of whether the resource exists and are could-not-run. Over 32 addresses, the rest are not read and the verdict is could-not-run.',
     level: 'MUST',
-    derivation: 'Resource Discovery, Behavior: "Resource MUST exist on the server"',
+    derived: true,
+    derivation:
+      'Resource Discovery, Behavior: "Resource MUST exist on the server". The extension text names no error for a missing resource, so which answer says it is missing is taken from the core protocol\'s answer to resources/read of a resource that does not exist in the revision of the session: -32002 up to 2025-11-25 (resources-read-not-found), -32602 from 2026-07-28 (mod-resource-not-found). Any other error says nothing of whether the resource exists.',
     specRefs: [ref(DISCOVERY)],
   }),
   apps({

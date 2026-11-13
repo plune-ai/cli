@@ -5,7 +5,8 @@
 // - `no-ui`: tools and resources, no UI and no extension;
 // - `ext-only`: declares the extension, no tool has _meta.ui;
 // - `wrong-scheme`: the tool and a listed resource of the MCP Apps media type are not under ui://;
-// - `missing`: the resource the tool names is not found;
+// - `missing`: the resource the tool names is not found (-32002, or -32602 in the modern revision);
+// - `missing-other-code`: the same with the code of the other revision;
 // - `wrong-mime`: the content and the list name text/html;
 // - `both`, `neither`: the content has text and blob, or neither; `blob-good`, `blob-bad`: the HTML as base64, or text
 //   that is not base64;
@@ -222,8 +223,11 @@ function answer(msg) {
       if (mode === 'empty-contents') return ok(id, { contents: [] });
       if (mode === 'many' && String(params.uri).startsWith('ui://apps/'))
         return ok(id, { contents: [{ ...content(), uri: params.uri }] });
+      // The code for a missing resource follows the revision: -32002 up to 2025-11-25, -32602 from 2026-07-28.
       if (mode === 'missing' && String(params.uri).startsWith('ui://'))
-        return fail(id, -32002, 'Resource not found');
+        return fail(id, modern ? -32602 : -32002, 'Resource not found');
+      if (mode === 'missing-other-code' && String(params.uri).startsWith('ui://'))
+        return fail(id, modern ? -32002 : -32602, 'Resource not found');
       if (params.uri === uri || params.uri === URI) return ok(id, { contents: [content()] });
       if (params.uri === 'https://apps.example/other')
         return ok(id, { contents: [{ uri: params.uri, mimeType: APP, text: HTML }] });

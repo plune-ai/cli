@@ -60,10 +60,18 @@ export interface UiTool {
 export type Read =
   /** An answer with contents (a list that may be empty). */
   | { kind: 'read'; contents: Record<string, unknown>[] }
-  /** The error -32002: the one answer that says the resource is not there. */
+  /** The error code of the revision for a missing resource (`notFoundCode`): the one answer that says it is not there. */
   | { kind: 'not-found'; said: string }
   /** Any other error, or an answer that is not a result with a contents list: nothing is known of the resource. */
   | { kind: 'no-answer'; said: string };
+
+/**
+ * The code that says a resource is not there, by the revision of the session: -32002 up to 2025-11-25
+ * (resources-read-not-found), -32602 from 2026-07-28 (mod-resource-not-found). Both checks write the code into their
+ * own text; there is no shared constant to reuse, so this follows the same split, by `ctx.era`.
+ */
+export const notFoundCode = (ctx: ConformanceContext): number =>
+  ctx.era === 'modern' ? -32602 : -32002;
 
 /** The addresses to read, those left unread for the limit, and why the list that was to add to them was not read. */
 export interface Addresses {
@@ -175,7 +183,7 @@ export function readUi(ctx: ConformanceContext, uri: string): Promise<Read> {
   return ctx.memo(`apps read ${uri}`, async (): Promise<Read> => {
     const a = await call(ctx, 'resources/read', { uri });
     if (a.kind === 'error')
-      return a.code === -32002
+      return a.code === notFoundCode(ctx)
         ? { kind: 'not-found', said: said(a) }
         : { kind: 'no-answer', said: said(a) };
     if (a.kind === 'other') return { kind: 'no-answer', said: said(a) };
