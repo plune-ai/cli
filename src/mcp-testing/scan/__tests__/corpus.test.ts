@@ -1,7 +1,8 @@
 // CLI · mcp scan · corpus: the accuracy corpus of the description rules (MCP-G7, first part) and its regression control.
 // Fixtures hold text that reads like injections, so a failure here names rules, fixtures and pointers, never their text.
 
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { DESC_RULES, scanDescriptions, visible, type DescRuleId } from '../descriptions.js';
@@ -10,6 +11,7 @@ import {
   baselineOf,
   compareToBaseline,
   corpusHash,
+  corpusUpdateRequested,
   loadCorpus,
   measure,
   wilsonUpper95,
@@ -31,7 +33,7 @@ const scanOf: Scan = (s) => scanDescriptions(s).findings;
 const clip = (lines: string[]) => lines.map((l) => visible(l, 160));
 
 // `PLUNE_CORPUS_UPDATE=1 CORPUS_COMMIT=<sha> CORPUS_DATE=<date>` rewrites the two generated files: the deliberate update.
-if (process.env['PLUNE_CORPUS_UPDATE'] === '1') {
+if (corpusUpdateRequested(process.env)) {
   const meta = {
     measuredAt: process.env['CORPUS_DATE']!,
     commit: process.env['CORPUS_COMMIT']!,
@@ -230,5 +232,132 @@ describe('CLI · mcp scan · corpus · the control', () => {
     expect(compareToBaseline(report, baseline, 'f'.repeat(64))).toContain(
       'the corpus changed and corpus/baseline.json was not updated',
     );
+  });
+});
+
+describe('CLI · mcp scan · corpus · the update is deliberate and not in CI', () => {
+  it('refuses to rewrite the generated files when CI is set, and says why', () => {
+    expect(() => corpusUpdateRequested({ PLUNE_CORPUS_UPDATE: '1', CI: 'true' })).toThrow(/CI/);
+  });
+  it('asks for the rewrite only with the flag, outside CI', () => {
+    expect(corpusUpdateRequested({ PLUNE_CORPUS_UPDATE: '1' })).toBe(true);
+    expect(corpusUpdateRequested({})).toBe(false);
+    expect(corpusUpdateRequested({ CI: 'true' })).toBe(false);
+  });
+});
+
+describe('CLI · mcp scan · corpus · the loader is strict', () => {
+  const snapshotText = readFileSync(
+    join(DIR, 'malicious', 'tag-character-01-hidden.snapshot.json'),
+    'utf8',
+  );
+  const expectedText = readFileSync(
+    join(DIR, 'malicious', 'tag-character-01-hidden.expected.json'),
+    'utf8',
+  );
+  const dir = (files: Record<string, string>) => {
+    const root = mkdtempSync(join(tmpdir(), 'plune-corpus-'));
+    for (const d of ['malicious', 'benign']) mkdirSync(join(root, d));
+    for (const [name, text] of Object.entries(files)) writeFileSync(join(root, name), text);
+    return root;
+  };
+  const good = {
+    'malicious/a.snapshot.json': snapshotText,
+    'malicious/a.expected.json': expectedText,
+  };
+  const origin = (o: string) => JSON.stringify({ origin: o });
+
+  it('loads a well-formed directory', () => {
+    expect(loadCorpus(dir(good)).malicious.map((f) => f.id)).toEqual(['a']);
+  });
+  it('names an expectation file that has no snapshot', () => {
+    expect(() =>
+      loadCorpus(dir({ ...good, 'malicious/orphan.expected.json': expectedText })),
+    ).toThrow(/orphan\.expected\.json/);
+  });
+  it('names a meta file that has no snapshot', () => {
+    expect(() =>
+      loadCorpus(dir({ ...good, 'benign/lost.meta.json': origin('synthetic') })),
+    ).toThrow(/lost\.meta\.json/);
+  });
+  it('names a snapshot that has no expectation file', () => {
+    expect(() => loadCorpus(dir({ 'malicious/b.snapshot.json': snapshotText }))).toThrow(
+      /b\.expected\.json/,
+    );
+  });
+  it('refuses an origin that is not real or synthetic', () => {
+    const files = {
+      ...good,
+      'benign/c.snapshot.json': snapshotText,
+      'benign/c.meta.json': origin('scraped'),
+    };
+    expect(() => loadCorpus(dir(files))).toThrow(/c: origin/);
+    expect(
+      loadCorpus(
+        dir({
+          ...good,
+          'benign/c.snapshot.json': snapshotText,
+          'benign/c.meta.json': origin('real'),
+        }),
+      ).benign[0]!.origin,
+    ).toBe('real');
+  });
+  it.each([
+    ['zero bytes', { $repeat: 'x', bytes: 0 }],
+    ['a fraction', { $repeat: 'x', bytes: 1.5 }],
+    ['over 4 MB', { $repeat: 'x', bytes: 4 * 1024 * 1024 + 1 }],
+    ['a text, not a number', { $repeat: 'x', bytes: '9' }],
+    ['an empty unit', { $repeat: '', bytes: 10 }],
+    ['a unit that is not text', { $repeat: 5, bytes: 10 }],
+  ])('refuses a $repeat with %s, and names the fixture', (_name, rep) => {
+    const snap = { ...JSON.parse(snapshotText), instructions: rep };
+    const root = dir({ ...good, 'malicious/a.snapshot.json': JSON.stringify(snap) });
+    expect(() => loadCorpus(root)).toThrow(/a\.snapshot\.json/);
+  });
+  it('accepts a $repeat of 4 MB', () => {
+    const snap = {
+      ...JSON.parse(snapshotText),
+      instructions: { $repeat: 'ab', bytes: 4 * 1024 * 1024 },
+    };
+    const root = dir({ ...good, 'malicious/a.snapshot.json': JSON.stringify(snap) });
+    expect(loadCorpus(root).malicious[0]!.snapshot.instructions!.length).toBeGreaterThanOrEqual(
+      4 * 1024 * 1024,
+    );
+  });
+});
+
+describe('CLI · mcp scan · corpus · the denominator says what a unit is', () => {
+  it('counts the description fields apart from all texts, per origin', () => {
+    const snapshot = JSON.parse(readFileSync(join(DIR, 'benign', 'short.snapshot.json'), 'utf8'));
+    const tiny: Corpus = {
+      malicious: [],
+      benign: [
+        {
+          id: 't',
+          origin: 'synthetic',
+          snapshot: {
+            ...snapshot,
+            tools: [
+              {
+                name: 'n',
+                description: 'd',
+                inputSchema: {
+                  type: 'object',
+                  properties: { p: { type: 'string', description: 'q' } },
+                },
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const r = measure(tiny)[RULES[0]!].benign;
+    // name, description, the keys type/properties/p/type/description, the values object/string, the description of p
+    expect(r.synthetic.descriptionUnits).toBe(2);
+    expect(r.synthetic.units).toBeGreaterThan(2);
+    expect(r.real.descriptionUnits).toBe(0);
+  });
+  it('is in report.json for every rule', () => {
+    for (const r of RULES) expect(report[r].benign.synthetic.descriptionUnits).toBeGreaterThan(0);
   });
 });

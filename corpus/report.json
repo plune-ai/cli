@@ -7,11 +7,13 @@
     "benign": {
       "real": {
         "units": 0,
+        "descriptionUnits": 0,
         "falsePositives": [],
         "wilsonUpper95": null
       },
       "synthetic": {
         "units": 582,
+        "descriptionUnits": 117,
         "falsePositives": [],
         "wilsonUpper95": 0.006557
       }
@@ -27,11 +29,13 @@
     "benign": {
       "real": {
         "units": 0,
+        "descriptionUnits": 0,
         "falsePositives": [],
         "wilsonUpper95": null
       },
       "synthetic": {
         "units": 582,
+        "descriptionUnits": 117,
         "falsePositives": [],
         "wilsonUpper95": 0.006557
       }
@@ -52,11 +56,13 @@
     "benign": {
       "real": {
         "units": 0,
+        "descriptionUnits": 0,
         "falsePositives": [],
         "wilsonUpper95": null
       },
       "synthetic": {
         "units": 582,
+        "descriptionUnits": 117,
         "falsePositives": [
           {
             "set": "workflow-en",
@@ -82,11 +88,13 @@
     "benign": {
       "real": {
         "units": 0,
+        "descriptionUnits": 0,
         "falsePositives": [],
         "wilsonUpper95": null
       },
       "synthetic": {
         "units": 582,
+        "descriptionUnits": 117,
         "falsePositives": [],
         "wilsonUpper95": 0.006557
       }
@@ -102,11 +110,13 @@
     "benign": {
       "real": {
         "units": 0,
+        "descriptionUnits": 0,
         "falsePositives": [],
         "wilsonUpper95": null
       },
       "synthetic": {
         "units": 582,
+        "descriptionUnits": 117,
         "falsePositives": [],
         "wilsonUpper95": 0.006557
       }
@@ -122,11 +132,13 @@
     "benign": {
       "real": {
         "units": 0,
+        "descriptionUnits": 0,
         "falsePositives": [],
         "wilsonUpper95": null
       },
       "synthetic": {
         "units": 582,
+        "descriptionUnits": 117,
         "falsePositives": [
           {
             "set": "base64-legit",
@@ -147,11 +159,13 @@
     "benign": {
       "real": {
         "units": 0,
+        "descriptionUnits": 0,
         "falsePositives": [],
         "wilsonUpper95": null
       },
       "synthetic": {
         "units": 582,
+        "descriptionUnits": 117,
         "falsePositives": [
           {
             "set": "html-legit",
@@ -177,11 +191,13 @@
     "benign": {
       "real": {
         "units": 0,
+        "descriptionUnits": 0,
         "falsePositives": [],
         "wilsonUpper95": null
       },
       "synthetic": {
         "units": 582,
+        "descriptionUnits": 117,
         "falsePositives": [],
         "wilsonUpper95": 0.006557
       }
@@ -206,11 +222,13 @@
     "benign": {
       "real": {
         "units": 0,
+        "descriptionUnits": 0,
         "falsePositives": [],
         "wilsonUpper95": null
       },
       "synthetic": {
         "units": 582,
+        "descriptionUnits": 117,
         "falsePositives": [],
         "wilsonUpper95": 0.006557
       }
@@ -226,11 +244,13 @@
     "benign": {
       "real": {
         "units": 0,
+        "descriptionUnits": 0,
         "falsePositives": [],
         "wilsonUpper95": null
       },
       "synthetic": {
         "units": 582,
+        "descriptionUnits": 117,
         "falsePositives": [],
         "wilsonUpper95": 0.006557
       }
@@ -251,11 +271,13 @@
     "benign": {
       "real": {
         "units": 0,
+        "descriptionUnits": 0,
         "falsePositives": [],
         "wilsonUpper95": null
       },
       "synthetic": {
         "units": 57,
+        "descriptionUnits": 57,
         "falsePositives": [
           {
             "set": "summarizer-en",
@@ -281,11 +303,13 @@
     "benign": {
       "real": {
         "units": 0,
+        "descriptionUnits": 0,
         "falsePositives": [],
         "wilsonUpper95": null
       },
       "synthetic": {
         "units": 582,
+        "descriptionUnits": 117,
         "falsePositives": [
           {
             "set": "files-en",
@@ -314,11 +338,13 @@
     "benign": {
       "real": {
         "units": 0,
+        "descriptionUnits": 0,
         "falsePositives": [],
         "wilsonUpper95": null
       },
       "synthetic": {
         "units": 582,
+        "descriptionUnits": 117,
         "falsePositives": [],
         "wilsonUpper95": 0.006557
       }
@@ -334,11 +360,13 @@
     "benign": {
       "real": {
         "units": 0,
+        "descriptionUnits": 0,
         "falsePositives": [],
         "wilsonUpper95": null
       },
       "synthetic": {
         "units": 582,
+        "descriptionUnits": 117,
         "falsePositives": [],
         "wilsonUpper95": 0.006557
       }

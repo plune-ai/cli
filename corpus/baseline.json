@@ -1,6 +1,6 @@
 {
   "measuredAt": "2026-11-13",
-  "commit": "989f151",
+  "commit": "729e572",
   "corpusSha256": "a1da22390f6c7fecd100217971b679fa69c1a66d2409c3e189a29b102c8ca9c1",
   "rules": {
     "scan/desc/ansi-escape": {

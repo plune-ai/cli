@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { parseSnapshot, type McpSnapshot } from '../snapshot/snapshot.js';
 import {
   DESC_RULES,
@@ -51,7 +51,23 @@ export interface Corpus {
   benign: BenignSet[];
 }
 
+/**
+ * The units the gate needs. A unit here is any text the rules read: a description, but also a title, a name, and every
+ * key and string value of a schema, so `units` is larger than the number of descriptions. `descriptionUnits` counts the
+ * fields called `description` alone; the threshold of the gate will have to be counted on those, not on `units`.
+ */
 export const GATE_MIN_UNITS = 385;
+
+/** The generated files are rewritten only on request and never in CI: a CI run that rewrote them would pass on its own numbers. */
+export function corpusUpdateRequested(env: Record<string, string | undefined>): boolean {
+  if (env['PLUNE_CORPUS_UPDATE'] !== '1') return false;
+  if (env['CI'])
+    throw new Error(
+      'PLUNE_CORPUS_UPDATE is not allowed in CI: update the corpus baseline on a developer machine and commit it',
+    );
+  return true;
+}
+const MAX_REPEAT_BYTES = 4 * 1024 * 1024;
 const Z = 1.96;
 
 /** The upper end of the 95 % Wilson interval of `k` in `n`; `null` for no units. */
@@ -65,29 +81,51 @@ export function wilsonUpper95(k: number, n: number): number | null {
 }
 
 /** A `{ $repeat, bytes }` object stands for a text of that many bytes: a megabyte per fixture would bloat the repository. */
-function expand(v: unknown): unknown {
-  if (Array.isArray(v)) return v.map(expand);
+function expand(v: unknown, file: string): unknown {
+  if (Array.isArray(v)) return v.map((x) => expand(x, file));
   if (typeof v === 'object' && v !== null) {
     const o = v as Record<string, unknown>;
-    if (typeof o['$repeat'] === 'string' && typeof o['bytes'] === 'number') {
-      return o['$repeat'].repeat(Math.ceil(o['bytes'] / Buffer.byteLength(o['$repeat'])));
+    if ('$repeat' in o) {
+      const { $repeat: unit, bytes } = o;
+      if (typeof unit !== 'string' || unit === '')
+        throw new Error(`${file}: $repeat must be a non-empty string`);
+      if (
+        typeof bytes !== 'number' ||
+        !Number.isInteger(bytes) ||
+        bytes < 1 ||
+        bytes > MAX_REPEAT_BYTES
+      ) {
+        throw new Error(`${file}: bytes must be a whole number from 1 to ${MAX_REPEAT_BYTES}`);
+      }
+      return unit.repeat(Math.ceil(bytes / Buffer.byteLength(unit)));
     }
-    return Object.fromEntries(Object.entries(o).map(([k, x]) => [k, expand(x)]));
+    return Object.fromEntries(Object.entries(o).map(([k, x]) => [k, expand(x, file)]));
   }
   return v;
 }
 
 const readJson = (path: string): unknown => JSON.parse(readFileSync(path, 'utf8'));
 const readSnapshot = (path: string): McpSnapshot =>
-  parseSnapshot(JSON.stringify(expand(readJson(path))));
-const ids = (dir: string, suffix: string) =>
-  readdirSync(dir)
-    .filter((f) => f.endsWith(suffix))
-    .map((f) => f.slice(0, -suffix.length))
-    .sort();
+  parseSnapshot(JSON.stringify(expand(readJson(path), basename(path))));
+/** The ids of a folder, from its snapshots; a sidecar file with no snapshot is an error that names the file. */
+const ids = (dir: string, sidecar: string) => {
+  const files = readdirSync(dir);
+  const snaps = new Set(
+    files.filter((f) => f.endsWith('.snapshot.json')).map((f) => f.slice(0, -14)),
+  );
+  for (const f of files) {
+    if (f.endsWith(sidecar) && !snaps.has(f.slice(0, -sidecar.length)))
+      throw new Error(`${f}: no matching .snapshot.json`);
+  }
+  for (const id of snaps) {
+    if (!files.includes(`${id}${sidecar}`))
+      throw new Error(`${id}.snapshot.json: no matching ${id}${sidecar}`);
+  }
+  return [...snaps].sort();
+};
 
 export function loadCorpus(root: string): Corpus {
-  const malicious = ids(join(root, 'malicious'), '.snapshot.json').map((id) => {
+  const malicious = ids(join(root, 'malicious'), '.expected.json').map((id) => {
     const meta = readJson(join(root, 'malicious', `${id}.expected.json`)) as {
       expected: Expectation[];
       provenance: Provenance;
@@ -102,8 +140,10 @@ export function loadCorpus(root: string): Corpus {
       provenance: meta.provenance,
     };
   });
-  const benign = ids(join(root, 'benign'), '.snapshot.json').map((id) => {
+  const benign = ids(join(root, 'benign'), '.meta.json').map((id) => {
     const meta = readJson(join(root, 'benign', `${id}.meta.json`)) as { origin: Origin };
+    if (meta.origin !== 'real' && meta.origin !== 'synthetic')
+      throw new Error(`${id}: origin must be real or synthetic`);
     return {
       id,
       origin: meta.origin,
@@ -133,6 +173,8 @@ export interface Place {
 }
 export interface OriginCount {
   units: number;
+  /** Of `units`, the fields called `description`: the count the gate threshold will be read on. */
+  descriptionUnits: number;
   falsePositives: Place[];
   wilsonUpper95: number | null;
 }
@@ -151,9 +193,12 @@ export type Scan = (snapshot: McpSnapshot) => DescriptionFinding[];
 const defaultScan: Scan = (s) => scanDescriptions(s).findings;
 
 /** The units of one rule in a snapshot: every text, but for the parameter rule only the string parameters' descriptions. */
-const unitsOf = (rule: DescRuleId, s: McpSnapshot) =>
-  descriptionTexts(s).filter((t) => rule !== 'scan/desc/param-asks-for-context' || t.stringParam)
-    .length;
+const unitsOf = (rule: DescRuleId, s: McpSnapshot, descriptionsOnly = false) =>
+  descriptionTexts(s).filter(
+    (t) =>
+      (rule !== 'scan/desc/param-asks-for-context' || t.stringParam) &&
+      (!descriptionsOnly || (!t.key && t.pointer.endsWith('/description'))),
+  ).length;
 
 export function measure(corpus: Corpus, scan: Scan = defaultScan): Report {
   const report = {} as Report;
@@ -172,10 +217,16 @@ export function measure(corpus: Corpus, scan: Scan = defaultScan): Report {
     const count = (origin: Origin): OriginCount => {
       const sets = benign.filter(({ b }) => b.origin === origin);
       const units = sets.reduce((n, { b }) => n + unitsOf(rule, b.snapshot), 0);
+      const descriptionUnits = sets.reduce((n, { b }) => n + unitsOf(rule, b.snapshot, true), 0);
       const falsePositives = sets.flatMap(({ b, found }) =>
         found.filter((x) => x.rule === rule).map((x) => ({ set: b.id, pointer: x.pointer })),
       );
-      return { units, falsePositives, wilsonUpper95: wilsonUpper95(falsePositives.length, units) };
+      return {
+        units,
+        descriptionUnits,
+        falsePositives,
+        wilsonUpper95: wilsonUpper95(falsePositives.length, units),
+      };
     };
     const real = count('real');
     const missed = expected
