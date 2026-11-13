@@ -7,13 +7,20 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+/** The variable each provider type reads its key from; `.env.example` and the hint after `init` are built from it. */
+export const PROVIDER_KEY_VARS: Readonly<Record<string, string>> = {
+  anthropic: 'ANTHROPIC_API_KEY',
+  openai: 'OPENAI_API_KEY',
+  openrouter: 'OPENROUTER_API_KEY',
+};
+
 /** Committed sample env file. Users copy it to `.env` (gitignored) and fill in real keys. */
 export const ENV_EXAMPLE_TPL = `# Copy this file to .env and replace the placeholders with your real keys.
 # .env is gitignored; .env.example is safe to commit.
 # Plune reads whichever key matches your configured provider.
-ANTHROPIC_API_KEY=YOUR_ANTHROPIC_API_KEY_HERE
-OPENAI_API_KEY=YOUR_OPENAI_API_KEY_HERE
-OPENROUTER_API_KEY=YOUR_OPENROUTER_API_KEY_HERE
+${Object.values(PROVIDER_KEY_VARS)
+  .map((v) => `${v}=YOUR_${v}_HERE`)
+  .join('\n')}
 `;
 
 /** Starter dataset (JSONL, one row per line) matching the DatasetRow shape `{ vars, expected? }`. */

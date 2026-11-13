@@ -71,6 +71,37 @@ describe('initCommand', () => {
     expect(out).toContain('ANTHROPIC_API_KEY');
     expect(out).toContain('.env.example');
     expect(out).toContain('PLUNE_MOCK_PROVIDER=1');
+    // The variable the hint names is one the scaffolded .env.example really holds.
+    expect(fs.readFileSync(path.join(tmp, '.env.example'), 'utf8')).toContain('ANTHROPIC_API_KEY=');
+  });
+
+  it.each([
+    ['openai', 'OPENAI_API_KEY'],
+    ['openrouter', 'OPENROUTER_API_KEY'],
+  ])('names the key of the provider the wizard wrote: %s (#246)', async (type, keyVar) => {
+    vi.mocked(wizardModule.runInitWizard).mockImplementation(async (cwd: string) => {
+      fs.writeFileSync(
+        path.join(cwd, 'plune.yaml'),
+        `version: 1
+provider:
+  type: ${type}
+  model: m
+`,
+      );
+    });
+    await initCommand({ cwd: tmp, force: false });
+    const out = printed.join('');
+    expect(out).toContain(`put ${keyVar} in .env`);
+    expect(out).not.toContain('ANTHROPIC_API_KEY');
+    expect(fs.readFileSync(path.join(tmp, '.env.example'), 'utf8')).toContain(`${keyVar}=`);
+  });
+
+  it('falls back to a general wording when the provider cannot be told', async () => {
+    // The mocked wizard's default output has no provider block.
+    await initCommand({ cwd: tmp, force: false });
+    const out = printed.join('');
+    expect(out).toContain("put your provider's key in .env");
+    expect(out).not.toContain('ANTHROPIC_API_KEY');
   });
 
   it('scaffolds an eval that passes when the model gives its own dataset expected answers (#246)', async () => {

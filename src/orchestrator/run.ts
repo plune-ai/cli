@@ -9,6 +9,8 @@ import { canonicalJson } from '../util/canonical-json.js';
 import { extractJson } from '../assertions/json-extract.js';
 import { isCacheable } from '../cache/cache.js';
 import { getAssertion } from '../assertions/index.js';
+import type { AssertionResult } from '../types/assertion.js';
+import { usesExpected } from '../assertions/interpolate.js';
 import { ASSERTION_CLASSES } from '../assertions/classes.js';
 import { AssertionRunError } from '../assertions/tool-calls/transcript.js';
 import { buildJudge } from './judge.js';
@@ -160,16 +162,23 @@ export async function assess(
   const advice: AgentAdvice[] = [];
   let assertionError: RunError | undefined;
   for (const assertion of p.assertions) {
+    // `{{expected}}` on a row with no expected value would render as '' and a `contains` of ''
+    // passes on every answer: the check fails and says why instead (#246).
     const run = () =>
-      getAssertion(assertion.type).run({
-        output,
-        vars: p.row.vars,
-        row: p.row,
-        params: assertion,
-        embedder: p.embedder,
-        judge,
-        ...(transcript !== undefined ? { transcript } : {}),
-      });
+      usesExpected(assertion) && (p.row.expected === undefined || p.row.expected === '')
+        ? Promise.resolve<AssertionResult>({
+            passed: false,
+            reason: 'the row has no expected value, and this check compares against {{expected}}',
+          })
+        : getAssertion(assertion.type).run({
+            output,
+            vars: p.row.vars,
+            row: p.row,
+            params: assertion,
+            embedder: p.embedder,
+            judge,
+            ...(transcript !== undefined ? { transcript } : {}),
+          });
     if (ASSERTION_CLASSES[assertion.type] === 'heuristic') {
       const found = await run().then(
         (r) => (r.passed ? undefined : (r.reason ?? 'no reason given')),
