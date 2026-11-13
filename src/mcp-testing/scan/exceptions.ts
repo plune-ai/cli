@@ -12,8 +12,8 @@ import { ExceptionsFileError } from '../exceptions-file.js';
  *         reason: "Why."                   # required
  *         expires: 2026-12-31              # required: an exception without an end is a rule switched off
  *
- * An exception hides one finding of one rule on one server (and, with a path, one field), never a state of "not
- * measured", and never for ever. An entry past its `expires` does not apply and is a finding of its own.
+ * An exception hides every finding of one rule on one server (and, with a path, only those at or under that path),
+ * never a state of "not measured", and never for ever. An entry past its `expires` does not apply and is a finding of its own.
  */
 export interface ScanException {
   rule: string;
@@ -59,6 +59,11 @@ export function parseScanExceptions(
     const list = isMap(root) ? root.get('ignore', true) : undefined;
     if (!isMap(root) || (list !== undefined && list !== null && !isSeq(list)))
       fail(root, 'expected "ignore:" with a list of entries.');
+    else if (root.items.some((p) => !(isScalar(p.key) && p.key.value === 'ignore')))
+      fail(
+        root,
+        `the only key of this file is "ignore:"; "${printable(String(root.items.map((p) => (isScalar(p.key) ? p.key.value : '?')).find((k) => k !== 'ignore')))}" is a typo or is not read.`,
+      );
     else if (isSeq(list)) {
       for (const item of list.items as Node[]) {
         if (!isMap(item)) {
@@ -91,6 +96,8 @@ export function parseScanExceptions(
           server = str(scope.value, 'server');
           path = str(scope.value, 'path');
         } else server = str(item, 'scope');
+        if (path !== undefined && path.trim() === '')
+          fail(item, 'path must name a field; leave it out to cover the whole server.');
         const subject = printable(rule ?? 'a rule');
         if (rule === undefined || rule.trim() === '') fail(item, 'an entry needs a rule.');
         if (server === undefined || server.trim() === '')

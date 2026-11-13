@@ -3,8 +3,8 @@
 // src/mcp-testing/scan/; the report and its formats in src/mcp-testing/scan/report.ts; this file reads, connects,
 // prints and exits. It never runs a command that a configuration file holds: that text is only read.
 
-import { existsSync, readFileSync } from 'node:fs';
-import { basename, resolve } from 'node:path';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { basename, isAbsolute, relative, resolve } from 'node:path';
 import { ConnectError } from '../../mcp-testing/connect/session.js';
 import {
   connectionConfig,
@@ -21,7 +21,7 @@ import {
   type McpRun,
   type ReportFlags,
 } from '../../mcp-testing/report/index.js';
-import type { ConfigFile } from '../../mcp-testing/scan/config/config.js';
+import { MAX_FILE_BYTES, safe, type ConfigFile } from '../../mcp-testing/scan/config/config.js';
 import { parseScanExceptions } from '../../mcp-testing/scan/exceptions.js';
 import { GROUPS, renderScan, type FailOn, type ScanGroup } from '../../mcp-testing/scan/report.js';
 import { ALL_RULES, runScan, type ScanSnapshot } from '../../mcp-testing/scan/run.js';
@@ -90,9 +90,28 @@ function groupsOf(flag: string, values: string[] | undefined): ScanGroup[] | und
   return names as ScanGroup[];
 }
 
-function readText(cwd: string, path: string, flag: string): string {
+/** A file over `MAX_FILE_BYTES`: a snapshot or a pin file becomes a "not evaluated" row, an exceptions file a usage error. */
+class TooLargeError extends UsageError {}
+
+/**
+ * A path as a report shows it: relative to the folder when inside it, else the file name alone. An absolute path
+ * carries the user's home folder, and a report is uploaded, committed and posted.
+ */
+function shown(cwd: string, path: string): string {
+  const full = resolve(cwd, path);
+  const rel = relative(cwd, full);
+  return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)
+    ? rel.replace(/\\/g, '/')
+    : basename(full);
+}
+
+function readText(cwd: string, path: string, flag: string, limit = true): string {
   const full = resolve(cwd, path);
   if (!existsSync(full)) throw new UsageError(`${flag}: ${path} does not exist.`);
+  if (limit && statSync(full).size > MAX_FILE_BYTES)
+    throw new TooLargeError(
+      `${flag}: ${path} is too large to read (over ${MAX_FILE_BYTES / 1024 / 1024} MiB).`,
+    );
   try {
     return readFileSync(full, 'utf8');
   } catch (err) {
@@ -160,7 +179,17 @@ async function scan(flags: McpScanFlags, server: string[], io: ScanIo): Promise<
   for (const spec of flags.snapshot ?? []) {
     const named = /^([A-Za-z0-9_.-]+)=(.+)$/s.exec(spec);
     const path = named === null ? spec : (named[2] ?? '');
-    const text = readText(io.cwd, path, '--snapshot');
+    let text: string;
+    try {
+      text = readText(io.cwd, path, '--snapshot');
+    } catch (err) {
+      if (!(err instanceof TooLargeError)) throw err;
+      unreadable.push({
+        target: shown(io.cwd, path),
+        reason: 'the file is too large to read (over 8 MiB)',
+      });
+      continue;
+    }
     let snapshot;
     try {
       snapshot = parseSnapshot(text);
@@ -174,7 +203,7 @@ async function scan(flags: McpScanFlags, server: string[], io: ScanIo): Promise<
       (snapshot.server?.name !== undefined && snapshot.server.name !== ''
         ? snapshot.server.name
         : basename(path).replace(/\.[^.]*$/, ''));
-    snapshots.push({ label, snapshot, file: path, text });
+    snapshots.push({ label, snapshot, file: shown(io.cwd, path), text });
   }
   if (live) {
     const config = connectionConfig(flags, server, io.env);
@@ -195,7 +224,9 @@ async function scan(flags: McpScanFlags, server: string[], io: ScanIo): Promise<
             ? snapshot.server.name
             : 'server',
         snapshot,
-        ...(flags.saveSnapshot === undefined ? {} : { file: flags.saveSnapshot, text }),
+        ...(flags.saveSnapshot === undefined
+          ? {}
+          : { file: shown(io.cwd, flags.saveSnapshot), text }),
       });
     } catch (err) {
       if (!(err instanceof ConnectError) && !(err instanceof SnapshotFormatError)) throw err;
@@ -209,14 +240,25 @@ async function scan(flags: McpScanFlags, server: string[], io: ScanIo): Promise<
   } else if (flags.saveSnapshot !== undefined)
     throw new UsageError('--save-snapshot is for a live server (--url, or a command after --).');
 
+  const labelFile = new Map<string, string>();
+  for (const s of snapshots) {
+    const where = s.file ?? 'the live server';
+    const first = labelFile.get(s.label);
+    if (first !== undefined)
+      throw new UsageError(
+        `two snapshots are called "${safe(s.label)}" (${first} and ${where}); a label names a server, so name them apart: label=file.`,
+      );
+    labelFile.set(s.label, where);
+  }
+
   // configuration files: only those named, or the project file of the client named, in this folder
   const configFiles: ConfigFile[] = [];
   let configMissing: string | undefined;
   for (const path of flags.config ?? [])
     configFiles.push({
-      path,
+      path: shown(io.cwd, path),
       client: (flags.client as Client | undefined) ?? clientOf(path),
-      text: readText(io.cwd, path, '--config'),
+      text: readText(io.cwd, path, '--config', false),
     });
   let configRequested = (flags.config ?? []).length > 0;
   if ((flags.config ?? []).length === 0 && flags.client !== undefined) {
@@ -226,16 +268,27 @@ async function scan(flags: McpScanFlags, server: string[], io: ScanIo): Promise<
       configFiles.push({
         path,
         client: flags.client as Client,
-        text: readText(io.cwd, path, '--client'),
+        text: readText(io.cwd, path, '--client', false),
       });
     else configMissing = `${path} is not in this folder`;
   }
 
   let pin: { file: string; text: string; lock: ReturnType<typeof parseLock> } | undefined;
+  let pinProblem: { file: string; reason: string } | undefined;
   if (flags.pinFile !== undefined) {
-    const text = readText(io.cwd, flags.pinFile, '--pin-file');
+    let text: string | undefined;
     try {
-      pin = { file: flags.pinFile, text, lock: parseLock(text) };
+      text = readText(io.cwd, flags.pinFile, '--pin-file');
+    } catch (err) {
+      if (!(err instanceof TooLargeError)) throw err;
+      pinProblem = {
+        file: shown(io.cwd, flags.pinFile),
+        reason: 'the file is too large to read (over 8 MiB)',
+      };
+    }
+    try {
+      if (text !== undefined)
+        pin = { file: shown(io.cwd, flags.pinFile), text, lock: parseLock(text) };
     } catch (err) {
       if (err instanceof LockFormatError)
         throw new LockFormatError(`--pin-file ${flags.pinFile}: ${err.message}.`);
@@ -251,7 +304,7 @@ async function scan(flags: McpScanFlags, server: string[], io: ScanIo): Promise<
     ignoreName === undefined
       ? undefined
       : {
-          file: ignoreName,
+          file: shown(io.cwd, ignoreName),
           ...parseScanExceptions(readText(io.cwd, ignoreName, '--ignore-file'), ignoreName, today, {
             allowLong: flags.allowLongExceptions === true,
           }),
@@ -262,13 +315,18 @@ async function scan(flags: McpScanFlags, server: string[], io: ScanIo): Promise<
     unreadable.length > 0 ||
     configRequested ||
     pin !== undefined ||
+    pinProblem !== undefined ||
     flags.active === true ||
     (only?.length ?? 0) > 0;
   if (!asked)
     throw new UsageError(
       'Name something to scan: --snapshot <file>, --config <file> or --client, --pin-file <file>, or a server (--url, or a command after --).',
     );
-  if (pin !== undefined && snapshots.length === 0 && unreadable.length === 0)
+  if (
+    (pin !== undefined || pinProblem !== undefined) &&
+    snapshots.length === 0 &&
+    unreadable.length === 0
+  )
     throw new UsageError(
       '--pin-file compares a server with the file: give --snapshot <file> or a live server too.',
     );
@@ -281,6 +339,7 @@ async function scan(flags: McpScanFlags, server: string[], io: ScanIo): Promise<
       configRequested,
       ...(configMissing === undefined ? {} : { configMissing }),
       ...(pin === undefined ? {} : { pin }),
+      ...(pinProblem === undefined ? {} : { pinProblem }),
       active: flags.active === true,
       allowHosts: flags.allowHost ?? [],
       allowPackages: flags.allowPackage ?? [],
@@ -294,6 +353,8 @@ async function scan(flags: McpScanFlags, server: string[], io: ScanIo): Promise<
       ...(exceptions === undefined ? {} : { exceptions }),
     },
   );
+  if (report.groups.every((g) => g.state === 'not-requested'))
+    throw new UsageError('nothing was scanned: --only and --skip left every group out.');
   const run: McpRun = {
     command: 'scan',
     document: report,

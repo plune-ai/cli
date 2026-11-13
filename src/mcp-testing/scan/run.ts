@@ -66,6 +66,8 @@ export interface ScanInput {
   /** Why no configuration file was read, when one was asked for and none found. */
   configMissing?: string;
   pin?: { file: string; text: string; lock: LockFile };
+  /** A pin file that was named and could not be read: the pins group cannot run, and says why. */
+  pinProblem?: { file: string; reason: string };
   active: boolean;
   allowHosts: string[];
   allowPackages: string[];
@@ -155,13 +157,26 @@ const SENTENCE: Record<DescRuleId, string> = {
 
 // ---- places in a JSON text ---------------------------------------------------------------------------------------------
 
+/** A file is parsed once per run, however many findings point into it; `runScan` empties the cache. */
+const parseCache = new Map<
+  string,
+  { parsed: ReturnType<typeof parseJson>; at: ReturnType<typeof lineLocator> }
+>();
+function parsedOf(text: string) {
+  let hit = parseCache.get(text);
+  if (hit === undefined) {
+    hit = { parsed: parseJson(text, { comments: false }), at: lineLocator(text) };
+    parseCache.set(text, hit);
+  }
+  return hit;
+}
+
 const decodeToken = (t: string) => t.replace(/~1/g, '/').replace(/~0/g, '~');
 
 /** The line and column of a JSON Pointer in `text`; when a segment is not found (a name shown escaped), of the deepest part that is. */
 function pointerPlace(text: string, pointer: string): { line: number; column: number } | undefined {
-  const parsed = parseJson(text, { comments: false });
+  const { parsed, at } = parsedOf(text);
   if (!parsed.ok || parsed.root === undefined) return undefined;
-  const at = lineLocator(text);
   let node: JsonNode = parsed.root;
   let found = node.at;
   for (const raw of pointer.split('/').slice(1)) {
@@ -185,9 +200,8 @@ function lockPlace(
   section: PinnedSection | undefined,
   name: string,
 ): { line: number; column: number } | undefined {
-  const parsed = parseJson(text, { comments: false });
+  const { parsed, at } = parsedOf(text);
   if (!parsed.ok || parsed.root?.t !== 'object') return undefined;
-  const at = lineLocator(text);
   const servers = parsed.root.members.find((m) => m.key === 'servers')?.value;
   const server = servers?.t === 'object' ? servers.members.find((m) => m.key === label) : undefined;
   if (server === undefined) return at(parsed.root.at);
@@ -237,6 +251,15 @@ type Draft = Omit<ScanFinding, 'counted' | 'fingerprint' | 'gating' | 'class' | 
 };
 
 export function runScan(input: ScanInput, opts: ScanOptions): ScanReport {
+  parseCache.clear();
+  try {
+    return runScanUncached(input, opts);
+  } finally {
+    parseCache.clear();
+  }
+}
+
+function runScanUncached(input: ScanInput, opts: ScanOptions): ScanReport {
   const asked: Record<ScanGroup, boolean> =
     opts.only !== undefined && opts.only.length > 0
       ? {
@@ -249,7 +272,7 @@ export function runScan(input: ScanInput, opts: ScanOptions): ScanReport {
         }
       : {
           descriptions: input.snapshots.length > 0 || input.unreadable.length > 0,
-          pins: input.pin !== undefined,
+          pins: input.pin !== undefined || input.pinProblem !== undefined,
           config: input.configRequested,
           cross: input.snapshots.length >= 2,
           active: input.active,
@@ -298,6 +321,16 @@ export function runScan(input: ScanInput, opts: ScanOptions): ScanReport {
             ? undefined
             : (p: string) => pointerPlace(s.text!, p);
         for (const f of scan.findings) {
+          if (f.rule === 'scan/desc/oversized-text')
+            // The tail past the limit was not read: hidden text there would pass, so this is not a pass either.
+            rows.push({
+              group: 'descriptions',
+              rule: f.rule,
+              target: safe(s.label),
+              path: safePointer(f.pointer),
+              reason: 'the text is over 1 MB and only its first 1 MB was scanned',
+              kind: 'could-not-run',
+            });
           const where = place?.(f.pointer);
           drafts.push({
             rule: f.rule,
@@ -325,7 +358,9 @@ export function runScan(input: ScanInput, opts: ScanOptions): ScanReport {
   {
     const ran: string[] = [];
     if (asked.pins) {
-      if (input.pin === undefined) couldNot('pins', '', 'no pin file was given (--pin-file)');
+      if (input.pinProblem !== undefined)
+        couldNot('pins', safeText(input.pinProblem.file), input.pinProblem.reason);
+      else if (input.pin === undefined) couldNot('pins', '', 'no pin file was given (--pin-file)');
       else if (input.snapshots.length === 0)
         couldNot('pins', '', 'no snapshot to compare with the pin file');
       else {
@@ -420,6 +455,15 @@ export function runScan(input: ScanInput, opts: ScanOptions): ScanReport {
           );
         else for (const s of f.servers) configRan.push(s.label);
       }
+    }
+    if (scan?.truncated === true) {
+      const names = input.configFiles.map((f) => safeText(f.path)).slice(0, 3);
+      couldNot(
+        wantConfig ? 'config' : 'cross',
+        '',
+        `more findings than the cap of one run: the rest were not reported (${names.join(', ')}${input.configFiles.length > 3 ? ', ...' : ''}); that is not a pass`,
+        names[0] === undefined ? {} : { file: names[0] },
+      );
     }
     const crossRan: string[] = [];
     if (wantCross && !crossOk)

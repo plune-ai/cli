@@ -222,7 +222,8 @@ export interface ConfigScan {
   findings: ConfigFinding[];
 }
 
-const MAX_FILE_BYTES = 8 * 1024 * 1024;
+/** The most bytes of one file the scanners read; `plune mcp scan` applies the same limit to snapshots, pins and exceptions. */
+export const MAX_FILE_BYTES = 8 * 1024 * 1024;
 /** What a regular expression reads of one value: a hostile megabyte-long argument is not matched to its end. */
 const MAX_VALUE = 64 * 1024;
 /** What every rule but the token formats reads of one argument or command: a flag, a package, a path is never longer. */

@@ -237,13 +237,18 @@ function github(r: ScanReport): string {
       `${n.reason}${n.target === '' ? '' : ` (${n.target})`}`,
       n.file !== undefined && n.line !== undefined ? { file: n.file, line: n.line } : undefined,
     );
+  // Suppressed findings are not annotated; one notice says that exceptions hid some, so a reader of the log knows.
+  if (r.counts.suppressed > 0)
+    lines.push(
+      `::notice title=exceptions::${plural(r.counts.suppressed, 'finding', 'findings')} hidden by exceptions (${r.exceptions.file === null ? 'exceptions file' : escapeData(noLegacy(r.exceptions.file))}); the report lists them.`,
+    );
   const tail = [
     ...(more > 0
       ? [
           `${more} more in the report: GitHub keeps ${ANNOTATIONS} annotations of each kind per step.`,
         ]
       : []),
-    `plune mcp scan: ${plural(r.counts.total, 'finding', 'findings')}, ${r.notEvaluated.length} not evaluated; exit ${r.exitCode}. ${exitLine(r)}`,
+    `plune mcp scan: ${plural(r.counts.total, 'finding', 'findings')}, ${r.counts.suppressed} suppressed, ${r.notEvaluated.length} not evaluated; exit ${r.exitCode}. ${exitLine(r)}`,
     DISCLAIMER,
   ];
   return `${[...lines, ...tail.map(noCommands)].join('\n')}\n`;
@@ -282,7 +287,10 @@ function sarif(r: ScanReport, rules: readonly SarifRule[], version: string): str
     locations: [
       {
         physicalLocation: {
-          artifactLocation: { uri: f.location!.file.replace(/\\/g, '/'), uriBaseId: '%SRCROOT%' },
+          artifactLocation: {
+            uri: f.location!.file.replace(/\\/g, '/').split('/').map(encodeURIComponent).join('/'),
+            uriBaseId: '%SRCROOT%',
+          },
           region: {
             startLine: f.location!.line,
             ...(f.location!.column === undefined ? {} : { startColumn: f.location!.column }),

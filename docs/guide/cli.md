@@ -1126,17 +1126,17 @@ plune mcp scan --format sarif --out sarif=scan.sarif --snapshot notes.snapshot.j
 
 | Flag | Meaning |
 | --- | --- |
-| `--snapshot [label=]file` | A snapshot file; repeatable. The label names the server (the cross-server rules need two). |
+| `--snapshot [label=]file` | A snapshot file; repeatable. The label names the server (the cross-server rules need two). Two snapshots with the same label are a usage error: name them apart as `label=file`. |
 | `--config <file>`, `--client claude-code\|cursor\|vscode` | A client configuration file to read. `--client` alone reads the project file of that client in this folder: `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`. A command in it is read, never run. |
 | `--pin-file <file>` | The lock file of `plune mcp pin`; each snapshot is compared with it. |
-| `--only`, `--skip` | Groups: `descriptions`, `pins`, `config`, `cross`, `active`. |
+| `--only`, `--skip` | Groups: `descriptions`, `pins`, `config`, `cross`, `active`. Leaving every group out is a usage error. |
 | `--fail-on error\|warn\|never` | The level at which a finding that gates exits `1` (default `error`). |
 | `--gate-heuristics` | Let heuristic findings (advice by construction) change the exit code. |
 | `--allow-partial` | Exit `0` when part of what was asked ran; the report says so. Never when nothing ran. |
-| `--allow-host`, `--allow-package` | The lists `scan/cfg/foreign-host` and `scan/cfg/package-not-allowed` need; without them those rules are reported as not evaluated. |
-| `--ignore-file <path>` | Exceptions (default `plune-mcp-scan-ignore.yaml`). Every entry has `rule`, `scope`, `reason` and `expires` (at most 180 days; `--allow-long-exceptions` lifts that). |
+| `--allow-host`, `--allow-package` | The lists `scan/cfg/foreign-host` and `scan/cfg/package-not-allowed` need. Without them those two rules are listed as not evaluated, and the exit code does not change because of that. |
+| `--ignore-file <path>` | Exceptions (default `plune-mcp-scan-ignore.yaml` in this folder, read without a flag: protect it with code owners, as any file that switches a check off). Every entry has `rule`, `scope`, `reason` and `expires` (at most 180 days; `--allow-long-exceptions` lifts that). |
 | `--active` | Active probes are not part of this version: the group is reported as not evaluated and the exit code is `3`. |
-| `--format human\|json\|github\|sarif`, `--reporter junit-xml`, `--out [format=]path` | The report. Every format carries the same summary: what was checked, what was not and why, what was suppressed, how many findings do not change the exit code, and the statement that no finding is not proof of safety. |
+| `--format human\|json\|github\|sarif`, `--reporter junit-xml`, `--out [format=]path` | The report. Every format says what was checked, what was not and why, how many findings do not change the exit code, and that no finding is not proof of safety. Findings hidden by exceptions are listed in `human`, `json`, `sarif` (as `suppressions`) and `junit-xml`; `github` counts them in its summary line and in one `::notice`. Paths in a report are relative to the folder, or the file name alone for a file outside it. |
 
 An exception file:
 
@@ -1148,27 +1148,35 @@ ignore:
     expires: 2027-01-31
 ```
 
-An expired exception stops hiding its finding and is a finding itself (`scan/exception/expired`); one that matched
-nothing is `scan/exception/unused` (info). An exception never hides a `3`.
+An exception hides every finding of that rule on that server, or only those at or under `path` when `path` is given.
+An expired exception stops hiding its findings and is a finding itself (`scan/exception/expired`); one that matched
+nothing is `scan/exception/unused` (info). An exception never hides a `3`. The `reason` is printed as written (a
+token of a known format is masked, any other text is not), so do not put a secret in it. A key other than `ignore:`
+and an empty `path` are errors.
 
 | Exit | Meaning |
 | --- | --- |
 | `0` | No finding that gates at `--fail-on`. |
 | `1` | At least one finding that gates, at the level of `--fail-on`. Wins over `3`. |
-| `2` | Usage: nothing to scan, a bad flag, an unreadable or malformed file, an exception without `reason` or `expires`. |
-| `3` | Something asked for could not be measured: an empty snapshot, a configuration file with no servers or that cannot be parsed, a live server that could not be read, `--active`. |
+| `2` | Usage: nothing to scan or every group left out, a bad flag, a file that does not exist, a malformed snapshot, pin file or exceptions file (also an exception without `reason` or `expires`, or an exceptions file over 8 MiB), two snapshots with one label. |
+| `3` | Something asked for could not be measured: an empty snapshot, a snapshot or pin file over 8 MiB, a client configuration file that cannot be parsed or holds no servers, a config scan cut at its cap of findings, a description over 1 MB (only its first 1 MB is scanned), a live server that could not be read, `--active`. |
 
 Only deterministic findings of a rule marked as gating change the exit code. Heuristics (`override-instruction`, ...)
 are advice and print as `note` in SARIF.
 
-GitHub Actions:
+GitHub Actions (replace `X.Y.Z` with the version of `@plune-ai/cli` you have tested):
 
 ```yaml
-- run: npx @plune-ai/cli mcp snapshot --out current.json -- node dist/server.js
-- run: npx @plune-ai/cli mcp scan --snapshot current.json --client claude-code --pin-file plune-mcp.lock.json --format github --out sarif=scan.sarif
-- uses: github/codeql-action/upload-sarif@v3
-  if: always()
-  with: { sarif_file: scan.sarif }
+permissions:
+  contents: read
+  security-events: write
+steps:
+  - uses: actions/checkout@v4
+  - run: npx @plune-ai/cli@X.Y.Z mcp snapshot --out current.json -- node dist/server.js
+  - run: npx @plune-ai/cli@X.Y.Z mcp scan --snapshot current.json --client claude-code --pin-file plune-mcp.lock.json --format github --out sarif=scan.sarif
+  - uses: github/codeql-action/upload-sarif@v3
+    if: always()
+    with: { sarif_file: scan.sarif }
 ```
 
 The SARIF file carries a place (file, line) for every result; a finding with no place in a file is counted in the

@@ -6,6 +6,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import { CONFIG_RULES } from '../scan/config/config.js';
 import { handleMcpScan, type McpScanFlags } from '../../cli/commands/mcp-scan.js';
 import { emptyLock, pinServer, serializeLock } from '../pin/pin.js';
 import { DISCLAIMER } from '../scan/report.js';
@@ -257,7 +258,10 @@ describe('CLI · mcp scan · exit codes · input that is not a pass', () => {
   it('--only and --skip choose the groups; a group asked for with nothing to read is 3', async () => {
     const dir = tmp();
     const s = putSnap(dir, 's.json', snap([{ name: 'add', description: `x${tags('a')}` }]));
-    expect((await scan(dir, asJson({ snapshot: [s], skip: ['descriptions'] }))).code).toBe(0);
+    // every group skipped: nothing was scanned, which is a usage error and never a pass
+    const none = await scan(dir, asJson({ snapshot: [s], skip: ['descriptions'] }));
+    expect(none.code).toBe(2);
+    expect(none.err).toContain('nothing was scanned');
     expect((await scan(dir, asJson({ snapshot: [s], only: ['descriptions'] }))).code).toBe(1);
     expect((await scan(dir, asJson({ snapshot: [s], only: ['cross'] }))).code).toBe(3);
   });
@@ -795,5 +799,189 @@ describe('CLI · mcp scan · static: no process, no connection, no request', () 
     );
     expect([0, 1]).toContain(r.code);
     expect([io.spawn, io.connect, io.fetch].map((f) => f.mock.calls.length)).toEqual([0, 0, 0]);
+  });
+});
+
+// ---- review round: what must never read as clean ----------------------------------------------------------------------------
+
+describe('CLI · mcp scan · exit codes · a scan that was cut short is not a pass', () => {
+  it('a config with more findings than the cap, and a literal token after them, is 3 (or 1), never 0', async () => {
+    const dir = tmp();
+    const servers: Record<string, unknown> = {};
+    for (let i = 0; i < 5100; i++) servers[`s${i}`] = { command: 'bash', args: ['-c', 'echo'] };
+    servers['last'] = { url: 'http://mcp.example.net/v1' };
+    put(dir, '.mcp.json', JSON.stringify({ mcpServers: servers }));
+    const r = await scan(dir, asJson({ config: ['.mcp.json'] }));
+    expect(r.code).not.toBe(0);
+    const row = r
+      .json()
+      ['notEvaluated'].find((n: { reason: string }) => /cap|more findings/.test(n.reason));
+    expect(row).toMatchObject({ group: 'config', kind: 'could-not-run', file: '.mcp.json' });
+  });
+
+  it('a description over 1 MB, with hidden characters after the 1 MB mark, is 3, not 0', async () => {
+    const dir = tmp();
+    const text = 'a'.repeat(1024 * 1024 + 10) + tags('Ignore');
+    putSnap(dir, 'big.json', snap([{ name: 'add', description: text }]));
+    const r = await scan(dir, asJson({ snapshot: ['big.json'] }));
+    expect(r.code).toBe(3);
+    expect(
+      r
+        .json()
+        ['notEvaluated'].find((n: { rule?: string }) => n.rule === 'scan/desc/oversized-text'),
+    ).toMatchObject({ group: 'descriptions', kind: 'could-not-run' });
+  });
+
+  it('a file over the size limit is a row (snapshot, pin) or exit 2 (exceptions), and is not read as an empty one', async () => {
+    const dir = tmp();
+    put(dir, 'big.json', 'x'.repeat(8 * 1024 * 1024 + 1));
+    putSnap(dir, 'ok.json', snap(CLEAN));
+    const snapRun = await scan(dir, asJson({ snapshot: ['big.json', 'ok.json'] }));
+    expect(snapRun.code).toBe(3);
+    expect(snapRun.json()['notEvaluated'][0].reason).toContain('too large');
+    const pinRun = await scan(dir, asJson({ snapshot: ['ok.json'], pinFile: 'big.json' }));
+    expect(pinRun.code).toBe(3);
+    expect(pinRun.json()['notEvaluated'].some((n: { group: string }) => n.group === 'pins')).toBe(
+      true,
+    );
+    const exRun = await scan(dir, asJson({ snapshot: ['ok.json'], ignoreFile: 'big.json' }));
+    expect(exRun.code).toBe(2);
+  });
+
+  it('foreign-host and package-not-allowed do not gate: a missing list leaves the exit code alone only because of that', () => {
+    // If either rule ever gates, "no list given" (a row of kind missing-input, exit 0) would pass a gating rule.
+    expect(CONFIG_RULES['scan/cfg/foreign-host'].gating).not.toBe('yes');
+    expect(CONFIG_RULES['scan/cfg/package-not-allowed'].gating).not.toBe('yes');
+  });
+});
+
+describe('CLI · mcp scan · usage · labels and exceptions files', () => {
+  it('two snapshots with the same label are exit 2 that names both files and suggests label=file', async () => {
+    const dir = tmp();
+    putSnap(dir, 'a.json', snap(CLEAN));
+    putSnap(dir, 'sub/a.json', snap(CLEAN));
+    putSnap(dir, 'b.json', snap([{ name: 'other', description: 'Other.' }]));
+    const r = await scan(dir, asJson({ snapshot: ['a.json', 'b.json', 'sub/a.json'] }));
+    expect(r.code).toBe(2);
+    expect(r.err).toContain('a.json');
+    expect(r.err).toContain('sub/a.json');
+    expect(r.err).toContain('label=file');
+    expect(
+      (await scan(dir, asJson({ snapshot: ['x=a.json', 'y=sub/a.json', 'b.json'] }))).code,
+    ).toBe(0);
+  });
+
+  it('an exceptions entry with an empty path, and an unknown top-level key, are exit 2', async () => {
+    const dir = tmp();
+    putSnap(dir, 'hidden.json', snap([{ name: 'add', description: `x${tags('a')}` }]));
+    const entry = (path: string) =>
+      `ignore:\n  - rule: scan/desc/tag-character\n    scope: { server: hidden, path: ${path} }\n    reason: r\n    expires: 2026-12-31\n`;
+    put(dir, 'e1.yaml', entry('""'));
+    const flags = (f: string) => asJson({ snapshot: ['hidden.json'], ignoreFile: f });
+    expect((await scan(dir, flags('e1.yaml'))).code).toBe(2);
+    put(dir, 'e2.yaml', entry('/tools/0').replace('ignore:', 'ignroe:'));
+    const typo = await scan(dir, flags('e2.yaml'));
+    expect(typo.code).toBe(2);
+    expect(typo.err).toContain('ignroe');
+    put(dir, 'e3.yaml', entry('/tools/0'));
+    expect((await scan(dir, flags('e3.yaml'))).code).toBe(0);
+  });
+});
+
+describe('CLI · mcp scan · reports · github keeps a trace of what exceptions hid', () => {
+  it('the summary counts the suppressed findings and one ::notice says how many', async () => {
+    const dir = tmp();
+    putSnap(dir, 'hidden.json', snap([{ name: 'add', description: `x${tags('a')}` }]));
+    put(
+      dir,
+      'ex.yaml',
+      'ignore:\n  - rule: scan/desc/tag-character\n    scope: hidden\n    reason: r\n    expires: 2026-12-31\n',
+    );
+    const r = await scan(dir, {
+      snapshot: ['hidden.json'],
+      ignoreFile: 'ex.yaml',
+      format: 'github',
+    });
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(/plune mcp scan: .*1 suppressed/);
+    expect(r.out).toMatch(/^::notice title=[^\n]*::1 finding hidden by exceptions/m);
+    const plain = await scan(dir, { snapshot: ['hidden.json'], format: 'github' });
+    expect(plain.out).not.toContain('hidden by exceptions');
+  });
+});
+
+describe('CLI · mcp scan · reports · SARIF uri is relative, or the file name, never an absolute path', () => {
+  it('inside the folder: relative, percent-encoded; outside: the base name only', async () => {
+    const dir = tmp();
+    const other = tmp();
+    const abs = join(dir, 'sub dir', 'a#b%c.json');
+    putSnap(dir, 'sub dir/a#b%c.json', snap([{ name: 'add', description: `x${tags('a')}` }]));
+    putSnap(other, 'away.json', snap([{ name: 'add2', description: `x${tags('a')}` }]));
+    type Res = { locations: { physicalLocation: { artifactLocation: { uri: string } } }[] };
+    const uris = async (spec: string[]) =>
+      (await scan(dir, { snapshot: spec, format: 'sarif' }))
+        .json()
+        ['runs'][0].results.map((x: Res) => x.locations[0]!.physicalLocation.artifactLocation.uri);
+    expect(await uris([abs])).toEqual(['sub%20dir/a%23b%25c.json']);
+    expect(await uris([join(other, 'away.json')])).toEqual(['away.json']);
+    for (const f of ['human', 'json', 'github'] as const) {
+      const out = (await scan(dir, { snapshot: [join(other, 'away.json')], format: f })).out;
+      expect(out, f).not.toContain(other);
+    }
+  });
+});
+
+describe('CLI · mcp scan · reports · no secret in the files of --out, in a label, in a scope', () => {
+  const win = (out: string, text: string, size = 8) => {
+    for (let i = 0; i + size <= text.length; i++)
+      if (out.includes(text.slice(i, i + size))) return true;
+    return false;
+  };
+  it('--out json= sarif= and junit, and a token as a label and as a scope, are clean', async () => {
+    const dir = tmp();
+    putSnap(dir, 'hidden.json', snap([{ name: 'add', description: `x${tags('a')}` }]));
+    put(
+      dir,
+      'ex.yaml',
+      `ignore:\n  - rule: scan/desc/tag-character\n    scope: ${TOKEN}\n    reason: Known test server.\n    expires: 2026-12-31\n`,
+    );
+    const r = await scan(dir, {
+      snapshot: [`${TOKEN}=hidden.json`],
+      ignoreFile: 'ex.yaml',
+      format: 'human',
+      out: ['json=o.json', 'sarif=o.sarif', 'o.xml'],
+      reporter: 'junit-xml',
+    });
+    const files = ['o.json', 'o.sarif', 'o.xml'].map((f) => readFileSync(join(dir, f), 'utf8'));
+    expect(win(r.out + r.err + files.join('\n'), TOKEN)).toBe(false);
+  });
+
+  it("a reason is printed as written: it is the author's text, so it must not hold a secret", async () => {
+    const dir = tmp();
+    putSnap(dir, 'hidden.json', snap([{ name: 'add', description: `x${tags('a')}` }]));
+    put(
+      dir,
+      'ex.yaml',
+      'ignore:\n  - rule: scan/desc/tag-character\n    scope: hidden\n    reason: Known test server.\n    expires: 2026-12-31\n',
+    );
+    const r = await scan(dir, { snapshot: ['hidden.json'], ignoreFile: 'ex.yaml', format: 'json' });
+    expect(r.json()['findings'][0].suppressed.reason).toBe('Known test server.');
+  });
+
+  it('a token of a known format written in a reason is masked; any other text is printed as written', async () => {
+    const dir = tmp();
+    putSnap(dir, 'hidden.json', snap([{ name: 'add', description: `x${tags('a')}` }]));
+    put(
+      dir,
+      'ex.yaml',
+      `ignore:
+  - rule: scan/desc/tag-character
+    scope: hidden
+    reason: ${TOKEN}
+    expires: 2026-12-31
+`,
+    );
+    const r = await scan(dir, { snapshot: ['hidden.json'], ignoreFile: 'ex.yaml', format: 'json' });
+    expect(r.out.includes(TOKEN)).toBe(false);
   });
 });
