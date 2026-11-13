@@ -198,18 +198,27 @@ export const STDERR_LINE_LIMIT = 64 * 1024;
  * cut at STDERR_LINE_LIMIT as it is read, so a child that writes without a newline cannot make the scan hold what it
  * wrote. Resolves when the stream ends or closes.
  */
-export function readLines(stream: Readable, onLine: (line: string) => void): Promise<void> {
+export function readLines(
+  stream: Readable,
+  onLine: (line: string) => void,
+  /** Test hook: `high` is the longest text held at once before a cut. */
+  stats?: { high: number },
+): Promise<void> {
   const decoder = new StringDecoder('utf8');
   let partial = '';
   const feed = (text: string) => {
     let from = 0;
     for (let nl = text.indexOf('\n', from); nl >= 0; nl = text.indexOf('\n', from)) {
-      const line = (partial + text.slice(from, nl)).slice(0, STDERR_LINE_LIMIT);
+      const whole = partial + text.slice(from, nl);
+      if (stats !== undefined && whole.length > stats.high) stats.high = whole.length;
+      const line = whole.slice(0, STDERR_LINE_LIMIT);
       partial = '';
       onLine(line.endsWith('\r') ? line.slice(0, -1) : line);
       from = nl + 1;
     }
-    partial = (partial + text.slice(from)).slice(0, STDERR_LINE_LIMIT);
+    const rest = partial + text.slice(from);
+    if (stats !== undefined && rest.length > stats.high) stats.high = rest.length;
+    partial = rest.slice(0, STDERR_LINE_LIMIT);
   };
   return new Promise((resolve) => {
     let done = false;

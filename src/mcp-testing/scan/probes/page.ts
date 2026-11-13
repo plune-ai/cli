@@ -130,6 +130,30 @@ export function enclosed(text: string, at: number): boolean {
   return up.some((l) => says(l, 'begin')) && down.some((l) => says(l, 'end'));
 }
 
+/** Past this many characters, `structuredContent` is not serialised: it counts as over the read. */
+const MAX_STRUCTURED_SIZE = 1024 * 1024;
+
+/** Whether the strings and keys of a value add up to more than `limit`; stops at the limit, never serialises. */
+function exceeds(value: unknown, limit: number): boolean {
+  let size = 0;
+  const stack: unknown[] = [value];
+  const seen = new Set<unknown>();
+  while (stack.length > 0) {
+    const v = stack.pop();
+    if (typeof v === 'string') size += v.length;
+    else if (typeof v === 'object' && v !== null) {
+      if (seen.has(v)) continue;
+      seen.add(v);
+      for (const [k, x] of Object.entries(v)) {
+        size += k.length;
+        stack.push(x);
+      }
+    } else size += 8;
+    if (size > limit) return true;
+  }
+  return false;
+}
+
 export type Verdict = 'verbatim' | 'bounded' | 'absent' | 'too-large' | 'no-text';
 
 /**
@@ -159,16 +183,21 @@ export function markerVerdict(result: unknown, marker: string): Verdict {
       )
         items.push({ text: c.resource.text, annotated });
     }
+  let hugeStructured = false;
   if (r.structuredContent !== undefined && r.structuredContent !== null) {
-    let json: string | undefined;
-    try {
-      json = JSON.stringify(r.structuredContent);
-    } catch {
-      json = undefined;
+    // A cheap walk first: past this size it is not serialised at all, and counts as over the read.
+    if (exceeds(r.structuredContent, MAX_STRUCTURED_SIZE)) hugeStructured = true;
+    else {
+      let json: string | undefined;
+      try {
+        json = JSON.stringify(r.structuredContent);
+      } catch {
+        json = undefined;
+      }
+      if (json !== undefined) items.push({ text: json, annotated: false });
     }
-    if (json !== undefined) items.push({ text: json, annotated: false });
   }
-  if (items.length === 0) return 'no-text';
+  if (items.length === 0) return hugeStructured ? 'too-large' : 'no-text';
   let budget = MAX_ANSWER_TEXT;
   let total = 0;
   for (const item of items) {
@@ -178,5 +207,5 @@ export function markerVerdict(result: unknown, marker: string): Verdict {
     const at = read.indexOf(marker);
     if (at >= 0) return item.annotated || enclosed(read, at) ? 'bounded' : 'verbatim';
   }
-  return total > MAX_ANSWER_TEXT ? 'too-large' : 'absent';
+  return total > MAX_ANSWER_TEXT || hugeStructured ? 'too-large' : 'absent';
 }

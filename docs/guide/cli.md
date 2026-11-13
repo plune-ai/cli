@@ -1286,7 +1286,7 @@ that are safe to run on a test account. The scan starts a listener on `127.0.0.1
 (with small limits on connections and timeouts), serves one harmless line to any request (`PLUNE-CANARY-` and 16 random hex
 digits, new for each run), calls the tool with the address of that page in the argument you named (the name is never
 guessed from the schema), and reads the text of the answer, up to 64 KiB in all: `content[].text`, `content[].resource.text`
-and `structuredContent` as JSON. The listener is closed when the run ends, on every way out.
+and `structuredContent` as JSON (not serialised at all past 1 MiB: then the answer counts as over the read). With several copies of the marker in an answer, only the first is judged. The listener is closed when the run ends, on every way out.
 
 The row says which case it was: the marker came back verbatim; came back inside a boundary; did not come back in the text
 that was read; the answer was over the 64 KiB read (not judged); the answer had no text (not judged); or the tool did not

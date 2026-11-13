@@ -16,7 +16,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { handleMcpScan, type McpScanFlags } from '../../cli/commands/mcp-scan.js';
 import { ProbeGuard, canonical, type Frame, type Reply } from '../scan/probes/guard.js';
@@ -2616,6 +2616,18 @@ describe('CLI · mcp scan probes · the verdict on the page marker: bounded cost
     ).toBe('bounded');
   });
 
+  it('a structuredContent over 1 MiB is not serialised: it counts as over the read', async () => {
+    const { markerVerdict } = await import('../scan/probes/page.js');
+    const spy = vi.spyOn(JSON, 'stringify');
+    try {
+      const huge = { page: 'x'.repeat(2 * 1024 * 1024), more: MARKER };
+      expect(markerVerdict({ content: [], structuredContent: huge }, MARKER)).toBe('too-large');
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('the marker is looked for in content text, in an embedded resource text and in structuredContent', async () => {
     const { markerVerdict } = await import('../scan/probes/page.js');
     expect(
@@ -2694,7 +2706,8 @@ describe(
       const { PassThrough } = await import('node:stream');
       const stream = new PassThrough();
       const lines: string[] = [];
-      const done = readLines(stream, (l) => lines.push(l));
+      const stats = { high: 0 };
+      const done = readLines(stream, (l) => lines.push(l), stats);
       const chunk = Buffer.alloc(1024 * 1024, 'x');
       for (let i = 0; i < 50; i++)
         if (!stream.write(chunk)) await new Promise((r) => stream.once('drain', r));
@@ -2703,15 +2716,15 @@ describe(
       await done;
       expect(lines).toHaveLength(3);
       expect(lines[0]!.length).toBeLessThanOrEqual(STDERR_LINE_LIMIT);
+      // The most it ever held at once: the cap plus one chunk (1 MiB here), not the 50 MiB written.
+      expect(stats.high).toBeLessThanOrEqual(STDERR_LINE_LIMIT + chunk.length);
       expect(lines.slice(1)).toEqual(['second', 'third']);
     });
 
-    it('a child that writes 50 MiB to stderr with no newline: the run ends with its normal result and the session kept little', async () => {
+    it('a child that writes 50 MiB to stderr with no newline: the run ends with its normal result and the child is stopped', async () => {
       const { s, run } = stdioRun('stderr-flood', leaky);
-      const before = process.memoryUsage().rss;
       const section = await run();
       expect(section.rows[0]!.outcome).toBe('as-expected');
-      expect(process.memoryUsage().rss - before).toBeLessThan(120 * 1024 * 1024);
       expect(alive(s.pid())).toBe(false);
     });
 
