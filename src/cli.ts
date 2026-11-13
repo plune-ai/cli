@@ -846,6 +846,10 @@ export function createProgram(): Command {
       ),
   )
     .option('--out <path>', 'Write the snapshot to this file, whole or not at all (default: stdout)')
+    .option('--push', 'Send the snapshot to the platform (nothing is sent without this flag); needs --server or --server-name')
+    .option('--server <id>', "--push: the id of the platform's MCP server")
+    .option('--server-name <name>', "--push: the platform's MCP server by name; added on the first push")
+    .option('--environment <text>', '--push: where the server was running (ci, staging); kept with the snapshot, not part of the contract')
     .action(async (server: string[], options: McpSnapshotFlags, command: Command) => {
       const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
       const { handleMcpSnapshot } = await import('./cli/commands/mcp-snapshot.js');

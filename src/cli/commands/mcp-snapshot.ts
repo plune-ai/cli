@@ -18,6 +18,14 @@ import { listAll as listToEnd, MAX_PAGES } from '../../mcp-testing/connect/tools
 import { MCP_EXIT } from '../../mcp-testing/exit-codes.js';
 import { noCommands, noCommandsJson } from '../../mcp-testing/report/human.js';
 import {
+  checkPushFlags,
+  describePush,
+  pushSnapshot,
+  pushToken,
+  SnapshotPushError,
+  type PushDeps,
+} from './mcp-snapshot-push.js';
+import {
   buildSnapshot,
   entityCount,
   nestedDeeperThan,
@@ -30,6 +38,14 @@ import {
 
 export interface McpSnapshotFlags extends ConnectionFlags {
   out?: string;
+  /** Send the snapshot to the platform's MCP catalog (nothing is sent without it). */
+  push?: boolean;
+  /** `--push`: the id of a server the platform has. */
+  server?: string;
+  /** `--push`: the server's name; found among the project's servers, or created. */
+  serverName?: string;
+  /** `--push`: where the server was running. */
+  environment?: string;
 }
 
 export interface SnapshotIo {
@@ -40,7 +56,12 @@ export interface SnapshotIo {
   /** Where a relative --out is written. */
   cwd: string;
   clientVersion?: string;
+  /** Test seam for `--push`: the platform address, token, transport. */
+  push?: PushDeps;
 }
+
+/** Where an unsent snapshot is kept when the platform cannot be reached and no --out was given. */
+const KEPT_FILE = 'mcp-snapshot.unsent.json';
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -58,6 +79,10 @@ export async function handleMcpSnapshot(
     err: (text) => raw.err(noCommands(text)),
   };
   try {
+    const flagProblem = checkPushFlags(flags);
+    if (flagProblem !== undefined) throw new UsageError(flagProblem);
+    // Asked before the server is connected to: a logged-out `--push` should not wait for a handshake to be told so.
+    const token = flags.push === true ? pushToken(io.push ?? {}) : undefined;
     const config = connectionConfig(flags, server, io.env);
     if (io.clientVersion !== undefined) config.clientVersion = io.clientVersion;
     const snapshot = await takeSnapshot(config);
@@ -68,13 +93,40 @@ export async function handleMcpSnapshot(
       return MCP_EXIT.unmeasured;
     }
     const text = serializeSnapshot(snapshot);
-    if (flags.out === undefined) io.out(text);
-    else {
+    // With --push the snapshot goes to the platform and stdout carries the answer, so a file is written only if asked for.
+    if (flags.out !== undefined) {
       writeAtomically(resolve(io.cwd, flags.out), text, flags.out);
       io.err(`Wrote ${flags.out}: ${counts(snapshot)}.\n`);
+    } else if (token === undefined) io.out(text);
+    if (token === undefined) return MCP_EXIT.ok;
+    try {
+      const pushed = await pushSnapshot(
+        snapshot,
+        {
+          ...(flags.server !== undefined ? { serverId: flags.server.trim() } : {}),
+          ...(flags.serverName !== undefined ? { serverName: flags.serverName } : {}),
+          ...(flags.environment !== undefined ? { environment: flags.environment } : {}),
+        },
+        token,
+        io.push ?? {},
+      );
+      raw.out(noCommands(describePush(pushed)));
+      return MCP_EXIT.ok;
+    } catch (err) {
+      if (!(err instanceof SnapshotPushError)) throw err;
+      io.err(`plune mcp snapshot: ${err.message}\n`);
+      if (err.kind !== 'unavailable') return MCP_EXIT.usage;
+      // The platform could not be reached: the snapshot is not lost. Exit 1, as `plune run import` does.
+      const kept = flags.out ?? KEPT_FILE;
+      if (flags.out === undefined) writeAtomically(resolve(io.cwd, kept), text, kept, '--push');
+      io.err(`The snapshot is kept in ${kept}.\n`);
+      return 1;
     }
-    return MCP_EXIT.ok;
   } catch (err) {
+    if (err instanceof SnapshotPushError) {
+      io.err(`plune mcp snapshot: ${err.message}\n`);
+      return MCP_EXIT.usage;
+    }
     return reportFailure('snapshot', err, io);
   }
 }
