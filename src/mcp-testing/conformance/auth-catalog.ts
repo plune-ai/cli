@@ -279,7 +279,7 @@ export const OAUTH_CATALOG: readonly CatalogEntry[] = [
     id: 'oauth-token-format',
     title: 'The token response has access_token and token_type Bearer',
     description:
-      'The answer of the token endpoint (client-credentials, from --config) is a JSON object with access_token and token_type Bearer (the value is case insensitive). An absent expires_in is said in the result but does not fail the check: RFC 6749 only recommends it.',
+      'The answer of the token endpoint (client-credentials, from --config) is a JSON object with access_token and token_type Bearer (the value is case insensitive). An absent expires_in is said in the result but does not fail the check: RFC 6749 only recommends it. A token_type other than Bearer (for example DPoP) fails the check: the text of MCP has the token sent as Authorization: Bearer.',
     level: 'MUST',
     derived: true,
     derivation:

@@ -10,6 +10,7 @@
  * of secrets before anything is written.
  */
 
+import { randomBytes } from 'node:crypto';
 import { ConnectError } from '../../connect/session.js';
 import type { CheckOutcome } from '../outcome.js';
 import type { Exchange } from '../raw-http.js';
@@ -17,6 +18,8 @@ import {
   asMetadata,
   blockedNote,
   allowed,
+  collectIssued,
+  isLoopbackUrl,
   credentialRefusal,
   inconclusive,
   isHttpUrl,
@@ -37,6 +40,9 @@ import type { ConformanceCheck } from './index.js';
 import { failed, isObject, passed } from './wire.js';
 
 const DEFAULT_REDIRECT = 'http://127.0.0.1:8765/callback';
+const CLIENT_NAME = 'plune-conformance-test';
+/** Said whenever a registration may have made a client that the report cannot name. */
+const MAY_REMAIN = 'A client may have been created and could not be named.';
 /** A redirect over http to a name that is not loopback: the fault of the negative probe. */
 const HTTP_REDIRECT = 'http://plune-conformance.invalid/callback';
 
@@ -63,14 +69,38 @@ const isReg = (
 
 type Authorize =
   | { kind: 'accepted'; status: number; detail: Exchange }
-  | { kind: 'errored'; status: number; error: string | undefined; detail: Exchange }
+  /** The server refused the client itself: invalid_client, unauthorized_client, or an invalid_request that names it. */
+  | { kind: 'refused'; status: number; error: string; detail: Exchange }
+  /** An answer that says nothing certain of the client (403 with no code, access_denied, server_error...). */
+  | { kind: 'unclear'; status: number; error: string | undefined; detail: Exchange }
+  /** A page, or a redirect that is not to the redirect URI: a sign-in cannot be told from an error. */
   | { kind: 'page'; status: number; detail: Exchange }
   | { kind: 'transient'; status: number; detail: Exchange };
 
+/** What the client of a server's authorization endpoint is told that names the client as the fault. */
+const CLIENT_REFUSED = new Set(['invalid_client', 'unauthorized_client']);
+const NAMES_CLIENT = /client_id|client id|client metadata|metadata|unknown client|invalid client/i;
+
+function judged(
+  status: number,
+  error: string | null | undefined,
+  description: string | null | undefined,
+  detail: Exchange,
+): Authorize {
+  if (error === null || error === undefined)
+    return { kind: 'unclear', status, error: undefined, detail };
+  const refused =
+    CLIENT_REFUSED.has(error) ||
+    (error === 'invalid_request' && NAMES_CLIENT.test(description ?? ''));
+  return refused
+    ? { kind: 'refused', status, error: error.slice(0, 60), detail }
+    : { kind: 'unclear', status, error: error.slice(0, 60), detail };
+}
+
 /**
  * One authorization request with `clientId`, to the endpoint of the metadata. Only the client_id, the redirect URI and
- * a PKCE challenge go: no secret. A redirect is read, never followed. `accepted`: a redirect with no error; `errored`:
- * an error in the redirect or a 4xx; `page`: a 2xx (a sign-in page cannot be told from an error page).
+ * a PKCE challenge go: no secret. A redirect is read, never followed: one to the redirect URI with no error is
+ * `accepted`; one to anywhere else is `page` (a sign-in).
  */
 async function authorize(
   ctx: OauthContext,
@@ -92,38 +122,54 @@ async function authorize(
   });
   const d = detail();
   const { status } = res;
-  if (
-    transient(status) &&
-    !(status >= 300 && status < 400 && res.headers.some(([n]) => n.toLowerCase() === 'location'))
-  )
+  const location = res.headers.find(([n]) => n.toLowerCase() === 'location')?.[1];
+  if (transient(status) && !(status >= 300 && status < 400 && location !== undefined))
     return { kind: 'transient', status, detail: d };
   if (status >= 300 && status < 400) {
-    const location = res.headers.find(([n]) => n.toLowerCase() === 'location')?.[1] ?? '';
     let target: URL;
     try {
-      target = new URL(location, url);
+      target = new URL(location ?? '', url);
     } catch {
-      return { kind: 'errored', status, error: undefined, detail: d };
+      return { kind: 'unclear', status, error: undefined, detail: d };
     }
-    const error =
-      target.searchParams.get('error') ?? new URLSearchParams(target.hash.slice(1)).get('error');
-    return error === null
+    const fragment = new URLSearchParams(target.hash.slice(1));
+    const error = target.searchParams.get('error') ?? fragment.get('error');
+    if (error !== null)
+      return judged(
+        status,
+        error,
+        target.searchParams.get('error_description') ?? fragment.get('error_description'),
+        d,
+      );
+    let expected: URL | undefined;
+    try {
+      expected = new URL(redirectUri);
+    } catch {
+      expected = undefined;
+    }
+    return expected !== undefined &&
+      target.origin === expected.origin &&
+      target.pathname === expected.pathname
       ? { kind: 'accepted', status, detail: d }
-      : { kind: 'errored', status, error, detail: d };
+      : { kind: 'page', status, detail: d };
   }
   if (status >= 200 && status < 300) return { kind: 'page', status, detail: d };
   let error: string | undefined;
+  let description: string | undefined;
   try {
     const doc: unknown = JSON.parse(res.body);
-    if (isObject(doc) && typeof doc['error'] === 'string') error = doc['error'].slice(0, 60);
+    if (isObject(doc)) {
+      if (typeof doc['error'] === 'string') error = doc['error'];
+      if (typeof doc['error_description'] === 'string') description = doc['error_description'];
+    }
   } catch {
     error = undefined;
   }
-  return { kind: 'errored', status, error, detail: d };
+  return judged(status, error, description, d);
 }
 
-/** What the client of a server's authorization endpoint is told that names the client as the fault. */
-const CLIENT_REFUSED = new Set(['invalid_client', 'unauthorized_client']);
+const said = (a: { status: number; error?: string | undefined }): string =>
+  `HTTP ${a.status}${a.error === undefined ? '' : `, ${a.error}`}`;
 
 interface Endpoint {
   meta: Meta;
@@ -167,31 +213,45 @@ const prereg: ConformanceCheck = async (c) => {
   const a = await authorize(ctx, e.endpoint, reg.clientId, ctx.config.redirectUri);
   const details = [a.detail];
   if (a.kind === 'transient') return inconclusive('The authorization endpoint', a.status, details);
-  if (a.kind === 'accepted')
-    return {
-      ...passed(
-        `The client_id was accepted: the authorization endpoint answered HTTP ${a.status} with a redirect that carries no error.`,
-      ),
-      details,
-    };
-  if (a.kind === 'page')
-    return {
-      ...needsInput(
-        `The authorization endpoint answered HTTP ${a.status} with a page: a sign-in cannot be told from an error here, so the client was not judged.`,
-      ),
-      details,
-    };
-  if (a.error !== undefined && CLIENT_REFUSED.has(a.error))
+  if (a.kind === 'refused')
     return {
       ...failed(
-        `The authorization endpoint refused the pre-registered client (${a.error}, HTTP ${a.status}).`,
+        `The authorization endpoint refused the pre-registered client (${said(a)}).`,
         'Accept the client_id that was registered for this client, with its redirect URI.',
       ),
       details,
     };
+  if (a.kind === 'unclear')
+    return {
+      ...prerequisite(
+        `The authorization endpoint answered ${said(a)}, which does not say whether the client is known.`,
+      ),
+      details,
+    };
+  // The client was not refused. That is a pass only if a client that does not exist is refused: else the endpoint
+  // takes everything (every client is sent to a sign-in), and nothing was learned about this one.
+  const made = `plune-conformance-no-such-client-${randomBytes(6).toString('hex')}`;
+  const control = await authorize(ctx, e.endpoint, made, ctx.config.redirectUri);
+  details.push(control.detail);
+  if (control.kind === 'transient')
+    return inconclusive('The authorization endpoint (a made-up client)', control.status, details);
+  if (control.kind === 'refused')
+    return {
+      ...passed(
+        `The client_id was not refused (${a.kind === 'accepted' ? 'a redirect to the redirect URI' : `HTTP ${a.status}, a sign-in`}), while a made-up client was (${said(control)}).`,
+      ),
+      details,
+    };
+  if (control.kind === 'unclear')
+    return {
+      ...prerequisite(
+        `A made-up client_id got ${said(control)}, which is not a refusal of the client: the answer for the real one proves nothing.`,
+      ),
+      details,
+    };
   return {
-    ...prerequisite(
-      `The authorization endpoint answered HTTP ${a.status}${a.error === undefined ? '' : ` (${a.error})`}, which does not say whether the client is known.`,
+    ...needsInput(
+      `The authorization endpoint treats a made-up client_id as it treats the pre-registered one (HTTP ${control.status}, ${control.kind === 'page' ? 'a sign-in' : 'a redirect to the redirect URI'}): it cannot be told whether the client is known.`,
     ),
     details,
   };
@@ -200,23 +260,29 @@ const prereg: ConformanceCheck = async (c) => {
 // ---- dynamic registration ----
 
 interface Removal {
-  clientId: string;
   removed: boolean;
   /** One sentence: what became of the client. */
   note: string;
   details: Exchange[];
 }
 
-/** The client a registration made, deleted when the server gave the means (RFC 7592 section 2.3). */
+/**
+ * The client a registration made, deleted when the server gave the means (RFC 7592 section 2.3). The registration access
+ * token goes only to the origin of the registration endpoint, whatever other origins are allowed. `clientId` is
+ * undefined for a client the server made without naming it.
+ */
 async function remove(
   ctx: OauthContext,
+  endpoint: string,
   made: Record<string, unknown>,
-  clientId: string,
+  clientId: string | undefined,
 ): Promise<Removal> {
   const remains = (why: string, details: Exchange[] = []): Removal => ({
-    clientId,
     removed: false,
-    note: `Client ${clientId} remains on the authorization server: ${why}.`,
+    note:
+      clientId === undefined
+        ? `${MAY_REMAIN} It was not deleted: ${why}.`
+        : `Client ${clientId} remains on the authorization server: ${why}.`,
     details,
   });
   const uri = made['registration_client_uri'];
@@ -226,6 +292,10 @@ async function remove(
       'the server returned no registration_client_uri and registration_access_token to delete it with',
     );
   if (!isHttpUrl(uri)) return remains('its registration_client_uri is not a URL');
+  if (new URL(uri).origin !== new URL(endpoint).origin)
+    return remains(
+      'its registration_client_uri is on another origin than the registration endpoint, so the registration access token was not sent there',
+    );
   const refusal = credentialRefusal(ctx, uri, 'registration access token');
   if (refusal !== undefined) return remains(`it was not deleted (${refusal})`);
   try {
@@ -236,9 +306,11 @@ async function remove(
     const d = [detail()];
     if (res.status === 204 || res.status === 200)
       return {
-        clientId,
         removed: true,
-        note: `Client ${clientId} was removed again (DELETE answered HTTP ${res.status}).`,
+        note:
+          clientId === undefined
+            ? `A client the server did not name was removed again (DELETE answered HTTP ${res.status}).`
+            : `Client ${clientId} was removed again (DELETE answered HTTP ${res.status}).`,
         details: d,
       };
     return remains(
@@ -252,11 +324,17 @@ async function remove(
 }
 
 type Registered =
-  | { kind: 'created'; clientId: string; removal: Removal; detail: Exchange }
+  | { kind: 'created'; clientId: string; status: number; removal: Removal; detail: Exchange }
+  /** A 2xx that names no client_id. The server may have made one: a deletion was tried when it gave the means. */
+  | { kind: 'no-client-id'; status: number; removal: Removal; detail: Exchange }
   | { kind: 'refused'; status: number; error: string | undefined; detail: Exchange }
-  | { kind: 'no-client-id'; status: number; detail: Exchange }
   | { kind: 'needs-credential'; status: number; detail: Exchange }
-  | { kind: 'transient'; status: number; detail: Exchange };
+  /** 429, or 3xx or 5xx after the POST (`maybe`: the write may have happened). */
+  | { kind: 'transient'; status: number; maybe: boolean; detail: Exchange }
+  /** A 2xx whose body is larger than a reader takes: the client_id cannot be read. */
+  | { kind: 'truncated'; status: number; detail: Exchange }
+  /** No answer: a timeout or a lost connection after the POST was sent. */
+  | { kind: 'lost'; why: string; reason: 'timeout' | 'transport-error' };
 
 /** One registration with `redirectUri`; a client it makes is deleted before this returns. */
 async function register(
@@ -265,54 +343,103 @@ async function register(
   redirectUri: string,
 ): Promise<Registered> {
   const body = {
-    client_name: 'plune-conformance',
+    client_name: CLIENT_NAME,
     redirect_uris: [redirectUri],
     grant_types: ['authorization_code'],
     response_types: ['code'],
     token_endpoint_auth_method: 'none',
     application_type: 'native',
   };
-  const { res, detail } = await send(ctx, endpoint, {
-    method: 'POST',
-    headers: [
-      ['Content-Type', 'application/json'],
-      ['Accept', 'application/json'],
-    ],
-    body: JSON.stringify(body),
-  });
+  let sent: Awaited<ReturnType<typeof send>>;
+  try {
+    sent = await send(ctx, endpoint, {
+      method: 'POST',
+      headers: [
+        ['Content-Type', 'application/json'],
+        ['Accept', 'application/json'],
+      ],
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    if (!(err instanceof ConnectError)) throw err;
+    return err.kind === 'timeout'
+      ? { kind: 'lost', why: 'it did not answer in time', reason: 'timeout' }
+      : { kind: 'lost', why: 'the connection failed', reason: 'transport-error' };
+  }
+  const { res, detail } = sent;
   let doc: unknown;
   try {
-    doc = JSON.parse(res.body);
+    doc = res.ended ? JSON.parse(res.body) : undefined;
   } catch {
     doc = undefined;
   }
   const made = isObject(doc) ? doc : {};
   // Before anything is written: what the server issued must not appear in the exchange.
-  for (const k of ['client_secret', 'registration_access_token'])
-    if (typeof made[k] === 'string' && made[k] !== '') ctx.secrets.add(made[k] as string);
+  collectIssued(ctx, doc);
   const d = detail();
   const { status } = res;
-  if (status === 200 || status === 201) {
+  if (status >= 200 && status < 300) {
+    if (!res.ended) return { kind: 'truncated', status, detail: d };
     const id = made['client_id'];
-    if (typeof id !== 'string' || id === '') return { kind: 'no-client-id', status, detail: d };
-    return { kind: 'created', clientId: id, removal: await remove(ctx, made, id), detail: d };
+    if (typeof id === 'string' && id !== '')
+      return {
+        kind: 'created',
+        clientId: id,
+        status,
+        removal: await remove(ctx, endpoint, made, id),
+        detail: d,
+      };
+    return {
+      kind: 'no-client-id',
+      status,
+      removal: await remove(ctx, endpoint, made, undefined),
+      detail: d,
+    };
   }
   if (status === 401 || status === 403) return { kind: 'needs-credential', status, detail: d };
-  if (transient(status)) return { kind: 'transient', status, detail: d };
+  if (transient(status)) return { kind: 'transient', status, maybe: status !== 429, detail: d };
   const error =
     isObject(doc) && typeof doc['error'] === 'string' ? doc['error'].slice(0, 60) : undefined;
   return { kind: 'refused', status, error, detail: d };
 }
 
-const registeredDetails = (r: Registered): Exchange[] => [
-  r.detail,
-  ...(r.kind === 'created' ? r.removal.details : []),
-];
+const registeredDetails = (r: Registered): Exchange[] =>
+  r.kind === 'lost'
+    ? []
+    : [r.detail, ...(r.kind === 'created' || r.kind === 'no-client-id' ? r.removal.details : [])];
+
+/** The sentence a registration leaves behind when a client may exist: removed, named, or not nameable. */
+function trace(r: Registered): string {
+  if (r.kind === 'created' || r.kind === 'no-client-id') return r.removal.note;
+  if (r.kind === 'truncated' || r.kind === 'lost') return MAY_REMAIN;
+  if (r.kind === 'transient' && r.maybe) return MAY_REMAIN;
+  return '';
+}
+
+const withTrace = (o: CheckOutcome, r: Registered, extra = ''): CheckOutcome => {
+  const note = [trace(r), extra].filter((s) => s !== '').join(' ');
+  return note === '' || o.actual === undefined ? o : { ...o, actual: `${o.actual} ${note}` };
+};
+
+/** A loopback redirect URI for the control: that of `--config` when it is one, else the default, and it says so. */
+function controlRedirect(ctx: OauthContext): { uri: string; note: string } {
+  const given = ctx.config.redirectUri;
+  if (given === undefined) return { uri: DEFAULT_REDIRECT, note: '' };
+  if (isHttpUrl(given) && isLoopbackUrl(given)) return { uri: given, note: '' };
+  return {
+    uri: DEFAULT_REDIRECT,
+    note: `The redirectUri of --config is not a loopback URL, so the registration used ${DEFAULT_REDIRECT}.`,
+  };
+}
+
+interface Target {
+  endpoint: string;
+  redirect: string;
+  note: string;
+}
 
 /** Where a dynamic registration may be made, or the outcome of a check that cannot make one. */
-async function registrationEndpoint(
-  ctx: OauthContext,
-): Promise<{ endpoint: string; redirect: string } | CheckOutcome> {
+async function registrationEndpoint(ctx: OauthContext): Promise<Target | CheckOutcome> {
   const p = await needsAuth(ctx);
   if (isOutcome(p)) return p;
   const reg = registrationOf(ctx, 'dcr');
@@ -334,50 +461,59 @@ async function registrationEndpoint(
   const refusal = credentialRefusal(ctx, endpoint, 'registration request');
   if (refusal !== undefined)
     return needsInput(`${refusal} No request was sent to the registration endpoint.`);
-  return { endpoint, redirect: ctx.config.redirectUri ?? DEFAULT_REDIRECT };
+  const { uri, note } = controlRedirect(ctx);
+  return { endpoint, redirect: uri, note };
 }
-const isTarget = (
-  v: { endpoint: string; redirect: string } | CheckOutcome,
-): v is { endpoint: string; redirect: string } => 'endpoint' in v;
+const isTarget = (v: Target | CheckOutcome): v is Target => 'endpoint' in v;
 
 /** The registration that works, once per run: both dcr checks start from it. */
-const control = (
-  ctx: OauthContext,
-  target: { endpoint: string; redirect: string },
-): Promise<Registered> =>
+const control = (ctx: OauthContext, target: Target): Promise<Registered> =>
   ctx.memo('oauth dcr control', () => register(ctx, target.endpoint, target.redirect));
 
-/** The outcome for an answer that is not a created client, or undefined for a created one. */
-function notCreated(r: Registered, what: string): CheckOutcome | undefined {
-  const details = [r.detail];
+/**
+ * The outcome for an answer that is not a created client, with what became of a client that may exist. Undefined for a
+ * created one.
+ */
+function notCreated(r: Registered, what: string, extra = ''): CheckOutcome | undefined {
+  const details = registeredDetails(r);
+  const out = (o: CheckOutcome): CheckOutcome => withTrace({ ...o, details }, r, extra);
   switch (r.kind) {
     case 'created':
       return undefined;
+    case 'lost':
+      return out({
+        state: 'could-not-run',
+        reason: r.reason,
+        actual: `${what} got no answer (${r.why}).`,
+      });
+    case 'truncated':
+      return out({
+        state: 'could-not-run',
+        reason: 'transport-error',
+        actual: `${what} got HTTP ${r.status} with a body larger than this check reads: nothing can be said of the requirement.`,
+      });
     case 'transient':
-      return inconclusive(what, r.status, details);
+      return out(inconclusive(what, r.status, details));
     case 'needs-credential':
-      return {
-        ...needsInput(
+      return out(
+        needsInput(
           `${what} got HTTP ${r.status}: registration needs a credential this run does not have.`,
         ),
-        details,
-      };
+      );
     case 'no-client-id':
-      return {
-        ...failed(
+      return out(
+        failed(
           `${what} got HTTP ${r.status} without a client_id.`,
           'Answer a registration with 201 and the client_id (RFC 7591 section 3.2.1).',
         ),
-        details,
-      };
+      );
     case 'refused':
-      return {
-        ...failed(
+      return out(
+        failed(
           `${what} was refused (HTTP ${r.status}${r.error === undefined ? '' : `, ${r.error}`}).`,
           'Accept a registration with a native application_type and a loopback redirect URI (RFC 7591).',
         ),
-        details,
-      };
+      );
   }
 }
 
@@ -386,11 +522,13 @@ const dcr: ConformanceCheck = async (c) => {
   const t = await registrationEndpoint(ctx);
   if (!isTarget(t)) return t;
   const r = await control(ctx, t);
-  const bad = notCreated(r, 'A registration with a correct body');
+  const bad = notCreated(r, 'A registration with a correct body', t.note);
   if (bad !== undefined) return bad;
   if (r.kind !== 'created') return bad!;
   return {
-    ...passed(`A client was registered (HTTP 201). ${r.removal.note}`),
+    ...passed(
+      `A client was registered (HTTP ${r.status}). ${r.removal.note}${t.note === '' ? '' : ` ${t.note}`}`,
+    ),
     details: registeredDetails(r),
   };
 };
@@ -401,54 +539,56 @@ const dcrHttpRedirectProbe: ConformanceCheck = async (c) => {
   if (!isTarget(t)) return t;
   const ok = await control(ctx, t);
   if (ok.kind !== 'created') {
-    if (ok.kind === 'transient')
-      return inconclusive('The control registration (a loopback redirect)', ok.status, [ok.detail]);
-    if (ok.kind === 'needs-credential')
+    // The control did not make a client the probe could be read against; what it may have left is named all the same.
+    const why = notCreated(ok, 'The control registration (a loopback redirect)', t.note);
+    if (ok.kind === 'refused' || ok.kind === 'no-client-id')
       return {
-        ...needsInput(
-          `The control registration got HTTP ${ok.status}: registration needs a credential this run does not have.`,
+        ...prerequisite(
+          `The control registration with a loopback redirect URI did not make a client: a refusal of the http redirect would prove nothing. ${trace(ok)}`.trim(),
+          registeredDetails(ok),
         ),
-        details: [ok.detail],
       };
-    return {
-      ...prerequisite(
-        'The control registration with a loopback redirect URI did not make a client: a refusal of the http redirect would prove nothing.',
-        [ok.detail],
-      ),
-    };
+    return why!;
   }
   const r = await register(ctx, t.endpoint, HTTP_REDIRECT);
-  const details = [ok.detail, ...ok.removal.details, ...registeredDetails(r)];
+  const details = [...registeredDetails(ok), ...registeredDetails(r)];
+  const extra = t.note;
   if (r.kind === 'created')
-    return {
-      ...failed(
-        `A client with the redirect URI ${HTTP_REDIRECT} was registered (HTTP 201). ${r.removal.note}`,
-        'Refuse a redirect URI that is http and not on localhost (all redirect URIs MUST be localhost or https).',
-      ),
-      details,
-    };
+    return withTrace(
+      {
+        ...failed(
+          `A client with the redirect URI ${HTTP_REDIRECT} was registered (HTTP ${r.status}).`,
+          'Refuse a redirect URI that is http and not on localhost (all redirect URIs MUST be localhost or https).',
+        ),
+        details,
+      },
+      r,
+      extra,
+    );
   if (r.kind === 'refused')
-    return {
-      ...passed(
-        `The redirect URI ${HTTP_REDIRECT} was refused (HTTP ${r.status}${r.error === undefined ? '' : `, ${r.error}`}); the registration with a loopback redirect was accepted.`,
-      ),
-      details,
-    };
-  if (r.kind === 'transient')
-    return inconclusive('The registration with an http redirect', r.status, details);
-  if (r.kind === 'needs-credential')
-    return {
-      ...needsInput(
-        `The registration with an http redirect got HTTP ${r.status}: it needs a credential this run does not have.`,
-      ),
-      details,
-    };
-  return {
-    ...prerequisite(
-      `The registration with an http redirect got HTTP ${r.status} without a client_id.`,
-      details,
-    ),
-  };
+    return withTrace(
+      {
+        ...passed(
+          `The redirect URI ${HTTP_REDIRECT} was refused (HTTP ${r.status}${r.error === undefined ? '' : `, ${r.error}`}); the registration with a loopback redirect was accepted.`,
+        ),
+        details,
+      },
+      r,
+      extra,
+    );
+  if (r.kind === 'no-client-id')
+    return withTrace(
+      {
+        ...prerequisite(
+          `The registration with an http redirect got HTTP ${r.status} without a client_id.`,
+        ),
+        details,
+      },
+      r,
+      extra,
+    );
+  const bad = notCreated(r, 'The registration with an http redirect', extra);
+  return bad === undefined ? prerequisite('unreachable') : { ...bad, details };
 };
 
 /** The probe, and the client its control made when that one could not be removed: it is named whatever the verdict. */
@@ -491,19 +631,26 @@ const cimd: ConformanceCheck = async (c) => {
   if (good.kind === 'page')
     return {
       ...needsInput(
-        `The authorization endpoint answered HTTP ${good.status} with a page: a sign-in cannot be told from an error here.`,
+        `The authorization endpoint answered HTTP ${good.status} with a page or a redirect to a sign-in, and gave no sign that it read the document: it was not judged.`,
       ),
       details: [good.detail],
     };
-  if (good.kind === 'errored')
+  if (good.kind === 'unclear')
+    return {
+      ...prerequisite(
+        `The authorization endpoint answered ${said(good)}, which does not say that the document was refused.`,
+      ),
+      details: [good.detail],
+    };
+  if (good.kind === 'refused')
     return {
       ...failed(
-        `The client_id URL of the document was refused (HTTP ${good.status}${good.error === undefined ? '' : `, ${good.error}`}).`,
+        `The client_id URL of the document was refused (${said(good)}).`,
         'Fetch the document at the client_id URL and accept the client it describes.',
       ),
       details: [good.detail],
     };
-  const seen = `The document was accepted (HTTP ${good.status}, a redirect with no error).`;
+  const seen = `The document was accepted (HTTP ${good.status}, a redirect to the redirect URI with no error).`;
   if (reg.clientIdMetadataMismatchUrl === undefined)
     return {
       ...needsInput(
@@ -527,14 +674,21 @@ const cimd: ConformanceCheck = async (c) => {
   if (bad.kind === 'page')
     return {
       ...needsInput(
-        `${seen} The mismatched document got HTTP ${bad.status} with a page: not judged.`,
+        `${seen} The mismatched document got HTTP ${bad.status} with a page or a redirect to a sign-in, and no sign that it was read: not judged.`,
       ),
       details,
     };
-  if (bad.kind === 'errored')
+  if (bad.kind === 'unclear')
+    return {
+      ...prerequisite(
+        `${seen} The mismatched document got ${said(bad)}, which does not say that the document was refused.`,
+      ),
+      details,
+    };
+  if (bad.kind === 'refused')
     return {
       ...passed(
-        `${seen} The document whose client_id does not match its URL was refused (HTTP ${bad.status}${bad.error === undefined ? '' : `, ${bad.error}`}).`,
+        `${seen} The document whose client_id does not match its URL was refused (${said(bad)}).`,
       ),
       details,
     };

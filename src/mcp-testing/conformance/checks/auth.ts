@@ -73,7 +73,7 @@ const isLoopbackHost = (host: string): boolean => {
   const h = host.toLowerCase();
   return LOOPBACK.has(h) || h.endsWith('.localhost');
 };
-const isLoopbackUrl = (url: string): boolean => {
+export const isLoopbackUrl = (url: string): boolean => {
   try {
     return isLoopbackHost(new URL(url).hostname);
   } catch {
@@ -864,6 +864,40 @@ export type Token =
   | { token: string; doc: Record<string, unknown>; detail: Exchange }
   | { error: string; status: number; doc: unknown; detail: Exchange };
 
+/** A key of an answer of the server whose string value is a secret. */
+const ISSUED_KEY = /secret|token|key|password|assertion|credential/i;
+/** Keys that match it and hold ordinary words or URLs: `Bearer`, `none`, `client_secret_basic`, the token endpoint. */
+const PLAIN_KEYS = new Set([
+  'token_type',
+  'token_endpoint_auth_method',
+  'token_endpoint_auth_methods_supported',
+  'token_endpoint_auth_signing_alg',
+  'token_endpoint',
+]);
+/** A value shorter than this is not searched for: it would mask words. */
+const MIN_ISSUED = 4;
+const MAX_ISSUED_DEPTH = 8;
+
+/**
+ * Puts into the set of secrets every string the server issued in an answer: the value of any key that names a secret,
+ * a token, a key, a password, an assertion or a credential, at any depth, and `registration_client_uri` whole (it
+ * often carries a secret in its path or query). Call it before anything of the answer is written.
+ */
+export function collectIssued(ctx: OauthContext, value: unknown, key = '', depth = 0): void {
+  if (depth > MAX_ISSUED_DEPTH) return;
+  if (typeof value === 'string') {
+    if (
+      value.length >= MIN_ISSUED &&
+      (key === 'registration_client_uri' || (ISSUED_KEY.test(key) && !PLAIN_KEYS.has(key)))
+    )
+      ctx.secrets.add(value);
+    return;
+  }
+  if (Array.isArray(value)) for (const v of value) collectIssued(ctx, v, key, depth + 1);
+  else if (isObject(value))
+    for (const [k, v] of Object.entries(value)) collectIssued(ctx, v, k, depth + 1);
+}
+
 /** `{ access_token }` from a token response, else the error the authorization server gave. */
 export async function requestToken(
   ctx: OauthContext,
@@ -895,9 +929,10 @@ export async function requestToken(
   } catch {
     doc = undefined;
   }
+  // Before anything is written: every secret the server put in the answer, whatever the status.
+  collectIssued(ctx, doc);
   const token = isObject(doc) ? doc['access_token'] : undefined;
   if (res.status === 200 && typeof token === 'string' && token !== '') {
-    ctx.secrets.add(token);
     return { token, doc: doc as Record<string, unknown>, detail: detail() };
   }
   const code = isObject(doc) && typeof doc['error'] === 'string' ? doc['error'] : undefined;

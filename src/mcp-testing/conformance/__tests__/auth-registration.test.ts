@@ -132,7 +132,8 @@ describe('CLI · mcp conformance · oauth registration · a pre-registered clien
     const { report } = await run(s.url, { config: prereg() });
     expect(verdict(report, 'oauth-reg-prereg')).toBe('passed');
     const asked = s.seen.filter((x) => x.path === '/authorize');
-    expect(asked).toHaveLength(1);
+    // The client asked for, and a made-up one as the control.
+    expect(asked).toHaveLength(2);
     expect(asked.every((x) => x.authorization === undefined)).toBe(true);
   });
 
@@ -145,7 +146,7 @@ describe('CLI · mcp conformance · oauth registration · a pre-registered clien
   const cases: [string, AuthOpts, string][] = [
     [
       'a sign-in page cannot be told from an error page',
-      { authorize: 'login' },
+      { authorize: 'login-all' },
       'could-not-run (needs-input)',
     ],
     [
@@ -433,5 +434,241 @@ describe('CLI · mcp conformance · oauth registration · the new keys of --conf
           JSON.stringify({ registration: { method: 'cimd', clientIdMetadataUrl: u } }),
         ),
       ).toThrow(/https URL with a path/);
+  });
+});
+
+const MAY = 'may have been created and could not be named';
+const run1s = (url: string, flags: Partial<McpConformanceFlags> = {}) =>
+  run(url, { timeout: '1s', ...flags });
+
+describe('CLI · mcp conformance · oauth registration · a client that may exist without a trace', () => {
+  it('a POST that gets no answer (the client was made): could-not-run (timeout), and the report says so', async () => {
+    const s = await serve({ as: { registration: true }, dcr: { mode: 'timeout-after-write' } });
+    const { report } = await run1s(s.url, { config: dcr() });
+    expect(verdict(report, 'oauth-reg-dcr')).toBe('could-not-run (timeout)');
+    expect(actual(report, 'oauth-reg-dcr')).toContain(MAY);
+    expect(actual(report, 'oauth-reg-dcr-http-redirect-rejected')).toContain(MAY);
+    expect(s.registered).toHaveLength(1);
+  });
+
+  it('a 502 after the write: could-not-run (transport-error), and the report says so', async () => {
+    const s = await serve({ as: { registration: true }, dcr: { mode: 'bad-gateway-after-write' } });
+    const { report } = await run(s.url, { config: dcr() });
+    expect(verdict(report, 'oauth-reg-dcr')).toBe('could-not-run (transport-error)');
+    expect(actual(report, 'oauth-reg-dcr')).toContain(MAY);
+    expect(s.registered).toHaveLength(1);
+  });
+
+  it('a 201 larger than a reader takes is not failed: could-not-run, and the report says so', async () => {
+    const s = await serve({ as: { registration: true }, dcr: { mode: 'big' } });
+    const { report } = await run(s.url, { config: dcr() });
+    expect(verdict(report, 'oauth-reg-dcr')).toBe('could-not-run (transport-error)');
+    expect(actual(report, 'oauth-reg-dcr')).toContain(MAY);
+  });
+
+  it('a 201 without client_id and without the means to delete: failed, and the report says so', async () => {
+    const s = await serve({ as: { registration: true }, dcr: { mode: 'no-client-id' } });
+    const { report } = await run(s.url, { config: dcr() });
+    expect(verdict(report, 'oauth-reg-dcr')).toBe('failed');
+    expect(actual(report, 'oauth-reg-dcr')).toContain(MAY);
+  });
+
+  it('a 201 without client_id but with the means to delete: the client is deleted all the same', async () => {
+    const s = await serve({ as: { registration: true }, dcr: { mode: 'no-client-id-deletable' } });
+    const { report } = await run(s.url, { config: dcr() });
+    expect(verdict(report, 'oauth-reg-dcr')).toBe('failed');
+    expect(s.deleted).toEqual(s.registered);
+    expect(actual(report, 'oauth-reg-dcr')).toContain('removed');
+    expect(actual(report, 'oauth-reg-dcr')).not.toContain(MAY);
+  });
+
+  it('a 5xx before the write is still said to be possible: the checker cannot know', async () => {
+    const s = await serve({ as: { registration: true }, dcr: { mode: 'error' } });
+    const { report } = await run(s.url, { config: dcr() });
+    expect(actual(report, 'oauth-reg-dcr')).toContain(MAY);
+  });
+
+  it('a 429 made nothing: no such sentence', async () => {
+    const s = await serve({ as: { registration: true }, dcr: { mode: 'rate-limit' } });
+    const { report } = await run(s.url, { config: dcr() });
+    expect(verdict(report, 'oauth-reg-dcr')).toBe('could-not-run (transport-error)');
+    expect(actual(report, 'oauth-reg-dcr')).not.toContain(MAY);
+  });
+});
+
+describe('CLI · mcp conformance · oauth registration · everything the server issued is masked', () => {
+  const secrets = [
+    /rt-9b2e47c1a8d03f65/,
+    /idt-3c7a5e91f2b840d6/,
+    /iat-4d8f21b6a09c7e53/,
+    /qk-6a31f8c2d95b/,
+    REG_TOKEN,
+  ];
+  const noneIn = (texts: string[]) => {
+    const all = texts.join('\n');
+    for (const s of secrets) expect(all).not.toMatch(s);
+  };
+  const outputs = async (s: AuthFixture, config: string, name: string) => {
+    const json = join(dir, `${name}.json`);
+    const xml = join(dir, `${name}.xml`);
+    const r = await run(s.url, { config, out: [`json=${json}`, `junit-xml=${xml}`] });
+    return { ...r, files: [readFileSync(json, 'utf8'), readFileSync(xml, 'utf8')] };
+  };
+
+  for (const [name, opts] of [
+    ['passed', {}],
+    ['failed (token_type missing)', { tokenResponse: 'no-type' }],
+  ] as [string, AuthOpts][])
+    it(`a token response with refresh_token and id_token, ${name}: neither is in any output`, async () => {
+      const s = await serve({ ...opts, tokenExtras: true });
+      const r = await outputs(s, prereg(), `tok-${name.length}`);
+      expect(verdict(r.report, 'oauth-token-format')).toBe(name === 'passed' ? 'passed' : 'failed');
+      noneIn([r.out, r.err, ...r.files]);
+    });
+
+  for (const [name, mode] of [
+    ['passed', 'ok'],
+    ['failed', 'accept-http'],
+  ] as const)
+    it(`a registration with an initial_access_token and a secret in the query of registration_client_uri, ${name}: none is in any output`, async () => {
+      const s = await serve({ as: { registration: true }, dcr: { mode, extras: true } });
+      const r = await outputs(s, dcr(), `reg-${name}`);
+      expect(verdict(r.report, 'oauth-reg-dcr-http-redirect-rejected')).toBe(
+        mode === 'ok' ? 'passed' : 'failed',
+      );
+      noneIn([r.out, r.err, ...r.files]);
+    });
+});
+
+describe('CLI · mcp conformance · oauth registration · the registration access token goes only to the registration origin', () => {
+  it('a registration_client_uri on another allowed origin gets no DELETE; the client is named as left, with the reason', async () => {
+    const other = await serve({});
+    const s = await serve({ as: { registration: true }, dcr: { uriBase: other.origin } });
+    const { report } = await run(s.url, { config: dcr(), allowOrigin: [s.origin, other.origin] });
+    expect(verdict(report, 'oauth-reg-dcr')).toBe('passed');
+    expect(other.seen.filter((x) => x.method === 'DELETE')).toEqual([]);
+    expect(s.deleted).toEqual([]);
+    const said = actual(report, 'oauth-reg-dcr');
+    expect(said).toContain('remains');
+    expect(said).toContain(s.registered[0]);
+    expect(said).toContain('another origin');
+  });
+});
+
+describe('CLI · mcp conformance · oauth registration · what is registered', () => {
+  const bodyOf = (s: AuthFixture, n = 0) =>
+    JSON.parse(
+      s.seen.filter((x) => x.path === '/register' && x.method === 'POST')[n]!.body,
+    ) as Record<string, unknown>;
+
+  it('the client is named plune-conformance-test', async () => {
+    const s = await serve({ as: { registration: true } });
+    await run(s.url, { config: dcr() });
+    expect(bodyOf(s)['client_name']).toBe('plune-conformance-test');
+  });
+
+  it('a redirectUri that is not loopback is not the control: the default loopback one is, and the result says so', async () => {
+    const s = await serve({ as: { registration: true } });
+    const { report } = await run(s.url, {
+      config: dcr(true, { redirectUri: 'https://app.example/cb' }),
+    });
+    expect(bodyOf(s)['redirect_uris']).toEqual(['http://127.0.0.1:8765/callback']);
+    expect(actual(report, 'oauth-reg-dcr-http-redirect-rejected')).toContain('not a loopback');
+    expect(verdict(report, 'oauth-reg-dcr-http-redirect-rejected')).toBe('passed');
+  });
+
+  it('a loopback redirectUri is the control as it is', async () => {
+    const s = await serve({ as: { registration: true } });
+    await run(s.url, { config: dcr(true, { redirectUri: 'http://localhost:9/cb' }) });
+    expect(bodyOf(s)['redirect_uris']).toEqual(['http://localhost:9/cb']);
+  });
+
+  it('the status in the result is the one the server sent', async () => {
+    const s = await serve({ as: { registration: true } });
+    const { report } = await run(s.url, { config: dcr() });
+    expect(actual(report, 'oauth-reg-dcr')).toContain('HTTP 201');
+    const t = await serve({ as: { registration: true }, dcr: { mode: 'accept-http' } });
+    const r = await run(t.url, { config: dcr() });
+    expect(actual(r.report, 'oauth-reg-dcr-http-redirect-rejected')).toContain('HTTP 201');
+  });
+});
+
+describe('CLI · mcp conformance · oauth registration · the authorization endpoint, read with a control', () => {
+  it('a made-up client is asked for too, and the real one passes only when the made-up one is refused', async () => {
+    const s = await serve({});
+    const { report } = await run(s.url, { config: prereg() });
+    expect(verdict(report, 'oauth-reg-prereg')).toBe('passed');
+    const ids = s.seen.filter((x) => x.path === '/authorize').map((x) => x.body).length;
+    expect(ids).toBe(2);
+  });
+
+  for (const mode of ['login-all', 'redirect-login-all'] as const)
+    it(`a server that sends every client, a made-up one too, to ${mode}: could-not-run (needs-input), with the reason`, async () => {
+      const s = await serve({ authorize: mode });
+      const { report } = await run(s.url, { config: prereg() });
+      expect(verdict(report, 'oauth-reg-prereg')).toBe('could-not-run (needs-input)');
+      expect(actual(report, 'oauth-reg-prereg')).toContain('made-up');
+    });
+
+  it('a redirect to somewhere that is not the redirect URI is not an acceptance', async () => {
+    const s = await serve({ authorize: 'redirect-login-all' });
+    const { report } = await run(s.url, { config: prereg() });
+    expect(verdict(report, 'oauth-reg-prereg')).not.toBe('passed');
+  });
+});
+
+describe('CLI · mcp conformance · oauth registration · the client_id URL, refused for the client or for something else', () => {
+  const good = 'https://client.example/good.json';
+  const bad = 'https://client.example/mismatch.json';
+  const both = () => cimd({ clientIdMetadataUrl: good, clientIdMetadataMismatchUrl: bad });
+  const badAsGood = () => cimd({ clientIdMetadataUrl: bad, clientIdMetadataMismatchUrl: bad });
+
+  const goodCases: [string, AuthOpts, string][] = [
+    ['invalid_client', {}, 'failed'],
+    ['invalid_request that names the client_id', { authorize: 'invalid-request-client' }, 'failed'],
+    [
+      'invalid_request that does not',
+      { authorize: 'invalid-request-plain' },
+      'could-not-run (prerequisite-failed)',
+    ],
+    ['403 with no code', { authorize: 'forbidden' }, 'could-not-run (prerequisite-failed)'],
+    [
+      'access_denied in the redirect',
+      { authorize: 'error-redirect' },
+      'could-not-run (prerequisite-failed)',
+    ],
+    ['503', { authorize: 503 }, 'could-not-run (transport-error)'],
+    [
+      'the sign-in page for every client',
+      { authorize: 'login-all' },
+      'could-not-run (needs-input)',
+    ],
+    [
+      'a redirect to the sign-in for every client',
+      { authorize: 'redirect-login-all' },
+      'could-not-run (needs-input)',
+    ],
+  ];
+  for (const [name, opts, expected] of goodCases)
+    it(`the good document refused with ${name}: ${expected}`, async () => {
+      const s = await serve({ as: { cimd: true }, ...opts });
+      const { report } = await run(s.url, { config: badAsGood() });
+      expect(verdict(report, 'oauth-reg-cimd')).toBe(expected);
+    });
+
+  it('the mismatched half passes only for a refusal of the client', async () => {
+    const plain = await serve({ as: { cimd: true }, authorize: 'invalid-request-plain' });
+    const a = await run(plain.url, { config: both() });
+    expect(verdict(a.report, 'oauth-reg-cimd')).toBe('could-not-run (prerequisite-failed)');
+    const named = await serve({ as: { cimd: true }, authorize: 'invalid-request-client' });
+    const b = await run(named.url, { config: both() });
+    expect(verdict(b.report, 'oauth-reg-cimd')).toBe('passed');
+  });
+
+  it('the good document must be accepted before the mismatched one is read: a wrong URL of the user is not a pass', async () => {
+    const s = await serve({ as: { cimd: true } });
+    const { report } = await run(s.url, { config: badAsGood() });
+    expect(verdict(report, 'oauth-reg-cimd')).toBe('failed');
+    expect(s.seen.filter((x) => x.path === '/authorize')).toHaveLength(1);
   });
 });
