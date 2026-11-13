@@ -303,6 +303,31 @@ describe('CLI · mcp serve · modern client (2026-07-28, JSON lines)', () => {
     expect((a.error as { data?: { supported?: string[]; requested?: string } }).data).toMatchObject({ requested: '1900-01-01', supported: expect.arrayContaining([MODERN]) });
   });
 
+  // 2026-07-28 «Every request carries its protocol version, and the server accepts or rejects each request independently»
+  // (https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning). The SDK checks the opening message only;
+  // after it the connection is pinned, so the server checks the rest itself.
+  it('CLI · mcp serve · on an open modern connection a request for 1900-01-01 is still refused with -32022, and the next one is served', async () => {
+    const s = spawnServe();
+    s.send({ id: 1, method: 'server/discover', params: { _meta: modernMeta() } });
+    const opened = await s.answer(1);
+    // A discover alone is a probe the SDK may still drop for initialize; the first other request pins the connection.
+    s.send({ id: 2, method: 'tools/list', params: { _meta: modernMeta() } });
+    const pinned = await s.answer(2);
+    s.send({ id: 3, method: 'server/discover', params: { _meta: modernMeta('1900-01-01') } });
+    s.send({ id: 4, method: 'tools/list', params: { _meta: modernMeta('1900-01-01') } });
+    s.send({ id: 5, method: 'tools/list', params: { _meta: modernMeta() } });
+    const [discover, list, served] = [await s.answer(3), await s.answer(4), await s.answer(5)];
+    await s.end();
+    if (opened === 'timeout' || pinned === 'timeout' || discover === 'timeout' || list === 'timeout' || served === 'timeout') throw new Error('no answer');
+    const supported = (opened.result as { supportedVersions: string[] }).supportedVersions;
+    for (const a of [discover, list]) {
+      expect(a.error?.code).toBe(-32022);
+      // The refused list is the one server/discover gives, so the two cannot drift apart on an SDK upgrade.
+      expect((a.error as { data?: unknown }).data).toEqual({ supported, requested: '1900-01-01' });
+    }
+    expect(served.error).toBeUndefined();
+  });
+
   // 2026-07-28: the set in tools/list «MUST NOT vary per-connection or as a side effect of other requests on the connection»
   // (https://modelcontextprotocol.io/specification/2026-07-28/server/tools). discover_tools describes, a hidden tool is
   // called by its name, and the list stays what it was — so no list_changed, even to a client that listens.
