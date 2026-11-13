@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseSnapshot, type McpSnapshot } from '../snapshot/index.js';
 import {
@@ -67,7 +67,52 @@ export interface CrossCorpus {
   benign: CrossBenign[];
 }
 
-const readJson = (path: string): unknown => JSON.parse(readFileSync(path, 'utf8'));
+/** The largest file of the corpus the loader reads; a fixture is a few KB. */
+export const MAX_CORPUS_FILE_BYTES = 256 * 1024;
+
+/** Reads a file of the corpus as JSON; every complaint names the file, none quotes its text. */
+function readJson(path: string, file: string): unknown {
+  if (statSync(path).size > MAX_CORPUS_FILE_BYTES)
+    throw new Error(`${file}: too large (over ${MAX_CORPUS_FILE_BYTES / 1024} KiB)`);
+  try {
+    return JSON.parse(readFileSync(path, 'utf8'));
+  } catch {
+    throw new Error(`${file}: not valid JSON`);
+  }
+}
+
+const isObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+const filled = (v: unknown): v is string => typeof v === 'string' && v.trim() !== '';
+
+/** `value` is an object whose keys are all in `allowed`; names the first one that is not. */
+function onlyKeys(
+  value: unknown,
+  allowed: readonly string[] | null,
+  file: string,
+  what: string,
+): Record<string, unknown> {
+  if (!isObject(value)) throw new Error(`${file}: ${what} is not an object`);
+  if (allowed !== null)
+    for (const k of Object.keys(value))
+      if (!allowed.includes(k)) throw new Error(`${file}: ${what} has an unknown key "${k}"`);
+  return value;
+}
+function needFilled(
+  value: Record<string, unknown>,
+  keys: readonly string[],
+  file: string,
+  what: string,
+): void {
+  for (const k of keys) if (!filled(value[k])) throw new Error(`${file}: ${what} has no "${k}"`);
+}
+
+const PROVENANCE_KEYS = ['catalogClass', 'mechanism', 'concealment', 'source', 'author', 'date'];
+const ENTRY_KEYS = {
+  tools: ['name', 'description', 'inputSchema'],
+  prompts: ['name', 'description'],
+  resources: ['uri', 'name', 'description'],
+} as const;
 
 function snapshotOf(label: string, s: GroupServer, file: string): McpSnapshot {
   const capabilities: Record<string, unknown> = {};
@@ -95,10 +140,25 @@ function snapshotOf(label: string, s: GroupServer, file: string): McpSnapshot {
 }
 
 function groupOf(path: string, file: string): Map<string, McpSnapshot> {
-  const raw = readJson(path) as { servers?: Record<string, GroupServer> };
-  const entries = Object.entries(raw.servers ?? {});
+  const raw = onlyKeys(readJson(path, file), ['servers'], file, 'the group');
+  const entries = Object.entries(onlyKeys(raw['servers'] ?? {}, null, file, '"servers"'));
   if (entries.length < 2) throw new Error(`${file}: a group has at least two servers`);
-  return new Map(entries.map(([label, s]) => [label, snapshotOf(label, s, file)]));
+  for (const [label, server] of entries) {
+    const s = onlyKeys(
+      server,
+      ['instructions', ...Object.keys(ENTRY_KEYS)],
+      file,
+      `server "${label}"`,
+    );
+    for (const [list, keys] of Object.entries(ENTRY_KEYS)) {
+      if (s[list] === undefined) continue;
+      if (!Array.isArray(s[list]))
+        throw new Error(`${file}: server "${label}" "${list}" is not an array`);
+      for (const entry of s[list] as unknown[])
+        onlyKeys(entry, keys, file, `an entry of "${list}" of "${label}"`);
+    }
+  }
+  return new Map(entries.map(([label, s]) => [label, snapshotOf(label, s as GroupServer, file)]));
 }
 
 /** The ids of a folder, from its group files; a sidecar with no group, or a group with no sidecar, names the file. */
@@ -116,38 +176,61 @@ function idsOf(dir: string, sidecar: string): string[] {
   return [...groups].sort();
 }
 
+function provenanceOf(value: unknown, file: string): Provenance {
+  if (value === undefined) throw new Error(`${file}: no provenance`);
+  const p = onlyKeys(value, [...PROVENANCE_KEYS, 'catalogRefs'], file, 'the provenance');
+  needFilled(p, PROVENANCE_KEYS, file, 'the provenance');
+  const refs = p['catalogRefs'];
+  if (!Array.isArray(refs) || refs.length === 0 || !refs.every(filled))
+    throw new Error(`${file}: the provenance has no "catalogRefs"`);
+  return p as unknown as Provenance;
+}
+
+function originOf(id: string, value: unknown): Origin {
+  if (value !== 'real' && value !== 'synthetic')
+    throw new Error(`${id}: origin must be real or synthetic`);
+  return value;
+}
+
 export function loadCrossCorpus(root: string): CrossCorpus {
   const dir = join(root, 'cross');
   const malicious = idsOf(join(dir, 'malicious'), '.expected.json').map((id) => {
-    const meta = readJson(join(dir, 'malicious', `${id}.expected.json`)) as {
-      origin: Origin;
-      expected: CrossExpectation[];
-      provenance: Provenance;
-    };
-    if (meta.origin !== 'real' && meta.origin !== 'synthetic')
-      throw new Error(`${id}: origin must be real or synthetic`);
+    const file = `${id}.expected.json`;
+    const raw = readJson(join(dir, 'malicious', file), file);
+    const meta = onlyKeys(raw, ['origin', 'expected', 'provenance'], file, 'the file');
+    const origin = originOf(id, meta['origin']);
     const snapshots = groupOf(join(dir, 'malicious', `${id}.group.json`), `${id}.group.json`);
-    for (const e of meta.expected) {
-      if (!(e.rule in CONFIG_RULES) || !e.rule.startsWith('scan/cross/'))
+    if (!Array.isArray(meta['expected'])) throw new Error(`${file}: "expected" is not an array`);
+    const expected = (meta['expected'] as unknown[]).map((item) => {
+      const e = onlyKeys(item, ['rule', 'server', 'path', 'designedMiss'], file, 'an expectation');
+      if (e['designedMiss'] !== undefined && !filled(e['designedMiss']))
+        throw new Error(`${file}: "designedMiss" is not a string`);
+      if (
+        typeof e['rule'] !== 'string' ||
+        !(e['rule'] in CONFIG_RULES) ||
+        !e['rule'].startsWith('scan/cross/')
+      )
         throw new Error(`fixture ${id} expects a rule that does not exist`);
-      if (!snapshots.has(e.server))
+      if (typeof e['server'] !== 'string' || !snapshots.has(e['server']))
         throw new Error(`fixture ${id} expects a finding on a server that is not in the group`);
-    }
-    return {
-      id,
-      origin: meta.origin,
-      snapshots,
-      expected: meta.expected,
-      provenance: meta.provenance,
-    };
+      if (!filled(e['path'])) throw new Error(`${file}: an expectation has no "path"`);
+      return e as unknown as CrossExpectation;
+    });
+    return { id, origin, snapshots, expected, provenance: provenanceOf(meta['provenance'], file) };
   });
   const benign = idsOf(join(dir, 'benign'), '.meta.json').map((id) => {
-    const meta = readJson(join(dir, 'benign', `${id}.meta.json`)) as { origin: Origin };
-    if (meta.origin !== 'real' && meta.origin !== 'synthetic')
-      throw new Error(`${id}: origin must be real or synthetic`);
+    const file = `${id}.meta.json`;
+    const meta = onlyKeys(
+      readJson(join(dir, 'benign', file), file),
+      ['origin', 'description', 'author', 'date'],
+      file,
+      'the file',
+    );
+    const origin = originOf(id, meta['origin']);
+    needFilled(meta, ['description', 'author', 'date'], file, 'the file');
     return {
       id,
-      origin: meta.origin,
+      origin,
       snapshots: groupOf(join(dir, 'benign', `${id}.group.json`), `${id}.group.json`),
     };
   });
@@ -353,14 +436,14 @@ export function compareCrossToBaseline(
 /** The measured table, as the README holds it between its two markers. */
 export function crossTable(report: CrossReport): string {
   const rows = [
-    '| rule | found / expected | designed misses | false findings (synthetic) | groups | tool pairs | gate |',
+    '| rule | found / expected (designed misses included) | designed misses | false findings (synthetic) | groups | tool pairs (denominator of the rate in report.json) | gate |',
     '| --- | --- | --- | --- | --- | --- | --- |',
   ];
   for (const id of CROSS_RULES) {
     const r = report[id]!;
     const s = r.benign.synthetic;
     rows.push(
-      `| ${id} | ${r.detected} / ${r.fixtures} | ${r.designedMisses} | ${s.falsePositives.length} (in ${s.falseGroups} groups) | ${s.groups} | ${s.toolPairs} | ${r.gateEligible ? 'eligible' : 'not eligible'} |`,
+      `| ${id} | ${r.detected} / ${r.fixtures} | ${r.designedMisses} | ${s.falsePositives.length} (in ${s.falseGroups} ${s.falseGroups === 1 ? 'group' : 'groups'}) | ${s.groups} | ${s.toolPairs} | ${r.gateEligible ? 'eligible' : 'not eligible'} |`,
     );
   }
   return rows.join('\n');

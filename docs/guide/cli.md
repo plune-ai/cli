@@ -1160,8 +1160,8 @@ and an empty `path` are errors.
 | --- | --- |
 | `0` | No finding that gates at `--fail-on`. |
 | `1` | At least one finding that gates, at the level of `--fail-on`. Wins over `3`. |
-| `2` | Usage: nothing to scan or every group left out, a bad flag, a file that does not exist, a malformed snapshot, pin file or exceptions file (also an exception without `reason` or `expires`, or an exceptions file over 8 MiB), two snapshots with one label. |
-| `3` | Something asked for could not be measured: an empty snapshot, a snapshot or pin file over 8 MiB, a client configuration file that cannot be parsed or holds no servers, a config scan cut at its cap of findings, a description over 1 MB (only its first 1 MB is scanned), a live server that could not be read, a probe that did not run (no probe file, no consent, a spent budget, an answer that decides nothing). |
+| `2` | Usage: nothing to scan or every group left out, a bad flag, a file that does not exist, a malformed snapshot, pin file or exceptions file (also an exception without `reason` or `expires`, an exceptions file over 8 MiB or one that cannot be read), two snapshots with one label. |
+| `3` | Something asked for could not be measured: an empty snapshot, a snapshot or pin file over 8 MiB or one that cannot be read (it vanished, or no permission), a client configuration file that cannot be parsed or holds no servers, a config scan cut at its cap of findings, a description over 1 MB (only its first 1 MB is scanned), a live server that could not be read, a probe that did not run (no probe file, no consent, a spent budget, an answer that decides nothing). |
 
 Only deterministic findings of a rule marked as gating change the exit code. Heuristics (`override-instruction`, ...)
 are advice and print as `note` in SARIF.

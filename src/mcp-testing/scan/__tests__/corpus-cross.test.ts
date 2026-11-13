@@ -9,6 +9,7 @@ import { scanClientConfig, type ConfigScan } from '../config/config.js';
 import { corpusUpdateRequested } from '../corpus.js';
 import {
   CROSS_RULES,
+  MAX_CORPUS_FILE_BYTES,
   compareCrossToBaseline,
   crossBaselineOf,
   crossCorpusHash,
@@ -237,6 +238,25 @@ describe('CLI · mcp scan · corpus · cross servers · the control', () => {
     ).toHaveLength(1);
   });
 
+  it('a finding of the right rule on the wrong server, or on the wrong path, is a miss: the measure matches rule, server and path', () => {
+    const f = corpus.malicious.find((x) => x.id === 'duplicate-tool-name-01-plain')!;
+    const rule = 'scan/cross/duplicate-tool-name';
+    const seed = real(f.snapshots).findings.find((x) => x.rule === rule)!;
+    const stub =
+      (server: string, path: string): CrossScan =>
+      (s) =>
+        s !== f.snapshots
+          ? real(s)
+          : ({ ...real(s), findings: [{ ...seed, server, path }] } as ConfigScan);
+    const misses = (r: ReturnType<typeof measureCross>) =>
+      r[rule]!.missed.some((m) => m.fixture === f.id);
+    expect(f.expected[0]!.server).toBe(seed.server);
+    expect(misses(measureCross(corpus, stub(seed.server!, seed.path!)))).toBe(false);
+    const other = [...f.snapshots.keys()].find((k) => k !== seed.server)!;
+    expect(misses(measureCross(corpus, stub(other, seed.path!)))).toBe(true);
+    expect(misses(measureCross(corpus, stub(seed.server!, '/tools/9/name')))).toBe(true);
+  });
+
   it('sees a designed miss that the rule now finds, so an improvement is a decision to record', () => {
     const f = corpus.malicious.find((x) => x.id === 'duplicate-tool-name-05-case-variant')!;
     const finds: CrossScan = (s) => {
@@ -304,17 +324,134 @@ describe('CLI · mcp scan · corpus · cross servers · the loader is strict', (
   const group = JSON.stringify({
     servers: { a: { tools: [{ name: 'x' }] }, b: { tools: [{ name: 'y' }] } },
   });
+  const PROV = {
+    catalogClass: 'shadowing',
+    mechanism: 'm',
+    concealment: 'plain',
+    source: 'not verified',
+    catalogRefs: ['INV'],
+    author: 'a',
+    date: '2026-11-13',
+  };
+  const META = { origin: 'synthetic', description: 'd', author: 'a', date: '2026-11-13' };
   const expected = (extra: object = {}) =>
     JSON.stringify({
       origin: 'synthetic',
       expected: [{ rule: 'scan/cross/duplicate-tool-name', server: 'a', path: '/tools/0/name' }],
-      provenance: {},
+      provenance: PROV,
       ...extra,
     });
   const good = { 'malicious/a.group.json': group, 'malicious/a.expected.json': expected() };
 
   it('loads a well-formed directory', () => {
     expect(loadCrossCorpus(dir(good)).malicious.map((f) => f.id)).toEqual(['a']);
+  });
+
+  it('names the file, and says what is wrong, for every kind of malformed fixture', () => {
+    const groupOf = (servers: unknown) => JSON.stringify({ servers });
+    const two = { a: { tools: [{ name: 'x' }] }, b: { tools: [{ name: 'y' }] } };
+    const exp = (over: Record<string, unknown>) =>
+      JSON.stringify({ ...JSON.parse(expected()), ...over });
+    const item = { rule: 'scan/cross/duplicate-tool-name', server: 'a', path: '/tools/0/name' };
+    const cases: [string, Record<string, string>, RegExp][] = [
+      [
+        'unknown key in a group',
+        { 'malicious/a.group.json': JSON.stringify({ servers: two, extra: 1 }) },
+        /a\.group\.json: .*extra/,
+      ],
+      [
+        'unknown key in a server',
+        { 'malicious/a.group.json': groupOf({ ...two, a: { tools: [], extra: 1 } }) },
+        /a\.group\.json: .*extra/,
+      ],
+      [
+        'unknown key in a tool',
+        { 'malicious/a.group.json': groupOf({ ...two, a: { tools: [{ name: 'x', extra: 1 }] } }) },
+        /a\.group\.json: .*extra/,
+      ],
+      [
+        'unknown key in the expectations file',
+        { 'malicious/a.expected.json': exp({ extra: 1 }) },
+        /a\.expected\.json: .*extra/,
+      ],
+      [
+        'unknown key in an expectation',
+        { 'malicious/a.expected.json': exp({ expected: [{ ...item, extra: 1 }] }) },
+        /a\.expected\.json: .*extra/,
+      ],
+      [
+        'expected is not an array',
+        { 'malicious/a.expected.json': exp({ expected: item }) },
+        /a\.expected\.json: .*expected.*array/,
+      ],
+      [
+        'designedMiss is not a string',
+        { 'malicious/a.expected.json': exp({ expected: [{ ...item, designedMiss: 3 }] }) },
+        /a\.expected\.json: .*designedMiss/,
+      ],
+      [
+        'provenance missing',
+        { 'malicious/a.expected.json': exp({ provenance: undefined }) },
+        /a\.expected\.json: .*provenance/,
+      ],
+      [
+        'provenance field missing',
+        { 'malicious/a.expected.json': exp({ provenance: { ...PROV, author: undefined } }) },
+        /a\.expected\.json: .*author/,
+      ],
+      [
+        'provenance field empty',
+        { 'malicious/a.expected.json': exp({ provenance: { ...PROV, mechanism: '  ' } }) },
+        /a\.expected\.json: .*mechanism/,
+      ],
+      [
+        'unknown key in provenance',
+        { 'malicious/a.expected.json': exp({ provenance: { ...PROV, extra: 1 } }) },
+        /a\.expected\.json: .*extra/,
+      ],
+      [
+        'expected file is not JSON',
+        { 'malicious/a.expected.json': '{ nope' },
+        /a\.expected\.json: .*JSON/,
+      ],
+      ['group file is not JSON', { 'malicious/a.group.json': '{ nope' }, /a\.group\.json: .*JSON/],
+      [
+        'too large',
+        { 'malicious/a.group.json': ' '.repeat(MAX_CORPUS_FILE_BYTES + 1) },
+        /a\.group\.json: .*too large/,
+      ],
+    ];
+    const benign = { 'benign/c.group.json': group };
+    const bcases: [string, string, RegExp][] = [
+      [
+        'unknown key in a benign meta',
+        JSON.stringify({ ...META, extra: 1 }),
+        /c\.meta\.json: .*extra/,
+      ],
+      [
+        'benign author missing',
+        JSON.stringify({ ...META, author: undefined }),
+        /c\.meta\.json: .*author/,
+      ],
+      ['benign date empty', JSON.stringify({ ...META, date: '' }), /c\.meta\.json: .*date/],
+      [
+        'benign description missing',
+        JSON.stringify({ ...META, description: undefined }),
+        /c\.meta\.json: .*description/,
+      ],
+      ['benign meta is not JSON', '[', /c\.meta\.json: .*JSON/],
+    ];
+    for (const [name, files, message] of cases)
+      expect(() => loadCrossCorpus(dir({ ...good, ...files })), name).toThrow(message);
+    for (const [name, meta, message] of bcases)
+      expect(
+        () => loadCrossCorpus(dir({ ...good, ...benign, 'benign/c.meta.json': meta })),
+        name,
+      ).toThrow(message);
+    expect(
+      loadCrossCorpus(dir({ ...good, ...benign, 'benign/c.meta.json': JSON.stringify(META) }))
+        .benign,
+    ).toHaveLength(1);
   });
   it('names a sidecar without a group, and a group without a sidecar', () => {
     expect(() =>

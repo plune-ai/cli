@@ -8,6 +8,13 @@ configuration together. Same honesty rules as the other two corpora.
 - `malicious/` holds groups where a rule should fire (`<id>.expected.json`: origin, provenance, and the findings
   expected as rule, server label and pointer). `benign/` holds ordinary groups (`<id>.meta.json`), some of which
   legitimately share or resemble names.
+- This measures **recall on fixtures written here**, and the false findings on ordinary groups written here. It is not
+  the share of real attacks the rules find, and not the false-alarm rate on real configurations.
+- In "found / expected", "expected" counts the designed misses too, so a rule that finds every fixture that is not a
+  designed miss still reads below `n / n`.
+- A false finding sits on one tool, but the rate in `report.json` is divided by tool pairs (a tool of one server with
+  a tool of another): it is findings per pair, not the share of tools that are wrongly flagged. Per group is the
+  clearer number; the table shows the counts.
 - Everything is `synthetic`: written for this corpus, `source: not verified`, no text copied from a real server. There
   are no real units, so no rule is gate eligible.
 - A **designed miss** is an expectation a rule is known not to meet (case, hidden-character, homoglyph, separator,
@@ -27,8 +34,8 @@ PLUNE_CORPUS_UPDATE=1 CORPUS_COMMIT=<sha> CORPUS_DATE=<yyyy-mm-dd> node node_mod
 ## Measured
 
 <!-- cross-table:start -->
-| rule | found / expected | designed misses | false findings (synthetic) | groups | tool pairs | gate |
+| rule | found / expected (designed misses included) | designed misses | false findings (synthetic) | groups | tool pairs (denominator of the rate in report.json) | gate |
 | --- | --- | --- | --- | --- | --- | --- |
 | scan/cross/duplicate-tool-name | 5 / 9 | 4 | 7 (in 4 groups) | 12 | 48 | not eligible |
-| scan/cross/foreign-tool-reference | 7 / 13 | 6 | 1 (in 1 groups) | 12 | 48 | not eligible |
+| scan/cross/foreign-tool-reference | 7 / 13 | 6 | 1 (in 1 group) | 12 | 48 | not eligible |
 <!-- cross-table:end -->
