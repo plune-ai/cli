@@ -127,6 +127,47 @@ describe('CLI · mcp conformance · a secret is masked before a message is cut',
       }
     });
 
+    it.each([['oauth-neg-pkce-wrong-verifier'], ['oauth-neg-token-redirect-mismatch']])(
+      'the error of a refused probe is masked before it is cut (%s)',
+      async (id) => {
+        const s = await authFixture({
+          echoState: true,
+          probeRefusal: { status: 400, error: `${'e'.repeat(50)}${CLIENT_SECRET}` },
+        });
+        open.push(s);
+        const config = join(dir, 'headless.json');
+        writeFileSync(
+          config,
+          JSON.stringify({
+            auth: 'headless',
+            redirectUri: 'http://127.0.0.1:8765/callback',
+            registration: {
+              method: 'preregistered',
+              clientId: CLIENT_ID,
+              clientSecretEnv: 'PLUNE_TEST_MASK_SECRET',
+            },
+          }),
+        );
+        for (const format of ['json', 'human']) {
+          const all = await run(
+            {
+              format,
+              suite: ['oauth'],
+              check: [id],
+              protocolVersion: '2026-07-28',
+              url: s.url,
+              config,
+              allowOrigin: [new URL(s.url).origin],
+            },
+            [],
+            { PLUNE_TEST_MASK_SECRET: CLIENT_SECRET },
+          );
+          if (format === 'json') expect(all).toContain('HTTP 400');
+          expect(leaks(all, CLIENT_SECRET), format).toEqual([]);
+        }
+      },
+    );
+
     it.each([
       ['the token type of the full token', { tokenType: `${'e'.repeat(30)}${CLIENT_SECRET}` }],
       [

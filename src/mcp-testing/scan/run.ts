@@ -29,6 +29,7 @@ import {
   type ScanLevel,
 } from './descriptions.js';
 import { covers, type ScanException } from './exceptions.js';
+import type { ImportedConformance } from './import.js';
 import type { ProbeSection } from './probes/runner.js';
 import { PROBE_REASONS } from './probes/types.js';
 import {
@@ -73,6 +74,8 @@ export interface ScanInput {
   active: boolean;
   /** What the active probes did (`--active`); undefined when none was run. */
   probes?: ProbeSection;
+  /** The report of `plune mcp conformance` the user named (`--import-conformance`), as imported. */
+  imported?: ImportedConformance;
   allowHosts: string[];
   allowPackages: string[];
 }
@@ -113,10 +116,32 @@ const PROBE_RULES = {
     gating: 'yes',
     fix: 'Check that the account of the token owns the object the call names, before the tool runs.',
   },
+  'scan/probe/untrusted-content-verbatim': {
+    class: 'heuristic',
+    level: 'advice',
+    gating: 'no',
+    fix: 'Return content that comes from outside with a boundary the client can see: a wrapper, an annotation or a separate field, so that it is not read as the voice of the server.',
+  },
+  'scan/probe/error-detail-leak': {
+    class: 'heuristic',
+    level: 'advice',
+    gating: 'no',
+    fix: 'Answer invalid arguments with a short message that names the argument; keep stack frames, file paths, SQL and internal hosts in the server log.',
+  },
+} as const satisfies Record<string, RuleDef>;
+
+/** The snapshot rule on the hints a tool declares (no probe is sent). */
+const HINT_RULES = {
+  'scan/hint/destructive-missing': {
+    class: 'deterministic',
+    level: 'info',
+    gating: 'no',
+    fix: 'Set destructiveHint on this tool: false if it only reads or adds, true if it changes or deletes. Without it a client must treat the tool as destructive.',
+  },
 } as const satisfies Record<string, RuleDef>;
 
 export const GROUP_RULES: Record<ScanGroup, string[]> = {
-  descriptions: Object.keys(DESC_RULES),
+  descriptions: [...Object.keys(DESC_RULES), ...Object.keys(HINT_RULES)],
   pins: [...PIN_IDS],
   config: Object.keys(CONFIG_RULES).filter((id) => id.startsWith('scan/cfg/')),
   cross: Object.keys(CONFIG_RULES).filter((id) => id.startsWith('scan/cross/')),
@@ -149,6 +174,7 @@ const def = (rule: string): RuleDef =>
   (CONFIG_RULES as Record<string, RuleDef>)[rule] ??
   PIN_DEFS[rule] ??
   (EXCEPTION_RULES as Record<string, RuleDef>)[rule] ??
+  (HINT_RULES as Record<string, RuleDef>)[rule] ??
   (PROBE_RULES as Record<string, RuleDef>)[rule]!;
 
 /** Every rule the command can report, for the rules of SARIF. */
@@ -157,6 +183,7 @@ export const ALL_RULES: SarifRule[] = [
   ...PIN_IDS.map((id) => [id, PIN_DEFS[id]!] as const),
   ...Object.entries(CONFIG_RULES),
   ...Object.entries(EXCEPTION_RULES),
+  ...Object.entries(HINT_RULES),
   ...Object.entries(PROBE_RULES),
 ].map(([id, d]) => ({ id, class: d.class, severity: d.level, gating: d.gating, fix: d.fix }));
 
@@ -346,6 +373,25 @@ function runScanUncached(input: ScanInput, opts: ScanOptions): ScanReport {
           continue;
         }
         ran.push(safe(s.label));
+        (s.snapshot.tools ?? []).forEach((t, i) => {
+          const tool = t as { name?: unknown; annotations?: Record<string, unknown> };
+          const a = tool.annotations;
+          if (
+            typeof tool.name === 'string' &&
+            a !== null &&
+            typeof a === 'object' &&
+            a['readOnlyHint'] !== true &&
+            typeof a['destructiveHint'] !== 'boolean'
+          )
+            drafts.push({
+              rule: 'scan/hint/destructive-missing',
+              group: 'descriptions',
+              target: safe(s.label),
+              path: `/tools/${i}`,
+              message: `${safe(tool.name)}: annotations without destructiveHint; clients must treat it as destructive`,
+              fix: HINT_RULES['scan/hint/destructive-missing'].fix,
+            });
+        });
         const place =
           s.text === undefined || s.file === undefined
             ? undefined
@@ -576,6 +622,8 @@ function runScanUncached(input: ScanInput, opts: ScanOptions): ScanReport {
     metadata: null,
   };
   if (asked.active) {
+    if (section.journalFailed === true)
+      couldNot('active', '', 'the journal (--journal) could not be written: it is incomplete');
     for (const row of section.rows)
       if (row.outcome === 'not-run')
         couldNot('active', safeText(row.id), PROBE_REASONS[row.reason!]);
@@ -677,6 +725,10 @@ function runScanUncached(input: ScanInput, opts: ScanOptions): ScanReport {
     else exitCode = MCP_EXIT.unmeasured;
   }
   const notes: string[] = [];
+  if (input.imported !== undefined)
+    notes.push(
+      `Imported: ${input.imported.reports.reduce((n, r) => n + r.rows.length, 0)} rows of a conformance report (${input.imported.file}). They were not run by this scan, are not findings, and do not change its exit code.`,
+    );
   if (findings.some((f) => f.location === undefined))
     notes.push(
       'Some findings have no place in a file (a live server without --save-snapshot): SARIF counts them in omittedResults instead of showing them.',
@@ -727,6 +779,7 @@ function runScanUncached(input: ScanInput, opts: ScanOptions): ScanReport {
       metadata: asked.active ? section.metadata : null,
     },
     notEvaluated: rows,
+    imported: input.imported ?? null,
     exceptions: {
       file: ex === undefined ? null : safeText(ex.file),
       expired: ex?.expired.length ?? 0,

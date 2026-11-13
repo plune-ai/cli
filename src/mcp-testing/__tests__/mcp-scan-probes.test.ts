@@ -2,17 +2,30 @@
 // that keeps what it is told (strict) and one that keeps nothing (lax), each recording what reached it, so a test can
 // say what was sent and what was not. The tokens are made-up strings.
 
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
+import {
+  existsSync,
+  linkSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { basename, join } from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
 import { handleMcpScan, type McpScanFlags } from '../../cli/commands/mcp-scan.js';
 import { ProbeGuard, canonical, type Frame, type Reply } from '../scan/probes/guard.js';
 import { MAX_PROBE_FILE_BYTES, parseProbeFile } from '../scan/probes/file.js';
 import { runProbes } from '../scan/probes/runner.js';
+import { renderScan } from '../scan/report.js';
+import { ALL_RULES, runScan, type ScanInput } from '../scan/run.js';
 import type { ProbeEntry } from '../scan/probes/types.js';
+import { buildSnapshot, serializeSnapshot } from '../snapshot/index.js';
 
 const MARK = 'zq7+/Tok=41';
 const TOKEN_A = `tokA-${MARK}-a`;
@@ -49,11 +62,21 @@ interface Opts {
   /** The status of the redirect of `force` (302 by default). */
   redirectStatus?: number;
   host?: string;
+  /** A tools/call with no `doc` argument is answered with this text, as an isError result or a JSON-RPC error. */
+  errorText?: string;
+  errorAs?: 'rpc' | 'isError';
+  /** The tool fetch_page fetches the URL in its argument (named `urlParam`, `url` by default) and answers with the page. */
+  fetchMode?: 'verbatim' | 'wrapped' | 'none' | 'big';
+  urlParam?: string;
+  /** The tool fetch_page notes the address it was given and never answers. */
+  hangOnFetch?: boolean;
 }
 interface Fixture {
   url: string;
   port: number;
   seen: Seen[];
+  /** The pages the tool fetch_page fetched: the address and what was on it. */
+  fetched: { url: string; body: string }[];
   calls: () => number;
   close(): Promise<void>;
 }
@@ -70,6 +93,7 @@ const TOOLS = [
 
 async function fixture(opts: Opts = {}): Promise<Fixture> {
   const seen: Seen[] = [];
+  const fetched: { url: string; body: string }[] = [];
   const tools = opts.tools ?? TOOLS;
   const handle = async (req: IncomingMessage, res: ServerResponse) => {
     const chunks: Buffer[] = [];
@@ -140,6 +164,41 @@ async function fixture(opts: Opts = {}): Promise<Fixture> {
       });
     if (body.method === 'notifications/initialized') return void res.writeHead(202).end();
     if (body.method === 'tools/list') return reply({ tools });
+    if (body.method === 'tools/call' && body.params?.name === 'fetch_page') {
+      const target = body.params.arguments?.[opts.urlParam ?? 'url'];
+      if (typeof target !== 'string' || opts.fetchMode === 'none')
+        return reply({ content: [{ type: 'text', text: 'nothing fetched' }] });
+      if (opts.hangOnFetch === true) {
+        fetched.push({ url: target, body: '' });
+        return;
+      }
+      const page = await (await fetch(target)).text();
+      fetched.push({ url: target, body: page });
+      const text =
+        opts.fetchMode === 'wrapped'
+          ? `<untrusted-content>
+${page}
+</untrusted-content>`
+          : opts.fetchMode === 'big'
+            ? 'x'.repeat(200 * 1024) + page
+            : page;
+      return reply({ content: [{ type: 'text', text }] });
+    }
+    if (
+      body.method === 'tools/call' &&
+      opts.errorText !== undefined &&
+      body.params?.arguments?.['doc'] === undefined
+    ) {
+      if (opts.errorAs === 'rpc')
+        return void res.writeHead(200, { 'Content-Type': 'application/json' }).end(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: body.id,
+            error: { code: -32602, message: opts.errorText, data: { detail: opts.errorText } },
+          }),
+        );
+      return reply({ isError: true, content: [{ type: 'text', text: opts.errorText }] });
+    }
     if (body.method === 'tools/call') {
       // Strict: account B may not read an object of account A.
       const doc = body.params?.arguments?.['doc'];
@@ -158,6 +217,7 @@ async function fixture(opts: Opts = {}): Promise<Fixture> {
     url: `http://127.0.0.1:${port}/mcp`,
     port,
     seen,
+    fetched,
     calls: () => seen.filter((s) => s.rpc === 'tools/call').length,
     close: () =>
       new Promise<void>((resolve) => {
@@ -196,9 +256,10 @@ async function scan(
   flags: McpScanFlags,
   env: NodeJS.ProcessEnv = {},
   onErr?: (s: string) => void,
+  server: string[] = [],
 ): Promise<Run> {
   const sink = { out: '', err: '', before: 0 };
-  const code = await handleMcpScan({ format: 'json', ...flags }, [], {
+  const code = await handleMcpScan({ format: 'json', ...flags }, server, {
     out: (s) => (sink.out += s),
     err: (s) => {
       sink.err += s;
@@ -740,7 +801,7 @@ describe('CLI · mcp scan probes · the summary table is in every format', () =>
     const human = await scan(dir, active(f, file, { format: 'human' }), TOKENS);
     expect(human.out).toMatch(/p1 \/ expect refuse \/ allowed \(VIOLATED\)/);
     expect(human.out).toMatch(/p2 \/ no expectation \/ not run \/ a token for another resource/);
-    expect(human.out).toContain('keeps no record of the frames');
+    expect(human.out).toContain('kept only with --journal');
     const github = await scan(dir, active(f, file, { format: 'github' }), TOKENS);
     expect(github.out).toMatch(/3 probes \(1 not run\)/);
     const sarif = (await scan(dir, active(f, file, { format: 'sarif' }), TOKENS)).json();
@@ -1052,6 +1113,1643 @@ describe('CLI · mcp scan probes · the stdio command is announced without secre
     expect(lines.join('\n')).toContain('node');
     expect(lines.join('\n')).not.toContain(secret);
     expect(lines.join('\n')).not.toContain('Qw3rtYQw3rtY');
-    expect(section.rows[0]!.reason).toBe('stdio');
+    expect(section.rows[0]!.reason).toBe('no-yes');
   });
 });
+
+// ---- step 2: the journal, the leak rule, the hint rule ----------------------------------------------------------------------
+
+const SCHEMA = {
+  type: 'object',
+  properties: { doc: { type: 'string' }, note: { type: 'string' } },
+  required: ['doc'],
+};
+const STEP2_TOOLS = [
+  { name: 'export', inputSchema: SCHEMA, annotations: { readOnlyHint: true } },
+  { name: 'wipe', inputSchema: SCHEMA, annotations: { destructiveHint: true } },
+];
+const allForms = (t: string) => [
+  t,
+  encodeURIComponent(t),
+  Buffer.from(t).toString('base64'),
+  Buffer.from(t).toString('base64url'),
+  JSON.stringify(t).slice(1, -1),
+];
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- a parsed line is read by key in the assertions
+const journalLines = (dir: string, name = 'j.jsonl'): Record<string, any>[] =>
+  readFileSync(join(dir, name), 'utf8')
+    .split('\n')
+    .filter((l) => l !== '')
+    .map((l) => JSON.parse(l));
+const journalProbes = [
+  entry('p-none', 'none', { expect: 'refuse' }),
+  entry('p-b', 'account-b', { expect: 'refuse' }),
+  entry('p-a', 'account-a', { expect: 'allow' }),
+];
+
+describe('CLI · mcp scan probes · --journal: one line for every frame and answer, with no secret and no body', () => {
+  it('a token, in plain, URL-encoded, base64 and base64url form, and the marks of a body and of arguments, are absent from the journal', async () => {
+    for (const lax of [true, false]) {
+      const f = await fixture({ lax, tools: STEP2_TOOLS });
+      const { dir, file } = probeFile(journalProbes);
+      const r = await scan(dir, active(f, file, { journal: 'j.jsonl' }), TOKENS);
+      expect(r.code, r.err).toBeLessThan(2);
+      const text = readFileSync(join(dir, 'j.jsonl'), 'utf8');
+      for (const form of [...allForms(TOKEN_A), ...allForms(TOKEN_B), MARK, ARG_MARK, 'bad token'])
+        expect(text.includes(form), `${lax}: ${form}`).toBe(false);
+    }
+  });
+
+  it('Authorization is a mark, and so is the session id; the line says only that a bearer was sent', async () => {
+    const f = await fixture({ tools: STEP2_TOOLS });
+    const { dir, file } = probeFile(journalProbes);
+    await scan(dir, active(f, file, { journal: 'j.jsonl' }), TOKENS);
+    const out = journalLines(dir).filter((l) => l['dir'] === 'out' && l['kind'] === 'rpc');
+    const bearer = out.filter((l) => l['as'] === 'bearer');
+    expect(bearer.length).toBeGreaterThan(0);
+    for (const l of bearer) expect(l['headers']['Authorization']).toBe('***');
+    for (const l of out.filter((x) => x['headers']['Mcp-Session-Id'] !== undefined))
+      expect(l['headers']['Mcp-Session-Id']).toBe('***');
+  });
+
+  it('the answer lines hold the status, the JSON-RPC id, result/error/isError and sizes, and no body', async () => {
+    const f = await fixture({ tools: STEP2_TOOLS });
+    const { dir, file } = probeFile(journalProbes);
+    await scan(dir, active(f, file, { journal: 'j.jsonl' }), TOKENS);
+    const ins = journalLines(dir).filter((l) => l['dir'] === 'in');
+    expect(ins.length).toBeGreaterThan(3);
+    for (const l of ins) {
+      expect(Object.keys(l).sort()).toEqual(expect.arrayContaining(['dir', 'seq', 'ts', 'status']));
+      for (const k of Object.keys(l))
+        expect(
+          ['dir', 'seq', 'ts', 'status', 'rpcId', 'result', 'error', 'isError', 'bytes', 'failure'],
+          k,
+        ).toContain(k);
+    }
+    expect(ins.some((l) => l['result'] === true && typeof l['rpcId'] === 'number')).toBe(true);
+    expect(ins.some((l) => l['status'] === 401)).toBe(true);
+  });
+
+  it('there is a line for every request the server received, and the file is there after a budget stop', async () => {
+    const f = await fixture({ lax: true, tools: STEP2_TOOLS });
+    const many = Array.from({ length: 10 }, (_, i) => entry(`p${i}`, 'none'));
+    const { dir, file } = probeFile(many);
+    const r = await scan(dir, active(f, file, { journal: 'j.jsonl', maxCalls: '3' }), TOKENS);
+    const lines = journalLines(dir);
+    const sent = lines.filter((l) => l['dir'] === 'out');
+    expect(sent).toHaveLength(probeFrames(f, r).length);
+    expect(sent.map((l) => l['seq'])).toEqual(sent.map((_, i) => i + 1));
+    expect(lines.some((l) => l['dir'] === 'refused' && l['reason'] === 'budget')).toBe(true);
+    expect(lines.filter((l) => l['dir'] === 'in')).toHaveLength(sent.length);
+  });
+
+  it('a frame the wrapper refuses is journaled as refused and is not sent', async () => {
+    const lines: Record<string, unknown>[] = [];
+    const sent: Frame[] = [];
+    const guard = new ProbeGuard(
+      [{ id: 'p1', tool: 'export', arguments: { doc: 'a' }, as: 'none' }],
+      { maxCalls: 8, maxRequests: 40 },
+      async (frame): Promise<Reply> => {
+        sent.push(frame);
+        return { kind: 'http', status: 200 };
+      },
+      { record: (line) => void lines.push(line) },
+    );
+    guard.setListedTools([]);
+    const bad: Frame = {
+      type: 'rpc',
+      method: 'tools/call',
+      params: { name: 'export', arguments: { doc: 'other' } },
+      probe: 'p1',
+      credential: { kind: 'none' },
+    };
+    expect(await guard.send(bad)).toEqual({ sent: false, refusal: 'undeclared' });
+    expect(sent).toHaveLength(0);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ dir: 'refused', reason: 'undeclared', tool: 'export' });
+    expect(JSON.stringify(lines)).not.toContain('other');
+  });
+
+  it('a journal that cannot be written stops the probes: nothing more is sent, and the rest are "not run, journal"', async () => {
+    let writes = 0;
+    const f = await fixture({ lax: true, tools: STEP2_TOOLS });
+    const section = await runProbes({
+      entries: [entry('p1', 'none'), entry('p2', 'none'), entry('p3', 'none')] as ProbeEntry[],
+      target: { kind: 'http', url: f.url, headers: {} } as never,
+      tokens: {},
+      timeoutMs: 5000,
+      announce: () => {},
+      journal: {
+        record: () => {
+          if (++writes > 7) throw new Error('disk full: C:\\secret\\path');
+        },
+        close: () => {},
+      },
+    });
+    const received = f.seen.length;
+    expect(section.rows.some((r) => r.reason === 'journal-failed')).toBe(true);
+    // Every request that reached the server had its line written first (the 7 that were written).
+    expect(received).toBeLessThanOrEqual(4);
+    expect(JSON.stringify(section)).not.toContain('disk full');
+  });
+
+  it('a journal that cannot be opened is a usage error before the first frame of the probes', async () => {
+    const f = await fixture({ tools: STEP2_TOOLS });
+    const { dir, file } = probeFile(journalProbes);
+    const r = await scan(dir, active(f, file, { journal: 'no-such-dir/j.jsonl' }), TOKENS);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain('--journal');
+    expect(r.err).not.toContain('ENOENT');
+    expect(r.err).not.toContain(dir);
+    expect(r.err).not.toContain('probes will go to');
+    expect(f.seen.filter((s) => s.rpc === 'tools/call' || s.path.includes('well-known'))).toEqual(
+      [],
+    );
+  });
+
+  it('--journal without --active is a usage error', async () => {
+    const r = await scan(tmp(), { journal: 'j.jsonl' });
+    expect(r.code).toBe(2);
+    expect(r.err).toContain('--journal');
+  });
+});
+
+describe('CLI · mcp scan probes · scan/probe/error-detail-leak', () => {
+  const malformed = [{ id: 'm1', tool: 'export', arguments: {}, as: 'account-a', malformed: true }];
+  const LEAK = 'LEAKMARK-77';
+  const stack = `TypeError: bad input\n    at handler (/srv/app/${LEAK}/tools.js:42:13)\n    at run (/srv/app/node_modules/x.js:1:1)`;
+
+  it('the probe file takes malformed only as account-a', () => {
+    expect(parseProbeFile(JSON.stringify({ probes: malformed }), 'p.json')[0]!).toMatchObject({
+      malformed: true,
+    });
+    expect(() =>
+      parseProbeFile(JSON.stringify({ probes: [{ ...malformed[0], as: 'none' }] }), 'p.json'),
+    ).toThrow(/malformed/);
+    expect(() =>
+      parseProbeFile(JSON.stringify({ probes: [{ ...malformed[0], malformed: 'yes' }] }), 'p.json'),
+    ).toThrow(/malformed/);
+  });
+
+  it('the derived arguments: the first required property dropped, else one property of a wrong type, else none', async () => {
+    const { malformedArguments } = await import('../scan/probes/leak.js');
+    expect(
+      malformedArguments({ properties: { a: {}, b: { type: 'number' } }, required: ['a', 'b'] }),
+    ).toEqual({ b: 0 });
+    expect(malformedArguments({ properties: { a: { type: 'string' } } })).toEqual({ a: 0 });
+    expect(malformedArguments({ properties: { a: { type: 'number' } } })).toEqual({ a: 'x' });
+    expect(malformedArguments({ properties: {} })).toBeUndefined();
+    expect(malformedArguments(undefined)).toBeUndefined();
+    expect(malformedArguments({ required: [] })).toBeUndefined();
+  });
+
+  it('red on a server that echoes a stack, in an isError result and in a JSON-RPC error; the finding holds the pattern and the tool only', async () => {
+    for (const errorAs of ['isError', 'rpc'] as const) {
+      const f = await fixture({ tools: STEP2_TOOLS, errorText: stack, errorAs });
+      const { dir, file } = probeFile([...journalProbes, ...malformed]);
+      const outputs: string[] = [];
+      let r!: Run;
+      for (const format of ['human', 'json', 'github', 'sarif'] as const) {
+        r = await scan(dir, active(f, file, { format, journal: 'j.jsonl' }), TOKENS);
+        outputs.push(r.out, r.err);
+      }
+      outputs.push(readFileSync(join(dir, 'j.jsonl'), 'utf8'));
+      const json = (await scan(dir, active(f, file), TOKENS)).json();
+      const found = json['findings'].filter(
+        (x: { rule: string }) => x.rule === 'scan/probe/error-detail-leak',
+      );
+      expect(found, errorAs).toHaveLength(1);
+      expect(found[0].message).toContain('stack-js');
+      expect(found[0].message).toContain('export');
+      expect(found[0]).toMatchObject({ class: 'heuristic', severity: 'advice', gating: false });
+      for (const text of outputs) {
+        expect(text).not.toContain(LEAK);
+        expect(text).not.toContain('/srv/app');
+        expect(text).not.toContain('TypeError');
+      }
+    }
+  });
+
+  it('green on a strict server that answers a plain message: "no pattern matched", exit code unchanged', async () => {
+    const f = await fixture({ tools: STEP2_TOOLS, errorText: 'invalid arguments' });
+    const { dir, file } = probeFile([...journalProbes, ...malformed]);
+    const r = await scan(dir, active(f, file), TOKENS);
+    expect(r.code).toBe(0);
+    expect(r.json()['findings']).toEqual([]);
+    const row = byId(r, 'm1') as { note?: string; outcome: string };
+    expect(row.outcome).toBe('as-expected');
+    expect(row.note).toBe('no pattern matched');
+    expect(JSON.stringify(rowsOf(r))).not.toMatch(/\bsafe\b/i);
+  });
+
+  it('the malformed call is sent as account-a with the derived arguments, counted in the budgets', async () => {
+    const f = await fixture({ tools: STEP2_TOOLS, errorText: 'invalid arguments' });
+    const { dir, file } = probeFile(malformed);
+    const r = await scan(dir, active(f, file, { maxCalls: '1' }), TOKENS);
+    const calls = probeFrames(f, r).filter((s) => s.rpc === 'tools/call');
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.auth).toBe(`Bearer ${TOKEN_A}`);
+    expect(r.json()['probes'].calls).toBe(1);
+  });
+
+  it('a malformed probe on a destructive tool is not sent without allowDestructive', async () => {
+    const f = await fixture({ tools: STEP2_TOOLS, errorText: 'invalid arguments' });
+    const { dir, file } = probeFile([{ ...malformed[0], tool: 'wipe' }]);
+    const r = await scan(dir, active(f, file), TOKENS);
+    expect(probeFrames(f, r).filter((s) => s.rpc === 'tools/call')).toEqual([]);
+    expect(byId(r, 'm1').reason).toBe('destructive');
+  });
+
+  it('a tool with no property to break is "not run, no schema"', async () => {
+    const f = await fixture({ tools: [{ name: 'export' }] });
+    const { dir, file } = probeFile(malformed);
+    const r = await scan(dir, active(f, file), TOKENS);
+    expect(byId(r, 'm1').reason).toBe('no-schema');
+    expect(probeFrames(f, r).filter((s) => s.rpc === 'tools/call')).toEqual([]);
+  });
+
+  it('the wrapper allows exactly the derived call for that entry: not its declared arguments, not other arguments, not another tool', async () => {
+    const entries: ProbeEntry[] = [
+      {
+        id: 'm1',
+        tool: 'export',
+        arguments: { doc: 'declared' },
+        as: 'account-a',
+        malformed: true,
+      },
+    ];
+    const sent: Frame[] = [];
+    const guard = new ProbeGuard(entries, { maxCalls: 8, maxRequests: 40 }, async (frame) => {
+      sent.push(frame);
+      return { kind: 'http', status: 200 } as Reply;
+    });
+    guard.setListedTools(STEP2_TOOLS);
+    const call = (name: string, args: Record<string, unknown>, probe = 'm1'): Frame => ({
+      type: 'rpc',
+      method: 'tools/call',
+      params: { name, arguments: args },
+      probe,
+      credential: { kind: 'none' },
+    });
+    const derived = guard.malformedArgumentsFor('export')!;
+    expect(derived).toEqual({});
+    for (const bad of [
+      call('export', { doc: 'declared' }),
+      call('export', { doc: 'x', rm: '-rf' }),
+      call('export', { ...derived, extra: 1 }),
+      call('wipe', derived),
+      call('export', derived, 'other-probe'),
+    ])
+      expect(await guard.send(bad)).toEqual({ sent: false, refusal: 'undeclared' });
+    expect(sent).toHaveLength(0);
+    expect((await guard.send(call('export', derived))).sent).toBe(true);
+    expect(sent).toHaveLength(1);
+    expect(guard.malformedArgumentsFor('nope')).toBeUndefined();
+  });
+
+  it('every pattern is linear: each runs on a hostile 64 KiB text in well under a second, and only the first 64 KiB is read', async () => {
+    const { LEAK_PATTERNS, findLeak, MAX_LEAK_TEXT } = await import('../scan/probes/leak.js');
+    expect(MAX_LEAK_TEXT).toBe(64 * 1024);
+    const n = MAX_LEAK_TEXT;
+    const hostile = [
+      'a'.repeat(n),
+      '/'.repeat(n),
+      ' at '.repeat(n / 4),
+      '(a'.repeat(n / 2),
+      '/a'.repeat(n / 2),
+      ('A:\\' + 'a'.repeat(30) + '\\').repeat(n / 34),
+      '1.'.repeat(n / 2),
+      'select '.repeat(n / 7),
+      'a.b'.repeat(n / 3),
+      'File "'.repeat(n / 6),
+      '\t'.repeat(n),
+      ' '.repeat(n),
+    ];
+    for (const p of LEAK_PATTERNS)
+      for (const text of hostile) {
+        const t = performance.now();
+        p.re.test(text.slice(0, n));
+        expect(performance.now() - t, p.id).toBeLessThan(250);
+      }
+    expect(findLeak(`${'a'.repeat(n)}\n    at f (/srv/x.js:1:2)`)).toBeUndefined();
+    expect(findLeak('    at f (/srv/x.js:1:2)')).toBe('stack-js');
+  });
+
+  it('each pattern finds its own kind and not an ordinary message', async () => {
+    const { findLeak } = await import('../scan/probes/leak.js');
+    const hit: [string, string][] = [
+      ['stack-js', 'Error: x\n    at run (/app/a.js:10:5)'],
+      ['stack-py', 'Traceback (most recent call last):\n  File "/app/a.py", line 3, in f'],
+      ['abs-path', 'cannot open /var/lib/app/data.db'],
+      ['abs-path', 'cannot open C:\\Users\\app\\data.db'],
+      ['sql', 'near "FROM users WHERE id = 1": syntax error'],
+      ['internal-host', 'connect ECONNREFUSED 10.0.3.7:5432'],
+      ['internal-host', 'getaddrinfo ENOTFOUND db.internal'],
+    ];
+    for (const [id, text] of hit) expect(findLeak(text), text).toBe(id);
+    for (const text of [
+      'invalid arguments',
+      'missing required argument: doc',
+      'Expected string, received number',
+      'path /tools/0/name is invalid',
+      'try again at 10:30',
+    ])
+      expect(findLeak(text), text).toBeUndefined();
+  });
+});
+
+describe('CLI · mcp scan · scan/hint/destructive-missing (static)', () => {
+  const snapOf = (tools: unknown[]) => {
+    const dir = tmp();
+    writeFileSync(
+      join(dir, 's.json'),
+      serializeSnapshot(
+        buildSnapshot({ transport: 'stdio', capabilities: { tools: {} }, tools } as never),
+      ),
+    );
+    return dir;
+  };
+  const rules = async (tools: unknown[]) => {
+    const r = await scan(snapOf(tools), { snapshot: ['s.json'] });
+    return { r, rules: (r.json()['findings'] as { rule: string }[]).map((x) => x.rule) };
+  };
+
+  it('annotations without destructiveHint, and not read-only: an info finding that does not gate, with no --active', async () => {
+    const { r, rules: got } = await rules([
+      { name: 'update_page', description: 'Updates a page.', annotations: { title: 'Update' } },
+    ]);
+    expect(got).toEqual(['scan/hint/destructive-missing']);
+    expect(r.json()['findings'][0]).toMatchObject({ severity: 'info', gating: false });
+    expect(r.code).toBe(0);
+  });
+
+  it('no finding: no annotations at all, destructiveHint stated either way, or readOnlyHint true', async () => {
+    for (const annotations of [
+      undefined,
+      { destructiveHint: true },
+      { destructiveHint: false },
+      { readOnlyHint: true },
+    ])
+      expect(
+        (
+          await rules([
+            { name: 'update_page', description: 'x', ...(annotations ? { annotations } : {}) },
+          ])
+        ).rules,
+        JSON.stringify(annotations),
+      ).toEqual([]);
+  });
+});
+
+// ---- step 2, after review ---------------------------------------------------------------------------------------------------
+
+describe('CLI · mcp scan probes · the journal never overwrites a file the command reads or writes', () => {
+  const same = async (flags: (f: Fixture) => McpScanFlags, name: string) => {
+    const f = await fixture({ tools: STEP2_TOOLS });
+    const { dir } = probeFile(journalProbes);
+    writeFileSync(
+      join(dir, 's.json'),
+      serializeSnapshot(
+        buildSnapshot({
+          transport: 'stdio',
+          capabilities: { tools: {} },
+          tools: [{ name: 'a', description: 'd' }],
+        } as never),
+      ),
+    );
+    const before = readFileSync(join(dir, name), 'utf8');
+    const r = await scan(dir, flags(f), TOKENS);
+    expect(r.code, r.err).toBe(2);
+    expect(r.err).not.toContain(dir);
+    expect(readFileSync(join(dir, name), 'utf8')).toBe(before);
+    expect(f.seen.filter((s) => s.rpc === 'tools/call')).toEqual([]);
+    return r;
+  };
+
+  it('--journal equal to --probes is exit 2 and the probe file is untouched', async () => {
+    const r = await same(
+      (f) => active(f, 'probes.json', { journal: 'probes.json' }),
+      'probes.json',
+    );
+    expect(r.err).toContain('--journal');
+    expect(r.err).toContain('--probes');
+  });
+  it('the same file spelled another way (./, a folder that is left again, other case on Windows) is the same file', async () => {
+    await same((f) => active(f, 'probes.json', { journal: './sub/../probes.json' }), 'probes.json');
+    if (process.platform === 'win32')
+      await same((f) => active(f, 'probes.json', { journal: 'PROBES.JSON' }), 'probes.json');
+  });
+  it('through a link to the folder it is the same file as well', async () => {
+    const f = await fixture({ tools: STEP2_TOOLS });
+    const { dir } = probeFile(journalProbes);
+    symlinkSync(dir, join(dir, 'link'), 'junction');
+    const before = readFileSync(join(dir, 'probes.json'), 'utf8');
+    const r = await scan(dir, active(f, 'probes.json', { journal: 'link/probes.json' }), TOKENS);
+    expect(r.code).toBe(2);
+    expect(readFileSync(join(dir, 'probes.json'), 'utf8')).toBe(before);
+  });
+  it('--journal equal to a --snapshot, --out or --save-snapshot file is exit 2', async () => {
+    await same(
+      (f) => active(f, 'probes.json', { journal: 's.json', snapshot: ['s.json'] }),
+      's.json',
+    );
+    await same(
+      (f) => active(f, 'probes.json', { journal: 'probes.json', out: ['probes.json'] }),
+      'probes.json',
+    );
+    await same(
+      (f) => active(f, 'probes.json', { journal: 's.json', saveSnapshot: 's.json' }),
+      's.json',
+    );
+  });
+  it('the reverse pairs: --out equal to --probes or to a --snapshot is exit 2 too', async () => {
+    await same((f) => active(f, 'probes.json', { out: ['probes.json'] }), 'probes.json');
+    await same(
+      (f) => active(f, 'probes.json', { snapshot: ['s.json'], out: ['sarif=s.json'] }),
+      's.json',
+    );
+  });
+  it('a directory as the journal path is exit 2 with a plain message', async () => {
+    const f = await fixture({ tools: STEP2_TOOLS });
+    const { dir, file } = probeFile(journalProbes);
+    mkdirSync(join(dir, 'a-folder'));
+    const r = await scan(dir, active(f, file, { journal: 'a-folder' }), TOKENS);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain('--journal');
+    expect(r.err).not.toMatch(/EISDIR|EPERM|EACCES/);
+    expect(r.err).not.toContain(dir);
+  });
+});
+
+describe('CLI · mcp scan probes · a journal write that fails on any line marks the run', () => {
+  const failOn = (n: number) => {
+    let writes = 0;
+    return {
+      record: () => {
+        if (++writes === n) throw new Error('disk full');
+      },
+      close: () => {},
+    };
+  };
+  const one = async (n: number) => {
+    const f = await fixture({ lax: true, tools: STEP2_TOOLS });
+    return runProbes({
+      entries: [entry('p1', 'none')] as ProbeEntry[],
+      target: { kind: 'http', url: f.url, headers: {} } as never,
+      tokens: {},
+      timeoutMs: 5000,
+      announce: () => {},
+      journal: failOn(n),
+    });
+  };
+
+  it('a failure on the last "in" line (nothing left to stop) is still reported as an incomplete journal', async () => {
+    // lines: meta, then out/in for discovery, initialize, initialized, tools/list, tools/call = 1 + 2 * 5 = 11
+    const section = await one(11);
+    expect(section.journalFailed).toBe(true);
+  });
+  it('a failure on a "refused" line is reported too', async () => {
+    const f = await fixture({ lax: true, tools: STEP2_TOOLS });
+    let refusedWritten = 0;
+    const section = await runProbes({
+      entries: [entry('p1', 'none'), entry('p2', 'none')] as ProbeEntry[],
+      target: { kind: 'http', url: f.url, headers: {} } as never,
+      tokens: {},
+      maxCalls: 1,
+      timeoutMs: 5000,
+      announce: () => {},
+      journal: {
+        record: (line) => {
+          if (line['dir'] === 'refused' && ++refusedWritten === 1) throw new Error('disk full');
+        },
+      },
+    });
+    expect(section.journalFailed).toBe(true);
+  });
+  it('a clean journal is not marked', async () => {
+    expect((await one(1000)).journalFailed).toBeUndefined();
+  });
+  it('the report says the journal is incomplete and the exit code is 3, with no probe left to run', () => {
+    const input: ScanInput = {
+      snapshots: [],
+      unreadable: [],
+      configFiles: [],
+      configRequested: false,
+      active: true,
+      allowHosts: [],
+      allowPackages: [],
+      probes: {
+        rows: [
+          {
+            id: 'p1',
+            tool: 'export',
+            as: 'none',
+            expect: 'none',
+            answer: 'allowed',
+            outcome: 'observed',
+          },
+        ],
+        findings: [],
+        calls: 1,
+        requests: 5,
+        metadata: null,
+        journalFailed: true,
+      },
+    };
+    const report = runScan(input, { failOn: 'error', gateHeuristics: false, allowPartial: false });
+    expect(report.exitCode).toBe(3);
+    expect(JSON.stringify(report.notEvaluated)).toContain('journal');
+  });
+});
+
+describe('CLI · mcp scan probes · the derived malformed arguments are bounded', () => {
+  it('a giant required list, or a giant properties object, is "not run, schema too large": nothing is sent', async () => {
+    const names = Array.from({ length: 300 }, (_, i) => `p${i}`);
+    for (const schema of [
+      { type: 'object', properties: { doc: { type: 'string' } }, required: names },
+      { type: 'object', properties: Object.fromEntries(names.map((n) => [n, { type: 'string' }])) },
+    ]) {
+      const f = await fixture({ tools: [{ name: 'export', inputSchema: schema } as never] });
+      const { dir, file } = probeFile([
+        { id: 'm1', tool: 'export', arguments: {}, as: 'account-a', malformed: true },
+      ]);
+      const r = await scan(dir, active(f, file), TOKENS);
+      expect(byId(r, 'm1').reason).toBe('schema-too-large');
+      expect(probeFrames(f, r).filter((s) => s.rpc === 'tools/call')).toEqual([]);
+    }
+  });
+  it('arguments over 16 KiB once derived are "schema too large" too', async () => {
+    const { malformedArguments } = await import('../scan/probes/leak.js');
+    const big = { type: 'object', properties: { a: {}, b: {} }, required: ['a', 'b'] };
+    expect(malformedArguments(big)).toEqual({ b: null });
+    const { derivedTooLarge } = await import('../scan/probes/leak.js');
+    expect(derivedTooLarge({ x: 'y'.repeat(17 * 1024) })).toBe(true);
+    expect(derivedTooLarge({ x: 'y' })).toBe(false);
+  });
+  it('__proto__ and constructor as names are own keys: the prototype is not touched', async () => {
+    const { malformedArguments } = await import('../scan/probes/leak.js');
+    const schema = JSON.parse(
+      '{"properties":{"a":{},"__proto__":{"type":"string"},"constructor":{"type":"constructor"}},"required":["a","__proto__","constructor"]}',
+    );
+    const args = malformedArguments(schema)!;
+    expect(Object.getPrototypeOf(args)).toBe(Object.prototype);
+    expect(Object.keys(args)).toEqual(['__proto__', 'constructor']);
+    expect(Object.hasOwn(args, '__proto__')).toBe(true);
+    expect(args['constructor']).toBeNull();
+    expect(({} as Record<string, unknown>)['polluted']).toBeUndefined();
+    expect(args['__proto__']).toBe('');
+  });
+});
+
+describe('CLI · mcp scan probes · a malformed call that ran says so', () => {
+  const malformed = [{ id: 'm1', tool: 'export', arguments: {}, as: 'account-a', malformed: true }];
+  it('a result with no error is "ran; no error text to read", in every format that lists the rows; not "no pattern matched"', async () => {
+    const f = await fixture({ tools: STEP2_TOOLS });
+    const { dir, file } = probeFile(malformed);
+    for (const format of ['human', 'json', 'sarif'] as const) {
+      const r = await scan(dir, active(f, file, { format }), TOKENS);
+      expect(r.out, format).toContain('ran; no error text to read');
+      expect(r.out, format).not.toContain('no pattern matched');
+    }
+    const r = await scan(dir, active(f, file, { out: ['junit-xml=j.xml'] }), TOKENS);
+    expect(readFileSync(join(dir, 'j.xml'), 'utf8')).toContain('ran; no error text to read');
+    expect(r.code).toBe(0);
+  });
+  it('an error that was read and matched nothing is still "no pattern matched"', async () => {
+    const f = await fixture({ tools: STEP2_TOOLS, errorText: 'invalid arguments' });
+    const { dir, file } = probeFile(malformed);
+    const r = await scan(dir, active(f, file), TOKENS);
+    expect((byId(r, 'm1') as { note?: string }).note).toBe('no pattern matched');
+  });
+});
+
+describe('CLI · mcp scan · smaller points of the review of step 2', () => {
+  it('destructiveHint that is not a boolean is not "present" for scan/hint/destructive-missing', async () => {
+    for (const destructiveHint of [null, 'false', 0]) {
+      const dir = tmp();
+      writeFileSync(
+        join(dir, 's.json'),
+        serializeSnapshot(
+          buildSnapshot({
+            transport: 'stdio',
+            capabilities: { tools: {} },
+            tools: [{ name: 'update_page', description: 'x', annotations: { destructiveHint } }],
+          } as never),
+        ),
+      );
+      const r = await scan(dir, { snapshot: ['s.json'] });
+      expect(
+        (r.json()['findings'] as { rule: string }[]).map((x) => x.rule),
+        String(destructiveHint),
+      ).toEqual(['scan/hint/destructive-missing']);
+    }
+  });
+
+  it('the wrapper refuses a malformed frame whose entry is not account-a, called directly', async () => {
+    const entries: ProbeEntry[] = [
+      { id: 'm1', tool: 'export', arguments: {}, as: 'none', malformed: true },
+    ];
+    const sent: Frame[] = [];
+    const guard = new ProbeGuard(entries, { maxCalls: 8, maxRequests: 40 }, async (frame) => {
+      sent.push(frame);
+      return { kind: 'http', status: 200 } as Reply;
+    });
+    guard.setListedTools(STEP2_TOOLS);
+    const frame: Frame = {
+      type: 'rpc',
+      method: 'tools/call',
+      params: { name: 'export', arguments: guard.malformedArgumentsFor('export') },
+      probe: 'm1',
+      credential: { kind: 'none' },
+    };
+    expect(await guard.send(frame)).toEqual({ sent: false, refusal: 'undeclared' });
+    expect(sent).toHaveLength(0);
+  });
+});
+
+// ---- step 3: the page of the scan, stdio, and the imported conformance report -----------------------------------------------
+
+const FETCH_TOOLS = [
+  ...STEP2_TOOLS,
+  {
+    name: 'fetch_page',
+    inputSchema: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] },
+  },
+];
+const fetchEntry = (id = 'f1', extra: Record<string, unknown> = {}) => ({
+  id,
+  tool: 'fetch_page',
+  arguments: {},
+  as: 'account-a',
+  fetches: true,
+  urlArgument: 'url',
+  ...extra,
+});
+
+describe('CLI · mcp scan probes · scan/probe/untrusted-content-verbatim: a page the scan serves, on this machine only', () => {
+  it('the probe file takes fetches only with a urlArgument, as account-a, and never with malformed', () => {
+    const ok = parseProbeFile(JSON.stringify({ probes: [fetchEntry()] }), 'p.json')[0]!;
+    expect(ok).toMatchObject({ fetches: true, urlArgument: 'url' });
+    for (const bad of [
+      fetchEntry('f1', { urlArgument: undefined }),
+      fetchEntry('f1', { urlArgument: '' }),
+      fetchEntry('f1', { urlArgument: 3 }),
+      fetchEntry('f1', { as: 'none' }),
+      fetchEntry('f1', { expect: 'allow' }),
+      fetchEntry('f1', { malformed: true }),
+      fetchEntry('f1', { fetches: 'yes' }),
+    ])
+      expect(
+        () => parseProbeFile(JSON.stringify({ probes: [bad] }), 'p.json'),
+        JSON.stringify(bad),
+      ).toThrow(/fetches|urlArgument/);
+  });
+
+  it('red on a server that returns the page as it is: advice, no gate, holds the tool and no text of the page', async () => {
+    const f = await fixture({ tools: FETCH_TOOLS, fetchMode: 'verbatim' });
+    const { dir, file } = probeFile([fetchEntry()]);
+    const outputs: string[] = [];
+    let r!: Run;
+    for (const format of ['human', 'json', 'github', 'sarif'] as const) {
+      r = await scan(dir, active(f, file, { format, journal: 'j.jsonl' }), TOKENS);
+      outputs.push(r.out, r.err);
+    }
+    outputs.push(readFileSync(join(dir, 'j.jsonl'), 'utf8'));
+    const json = (await scan(dir, active(f, file), TOKENS)).json();
+    const found = json['findings'].filter(
+      (x: { rule: string }) => x.rule === 'scan/probe/untrusted-content-verbatim',
+    );
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ class: 'heuristic', severity: 'advice', gating: false });
+    expect(found[0].message).toContain('fetch_page');
+    expect(r.code).toBe(0);
+    expect(f.fetched.length).toBeGreaterThan(0);
+    for (const hit of f.fetched)
+      for (const text of outputs) expect(text.includes(hit.body.trim())).toBe(false);
+  });
+
+  it('green on a server that wraps the page in a boundary; and "marker not returned" is not a pass', async () => {
+    const f = await fixture({ tools: FETCH_TOOLS, fetchMode: 'wrapped' });
+    const { dir, file } = probeFile([fetchEntry()]);
+    const r = await scan(dir, active(f, file), TOKENS);
+    expect(r.json()['findings']).toEqual([]);
+    expect((byId(r, 'f1') as { note?: string }).note).toBe(
+      'the marker came back inside a boundary',
+    );
+    const g = await fixture({ tools: FETCH_TOOLS, fetchMode: 'none' });
+    const r2 = await scan(dir, active(g, file), TOKENS);
+    expect((byId(r2, 'f1') as { note?: string }).note).toBe(
+      'the marker did not come back in the text that was read',
+    );
+    expect(r2.json()['findings']).toEqual([]);
+  });
+
+  it('the marker is random for each run and harmless; the page lives on 127.0.0.1 and is gone when the run ends', async () => {
+    const f = await fixture({ tools: FETCH_TOOLS, fetchMode: 'verbatim' });
+    const { dir, file } = probeFile([fetchEntry()]);
+    await scan(dir, active(f, file), TOKENS);
+    await scan(dir, active(f, file), TOKENS);
+    const urls = [...new Set(f.fetched.map((x) => x.url))];
+    const bodies = [...new Set(f.fetched.map((x) => x.body))];
+    expect(bodies.length).toBe(2);
+    for (const b of bodies) expect(b.trim()).toMatch(/^PLUNE-CANARY-[0-9a-f]{16}$/);
+    for (const u of urls) {
+      expect(new URL(u).hostname).toBe('127.0.0.1');
+      await expect(fetch(u)).rejects.toThrow();
+    }
+  });
+
+  it('the page listener is bound to loopback and closes', async () => {
+    const { startPage } = await import('../scan/probes/page.js');
+    const page = await startPage();
+    try {
+      expect(page.address).toBe('127.0.0.1');
+      expect(page.marker).toMatch(/^PLUNE-CANARY-[0-9a-f]{16}$/);
+      expect(await (await fetch(page.url)).text()).toContain(page.marker);
+    } finally {
+      await page.close();
+    }
+    await expect(fetch(page.url)).rejects.toThrow();
+  });
+
+  it('the page is closed when the run ends any other way too: a budget stop, a journal that cannot be written', async () => {
+    for (const how of ['budget', 'journal'] as const) {
+      const f = await fixture({ lax: true, tools: FETCH_TOOLS, fetchMode: 'verbatim' });
+      let writes = 0;
+      await runProbes({
+        entries: [fetchEntry('f1'), fetchEntry('f2')] as ProbeEntry[],
+        target: { kind: 'http', url: f.url, headers: {} } as never,
+        tokens: { accountA: TOKEN_A },
+        timeoutMs: 5000,
+        announce: () => {},
+        ...(how === 'budget' ? { maxCalls: 1 } : {}),
+        journal: {
+          record: () => {
+            if (how === 'journal' && ++writes > 12) throw new Error('disk full');
+          },
+        },
+      });
+      for (const u of new Set(f.fetched.map((x) => x.url)))
+        await expect(fetch(u)).rejects.toThrow();
+    }
+  });
+
+  it('the name of the URL argument comes from the entry: another name is not guessed from the schema', async () => {
+    const f = await fixture({ tools: FETCH_TOOLS, fetchMode: 'verbatim', urlParam: 'target' });
+    const { dir, file } = probeFile([fetchEntry('f1', { urlArgument: 'target' })]);
+    const ok = await scan(dir, active(f, file), TOKENS);
+    expect(f.fetched.length).toBe(1);
+    expect(ok.json()['findings']).toHaveLength(1);
+    const wrong = probeFile([fetchEntry('f1')]);
+    const r = await scan(wrong.dir, active(f, wrong.file), TOKENS);
+    expect(f.fetched.length).toBe(1);
+    expect((byId(r, 'f1') as { note?: string }).note).toBe(
+      'the marker did not come back in the text that was read',
+    );
+  });
+
+  it('a server that is not on this machine cannot reach the page: "not run, remote server", no listener, no call', async () => {
+    const { pageReachable } = await import('../scan/probes/page.js');
+    expect(pageReachable({ kind: 'http', url: 'http://127.0.0.1:1/mcp', headers: {} })).toBe(true);
+    expect(pageReachable({ kind: 'http', url: 'http://localhost:1/mcp', headers: {} })).toBe(true);
+    expect(pageReachable({ kind: 'http', url: 'https://mcp.example.net/mcp', headers: {} })).toBe(
+      false,
+    );
+    expect(pageReachable({ kind: 'stdio', command: 'x', args: [], env: {} })).toBe(true);
+    const { PROBE_REASONS } = await import('../scan/probes/types.js');
+    expect(PROBE_REASONS).toHaveProperty('remote-server');
+  });
+
+  it('only the first 64 KiB of an answer is read: a marker after it is not judged', async () => {
+    const f = await fixture({ tools: FETCH_TOOLS, fetchMode: 'big' });
+    const { dir, file } = probeFile([fetchEntry()]);
+    const r = await scan(dir, active(f, file), TOKENS);
+    expect((byId(r, 'f1') as { note?: string }).note).toBe(
+      'the answer was over 64 KiB: not judged',
+    );
+  });
+
+  it('the wrapper allows exactly the call with the page address in the named argument', async () => {
+    const entries = [fetchEntry('f1')] as ProbeEntry[];
+    const sent: Frame[] = [];
+    const guard = new ProbeGuard(entries, { maxCalls: 8, maxRequests: 40 }, async (frame) => {
+      sent.push(frame);
+      return { kind: 'http', status: 200 } as Reply;
+    });
+    guard.setListedTools(FETCH_TOOLS);
+    const call = (args: Record<string, unknown>, name = 'fetch_page', probe = 'f1'): Frame => ({
+      type: 'rpc',
+      method: 'tools/call',
+      params: { name, arguments: args },
+      probe,
+      credential: { kind: 'none' },
+    });
+    expect(await guard.send(call({ url: 'http://127.0.0.1:9/x' }))).toEqual({
+      sent: false,
+      refusal: 'undeclared',
+    });
+    guard.setPageUrl('http://127.0.0.1:9/x');
+    for (const bad of [
+      call({ url: 'http://127.0.0.1:9/other' }),
+      call({ url: 'http://example.net/' }),
+      call({ url: 'http://127.0.0.1:9/x', extra: 1 }),
+      call({}),
+      call({ url: 'http://127.0.0.1:9/x' }, 'export'),
+      call({ url: 'http://127.0.0.1:9/x' }, 'fetch_page', 'other'),
+    ])
+      expect(await guard.send(bad)).toEqual({ sent: false, refusal: 'undeclared' });
+    expect(sent).toHaveLength(0);
+    expect((await guard.send(call({ url: 'http://127.0.0.1:9/x' }))).sent).toBe(true);
+  });
+});
+
+// A stdio server of the tests: a node script that records its pid, what it was asked, and answers as the mode says.
+const STDIO_SERVER = `
+const fs = require('fs');
+const [, , pidfile, mode, log] = process.argv;
+const modes = String(mode || '').split(',');
+fs.writeFileSync(pidfile, String(process.pid));
+const tools = [
+  { name: 'export', inputSchema: { type: 'object', properties: { doc: { type: 'string' } }, required: ['doc'] }, annotations: { readOnlyHint: true } },
+  { name: 'wipe', inputSchema: { type: 'object', properties: { doc: { type: 'string' } }, required: ['doc'] }, annotations: { destructiveHint: true } },
+  { name: 'fetch_page', inputSchema: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] } },
+];
+if (modes.includes('grandchild'))
+  fs.writeFileSync(pidfile + '.gc', String(require('child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' }).pid));
+if (modes.includes('stderr-flood')) {
+  const chunk = 'x'.repeat(1024 * 1024);
+  let n = 0;
+  const pump = () => {
+    while (n < 50) {
+      n++;
+      if (!process.stderr.write(chunk)) return void process.stderr.once('drain', pump);
+    }
+  };
+  pump();
+}
+if (modes.includes('silent')) setInterval(() => {}, 1000);
+else {
+  process.stderr.write('STDERRMARK-9 at x (/srv/app/a.js:1:2)\\n');
+  let buf = '';
+  const send = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
+  const handle = async (m) => {
+    if (log) fs.appendFileSync(log, (m.method || '') + (m.params && m.params.name ? ':' + m.params.name : '') + '\\n');
+    if (m.id === undefined) return;
+    const ok = (result) => send({ jsonrpc: '2.0', id: m.id, result });
+    if (m.method === 'initialize' && modes.includes('stdout-flood')) return void process.stdout.write('y'.repeat(11 * 1024 * 1024));
+    if (m.method === 'tools/call' && modes.includes('hang-on-call')) return;
+    if (m.method === 'initialize') return ok({ protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 's', version: '1' } });
+    if (m.method === 'tools/list') {
+      if (modes.includes('exit-on-list')) process.exit(0);
+      return ok({ tools });
+    }
+    if (m.method === 'tools/call') {
+      const a = m.params.arguments || {};
+      if (m.params.name === 'fetch_page') {
+        const t = await (await fetch(a.url)).text();
+        return ok({ content: [{ type: 'text', text: modes.includes('wrapped') ? '<untrusted-content>\\n' + t + '\\n</untrusted-content>' : t }] });
+      }
+      if (a.doc === undefined)
+        return ok({ isError: true, content: [{ type: 'text', text: modes.includes('leaky') ? 'TypeError: x\\n    at run (/srv/app/a.js:1:2)' : 'invalid arguments' }] });
+      return ok({ content: [{ type: 'text', text: 'ran' }] });
+    }
+    send({ jsonrpc: '2.0', id: m.id, error: { code: -32601, message: 'no such method' } });
+  };
+  process.stdin.on('data', (d) => {
+    buf += d;
+    let i;
+    while ((i = buf.indexOf('\\n')) >= 0) {
+      const line = buf.slice(0, i);
+      buf = buf.slice(i + 1);
+      if (line.trim()) void handle(JSON.parse(line));
+    }
+  });
+}
+`;
+const stdioServer = (mode: string) => {
+  const dir = tmp();
+  writeFileSync(join(dir, 'server.cjs'), STDIO_SERVER);
+  const pidfile = join(dir, 'pid');
+  const log = join(dir, 'log');
+  const args = [join(dir, 'server.cjs'), pidfile, mode, log];
+  return {
+    dir,
+    args,
+    target: { kind: 'stdio', command: process.execPath, args, env: {} } as never,
+    pid: () => Number(readFileSync(pidfile, 'utf8')),
+    calls: () =>
+      (existsSync(log) ? readFileSync(log, 'utf8') : '')
+        .split('\n')
+        .filter((l) => l.startsWith('tools/call')),
+    methods: () =>
+      (existsSync(log) ? readFileSync(log, 'utf8') : '').split('\n').filter((l) => l !== ''),
+  };
+};
+const alive = (pid: number) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+const leaky = [{ id: 'm1', tool: 'export', arguments: {}, as: 'account-a', malformed: true }];
+const stdioRun = (
+  mode: string,
+  entries: unknown[],
+  extra: Partial<Parameters<typeof runProbes>[0]> = {},
+) => {
+  const s = stdioServer(mode);
+  return {
+    s,
+    run: () =>
+      runProbes({
+        entries: entries as ProbeEntry[],
+        target: s.target,
+        tokens: {},
+        timeoutMs: 5000,
+        announce: () => {},
+        yes: true,
+        ...extra,
+      }),
+  };
+};
+
+// A stdio test starts a node process or two; the first start on a cold machine takes seconds. Only these tests wait long.
+describe(
+  'CLI · mcp scan probes · stdio: the same wrapper, the command only with --yes, the child always stopped',
+  { timeout: 60_000 },
+  () => {
+    it('without --yes the command is announced and nothing is started: "not run, no --yes", exit 3', async () => {
+      const s = stdioServer('leaky');
+      const { dir, file } = probeFile([...leaky]);
+      const r = await scan(
+        dir,
+        { active: true, probes: file },
+        {},
+        undefined,
+        s.args.length ? [process.execPath, ...s.args] : [],
+      );
+      expect(r.err).toContain('probes target the server started by');
+      expect(rowsOf(r)[0]!.reason).toBe('no-yes');
+      expect(r.code).toBe(3);
+      expect(s.methods().filter((m) => m.startsWith('tools/call'))).toEqual([]);
+    });
+
+    it('with --yes the authentication probes are "not applicable (stdio)" and the malformed one runs: red on a stack, green on a plain message', async () => {
+      for (const [mode, hits] of [
+        ['leaky', 1],
+        ['strict', 0],
+      ] as const) {
+        const s = stdioServer(mode);
+        const { dir, file } = probeFile([
+          entry('p-none', 'none', { expect: 'refuse' }),
+          entry('p-a', 'account-a'),
+          ...leaky,
+        ]);
+        const r = await scan(
+          dir,
+          { active: true, yes: true, probes: file, journal: 'j.jsonl' },
+          {},
+          undefined,
+          [process.execPath, ...s.args],
+        );
+        expect(byId(r, 'p-none').reason, mode).toBe('stdio');
+        expect(byId(r, 'p-a').reason, mode).toBe('stdio');
+        const found = (r.json()['findings'] as { rule: string }[]).filter(
+          (x) => x.rule === 'scan/probe/error-detail-leak',
+        );
+        expect(found, mode).toHaveLength(hits);
+        expect(r.code, mode).toBe(3);
+        expect(s.calls(), mode).toEqual(['tools/call:export']);
+        const all = r.out + r.err + readFileSync(join(dir, 'j.jsonl'), 'utf8');
+        expect(all).not.toContain('STDERRMARK-9');
+        expect(all).not.toContain('/srv/app');
+      }
+    });
+
+    it('every frame goes through the wrapper: the budget, the declared call and the destructive hint hold on stdio', async () => {
+      const { s, run } = stdioRun(
+        'strict',
+        [
+          { id: 'm1', tool: 'export', arguments: {}, as: 'account-a', malformed: true },
+          { id: 'm2', tool: 'export', arguments: {}, as: 'account-a', malformed: true },
+          { id: 'm3', tool: 'wipe', arguments: {}, as: 'account-a', malformed: true },
+        ],
+        { maxCalls: 1 },
+      );
+      const section = await run();
+      expect(s.calls()).toEqual(['tools/call:export']);
+      expect(section.rows.map((x) => x.reason)).toEqual([undefined, 'budget', 'destructive']);
+      expect(section.calls).toBe(1);
+    });
+
+    it('there is a journal line for every frame the child received', async () => {
+      const lines: Record<string, unknown>[] = [];
+      const { s, run } = stdioRun('strict', leaky, {
+        journal: { record: (l) => void lines.push(l) },
+      });
+      await run();
+      expect(lines.filter((l) => l['dir'] === 'out')).toHaveLength(s.methods().length);
+      expect(lines.filter((l) => l['dir'] === 'in').length).toBeGreaterThan(0);
+    });
+
+    it('the child is gone when the run ends: normally, on a budget stop, on a journal that cannot be written, on a thrown error', async () => {
+      const cases: [string, Partial<Parameters<typeof runProbes>[0]>][] = [
+        ['normal', {}],
+        ['budget', { maxCalls: 1 }],
+        [
+          'journal',
+          {
+            journal: {
+              record: () => {
+                throw new Error('disk full');
+              },
+            },
+          },
+        ],
+        [
+          'thrown',
+          {
+            journal: {
+              record: () => {},
+              bind: () => {
+                throw new Error('boom');
+              },
+            },
+          },
+        ],
+      ];
+      for (const [name, extra] of cases) {
+        const { s, run } = stdioRun('strict', [...leaky, { ...leaky[0], id: 'm2' }], extra);
+        try {
+          await run();
+        } catch {
+          /* the thrown case */
+        }
+        expect(alive(s.pid()), name).toBe(false);
+      }
+    });
+
+    it('a child that exits in the middle of a probe is a transport failure: not run, never a verdict; the others stop', async () => {
+      const { run } = stdioRun('exit-on-list', [
+        ...leaky,
+        { ...leaky[0], id: 'm2' },
+        { ...leaky[0], id: 'm3' },
+      ]);
+      const section = await run();
+      expect(section.rows.every((x) => x.outcome === 'not-run')).toBe(true);
+      expect(section.findings).toEqual([]);
+      expect(section.rows.map((x) => x.reason)).toContain('transport-stopped');
+    });
+
+    it('a child that never answers is bounded by the timeout', async () => {
+      const { s, run } = stdioRun(
+        'silent',
+        [...leaky, { ...leaky[0], id: 'm2' }, { ...leaky[0], id: 'm3' }],
+        { timeoutMs: 300 },
+      );
+      const t = Date.now();
+      const section = await run();
+      expect(Date.now() - t).toBeLessThan(8000);
+      expect(section.rows.every((x) => x.outcome === 'not-run')).toBe(true);
+      expect(alive(s.pid())).toBe(false);
+    });
+
+    it('a fetches probe works on stdio too, against the page of the scan', async () => {
+      const { run } = stdioRun('strict', [fetchEntry('f1')]);
+      const section = await run();
+      expect(section.findings.map((x) => x.rule)).toEqual([
+        'scan/probe/untrusted-content-verbatim',
+      ]);
+    });
+  },
+);
+
+// ---- --import-conformance ------------------------------------------------------------------------------------------------
+
+const conformanceReport = (over: Record<string, unknown> = {}, checks?: unknown[]) => ({
+  kind: 'mcp-conformance-report',
+  schemaVersion: 1,
+  command: 'conformance',
+  checkerVersion: '0.0.0',
+  protocolVersion: '2025-06-18',
+  transport: 'http',
+  exitCode: 1,
+  checks: checks ?? [
+    {
+      id: 'http-origin-invalid-403',
+      suite: 'security',
+      state: 'failed',
+      level: 'must',
+      class: 'deterministic',
+      expected: 'EXPECTED-TEXT-77',
+      actual: 'ACTUAL-TEXT-77',
+      fix: 'FIX-TEXT-77',
+    },
+    { id: 'http-bind-loopback', suite: 'security', state: 'passed', level: 'should' },
+    {
+      id: 'http-origin-absent-accepted',
+      suite: 'security',
+      state: 'could-not-run',
+      reason: 'timeout',
+    },
+    { id: 'oauth-neg-wrong-audience', suite: 'oauth', state: 'not-applicable' },
+  ],
+  ...over,
+});
+const importFile = (report: unknown, name = 'conf.json') => {
+  const dir = tmp();
+  writeFileSync(join(dir, name), typeof report === 'string' ? report : JSON.stringify(report));
+  writeFileSync(
+    join(dir, 's.json'),
+    serializeSnapshot(
+      buildSnapshot({
+        transport: 'stdio',
+        capabilities: { tools: {} },
+        tools: [{ name: 'a', description: 'd' }],
+      } as never),
+    ),
+  );
+  return dir;
+};
+
+describe('CLI · mcp scan · --import-conformance: the rows of another report, as imported', () => {
+  it('shows the rows with their source and their own states, makes no finding of them and does not change the exit code', async () => {
+    const dir = importFile(conformanceReport());
+    const plain = await scan(dir, { snapshot: ['s.json'] });
+    const r = await scan(dir, { snapshot: ['s.json'], importConformance: 'conf.json' });
+    expect(r.code).toBe(plain.code);
+    expect(r.code).toBe(0);
+    expect(r.json()['findings']).toEqual(plain.json()['findings']);
+    expect(r.json()['counts']).toEqual(plain.json()['counts']);
+    const imported = r.json()['imported'];
+    expect(imported).toMatchObject({
+      source: 'plune mcp conformance',
+      file: 'conf.json',
+      affectsExitCode: false,
+    });
+    const rows = imported.reports[0].rows as { id: string; state: string }[];
+    expect(rows.map((x) => [x.id, x.state])).toEqual([
+      ['http-origin-invalid-403', 'failed'],
+      ['http-bind-loopback', 'passed'],
+      ['http-origin-absent-accepted', 'could-not-run'],
+      ['oauth-neg-wrong-audience', 'not-applicable'],
+    ]);
+    const human = await scan(dir, {
+      snapshot: ['s.json'],
+      importConformance: 'conf.json',
+      format: 'human',
+    });
+    expect(human.out).toContain('Imported from a conformance report (conf.json)');
+    expect(human.out).toContain('do not change the exit code');
+    expect(human.out).toMatch(/http-origin-invalid-403.*failed/);
+    expect(human.out).toMatch(/http-origin-absent-accepted.*not run/);
+    expect(human.out).not.toMatch(/http-origin-absent-accepted.*passed/);
+  });
+
+  it('prints no free text of the report (expected, actual, fix), and makes no request of its own', async () => {
+    const dir = importFile(conformanceReport());
+    const f = await fixture();
+    const outputs: string[] = [];
+    for (const format of ['human', 'json', 'github', 'sarif'] as const) {
+      const r = await scan(dir, { snapshot: ['s.json'], importConformance: 'conf.json', format });
+      outputs.push(r.out, r.err);
+    }
+    expect(outputs.join('\n')).not.toMatch(/-TEXT-77/);
+    expect(f.seen).toEqual([]);
+  });
+
+  it('a report set is read: the rows of every report, each with its protocol version', async () => {
+    const dir = importFile({
+      kind: 'mcp-conformance-report-set',
+      schemaVersion: 1,
+      command: 'conformance',
+      exitCode: 1,
+      reports: [
+        conformanceReport(),
+        conformanceReport({ protocolVersion: '2025-11-25' }, [
+          { id: 'a-check', suite: 'core', state: 'passed' },
+        ]),
+      ],
+    });
+    const r = await scan(dir, { snapshot: ['s.json'], importConformance: 'conf.json' });
+    expect(
+      r.json()['imported'].reports.map((x: { protocolVersion: string }) => x.protocolVersion),
+    ).toEqual(['2025-06-18', '2025-11-25']);
+  });
+
+  it('a file that is not that report is exit 2 with a plain message: wrong kind, wrong version, not JSON, wrong state, too many rows', async () => {
+    const bad: [string, unknown][] = [
+      ['kind', conformanceReport({ kind: 'mcp-scan-report' })],
+      ['version', conformanceReport({ schemaVersion: 2 })],
+      ['json', '{ nope'],
+      ['state', conformanceReport({}, [{ id: 'x', suite: 'core', state: 'great' }])],
+      ['id', conformanceReport({}, [{ id: 3, suite: 'core', state: 'passed' }])],
+      [
+        'rows',
+        conformanceReport(
+          {},
+          Array.from({ length: 5001 }, (_, i) => ({ id: `c${i}`, suite: 'core', state: 'passed' })),
+        ),
+      ],
+    ];
+    for (const [name, report] of bad) {
+      const dir = importFile(report);
+      const r = await scan(dir, { snapshot: ['s.json'], importConformance: 'conf.json' });
+      expect(r.code, name).toBe(2);
+      expect(r.err, name).toContain('--import-conformance');
+      expect(r.err, name).not.toContain(dir);
+    }
+  });
+
+  it('a file over the size limit is exit 2 and is not read', async () => {
+    const { MAX_IMPORT_BYTES } = await import('../scan/import.js');
+    const dir = importFile(' '.repeat(MAX_IMPORT_BYTES + 1));
+    const r = await scan(dir, { snapshot: ['s.json'], importConformance: 'conf.json' });
+    expect(r.code).toBe(2);
+    expect(r.err).toContain('too large');
+  });
+
+  it('what the report holds is printed cleaned: workflow commands, control and bidi characters, long strings, token-shaped values', async () => {
+    const hostile = [
+      { id: '::error::pwned', suite: 'x', state: 'failed' },
+      { id: `evil\u202e${'a'.repeat(500)}`, suite: 'x', state: 'failed' },
+      { id: `tok-${'ghp_' + 'Qw3rtY'.repeat(6)}`, suite: 'x', state: 'failed' },
+      { id: 'ctl\u001b[31mred', suite: 'x', state: 'passed' },
+    ];
+    const dir = importFile(conformanceReport({ protocolVersion: '::notice::v' }, hostile));
+    for (const format of ['human', 'json', 'github'] as const) {
+      const r = await scan(dir, { snapshot: ['s.json'], importConformance: 'conf.json', format });
+      const all = r.out + r.err;
+      expect(all, format).not.toMatch(/^::/m);
+      expect(all, format).not.toContain('\u202e');
+      expect(all, format).not.toContain('\u001b');
+      expect(all, format).not.toContain('ghp_Qw3rtY');
+      expect(all, format).not.toContain('a'.repeat(300));
+    }
+  });
+
+  it('the imported file is an input: a --journal or --out of the same name is exit 2 and the file is untouched', async () => {
+    const dir = importFile(conformanceReport());
+    const before = readFileSync(join(dir, 'conf.json'), 'utf8');
+    const f = await fixture({ tools: STEP2_TOOLS });
+    writeFileSync(join(dir, 'probes.json'), JSON.stringify({ probes: journalProbes }));
+    const r = await scan(
+      dir,
+      active(f, 'probes.json', { importConformance: 'conf.json', journal: 'conf.json' }),
+      TOKENS,
+    );
+    expect(r.code).toBe(2);
+    expect(readFileSync(join(dir, 'conf.json'), 'utf8')).toBe(before);
+    const r2 = await scan(dir, {
+      snapshot: ['s.json'],
+      importConformance: 'conf.json',
+      out: ['conf.json'],
+    });
+    expect(r2.code).toBe(2);
+  });
+});
+
+// ---- step 2, second review ---------------------------------------------------------------------------------------------------
+
+describe('CLI · mcp scan probes · the journal path guard compares files, not spellings', () => {
+  it('a hard link to the probe file as the journal is exit 2, nothing is sent, the probe file is untouched', async () => {
+    const f = await fixture({ tools: STEP2_TOOLS });
+    const { dir } = probeFile(journalProbes);
+    linkSync(join(dir, 'probes.json'), join(dir, 'hard.json'));
+    const before = readFileSync(join(dir, 'probes.json'), 'utf8');
+    const r = await scan(dir, active(f, 'probes.json', { journal: 'hard.json' }), TOKENS);
+    expect(r.code, r.err).toBe(2);
+    expect(f.seen.filter((s) => s.rpc === 'tools/call')).toEqual([]);
+    expect(readFileSync(join(dir, 'probes.json'), 'utf8')).toBe(before);
+  });
+
+  it('an 8.3 short name of the probe file as the journal is exit 2 (skipped where the volume has no short names)', async (ctx) => {
+    const dir = tmp();
+    const long = join(dir, 'probes-long-name.json');
+    writeFileSync(long, JSON.stringify({ probes: journalProbes }));
+    let short = '';
+    if (process.platform === 'win32') {
+      try {
+        const listing = execSync(`dir /x "${dir}"`, { encoding: 'utf8' });
+        const line = listing.split(/\r?\n/).find((l) => l.includes('probes-long-name.json')) ?? '';
+        short = join(dir, line.trim().split(/\s+/).at(-2) ?? '');
+      } catch {
+        short = '';
+      }
+    }
+    if (!basename(short).includes('~') || !existsSync(short)) return ctx.skip();
+    const f = await fixture({ tools: STEP2_TOOLS });
+    const before = readFileSync(long, 'utf8');
+    const r = await scan(
+      dir,
+      active(f, 'probes-long-name.json', { journal: basename(short) }),
+      TOKENS,
+    );
+    expect(r.code, r.err).toBe(2);
+    expect(readFileSync(long, 'utf8')).toBe(before);
+    expect(f.seen.filter((s) => s.rpc === 'tools/call')).toEqual([]);
+  });
+});
+
+describe('CLI · mcp scan probes · an incomplete journal is in JUnit too', () => {
+  const junitOf = async (
+    extra: Partial<Parameters<typeof runProbes>[0]>,
+    writeFails: (l: Record<string, unknown>, n: number) => boolean,
+  ) => {
+    const f = await fixture({ lax: true, tools: STEP2_TOOLS });
+    let n = 0;
+    const section = await runProbes({
+      entries: [entry('p1', 'none')] as ProbeEntry[],
+      target: { kind: 'http', url: f.url, headers: {} } as never,
+      tokens: {},
+      timeoutMs: 5000,
+      announce: () => {},
+      journal: {
+        record: (l) => {
+          if (writeFails(l, ++n)) throw new Error('disk full');
+        },
+      },
+      ...extra,
+    });
+    const input: ScanInput = {
+      snapshots: [],
+      unreadable: [],
+      configFiles: [],
+      configRequested: false,
+      active: true,
+      allowHosts: [],
+      allowPackages: [],
+      probes: section,
+    };
+    const report = runScan(input, { failOn: 'error', gateHeuristics: false, allowPartial: false });
+    return renderScan(report, 'junit-xml', ALL_RULES, '0');
+  };
+  it('a failure on the last "in" line, and on a "refused" line, say so in the XML', async () => {
+    expect(await junitOf({}, (_l, n) => n === 11)).toContain(
+      'the journal (--journal) could not be written',
+    );
+    expect(
+      await junitOf(
+        { entries: [entry('p1', 'none'), entry('p2', 'none')] as ProbeEntry[], maxCalls: 1 },
+        (l) => l['dir'] === 'refused',
+      ),
+    ).toContain('the journal (--journal) could not be written');
+  });
+});
+
+describe('CLI · mcp scan probes · a malformed destructiveHint blocks, and a control that ran is a JUnit pass', () => {
+  it('the wrapper blocks on true and on any non-boolean that is present; false, null and absent do not block', async () => {
+    const cases: [unknown, boolean][] = [
+      [true, true],
+      [false, false],
+      [undefined, false],
+      [null, false],
+      ['true', true],
+      ['false', true],
+      [1, true],
+      [0, true],
+      [{}, true],
+    ];
+    for (const [hint, blocked] of cases) {
+      const sent: Frame[] = [];
+      const guard = new ProbeGuard(
+        [{ id: 'p1', tool: 'wipe', arguments: {}, as: 'none' }],
+        { maxCalls: 8, maxRequests: 40 },
+        async (frame) => {
+          sent.push(frame);
+          return { kind: 'http', status: 200 } as Reply;
+        },
+      );
+      guard.setListedTools([
+        { name: 'wipe', annotations: hint === undefined ? {} : { destructiveHint: hint } },
+      ]);
+      const got = await guard.send({
+        type: 'rpc',
+        method: 'tools/call',
+        params: { name: 'wipe', arguments: {} },
+        probe: 'p1',
+        credential: { kind: 'none' },
+      });
+      expect(got.sent, String(hint)).toBe(!blocked);
+    }
+  });
+
+  it('a control that ran and was allowed is a passed test case, not a skipped one', async () => {
+    const f = await fixture({ tools: STEP2_TOOLS });
+    const { dir, file } = probeFile(journalProbes);
+    await scan(dir, active(f, file, { out: ['junit-xml=j.xml'] }), TOKENS);
+    const xml = readFileSync(join(dir, 'j.xml'), 'utf8');
+    const m = /<testcase [^>]*name="probe p-a"[^>]*?(\/>|>[\s\S]*?<\/testcase>)/.exec(xml);
+    expect(m).not.toBeNull();
+    expect(m![1]).not.toContain('<skipped');
+  });
+});
+
+// ---- step 3, after review ---------------------------------------------------------------------------------------------------
+
+describe('CLI · mcp scan probes · the verdict on the page marker: bounded cost, every place a result carries text, distinct notes', () => {
+  const MARKER = 'PLUNE-CANARY-0123456789abcdef';
+  const floods: [string, string][] = [
+    ['newlines', '\n'.repeat(64 * 1024)],
+    ['space-newline', ' \n'.repeat(32 * 1024)],
+    ['spaces', ' '.repeat(64 * 1024)],
+    ['dashes', '-'.repeat(64 * 1024)],
+    ['dash-lines', '--- \n'.repeat(13 * 1024)],
+    ['angle', '<'.repeat(64 * 1024)],
+    ['tag-starts', '<data '.repeat(10 * 1024)],
+    ['backticks', '`'.repeat(64 * 1024)],
+    ['hashes', '#'.repeat(64 * 1024)],
+    ['hash-lines', '# \n'.repeat(21 * 1024)],
+    ['begin-lines', 'begin untrusted\n'.repeat(4 * 1024)],
+  ];
+  const text = (t: string) => ({ content: [{ type: 'text', text: t }] });
+
+  it('each sign of a boundary is found in linear time: every flood of 64 KiB, before or after the marker, is judged in under 50 ms', async () => {
+    const { markerVerdict } = await import('../scan/probes/page.js');
+    for (const [name, flood] of floods)
+      for (const input of [
+        `${MARKER}\n${flood}`,
+        `${flood}\n${MARKER}`,
+        `${flood}${MARKER}${flood}`,
+      ]) {
+        const t = performance.now();
+        markerVerdict(text(input), MARKER);
+        expect(performance.now() - t, name).toBeLessThan(50);
+      }
+  });
+
+  it('a boundary counts only where it encloses the marker: a word or a fence somewhere else does not turn the finding off', async () => {
+    const { markerVerdict } = await import('../scan/probes/page.js');
+    expect(
+      markerVerdict(
+        text(`the word untrusted is fine here\n\`\`\`js\ncode\n\`\`\`\n${MARKER}`),
+        MARKER,
+      ),
+    ).toBe('verbatim');
+    expect(markerVerdict(text(`<data>x</data>\n${MARKER}`), MARKER)).toBe('verbatim');
+    expect(
+      markerVerdict(
+        {
+          content: [
+            { type: 'text', text: 'a', annotations: {} },
+            { type: 'text', text: MARKER },
+          ],
+        },
+        MARKER,
+      ),
+    ).toBe('verbatim');
+    expect(markerVerdict(text(`\`\`\`\n${MARKER}\n\`\`\``), MARKER)).toBe('bounded');
+    expect(
+      markerVerdict(text(`<untrusted-content>\n${MARKER}\n</untrusted-content>`), MARKER),
+    ).toBe('bounded');
+    expect(markerVerdict(text(`---\n${MARKER}\n---`), MARKER)).toBe('bounded');
+    expect(markerVerdict(text(`BEGIN UNTRUSTED\n${MARKER}\nEND UNTRUSTED`), MARKER)).toBe(
+      'bounded',
+    );
+    expect(
+      markerVerdict(
+        { content: [{ type: 'text', text: MARKER, annotations: { audience: ['user'] } }] },
+        MARKER,
+      ),
+    ).toBe('bounded');
+  });
+
+  it('a structuredContent over 1 MiB is not serialised: it counts as over the read', async () => {
+    const { markerVerdict } = await import('../scan/probes/page.js');
+    const spy = vi.spyOn(JSON, 'stringify');
+    try {
+      const huge = { page: 'x'.repeat(2 * 1024 * 1024), more: MARKER };
+      expect(markerVerdict({ content: [], structuredContent: huge }, MARKER)).toBe('too-large');
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('the marker is looked for in content text, in an embedded resource text and in structuredContent', async () => {
+    const { markerVerdict } = await import('../scan/probes/page.js');
+    expect(
+      markerVerdict(
+        { content: [{ type: 'resource', resource: { uri: 'x://a', text: MARKER } }] },
+        MARKER,
+      ),
+    ).toBe('verbatim');
+    expect(markerVerdict({ content: [], structuredContent: { page: MARKER } }, MARKER)).toBe(
+      'verbatim',
+    );
+  });
+
+  it('what was not judged is said apart: an answer over the 64 KiB read, an answer with no text, a marker that did not come back', async () => {
+    const { markerVerdict } = await import('../scan/probes/page.js');
+    expect(markerVerdict(text(`${'x'.repeat(70 * 1024)}${MARKER}`), MARKER)).toBe('too-large');
+    expect(
+      markerVerdict({ content: [{ type: 'image', data: 'AAAA', mimeType: 'image/png' }] }, MARKER),
+    ).toBe('no-text');
+    expect(markerVerdict({}, MARKER)).toBe('no-text');
+    expect(markerVerdict(text('nothing here'), MARKER)).toBe('absent');
+  });
+
+  it('the notes of the row are distinct in the report: did not come back, over the limit, the tool did not run', async () => {
+    const big = await fixture({ tools: FETCH_TOOLS, fetchMode: 'big' });
+    const { dir, file } = probeFile([fetchEntry()]);
+    const r = await scan(dir, active(big, file), TOKENS);
+    expect((byId(r, 'f1') as { note?: string }).note).toBe(
+      'the answer was over 64 KiB: not judged',
+    );
+    const none = await fixture({ tools: FETCH_TOOLS, fetchMode: 'none' });
+    const r2 = await scan(dir, active(none, file), TOKENS);
+    expect((byId(r2, 'f1') as { note?: string }).note).toBe(
+      'the marker did not come back in the text that was read',
+    );
+    const hang = await fixture({ tools: FETCH_TOOLS, hangOnFetch: true });
+    const r3 = await scan(dir, { ...active(hang, file), timeout: '500ms' } as McpScanFlags, TOKENS);
+    expect(byId(r3, 'f1').outcome).toBe('not-run');
+  });
+
+  it('the listener of the page has explicit small limits', async () => {
+    const { startPage } = await import('../scan/probes/page.js');
+    const page = await startPage();
+    try {
+      expect(page.limits.maxConnections).toBeLessThanOrEqual(16);
+      for (const k of ['headersTimeout', 'requestTimeout', 'keepAliveTimeout'] as const) {
+        expect(page.limits[k], k).toBeGreaterThan(0);
+        expect(page.limits[k], k).toBeLessThanOrEqual(10_000);
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('the listener is closed when the tool never answers', async () => {
+    const f = await fixture({ lax: true, tools: FETCH_TOOLS, hangOnFetch: true });
+    await runProbes({
+      entries: [fetchEntry('f1')] as ProbeEntry[],
+      target: { kind: 'http', url: f.url, headers: {} } as never,
+      tokens: { accountA: TOKEN_A },
+      timeoutMs: 400,
+      announce: () => {},
+    });
+    expect(f.fetched.length).toBeGreaterThan(0);
+    for (const u of new Set(f.fetched.map((x) => x.url))) await expect(fetch(u)).rejects.toThrow();
+  });
+});
+
+// A stdio test starts a node process or two; the first start on a cold machine takes seconds. Only these tests wait long.
+describe(
+  'CLI · mcp scan probes · what a stdio child writes is bounded',
+  { timeout: 60_000 },
+  () => {
+    it('the stderr reader keeps no more than a line limit: 50 MiB with no newline is one cut line, and the lines after it are whole', async () => {
+      const { readLines, STDERR_LINE_LIMIT } = await import('../connect/session.js');
+      const { PassThrough } = await import('node:stream');
+      const stream = new PassThrough();
+      const lines: string[] = [];
+      const stats = { high: 0 };
+      const done = readLines(stream, (l) => lines.push(l), stats);
+      const chunk = Buffer.alloc(1024 * 1024, 'x');
+      for (let i = 0; i < 50; i++)
+        if (!stream.write(chunk)) await new Promise((r) => stream.once('drain', r));
+      stream.write('\nsecond\r\nthird');
+      stream.end();
+      await done;
+      expect(lines).toHaveLength(3);
+      expect(lines[0]!.length).toBeLessThanOrEqual(STDERR_LINE_LIMIT);
+      // The most it ever held at once: the cap plus one chunk (1 MiB here), not the 50 MiB written.
+      expect(stats.high).toBeLessThanOrEqual(STDERR_LINE_LIMIT + chunk.length);
+      expect(lines.slice(1)).toEqual(['second', 'third']);
+    });
+
+    it('a child that writes 50 MiB to stderr with no newline: the run ends with its normal result and the child is stopped', async () => {
+      const { s, run } = stdioRun('stderr-flood', leaky);
+      const section = await run();
+      expect(section.rows[0]!.outcome).toBe('as-expected');
+      expect(alive(s.pid())).toBe(false);
+    });
+
+    it('a child that writes more than 10 MiB to stdout with no newline is a transport failure, not a hang, and is stopped', async () => {
+      const { s, run } = stdioRun('stdout-flood', [...leaky, { ...leaky[0], id: 'm2' }]);
+      const t = Date.now();
+      const section = await run();
+      expect(Date.now() - t).toBeLessThan(20_000);
+      expect(section.rows.every((x) => x.outcome === 'not-run')).toBe(true);
+      expect(alive(s.pid())).toBe(false);
+    });
+
+    it('a child that never answers a tools/call is stopped, and the page of the scan is closed', async () => {
+      const { s, run } = stdioRun('hang-on-call', [fetchEntry('f1')], { timeoutMs: 600 });
+      const section = await run();
+      expect(section.rows[0]!.outcome).toBe('not-run');
+      expect(alive(s.pid())).toBe(false);
+    });
+
+    it('on Windows, a process the child started is gone after the scan (skipped elsewhere: the tree kill of the other systems is not under test here)', async (ctx) => {
+      if (process.platform !== 'win32') return ctx.skip();
+      const { s, run } = stdioRun('grandchild', leaky);
+      await run();
+      expect(alive(s.pid())).toBe(false);
+      expect(alive(Number(readFileSync(`${s.dir}/pid.gc`, 'utf8')))).toBe(false);
+    });
+  },
+);

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { noCommands, noCommandsJson } from '../report/human.js';
 import type { ScanClass, ScanLevel } from './descriptions.js';
+import type { ImportedConformance } from './import.js';
 import { PROBE_REASONS, type ProbeRow } from './probes/types.js';
 
 /**
@@ -97,6 +98,8 @@ export interface ScanReport {
     metadata: 'found' | 'not-found' | 'unreachable' | null;
   };
   notEvaluated: NotEvaluatedRow[];
+  /** Rows of a conformance report named with `--import-conformance`, as imported; null when none was named. */
+  imported: ImportedConformance | null;
   exceptions: { file: string | null; expired: number; unused: number };
   /** Findings that have no place in a file, which SARIF cannot show. */
   omittedResults: number;
@@ -115,6 +118,14 @@ const where = (f: { location?: { file: string; line: number; column?: number } }
   f.location === undefined
     ? ''
     : ` (${f.location.file}:${f.location.line}${f.location.column === undefined ? '' : `:${f.location.column}`})`;
+
+const IMPORT_WORDS = {
+  passed: 'passed',
+  failed: 'failed',
+  'could-not-run': 'not run',
+  'not-applicable': 'not applicable',
+  pending: 'pending',
+} as const;
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
@@ -177,8 +188,28 @@ function human(r: ScanReport): string {
         `  ${p.id === '' ? '(none)' : p.id} / ${p.expect === 'none' ? 'no expectation' : `expect ${p.expect}`} / ${probeResult(p)}${probeControl(p)}${p.reason === undefined ? '' : ` / ${PROBE_REASONS[p.reason]}`}${p.note === undefined ? '' : ` (${p.note})`}`,
       );
     out.push(
-      `  ${r.probes.calls} tools/call and ${r.probes.requests} requests sent. Step 1 keeps no record of the frames beyond this table.`,
+      `  ${r.probes.calls} tools/call and ${r.probes.requests} requests sent. The frames are kept only with --journal, and then without a response body.`,
     );
+  }
+  if (r.imported !== null) {
+    out.push(
+      '',
+      `Imported from a conformance report (${r.imported.file}); these rows were not run by this scan and do not change the exit code:`,
+    );
+    let shownRows = 0;
+    for (const rep of r.imported.reports) {
+      out.push(
+        `  [${rep.protocolVersion === '' ? 'protocol ?' : rep.protocolVersion} ${rep.transport}] the report's own exit code: ${rep.exitCode ?? 'not stated'}`,
+      );
+      for (const row of rep.rows) {
+        if (shownRows++ >= 200) break;
+        out.push(
+          `    ${row.id} / ${row.suite} / ${IMPORT_WORDS[row.state]}${row.reason === undefined ? '' : ` (${row.reason})`}`,
+        );
+      }
+    }
+    const all = r.imported.reports.reduce((n, x) => n + x.rows.length, 0);
+    if (all > 200) out.push(`    ... and ${all - 200} more rows in the json report`);
   }
   const live = r.findings.filter((f) => f.suppressed === undefined);
   if (live.length > 0) {
@@ -471,9 +502,22 @@ function junit(r: ScanReport): string {
             cases.push({ classname, name, kind: 'failure', type: f.severity, message: f.message });
           else if (f !== undefined)
             cases.push({ classname, name, kind: 'skipped', type: 'advisory', message: f.message });
+          else if (p.note !== undefined)
+            cases.push({ classname, name, kind: 'skipped', type: 'advisory', message: p.note });
           else cases.push({ classname, name, kind: 'pass', type: '', message: '' });
         }
       }
+      // A reason that belongs to no probe (the journal could not be written) is a case of its own.
+      for (const n of r.notEvaluated.filter(
+        (x) => x.group === 'active' && x.reason.startsWith('the journal'),
+      ))
+        cases.push({
+          classname,
+          name: 'journal',
+          kind: 'skipped',
+          type: 'not-evaluated',
+          message: `not evaluated: ${n.reason}`,
+        });
       continue;
     }
     if (g.state === 'not-evaluated') {

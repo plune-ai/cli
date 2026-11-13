@@ -13,6 +13,7 @@ import type { Answer } from './wire.js';
 import { AUTH, type OauthContext } from './auth.js';
 import { AUTH_REGISTRATION } from './auth-registration.js';
 import { AUTH_PROBES } from './auth-probes.js';
+import { AUTH_FLOW } from './auth-flow.js';
 import { AUTH_SCOPE } from './auth-scope.js';
 import { AUTH_TOKEN } from './auth-token.js';
 import { BASE } from './base.js';
@@ -77,6 +78,7 @@ export const IMPLEMENTATIONS: Readonly<Record<string, ConformanceCheck>> = {
   ...AUTH_PROBES,
   ...AUTH_TOKEN,
   ...AUTH_SCOPE,
+  ...AUTH_FLOW,
   ...APPS,
   ...TASKS,
 };

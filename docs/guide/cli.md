@@ -1058,7 +1058,7 @@ another resource (`oauth-neg-wrong-audience`). Each id, its level and the sectio
 
 | Flag | Meaning |
 |------|---------|
-| `--config <file>` | A JSON file: `auth`, `registration`, `scopes`, `narrowScopes`, `resource`, `protocolVersions`. A secret is never a value in it: `registration.clientSecretEnv` names the environment variable that holds the client secret, and a file with a key that names a secret is refused. |
+| `--config <file>` | A JSON file, or a YAML file when its name ends in `.yaml` or `.yml` (the same keys and rules; no anchor, alias, custom tag or merge key, and at most 64 KiB, checked from the size of the file before it is read): `auth`, `registration` (one object, or a list of objects with a `method` each: the suite then runs once for each revision and each method, reports each run with its own summary, and adds a `Combined` summary made from the counters of all runs, not from their scores), `scopes`, `narrowScopes`, `resource`, `protocolVersions`. A secret is never a value in it: `registration.clientSecretEnv` names the environment variable that holds the client secret, and a file with a key that names a secret is refused. |
 | `--allow-origin <origin>` | Ask this origin too. Without it, a `resource_metadata` URL or an authorization server on another origin than the server's is not asked, and the check is `could-not-run` (`needs-input`). It is also the only way the client secret leaves the run: the secret is sent only to a token endpoint whose origin is named here (the server's own origin included), and only over https, or http on a loopback name. Repeatable. |
 
 `oauth-neg-wrong-audience` needs `"auth": "client-credentials"` and a preregistered client the authorization server accepts
@@ -1094,6 +1094,9 @@ for another method is `not-applicable`.
 | `oauth-neg-authorize-redirect-mismatch` | The same `registration.clientId` and `redirectUri`. The real client is asked with its own redirect URI (the control), then with `https://plune-conformance-other.invalid/callback`, which no client registered. A redirect to that address, with a code or with an error, is `failed`; the address is never contacted, and no answer is followed. HTTP 400, 401, 403 or 404 is a pass (so is an error that names the client); any other 4xx is `could-not-run`. A sign-in page for both is `could-not-run`. |
 | `oauth-e2e-token-works` | `auth: "client-credentials"` and a preregistered client with `clientSecretEnv`, and the token endpoint's origin named with `--allow-origin` (https, or http on a loopback name). One request goes to the token endpoint, for the resource of the server (`resource` of `--config`, else the MCP endpoint), and one to the MCP endpoint with the token: the request that got 401 without a token must now succeed. It is `failed` only for a 401 to a Bearer token that is a JWT whose `aud` holds that resource (and whose challenge does not say `insufficient_scope`); an opaque token, another token type, a token endpoint that refuses the client, 403 or another 4xx, 429, 5xx, a redirect (never followed) or a timeout is `could-not-run`. No retry. The token is issued and is not revoked; it is masked in every output. Without the config nothing is sent. |
 | `oauth-neg-insufficient-scope` | A SHOULD, so it counts for nothing in the score. `auth: "client-credentials"` and a preregistered client as above, and `narrowScopes` in `--config`: the scopes to ask for the token that must be refused, a list that differs from `scopes` (the full set), for example `"scopes": ["mcp:tools", "mcp:read"], "narrowScopes": ["mcp:read"]`. A token with `scopes` is asked for first and must be accepted (the control); then a token with `narrowScopes`, sent only if the authorization server issued a narrower one. `403` with `WWW-Authenticate: Bearer error="insufficient_scope"` passes; `401`, or `403` without that error, fails (a `401` that carries `insufficient_scope` too, since the text asks for 403). `narrowScopes` must be a subset of `scopes`, and a scope is one word: a string with white space is refused. A `2xx` cannot be judged (the request the suite makes may not need the wider scope) and is `could-not-run`, as is a token endpoint that does not narrow the scope. At most two requests go to the token endpoint and two to the MCP endpoint, no retry; both tokens are issued, not revoked, and masked in every output. |
+| `oauth-authz-response-iss` | Only in 2026-07-28. `auth: "headless"` and a pre-registered client: the authorization endpoint must answer the request with a redirect to your redirect URI that carries a code (no redirect is followed; a sign-in page is `could-not-run`, `needs-input`). Judged from that redirect alone, no token is asked. A server that advertises `authorization_response_iss_parameter_supported` must send `iss` equal to its issuer (a missing or other `iss` is `failed`); a server that advertises nothing and sends no `iss` is `not-applicable`. An `iss` repeated in the redirect is `failed` when the server advertises the parameter. A `state` that does not come back as sent is `could-not-run`. A redirect counts as the one to your redirect URI only when scheme, user, host, port and path are the same. The code is masked in every output. |
+| `oauth-neg-pkce-wrong-verifier` | `auth: "headless"`, a pre-registered client, and the token endpoint's origin named with `--allow-origin`. A code is exchanged with its own verifier (the control: it must give a token), then a second code with another verifier, which must be refused with HTTP 400 and `error` exactly `invalid_grant` (RFC 7636 section 4.6). A token for the second exchange is `failed`; any other answer (`invalid_client`, `invalid_request`, a 401, 429, 5xx, a redirect, a timeout, a cut connection) is `could-not-run`, because it does not show that PKCE made the refusal. A client with no `clientSecretEnv` is sent as a public client (`client_id` in the body). Both tokens, if issued, are not revoked and are masked. |
+| `oauth-neg-token-redirect-mismatch` | As the check above, with the second code exchanged with another `redirect_uri` (RFC 6749 section 4.1.3). A token is `failed`. A refusal is a pass only when it is HTTP 400 with `invalid_grant` and its `error_description` names the redirect_uri; a bare `invalid_grant` does not show that the redirect_uri was compared and is `could-not-run`. The control exchange is shared with the check above. On the authorization server, one run of these three checks issues at most 4 authorization codes (one for `oauth-authz-response-iss`, one for the control and one for each probe) and 1 control token, and up to 3 tokens when both probes fail; over both revisions that is up to 7 codes and 6 token requests (the older revision has no `iss` check). Only a run with the `preregistered` method asks for codes, so a registration list does not multiply them; a `dcr` run registers one client (see `allowClientCreation`), once for each revision. Nothing is revoked or removed. |
 
 **Dynamic registration creates a client on the authorization server, which is not yours, and the client may stay
 there.** It is off unless `registration.allowClientCreation` is `true`, and it is sent only to a registration endpoint on
@@ -1230,6 +1233,8 @@ and an empty `path` are errors.
 | `2` | Usage: nothing to scan or every group left out, a bad flag, a file that does not exist, a malformed snapshot, pin file or exceptions file (also an exception without `reason` or `expires`, an exceptions file over 8 MiB or one that cannot be read), two snapshots with one label. |
 | `3` | Something asked for could not be measured: an empty snapshot, a snapshot or pin file over 8 MiB or one that cannot be read (it vanished, or no permission), a client configuration file that cannot be parsed or holds no servers, a config scan cut at its cap of findings, a description over 1 MB (only its first 1 MB is scanned), a live server that could not be read, a probe that did not run (no probe file, no consent, a spent budget, an answer that decides nothing). |
 
+`scan/hint/destructive-missing` (info, never gates, needs no `--active`): a tool whose annotations do not say `destructiveHint` and do not say `readOnlyHint: true`. A client must treat such a tool as destructive. A tool with no annotations at all, or whose name says it writes while it is `readOnlyHint: true`, is a case of `plune mcp lint`.
+
 Only deterministic findings of a rule marked as gating change the exit code. Heuristics (`override-instruction`, ...)
 are advice and print as `note` in SARIF.
 
@@ -1254,11 +1259,13 @@ plune mcp scan --active --url http://127.0.0.1:3000/mcp --probes probes.json --t
 
 | Flag | Meaning |
 | --- | --- |
-| `--probes <file>` | The calls, as above. `as`: `none`, `garbage` (a random value made for each run), `account-a`, `account-b` (the tokens of `--token-env` and `--other-token-env`), `wrong-audience`. `expect`: `refuse`, `allow` or left out. `allowDestructive: true` lets a tool marked `destructiveHint: true` be called. An unknown key, a repeated id or a file over 256 KiB is exit `2`. |
+| `--probes <file>` | The calls, as above. `as`: `none`, `garbage` (a random value made for each run), `account-a`, `account-b` (the tokens of `--token-env` and `--other-token-env`), `wrong-audience`. `expect`: `refuse`, `allow` or left out. `allowDestructive: true` lets a tool marked `destructiveHint: true` be called. `malformed: true` (only with `as: account-a`, no `expect`) is [the error-detail check](#a-malformed-call). An unknown key, a repeated id or a file over 256 KiB is exit `2`. |
 | `--token-env`, `--other-token-env` | The names of variables, never the tokens. A token goes only to the origin of `--url`, over https or to this machine, and a redirect is never followed. The `--header` values are not sent by a probe. |
 | `--confirm-host <host>` | For a `--url` that is not on this machine: the host of the URL exactly as written (with the port, if the URL has one). Without it nothing is sent, and the probes are "not run: no consent". The line `probes will go to <url>` is printed to stderr before the first probe frame. |
 | `--max-calls <n>`, `--max-requests <n>` | At most `n` `tools/call` (default 8) and `n` requests of any kind (default 40). A frame over a budget is refused before it is sent. |
-| `--yes` | Accepts the command printed for a stdio server. No probe of this version runs on stdio (the authentication probes are "not applicable (stdio)"). |
+| `--journal <file>` | Writes one JSON line for every frame a probe sends, every answer and every frame the wrapper refuses, as it happens (so the file is there after a crash or a budget stop). The file is created `0600` and replaces an older one of the same name, like `--debug-out`. A file that cannot be opened is exit `2` before the first frame; a line that cannot be written stops the probes (the rest are "not run: journal"), because no frame is sent unrecorded. The path must not be a file the scan reads (`--probes`, `--snapshot`, `--config`, `--pin-file`, `--ignore-file`) or writes elsewhere (`--out`, `--save-snapshot`, `--debug-out`): that is exit `2`, compared by file identity (device and inode, so a relative spelling, a link, a hard link and a Windows 8.3 short name are the same file) and by real path, case-folded on Windows. A line that cannot be written, on any kind of line, makes the scan exit `3` ("the journal is incomplete"). See [the journal](#the-journal). |
+| `--yes` | Lets a probe start the command of a stdio server (the command is printed to stderr first, with secrets masked). Without it nothing is started and the probes are "not run: no --yes". On stdio the authentication probes are "not applicable (stdio)": there is no token at transport level. `malformed` and `fetches` probes run. The child is stopped on every way out of the run; a child that exits, closes its pipe or says nothing is a transport failure ("not run"), bounded by `--timeout`. Its stderr is never printed. |
+| `--import-conformance <file>` | Shows the rows of a report of `plune mcp conformance` (one report or a set; read from `--format json`, up to 2 MiB) in the summary as imported, with their own states: a `could-not-run` row is shown as "not run". They are not findings of this scan, the scan repeats none of those checks and sends nothing for them, and they never change its exit code (the conformance command has its own). Only the check id, suite, state, reason and level are kept; the free text of a check is dropped. A file that is not that report is exit `2`. The path is an input: a `--journal` or `--out` of the same file is exit `2`. |
 
 Every probe goes through one wrapper. It refuses a `tools/call` for a tool and arguments that are not an entry of the
 probe file, counts both budgets, stops after two transport failures in a row (a timeout, a connection that fails, 429 or
@@ -1297,7 +1304,7 @@ decides nothing. The table shows which probe was the control for which.
 A verdict of "violated" comes only from the answer of the server: a call that ran (a result without `isError`) for a probe
 that expects a refusal (for `account-b`, one that has its control). The table of the report lists every probe with what it expected, what the server
 did and why it did not run: no probe file, no consent, no token for account A or B, stdio, a spent budget, the transport
-stopped, the tool is not on the server, the tool is destructive, no control, or an answer that decides nothing. A probe that
+stopped, the tool is not on the server, the tool is destructive, the journal could not be written, the tool declares nothing to break (a malformed probe), no control, or an answer that decides nothing. A probe that
 did not run is never a pass. `--allow-partial` exits `0` although probes did not run: with probes, do not use it unless the
 unrun ones are in the table you read. `wrong-audience` is checked by the oauth suite of `plune mcp conformance` and is not
 run here.
@@ -1307,8 +1314,65 @@ name under `.localhost` is decided by its name and is not this machine here. Ses
 not closed by the scan; the server drops them on its own timeout.
 
 Findings and the table hold the probe id, the rule, the tool name and the category: no response body, no error text and no
-argument value. Step 1 keeps no record of the frames beyond this table. Probes are for your own server only, and no finding
+argument value. The frames are kept only with `--journal`. Probes are for your own server only, and no finding
 does not mean the server is protected.
+
+#### A page that comes from outside
+
+An entry with `"fetches": true`, `"urlArgument": "<name>"` and `"as": "account-a"` declares a tool that returns data from
+outside. **The tool makes the server perform a request to this machine**: it is not read-only by nature, so name only tools
+that are safe to run on a test account. The scan starts a listener on `127.0.0.1` when the first `fetches` probe runs
+(with small limits on connections and timeouts), serves one harmless line to any request (`PLUNE-CANARY-` and 16 random hex
+digits, new for each run), calls the tool with the address of that page in the argument you named (the name is never
+guessed from the schema), and reads the text of the answer, up to 64 KiB in all: `content[].text`, `content[].resource.text`
+and `structuredContent` as JSON (not serialised at all past 1 MiB: then the answer counts as over the read). With several copies of the marker in an answer, only the first is judged. The listener is closed when the run ends, on every way out.
+
+The row says which case it was: the marker came back verbatim; came back inside a boundary; did not come back in the text
+that was read; the answer was over the 64 KiB read (not judged); the answer had no text (not judged); or the tool did not
+run. Only the first is a finding: the advice `scan/probe/untrusted-content-verbatim`, which never gates without
+`--gate-heuristics`. A boundary is a sign that encloses the marker (a code fence, a tag such as `<untrusted-content>`, a
+separator line or a begin/end untrusted line on both sides) or `annotations` on the same content item. That is a heuristic
+a server can satisfy trivially, and "did not come back" proves nothing about how the server handles outside text. The answer
+is never printed or journaled. A server that is not on this machine cannot reach the page: that probe is "not run: remote
+server". A stdio server and a server on `localhost` or `127.0.0.1` can.
+
+#### A stdio server
+
+With `--yes` a probe starts the command you gave after `--` (printed first, secrets masked). The child gets only the values
+you passed with `--env` and the short default list of the SDK (`PATH`, `HOME` and the like), not the environment of the scan,
+so a token variable of the scan does not reach it. The child and the processes it started are stopped on every way out of
+the run. What it writes to stderr is never printed, and a line of it is cut at 64 KiB as it is read.
+
+#### The journal
+
+A line has a timestamp, a sequence number and a direction: `out` (a frame that was sent), `in` (its answer) or `refused`
+(a frame the wrapper did not send, with the reason). An `out` line holds the method, the tool and the probe id, which kind
+of credential went with it (`none` or `bearer`, never its value), the size of the parameters and the headers, in which
+`Authorization`, `Cookie`, `Set-Cookie`, any header whose name says it is a credential, and `Mcp-Session-Id` are `***`.
+An `in` line holds the status, the JSON-RPC id, whether the answer held a `result`, an `error` or `isError`, and its size.
+**A response body is never written**, and neither is an argument value: a body may echo a token or hold somebody's data.
+This is stricter than a full frame log on purpose; use `plune mcp snapshot --debug-out` for that on a server you own. The
+tokens of the run, in plain, URL-encoded, base64 and base64url form, are removed from every line before it is written.
+
+#### A malformed call
+
+An entry with `"malformed": true` (and `"as": "account-a"`) sends its tool one call with arguments derived from the tool's
+`inputSchema` in a fixed way: the first required property is left out (the other required ones get a placeholder of their
+type); a tool with no required property gets its first property with a value of the wrong type. The `arguments` of the
+entry are not sent, the call counts in both budgets, and a tool marked `destructiveHint: true` is not called without
+`allowDestructive`. The error in the answer (the JSON-RPC message and data, or the text of an `isError` result), read up to
+its first 64 KiB, is matched against five patterns: `stack-js`, `stack-py`, `abs-path`, `sql`, `internal-host`. A match is
+the advice finding `scan/probe/error-detail-leak` with the pattern id and the tool; the text is never printed or journaled.
+The patterns are heuristics: they have false hits and misses, and "no pattern matched" is not "safe".
+
+**A malformed call may run.** A server that does not check arguments against its own schema will execute it: the call goes
+to a real tool, with a missing or wrongly typed argument, and what the tool does with that is up to the tool. It is blocked
+for a tool marked `destructiveHint: true` unless the entry says `allowDestructive`, exactly like a declared probe, and
+`readOnlyHint` is not read (a server's own hint widens nothing). So name only tools that are safe to run on a test account.
+A row whose call returned a result and no error says `ran; no error text to read`; `no pattern matched` is only for an
+error that was read. Only JSON-RPC errors and `isError` results are searched: an HTTP 400 or 422 with a body is "not run"
+(an answer that decides nothing) and its body is not read. A tool whose schema has more than 256 `required` or property
+names, or whose derived arguments pass 16 KiB, is "not run: the inputSchema is too large".
 
 GitHub Actions (replace `X.Y.Z` with the version of `@plune-ai/cli` you have tested):
 

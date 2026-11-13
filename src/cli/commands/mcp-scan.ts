@@ -3,8 +3,8 @@
 // src/mcp-testing/scan/; the report and its formats in src/mcp-testing/scan/report.ts; this file reads, connects,
 // prints and exits. It never runs a command that a configuration file holds: that text is only read.
 
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { basename, isAbsolute, relative, resolve } from 'node:path';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { ConnectError } from '../../mcp-testing/connect/session.js';
 import {
   connectionConfig,
@@ -31,6 +31,8 @@ import { parseScanExceptions } from '../../mcp-testing/scan/exceptions.js';
 import { parseProbeFile } from '../../mcp-testing/scan/probes/file.js';
 import { DEFAULT_MAX_CALLS, DEFAULT_MAX_REQUESTS } from '../../mcp-testing/scan/probes/guard.js';
 import { isThisMachine } from '../../mcp-testing/scan/probes/local.js';
+import { MAX_IMPORT_BYTES, parseConformanceImport } from '../../mcp-testing/scan/import.js';
+import { openProbeJournal } from '../../mcp-testing/scan/probes/journal.js';
 import { runProbes, type ProbeRunOptions } from '../../mcp-testing/scan/probes/runner.js';
 import { GROUPS, renderScan, type FailOn, type ScanGroup } from '../../mcp-testing/scan/report.js';
 import { ALL_RULES, runScan, type ScanSnapshot } from '../../mcp-testing/scan/run.js';
@@ -63,6 +65,10 @@ export interface McpScanFlags extends ConnectionFlags, ReportFlags {
   yes?: boolean;
   maxCalls?: string;
   maxRequests?: string;
+  /** `--import-conformance`: the report of `plune mcp conformance`, shown in the summary as imported. */
+  importConformance?: string;
+  /** `--journal`: every frame and answer of the probes, one JSON line each, with no secret and no body. */
+  journal?: string;
   tokenEnv?: string;
   otherTokenEnv?: string;
 }
@@ -124,7 +130,13 @@ function shown(cwd: string, path: string): string {
     : basename(full);
 }
 
-function readText(cwd: string, path: string, flag: string, limit = true): string {
+function readText(
+  cwd: string,
+  path: string,
+  flag: string,
+  limit = true,
+  max = MAX_FILE_BYTES,
+): string {
   const full = resolve(cwd, path);
   if (!existsSync(full)) throw new UsageError(`${flag}: ${path} does not exist.`);
   // A fixed message: the text of an OS error holds the full path.
@@ -137,9 +149,9 @@ function readText(cwd: string, path: string, flag: string, limit = true): string
     } catch {
       throw unreadable();
     }
-  if (size > MAX_FILE_BYTES)
+  if (size > max)
     throw new TooLargeError(
-      `${flag}: ${path} is too large to read (over ${MAX_FILE_BYTES / 1024 / 1024} MiB).`,
+      `${flag}: ${path} is too large to read (over ${max >= 1024 * 1024 ? `${max / 1024 / 1024} MiB` : `${max / 1024} KiB`}).`,
     );
   try {
     return readFileSync(full, 'utf8');
@@ -180,6 +192,80 @@ export async function handleMcpScan(
   }
 }
 
+/**
+ * What names a file, for comparing: its identity (device and inode, which no spelling, short name or hard link
+ * changes) when it exists, and its real path (of its folder, for a file that is not there yet), case-folded on Windows.
+ * Two paths are the same file when either key is the same.
+ */
+function fileKeys(cwd: string, path: string): string[] {
+  const full = resolve(cwd, path);
+  const keys: string[] = [];
+  let real = full;
+  try {
+    real = realpathSync.native(full);
+    const st = statSync(full, { bigint: true });
+    // Some file systems report 0 for the inode: then only the path says anything.
+    if (st.ino !== 0n) keys.push(`id:${st.dev}:${st.ino}`);
+  } catch {
+    try {
+      real = join(realpathSync.native(dirname(full)), basename(full));
+    } catch {
+      /* neither exists: the resolved path stands */
+    }
+  }
+  keys.push(`path:${process.platform === 'win32' ? real.toLowerCase() : real}`);
+  return keys;
+}
+
+/**
+ * A file the command writes is not a file it reads, and no two writes are one file: a journal named like the probe
+ * file would turn the probe file into a journal. Checked before anything is opened for writing and before any frame.
+ */
+function noSharedFiles(
+  flags: McpScanFlags,
+  outputs: { files: { path: string }[] },
+  cwd: string,
+): void {
+  const reads: [string, string][] = [
+    ...(flags.snapshot ?? []).map((spec): [string, string] => [
+      '--snapshot',
+      /^[A-Za-z0-9_.-]+=(.+)$/s.exec(spec)?.[1] ?? spec,
+    ]),
+    ...(flags.config ?? []).map((p): [string, string] => ['--config', p]),
+    ...(flags.pinFile === undefined ? [] : ([['--pin-file', flags.pinFile]] as [string, string][])),
+    ...(flags.ignoreFile === undefined
+      ? []
+      : ([['--ignore-file', flags.ignoreFile]] as [string, string][])),
+    ...(flags.probes === undefined ? [] : ([['--probes', flags.probes]] as [string, string][])),
+    ...(flags.importConformance === undefined
+      ? []
+      : ([['--import-conformance', flags.importConformance]] as [string, string][])),
+  ];
+  const writes: [string, string][] = [
+    ...(flags.journal === undefined ? [] : ([['--journal', flags.journal]] as [string, string][])),
+    ...outputs.files.map((f): [string, string] => ['--out', f.path]),
+    ...(flags.saveSnapshot === undefined
+      ? []
+      : ([['--save-snapshot', flags.saveSnapshot]] as [string, string][])),
+    ...((flags as { debugOut?: string }).debugOut === undefined
+      ? []
+      : ([['--debug-out', (flags as { debugOut: string }).debugOut]] as [string, string][])),
+  ];
+  const seen = new Map<string, string>();
+  for (const [flag, path] of reads) for (const key of fileKeys(cwd, path)) seen.set(key, flag);
+  for (const [flag, path] of writes) {
+    const keys = fileKeys(cwd, path);
+    for (const key of keys) {
+      const other = seen.get(key);
+      if (other !== undefined && other !== flag + '#w')
+        throw new UsageError(
+          `${flag} and ${other.replace('#w', '')} name the same file; a file the scan writes must not be one it reads or writes elsewhere.`,
+        );
+    }
+    for (const key of keys) seen.set(key, flag + '#w');
+  }
+}
+
 async function scan(flags: McpScanFlags, server: string[], io: ScanIo): Promise<number> {
   const failOn = (flags.failOn ?? 'error') as FailOn;
   if (!['error', 'warn', 'never'].includes(failOn))
@@ -194,11 +280,21 @@ async function scan(flags: McpScanFlags, server: string[], io: ScanIo): Promise<
       throw new UsageError(
         `--out: ${f.format} is not written by scan (${FILE_FORMATS.join(', ')}).`,
       );
+  noSharedFiles(flags, outputs, io.cwd);
   if (flags.client !== undefined && !(CLIENTS as string[]).includes(flags.client))
     throw new UsageError(`--client must be one of ${CLIENTS.join(', ')} (got "${flags.client}").`);
   const only = groupsOf('--only', flags.only);
   const skip = groupsOf('--skip', flags.skip);
   const live = flags.url !== undefined || server.length > 0;
+
+  // An imported report is untrusted input: size-limited, read strictly, shown as imported. Read before anything is opened.
+  const imported =
+    flags.importConformance === undefined
+      ? undefined
+      : parseConformanceImport(
+          readText(io.cwd, flags.importConformance, '--import-conformance', true, MAX_IMPORT_BYTES),
+          shown(io.cwd, flags.importConformance),
+        );
 
   // The active probes are planned first: a bad probe file, token or budget is a usage error before any connection.
   let plan: Omit<ProbeRunOptions, 'announce'> | undefined;
@@ -209,11 +305,12 @@ async function scan(flags: McpScanFlags, server: string[], io: ScanIo): Promise<
     flags.yes === true ||
     flags.maxCalls !== undefined ||
     flags.maxRequests !== undefined ||
+    flags.journal !== undefined ||
     flags.tokenEnv !== undefined ||
     flags.otherTokenEnv !== undefined
   )
     throw new UsageError(
-      '--probes, --confirm-host, --yes, --max-calls, --max-requests, --token-env and --other-token-env are for --active; nothing is sent without it.',
+      '--probes, --confirm-host, --yes, --max-calls, --max-requests, --journal, --token-env and --other-token-env are for --active; nothing is sent without it.',
     );
 
   // snapshots: files named by the user, and at most one live server
@@ -396,6 +493,7 @@ async function scan(flags: McpScanFlags, server: string[], io: ScanIo): Promise<
       ...(pinProblem === undefined ? {} : { pinProblem }),
       active: flags.active === true,
       ...(probes === undefined ? {} : { probes }),
+      ...(imported === undefined ? {} : { imported }),
       allowHosts: flags.allowHost ?? [],
       allowPackages: flags.allowPackage ?? [],
     },
@@ -478,6 +576,11 @@ function planProbes(
     ...(flags.confirmHost === undefined ? {} : { confirmHost: flags.confirmHost }),
     maxCalls: count('--max-calls', flags.maxCalls, DEFAULT_MAX_CALLS),
     maxRequests: count('--max-requests', flags.maxRequests, DEFAULT_MAX_REQUESTS),
+    ...(flags.yes === true ? { yes: true } : {}),
+    ...(io.clientVersion === undefined ? {} : { clientVersion: io.clientVersion }),
+    ...(flags.journal === undefined
+      ? {}
+      : { journal: openProbeJournal(resolve(io.cwd, flags.journal)) }),
     timeoutMs: config?.timeoutMs ?? 30_000,
   };
 }

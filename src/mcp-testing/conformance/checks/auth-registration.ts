@@ -68,8 +68,17 @@ const isReg = (
 
 // ---- the authorization endpoint, asked with a client_id only ----
 
+/** What the redirect to the redirect URI carried (in memory only: the code is masked in every output). */
+export interface RedirectResponse {
+  code: string | null;
+  iss: string | null;
+  /** Every `iss` of the redirect: more than one is a fault of the server. */
+  issAll: string[];
+  state: string | null;
+}
+
 export type Authorize =
-  | { kind: 'accepted'; status: number; detail: Exchange }
+  | { kind: 'accepted'; status: number; detail: Exchange; response: RedirectResponse }
   /** The server refused the client itself: invalid_client, unauthorized_client, or an invalid_request that names it. */
   | { kind: 'refused'; status: number; error: string; detail: Exchange }
   /** An answer that says nothing certain of the client (403 with no code, access_denied, server_error...). */
@@ -103,7 +112,12 @@ function judged(
 const ISSUED_IN_REDIRECT = ['code', 'access_token', 'id_token', 'refresh_token', 'state'];
 /** The `state` this suite sends: echoing it back is not an issue. */
 const SENT_STATE = 'plune-conformance';
-function collectRedirectIssued(ctx: OauthContext, location: string | undefined, base: URL): void {
+function collectRedirectIssued(
+  ctx: OauthContext,
+  location: string | undefined,
+  base: URL,
+  sentState: string,
+): void {
   if (location === undefined) return;
   let target: URL;
   try {
@@ -114,15 +128,16 @@ function collectRedirectIssued(ctx: OauthContext, location: string | undefined, 
   for (const params of [target.searchParams, new URLSearchParams(target.hash.slice(1))])
     for (const key of ISSUED_IN_REDIRECT) {
       const value = params.get(key);
-      if (value !== null && value.length >= 4 && value !== SENT_STATE) ctx.secrets.add(value);
+      if (value !== null && value.length >= 4 && value !== sentState) ctx.secrets.add(value);
     }
 }
 
 /** Whether a Location is the redirect URI: the same scheme, host and path (an origin is "null" for a custom scheme). */
 function sameAddress(a: URL, b: URL): boolean {
-  if (a.origin !== 'null' || b.origin !== 'null')
-    return a.origin === b.origin && a.pathname === b.pathname;
-  return a.protocol === b.protocol && a.host === b.host && a.pathname === b.pathname;
+  // The user and password are part of the address too: `https://client.example@other.example` is not `client.example`.
+  const same = a.username === b.username && a.password === b.password && a.pathname === b.pathname;
+  if (a.origin !== 'null' || b.origin !== 'null') return same && a.origin === b.origin;
+  return same && a.protocol === b.protocol && a.host === b.host;
 }
 
 /**
@@ -135,13 +150,18 @@ export async function authorize(
   endpoint: string,
   clientId: string,
   redirectUri: string,
+  opts: { codeChallenge?: string; state?: string } = {},
 ): Promise<Authorize & { toRedirectUri: boolean }> {
+  const state = opts.state ?? SENT_STATE;
   const url = new URL(endpoint);
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('client_id', clientId);
   url.searchParams.set('redirect_uri', redirectUri);
-  url.searchParams.set('state', SENT_STATE);
-  url.searchParams.set('code_challenge', 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM');
+  url.searchParams.set('state', state);
+  url.searchParams.set(
+    'code_challenge',
+    opts.codeChallenge ?? 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
+  );
   url.searchParams.set('code_challenge_method', 'S256');
   url.searchParams.set('resource', ctx.config.resource ?? ctx.url);
   const { res, detail } = await send(ctx, url.href, {
@@ -151,7 +171,7 @@ export async function authorize(
   const { status } = res;
   const location = res.headers.find(([n]) => n.toLowerCase() === 'location')?.[1];
   // Before the exchange is written down: what a redirect carries is issued by the server, and a code is as good as a token.
-  collectRedirectIssued(ctx, location, url);
+  collectRedirectIssued(ctx, location, url, state);
   const d = detail();
   if (transient(status) && !(status >= 300 && status < 400 && location !== undefined))
     return { kind: 'transient', status, detail: d, toRedirectUri: false };
@@ -184,7 +204,18 @@ export async function authorize(
         toRedirectUri: landed,
       };
     return landed
-      ? { kind: 'accepted', status, detail: d, toRedirectUri: true }
+      ? {
+          kind: 'accepted',
+          status,
+          detail: d,
+          toRedirectUri: true,
+          response: {
+            code: target.searchParams.get('code'),
+            iss: target.searchParams.get('iss'),
+            issAll: target.searchParams.getAll('iss'),
+            state: target.searchParams.get('state'),
+          },
+        }
       : { kind: 'page', status, detail: d, toRedirectUri: false };
   }
   if (status >= 200 && status < 300)
@@ -434,7 +465,9 @@ async function register(
   if (status === 401 || status === 403) return { kind: 'needs-credential', status, detail: d };
   if (transient(status)) return { kind: 'transient', status, maybe: status !== 429, detail: d };
   const error =
-    isObject(doc) && typeof doc['error'] === 'string' ? maskedCut(ctx, doc['error'], 60) : undefined;
+    isObject(doc) && typeof doc['error'] === 'string'
+      ? maskedCut(ctx, doc['error'], 60)
+      : undefined;
   return { kind: 'refused', status, error, detail: d };
 }
 
