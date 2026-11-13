@@ -1067,7 +1067,7 @@ another resource (`oauth-neg-wrong-audience`). Each id, its level and the sectio
 
 | Flag | Meaning |
 |------|---------|
-| `--config <file>` | A JSON file, or a YAML file when its name ends in `.yaml` or `.yml` (the same keys and rules; no anchor, alias, custom tag or merge key, and at most 64 KiB, checked from the size of the file before it is read): `auth`, `registration` (one object, or a list of objects with a `method` each: the suite then runs once for each revision and each method, reports each run with its own summary, and adds a `Combined` summary made from the counters of all runs, not from their scores), `scopes`, `narrowScopes`, `resource`, `protocolVersions`. A secret is never a value in it: `registration.clientSecretEnv` names the environment variable that holds the client secret, and a file with a key that names a secret is refused. |
+| `--config <file>` | A JSON file, or a YAML file when its name ends in `.yaml` or `.yml` (the same keys and rules; no anchor, alias, custom tag or merge key, and at most 64 KiB, checked from the size of the file before it is read): `auth` (`headless` or `client-credentials`), `redirectUri`, `registration` (one object, or a list of objects with a `method` each: the suite then runs once for each revision and each method, reports each run with its own summary, and adds a `Combined` summary made from the counters of all runs, not from their scores), `scopes`, `narrowScopes`, `resource`, `protocolVersions`. A secret is never a value in it: `registration.clientSecretEnv` names the environment variable that holds the client secret, and a file with a key that names a secret is refused. |
 | `--allow-origin <origin>` | Ask this origin too. Without it, a `resource_metadata` URL or an authorization server on another origin than the server's is not asked, and the check is `could-not-run` (`needs-input`). It is also the only way the client secret leaves the run: the secret is sent only to a token endpoint whose origin is named here (the server's own origin included), and only over https, or http on a loopback name. Repeatable. |
 
 `oauth-neg-wrong-audience` needs `"auth": "client-credentials"` and a preregistered client the authorization server accepts
@@ -1132,8 +1132,9 @@ Everything the server issues is masked in every output: any string under a key t
 password, assertion or credential (`client_secret`, `registration_access_token`, `initial_access_token`, `refresh_token`,
 `id_token`, ...) at any depth, and `registration_client_uri` whole, because it often carries a secret.
 
-Not in this version: the browser and headless sign-in, the checks of the authorization endpoint that refuse a wrong
-request, and a result per registration method.
+Not supported: signing in through a browser. `auth: "interactive"` is accepted in a file but opens nothing, and the checks
+that need a signed-in person are `could-not-run` (`needs-input`). Use `auth: "headless"` (see `oauth-authz-response-iss`)
+or `auth: "client-credentials"`.
 
 ### The apps suite
 

@@ -15,6 +15,7 @@ import type { McpPinFlags } from './cli/commands/mcp-pin.js';
 // The connection flags of `plune mcp` commands: commander and a duration parser, no MCP client (that loads in the action).
 import { addConnectionOptions } from './mcp-testing/connect/options.js';
 import { addReportOptions } from './mcp-testing/report/options.js';
+import { configFlagValues, rawArgsOf, subcommandPath } from './cli/config-flag.js';
 
 // COLD-START (NFR-1, <300ms): keep this module's top-level imports tiny — commander + node
 // builtins only. The command handlers transitively load heavy deps (@huggingface/transformers,
@@ -138,7 +139,11 @@ export function createProgram(): Command {
   // `--help` and an unknown command never pay for it (cold start, above).
   program.hook('preAction', async (_program, action) => {
     const { loadEnv } = await import('./cli/env.js');
-    const { config } = action.optsWithGlobals() as { config?: string };
+    let { config } = action.optsWithGlobals() as { config?: string };
+    // `mcp conformance --config` and `mcp scan --config` are those commands' own files, not a plune.yaml: only a -c
+    // written before the subcommand names the config whose `.env` is read (and none of its own files does).
+    const own = subcommandPath(action);
+    if (own !== undefined) config = configFlagValues(rawArgsOf(_program), own).before.at(-1);
     if (config !== undefined) loadEnv(dirname(resolve(config)));
     loadEnv(process.cwd());
   });
@@ -958,13 +963,16 @@ export function createProgram(): Command {
     .option('--list-checks', 'Print the check catalog and exit, without connecting to a server', false)
     .option('--explain <id>', 'Print the full catalog entry of one check and exit')
     .option('--fixture <file>', 'A JSON list of { tool, arguments }: the only tools the run calls, for the checks of tool results')
-    .option('--config <file>', 'The oauth suite: a JSON file of how the run may sign in (secrets by the name of an environment variable). Dynamic registration makes a client on the authorization server and is off unless registration.allowClientCreation is true; the client is deleted afterwards when the server allows it, else the result names the client that remains, or says that a client may have been created and could not be named. Nothing guarantees that no client is left: up to 2 are made per revision, up to 4 in a run of both. An interrupted run (Ctrl-C) leaves the client it was making')
+    .option('--config <file>', 'The oauth suite: a JSON file, or a YAML file when its name ends in .yaml or .yml, of how the run may sign in (secrets by the name of an environment variable). Dynamic registration makes a client on the authorization server and is off unless registration.allowClientCreation is true; the client is deleted afterwards when the server allows it, else the result names the client that remains, or says that a client may have been created and could not be named. Nothing guarantees that no client is left: up to 2 are made per revision, up to 4 in a run of both. An interrupted run (Ctrl-C) leaves the client it was making')
     .option('--allow-origin <origin>', 'The oauth suite: ask this origin too, though it is not the origin of the server; repeatable', repeat)
     .action(async (server: string[], options: import('./cli/commands/mcp-conformance.js').McpConformanceFlags, command: Command) => {
       const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
       const { handleMcpConformance } = await import('./cli/commands/mcp-conformance.js');
+      // Commander gives a --config written after the subcommand to the program's global -c/--config: read it here.
+      const given = configFlagValues(rawArgsOf(command.parent?.parent ?? {}), ['mcp', 'conformance']).after.at(-1);
+      const flags = given === undefined ? options : { ...options, config: given };
       try {
-        process.exitCode = await handleMcpConformance(options, server, {
+        process.exitCode = await handleMcpConformance(flags, server, {
           out: (s) => process.stdout.write(s),
           err: (s) => process.stderr.write(s),
           env: process.env,
@@ -992,7 +1000,7 @@ export function createProgram(): Command {
     .option('--active', 'Active probes against a server that is yours: only the calls in --probes, with consent and a budget. Without --probes, or if one does not run, exit 3', false)
     .option('--probes <file>', 'With --active: the JSON file of the calls a probe may make (id, tool, arguments, as, expect)')
     .option('--confirm-host <host>', 'With --active: the host of a --url that is not on this machine, exactly as the URL has it; without it nothing is sent')
-    .option('--yes', 'With --active: accept the command printed for a stdio server (no probe of this version runs on stdio)', false)
+    .option('--yes', 'With --active: let a probe start the command of a stdio server (printed first, secrets masked); the authentication probes are not applicable on stdio, the malformed and fetch probes run, and the child is stopped on every way out', false)
     .option('--max-calls <n>', 'With --active: at most this many tools/call (default 8)')
     .option('--max-requests <n>', 'With --active: at most this many requests of any kind (default 40)')
     .option('--journal <file>', 'With --active: write every frame the probes send and every answer here, one JSON line each, with no token and no response body')
@@ -1013,8 +1021,11 @@ export function createProgram(): Command {
     .action(async (server: string[], options: import('./cli/commands/mcp-scan.js').McpScanFlags, command: Command) => {
       const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
       const { handleMcpScan } = await import('./cli/commands/mcp-scan.js');
+      // Commander gives every --config written after the subcommand to the program's global -c/--config: read them here.
+      const given = configFlagValues(rawArgsOf(command.parent?.parent ?? {}), ['mcp', 'scan']).after;
+      const flags = given.length === 0 ? options : { ...options, config: given };
       try {
-        process.exitCode = await handleMcpScan(options, server, {
+        process.exitCode = await handleMcpScan(flags, server, {
           out: (s) => process.stdout.write(s),
           err: (s) => process.stderr.write(s),
           env: process.env,
