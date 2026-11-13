@@ -114,7 +114,7 @@ const ackFirst: ConformanceCheck = async (ctx) => {
   const [first] = w.notes;
   const details = w.details;
   if (first === undefined) {
-    const said_ = w.response === undefined ? 'nothing' : said(answerOf({ frame: w.response, text: '' }));
+    const said_ = w.response === undefined ? 'nothing' : said(answerOf({ frame: w.response, text: '' }, ctx.session.redact));
     return { ...failed(`subscriptions/listen for ${w.asked} got ${said_} within ${WATCH_MS / 1000} s, no acknowledgment.`, `Send ${ACK} as the first message of the subscription.`), details };
   }
   if (first['method'] !== ACK)
@@ -158,7 +158,7 @@ const gracefulClose: ConformanceCheck = async (ctx) => {
   if (w.response !== undefined) {
     if (isObject(w.response['result'])) return { ...passed('The server ended the subscription with a result to subscriptions/listen.'), details: w.details };
     return {
-      ...failed(`The server ended the subscription with ${said(answerOf({ frame: w.response, text: '' }))}.`, 'End a subscription with a successful subscriptions/listen result.'),
+      ...failed(`The server ended the subscription with ${said(answerOf({ frame: w.response, text: '' }, ctx.session.redact))}.`, 'End a subscription with a successful subscriptions/listen result.'),
       details: w.details,
     };
   }

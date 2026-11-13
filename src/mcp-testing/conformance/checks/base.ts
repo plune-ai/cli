@@ -34,7 +34,7 @@ const parseError: ConformanceCheck = async (ctx) => {
       'Answer a message that is not valid JSON with the error -32700 (Parse error) and id: null.',
     );
   }
-  const a = answerOf(got.reply);
+  const a = answerOf(got.reply, ctx.session.redact);
   const id = got.reply.frame?.['id'];
   if (a.kind === 'error' && a.code === -32700 && (id === null || id === undefined))
     return passed(`Invalid JSON answered error -32700 with ${id === null ? 'id: null' : 'no id'}.`);

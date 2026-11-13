@@ -382,7 +382,7 @@ async function measure(
       let discover: Answer | undefined;
       if (modern) {
         try {
-          discover = answerOf(plan.discover ?? (await discoverRaw(live, protocolVersion ?? MODERN)));
+          discover = answerOf(plan.discover ?? (await discoverRaw(live, protocolVersion ?? MODERN)), live.redact);
           const info = discover.kind === 'result' ? serverInfoOf(discover.result) : undefined;
           if (info !== undefined) serverInfo = { name: clean(info.name), version: clean(info.version) };
           if (discover.kind !== 'result' || !isObject(discover.result['capabilities']))
