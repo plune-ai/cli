@@ -219,6 +219,19 @@ export const OAUTH_CATALOG: readonly CatalogEntry[] = [
     needsFixture: true,
   }),
   oauth({
+    id: 'oauth-e2e-token-works',
+    title: 'A token issued for the server is accepted',
+    description:
+      'With the client-credentials grant given in --config, the client asks the token endpoint of the authorization server for a token for the server (the resource parameter), and makes the one request the suite uses to tell a protected server from an open one with it. The request that got 401 without a token must now succeed. Only a 401 to that token is a failure; a token endpoint that refuses the client, 403 or any other answer cannot be judged. The token is masked in every output and is not revoked.',
+    level: 'MUST',
+    derived: true,
+    derivation:
+      'Token Handling quotes "MCP servers MUST only accept tokens that are valid for use with their own resources" and "Invalid or expired tokens MUST receive a HTTP 401 response". A token that the authorization server of the server just issued for the server is a valid one, so refusing it with 401 is the converse of what is quoted: derived, and not higher than the quoted MUST.',
+    specRefs: [ref(L, AUTH, 'Token Handling'), ref(M, AUTH, 'Token Handling')],
+    eras: BOTH,
+    needsFixture: true,
+  }),
+  oauth({
     id: 'oauth-reg-prereg',
     title: 'A pre-registered client is accepted',
     description:

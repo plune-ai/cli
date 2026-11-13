@@ -23,7 +23,7 @@ export interface AuthOpts {
   /** Bind to every interface and name the server by this host, instead of 127.0.0.1. */
   host?: string;
   /**
-   * What an endpoint answers instead of its own answer: a status, or a string for a 302 to that location. Keys: `mcp`
+   * What an endpoint answers instead of its own answer: a status, or a string for a 302 to that location (`drop`: the connection is cut; `hang`: no answer). Keys: `mcp`
    * (no token), `mcp:own` (a token issued for this server), `mcp:other` (for another resource), `mcp:bad` (not issued),
    * `prm`, `as`, `token:own`, `token:other`.
    */
@@ -204,6 +204,8 @@ export async function authFixture(o: AuthOpts = {}, seen: Seen[] = []): Promise<
       const f = o.force?.[key];
       if (f === undefined) return false;
       if (typeof f === 'number') json(res, f, {});
+      else if (f === 'drop') req.socket.destroy();
+      else if (f === 'hang') return true;
       else res.writeHead(302, { location: f }).end();
       return true;
     };

@@ -264,7 +264,8 @@ describe('CLI · mcp conformance · oauth · the audience of a token', () => {
     const posts = s.seen.filter(
       (x) => x.path === '/mcp' && x.authorization?.startsWith('Bearer at-'),
     );
-    expect(posts).toHaveLength(2);
+    // oauth-neg-wrong-audience sends two (the control and the foreign token); oauth-e2e-token-works one.
+    expect(posts).toHaveLength(3);
   });
 
   it('a server that refuses every token proves nothing: could-not-run, not passed', async () => {
