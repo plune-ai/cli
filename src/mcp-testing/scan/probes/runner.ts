@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import type { ConnectTarget } from '../../connect/options.js';
-import { createRedactor, maskUrl } from '../../connect/redact.js';
+import { createRedactor, describeTarget, maskUrl, redactorFor } from '../../connect/redact.js';
 import {
   DEFAULT_MAX_CALLS,
   DEFAULT_MAX_REQUESTS,
@@ -90,6 +90,15 @@ function decide(reply: Reply, expectMessage: boolean): Decision {
   if (message === undefined) return { kind: 'inconclusive' };
   // The code and the text of an error are not read: whether it is about authorization is not guessed.
   if (message.error !== undefined) return { kind: 'rpc-error' };
+  // "Ran" is a result that is an object. An answer with neither a result nor an error, or a result that is not an
+  // object, is not a run and not a refusal: it decides nothing.
+  if (
+    !('result' in message) ||
+    typeof message.result !== 'object' ||
+    message.result === null ||
+    Array.isArray(message.result)
+  )
+    return { kind: 'inconclusive' };
   return {
     kind: 'ok',
     message: message.result,
@@ -139,8 +148,13 @@ export async function runProbes(opts: ProbeRunOptions): Promise<ProbeSection> {
   if (target === undefined) return all('no-target');
   if (target.kind === 'stdio') {
     // The command is shown in full, so the person sees what a probe would start; no probe of this version runs on it.
+    // The arguments go through the masking the connection layer already applies to a command line.
+    const shown = describeTarget(target, redactorFor(target)) as {
+      command: string;
+      args: string[];
+    };
     opts.announce(
-      `probes target the server started by: ${[target.command, ...target.args].join(' ')}`,
+      `probes target the server started by: ${[shown.command, ...shown.args].join(' ')}`,
     );
     return all('stdio');
   }
@@ -256,9 +270,13 @@ export async function runProbes(opts: ProbeRunOptions): Promise<ProbeSection> {
 
   /** The controls that ran and were allowed, by tool and arguments: the id of the probe. */
   const controls = new Map<string, string>();
+  /** Calls that have a control in the file, and those whose control was refused by HTTP 401 or 403. */
+  const hasControl = new Set<string>();
+  const controlRefused = new Set<string>();
   const isControl = (e: ProbeEntry) => e.as === 'account-a' && e.expect === 'allow';
   const keyOf = (e: ProbeEntry) => `${e.tool}
 ${canonical(e.arguments)}`;
+  for (const e of opts.entries) if (isControl(e)) hasControl.add(keyOf(e));
 
   // Controls first: a probe that expects a refusal is read against what the control showed.
   const order = [...opts.entries.filter(isControl), ...opts.entries.filter((e) => !isControl(e))];
@@ -299,6 +317,20 @@ ${canonical(e.arguments)}`;
     // A refuse probe is read against its control; HTTP 401 or 403 stands alone, and the row says it has none.
     const withControl = expect === 'refuse' ? { control: proven ?? null } : {};
     if (got.kind === 'http-refused') {
+      if (isControl(entry)) controlRefused.add(keyOf(entry));
+      // The control of this call exists and did not run allowed: a refusal of this probe proves nothing, since the
+      // server may refuse everyone for it. HTTP 401 or 403 stands alone only without a control, or beside a good one.
+      if (expect === 'refuse' && proven === undefined && hasControl.has(keyOf(entry))) {
+        section.rows.push({
+          ...notRun(entry, 'no-control'),
+          ...(controlRefused.has(keyOf(entry))
+            ? {
+                note: 'the control was refused too (HTTP 401 or 403): the server refuses everyone for this call',
+              }
+            : {}),
+        });
+        continue;
+      }
       section.rows.push({
         ...base,
         answer: 'refused',
@@ -315,7 +347,13 @@ ${canonical(e.arguments)}`;
       continue;
     }
     // The call ran.
-    if (expect === 'refuse' && proven === undefined) {
+    // A call that ran with no valid credentials is a violation by itself; for another account it needs the control.
+    if (
+      expect === 'refuse' &&
+      proven === undefined &&
+      entry.as !== 'none' &&
+      entry.as !== 'garbage'
+    ) {
       section.rows.push(notRun(entry, 'no-control'));
       continue;
     }

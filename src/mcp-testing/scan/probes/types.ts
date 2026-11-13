@@ -50,6 +50,8 @@ export interface ProbeRow {
   answer: 'allowed' | 'refused' | null;
   outcome: 'as-expected' | 'violated' | 'observed' | 'not-run';
   reason?: ProbeReason;
+  /** A note on a probe that did not run, fixed text. */
+  note?: string;
   /** The step at which HTTP 401 or 403 refused the probe's own request, when that is what refused it. */
   refusedAt?: string;
   /** For a probe with expect: refuse that was answered: the id of the control that ran, or null (HTTP 401 or 403 stands alone). */

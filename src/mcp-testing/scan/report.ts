@@ -174,7 +174,7 @@ function human(r: ScanReport): string {
     out.push('', 'Probes (probe / expectation / result / not run because):');
     for (const p of r.probes.rows)
       out.push(
-        `  ${p.id === '' ? '(none)' : p.id} / ${p.expect === 'none' ? 'no expectation' : `expect ${p.expect}`} / ${probeResult(p)}${probeControl(p)}${p.reason === undefined ? '' : ` / ${PROBE_REASONS[p.reason]}`}`,
+        `  ${p.id === '' ? '(none)' : p.id} / ${p.expect === 'none' ? 'no expectation' : `expect ${p.expect}`} / ${probeResult(p)}${probeControl(p)}${p.reason === undefined ? '' : ` / ${PROBE_REASONS[p.reason]}`}${p.note === undefined ? '' : ` (${p.note})`}`,
       );
     out.push(
       `  ${r.probes.calls} tools/call and ${r.probes.requests} requests sent. Step 1 keeps no record of the frames beyond this table.`,

@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { handleMcpScan, type McpScanFlags } from '../../cli/commands/mcp-scan.js';
 import { ProbeGuard, canonical, type Frame, type Reply } from '../scan/probes/guard.js';
 import { MAX_PROBE_FILE_BYTES, parseProbeFile } from '../scan/probes/file.js';
+import { runProbes } from '../scan/probes/runner.js';
 import type { ProbeEntry } from '../scan/probes/types.js';
 
 const MARK = 'zq7+/Tok=41';
@@ -39,6 +40,12 @@ interface Opts {
   rpcError?: string;
   /** Every tools/call is answered with a result that has isError: true. */
   isErrorForAll?: boolean;
+  /** This method is answered 200 with an id and neither result nor error (or, with bareResult, a result that is text). */
+  bare?: string;
+  bareFor?: 'a' | 'b';
+  bareResult?: 'text';
+  /** Every request is answered 401, whatever the token. */
+  denyAll?: boolean;
   /** The status of the redirect of `force` (302 by default). */
   redirectStatus?: number;
   host?: string;
@@ -101,6 +108,18 @@ async function fixture(opts: Opts = {}): Promise<Fixture> {
         .writeHead(401, { 'WWW-Authenticate': challenge })
         .end(JSON.stringify({ error: `bad token ${bearer ?? ''}` }));
     }
+    if (opts.denyAll === true)
+      return void res.writeHead(401, { 'WWW-Authenticate': 'Bearer' }).end();
+    if (opts.bare === body.method && (opts.bareFor === undefined || opts.bareFor === who))
+      return void res
+        .writeHead(200, { 'Content-Type': 'application/json', 'Mcp-Session-Id': 's1' })
+        .end(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: body.id,
+            ...(opts.bareResult === 'text' ? { result: 'text' } : {}),
+          }),
+        );
     const reply = (result: unknown) =>
       res
         .writeHead(200, { 'Content-Type': 'application/json', 'Mcp-Session-Id': 's1' })
@@ -828,14 +847,6 @@ describe('CLI · mcp scan probes · a refusal is HTTP 401 or 403, or a control p
     const human = (await scan(dir, active(f, file, { format: 'human' }), TOKENS)).out;
     expect(human).toMatch(/refused at initialize \/ no control: HTTP 401 or 403 stands alone/);
   });
-
-  it('a violation needs its control too: lax, no control, the probe is not run', async () => {
-    const f = await fixture({ lax: true });
-    const { dir, file } = probeFile([refuse('p1', 'none')]);
-    const r = await scan(dir, active(f, file), TOKENS);
-    expect(byId(r, 'p1')).toMatchObject({ outcome: 'not-run', reason: 'no-control' });
-    expect(r.code).toBe(3);
-  });
 });
 
 describe('CLI · mcp scan probes · smaller faults of the review', () => {
@@ -941,5 +952,106 @@ describe('CLI · mcp scan probes · smaller faults of the review', () => {
         { maxCalls: 8, maxRequests: bad },
       ])
         expect(() => new ProbeGuard([], limits, transport), String(bad)).toThrow(RangeError);
+  });
+});
+
+// ---- review round 3 --------------------------------------------------------------------------------------------------------
+
+describe('CLI · mcp scan probes · "ran" is a result object', () => {
+  const ctl = entry('ctl', 'account-a', { expect: 'allow' });
+
+  it('a 2xx answer with the right id and neither result nor error is "not run", on the call and on the earlier steps', async () => {
+    for (const bare of ['tools/call', 'initialize', 'tools/list']) {
+      const f = await fixture({ lax: true, bare });
+      const { dir, file } = probeFile([entry('p1', 'none', { expect: 'refuse' })]);
+      const r = await scan(dir, active(f, file), TOKENS);
+      expect(byId(r, 'p1'), bare).toMatchObject({ outcome: 'not-run', reason: 'inconclusive' });
+      expect(r.json()['findings'], bare).toEqual([]);
+      expect(r.code, bare).toBe(3);
+    }
+  });
+
+  it('a result that is not an object is not a run either', async () => {
+    const f = await fixture({ lax: true, bare: 'tools/call', bareResult: 'text' });
+    const { dir, file } = probeFile([entry('p1', 'none', { expect: 'refuse' })]);
+    const r = await scan(dir, active(f, file), TOKENS);
+    expect(byId(r, 'p1').outcome).toBe('not-run');
+  });
+
+  it('such an answer to the control makes it no control: the isError of account B proves nothing', async () => {
+    const f = await fixture({ bare: 'tools/call', bareFor: 'a' });
+    const { dir, file } = probeFile([ctl, entry('p-b', 'account-b', { expect: 'refuse' })]);
+    const r = await scan(dir, active(f, file), TOKENS);
+    expect(byId(r, 'ctl').outcome).toBe('not-run');
+    expect(byId(r, 'p-b')).toMatchObject({ outcome: 'not-run', reason: 'no-control' });
+    expect(r.code).toBe(3);
+  });
+});
+
+describe('CLI · mcp scan probes · a call that ran with no valid credentials is a violation, control or not', () => {
+  it('none and garbage that ran, with expect: refuse and no control: violated, error, exit 1', async () => {
+    const f = await fixture({ lax: true });
+    const { dir, file } = probeFile([
+      entry('p-none', 'none', { expect: 'refuse' }),
+      entry('p-garbage', 'garbage', { expect: 'refuse' }),
+    ]);
+    const r = await scan(dir, active(f, file), TOKENS);
+    expect(r.code).toBe(1);
+    expect(rowsOf(r).map((x) => [x.id, x.outcome])).toEqual([
+      ['p-none', 'violated'],
+      ['p-garbage', 'violated'],
+    ]);
+    expect((r.json()['findings'] as { rule: string }[]).map((x) => x.rule).sort()).toEqual([
+      'scan/probe/garbage-token-accepted',
+      'scan/probe/unauthenticated-call',
+    ]);
+  });
+
+  it('account B that ran, with no control: still "not run, no control" (running for B may be right for the tool)', async () => {
+    const f = await fixture({ lax: true });
+    const { dir, file } = probeFile([entry('p-b', 'account-b', { expect: 'refuse' })]);
+    const r = await scan(dir, active(f, file), TOKENS);
+    expect(byId(r, 'p-b')).toMatchObject({ outcome: 'not-run', reason: 'no-control' });
+    expect(r.code).toBe(3);
+  });
+});
+
+describe('CLI · mcp scan probes · a refusal of everyone proves nothing', () => {
+  const ctl = entry('ctl', 'account-a', { expect: 'allow' });
+
+  it('the control was refused with HTTP 401: the refuse probe that got 401 is "not run, no control", with the note', async () => {
+    const f = await fixture({ denyAll: true });
+    const { dir, file } = probeFile([ctl, entry('p-none', 'none', { expect: 'refuse' })]);
+    const r = await scan(dir, active(f, file), TOKENS);
+    expect(byId(r, 'p-none')).toMatchObject({ outcome: 'not-run', reason: 'no-control' });
+    expect(byId(r, 'p-none').note).toContain('control was refused too');
+    expect(r.code).toBe(3);
+    const human = (await scan(dir, active(f, file, { format: 'human' }), TOKENS)).out;
+    expect(human).toContain('the control was refused too');
+  });
+
+  it('with no control in the file, a 401 still stands alone', async () => {
+    const f = await fixture({ denyAll: true });
+    const { dir, file } = probeFile([entry('p-none', 'none', { expect: 'refuse' })]);
+    const r = await scan(dir, active(f, file), TOKENS);
+    expect(byId(r, 'p-none')).toMatchObject({ outcome: 'as-expected', control: null });
+  });
+});
+
+describe('CLI · mcp scan probes · the stdio command is announced without secrets', () => {
+  it('a token-shaped argument is not printed', async () => {
+    const lines: string[] = [];
+    const secret = `ghp_${'Qw3rtY'.repeat(6)}`;
+    const section = await runProbes({
+      entries: [{ id: 'p1', tool: 'export', arguments: {}, as: 'none' }],
+      target: { kind: 'stdio', command: 'node', args: ['server.js', '--token', secret], env: {} },
+      tokens: {},
+      timeoutMs: 1000,
+      announce: (l) => lines.push(l),
+    });
+    expect(lines.join('\n')).toContain('node');
+    expect(lines.join('\n')).not.toContain(secret);
+    expect(lines.join('\n')).not.toContain('Qw3rtYQw3rtY');
+    expect(section.rows[0]!.reason).toBe('stdio');
   });
 });

@@ -1210,11 +1210,15 @@ call runs for the right account; the code and the text of an error are never rea
 401 or 403 before the call (at `initialize` or `tools/list`) is still a refusal, and the row says at which step. Any other
 failure before the call decides nothing. Timeout, 429, 5xx, a redirect or any other status: "not run".
 
-The control. For every probe with `expect: refuse`, the file must hold a probe with the same tool and the same arguments,
-`as: account-a`, `expect: allow`. Controls run first. If there is no control, or it did not run, or it was refused, the probes
-that expect a refusal for that tool and those arguments are "not run: no control" and the exit code is `3` (this applies to
-a call that ran, too). The exception is an answer of HTTP 401 or 403, which stands alone; its row says it has no control.
-The table shows which probe was the control for which.
+The control. A JSON-RPC error or `isError` is read as a refusal only against a control: a probe with the same tool and the
+same arguments, `as: account-a`, `expect: allow`, that ran and was allowed in this run. Controls run first. Put one in the
+file for every call whose probe has `expect: refuse` (all of them, for `account-b`: without a control that probe is "not
+run: no control", exit `3`). Two cases need no control. A call that **ran** for `as: none` or `as: garbage` is a violation by
+itself: the server executed a tool with no valid credentials. And an answer of HTTP 401 or 403 stands alone when the file has
+no control for that call (its row says so), or when the control ran and was allowed. If the control for the call was
+refused too, a refusal proves nothing (the server may refuse everyone for it): the probe is "not run: no control", with a
+note, and the exit code is `3`. "Ran" means a `result` that is an object: an answer with neither a result nor an error
+decides nothing. The table shows which probe was the control for which.
 
 ```json
 { "probes": [
@@ -1224,7 +1228,7 @@ The table shows which probe was the control for which.
 ```
 
 A verdict of "violated" comes only from the answer of the server: a call that ran (a result without `isError`) for a probe
-that expects a refusal and has its control. The table of the report lists every probe with what it expected, what the server
+that expects a refusal (for `account-b`, one that has its control). The table of the report lists every probe with what it expected, what the server
 did and why it did not run: no probe file, no consent, no token for account A or B, stdio, a spent budget, the transport
 stopped, the tool is not on the server, the tool is destructive, no control, or an answer that decides nothing. A probe that
 did not run is never a pass. `--allow-partial` exits `0` although probes did not run: with probes, do not use it unless the
