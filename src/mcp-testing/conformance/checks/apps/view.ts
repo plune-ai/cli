@@ -33,12 +33,16 @@ const SHOWN = 60;
 export const kind = (value: unknown): string =>
   Array.isArray(value) ? 'an array' : value === null ? 'null' : `a ${typeof value}`;
 
-export function q(value: unknown): string {
-  if (typeof value !== 'string') return kind(value);
-  return value.length <= SHOWN
-    ? JSON.stringify(value)
-    : `${JSON.stringify(`${value.slice(0, SHOWN)}…`)} (${value.length} characters)`;
-}
+export const quoter =
+  (ctx: ConformanceContext) =>
+  (value: unknown): string => {
+    if (typeof value !== 'string') return kind(value);
+    // Masked first, then cut: a secret longer than the part kept would otherwise leave a prefix the report cannot find.
+    const text = ctx.session.redact.text(value);
+    return text.length <= SHOWN
+      ? JSON.stringify(text)
+      : `${JSON.stringify(`${text.slice(0, SHOWN)}…`)} (${text.length} characters)`;
+  };
 
 /** A media type as a media type: letter case and white space do not count. */
 export const sameMime = (value: unknown, wanted: string): boolean =>
@@ -222,6 +226,7 @@ export async function gather(
   addresses: Addresses,
   judge: (uri: string, content: Record<string, unknown>) => Judged,
 ): Promise<Gathered> {
+  const q = quoter(ctx);
   const g: Gathered = {
     bad: [],
     skipped: [],

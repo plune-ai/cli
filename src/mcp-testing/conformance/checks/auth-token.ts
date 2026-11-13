@@ -23,6 +23,7 @@ import {
   probe,
   requestToken,
   transient,
+  type OauthContext,
 } from './auth.js';
 import type { CheckOutcome } from '../outcome.js';
 import type { ConformanceCheck } from './index.js';
@@ -47,10 +48,18 @@ function audiencesOf(token: string): string[] | undefined {
   return undefined;
 }
 
-const tokenWorks: ConformanceCheck = async (c) => {
-  const ctx = c.oauth!;
-  const p = await needsAuth(ctx);
-  if (isOutcome(p)) return p;
+export interface SignIn {
+  endpoint: string;
+  clientId: string;
+  secret: string;
+  resource: string;
+}
+
+/**
+ * What a check that asks for a token needs: the client-credentials grant in `--config`, a secret in the environment, and
+ * a token endpoint on an origin `--allow-origin` named. The outcome of a check that cannot start, else what it needs.
+ */
+export async function signIn(ctx: OauthContext): Promise<SignIn | CheckOutcome> {
   const reg = ctx.config.registration;
   const secretName = reg?.clientSecretEnv;
   const secret = secretName === undefined ? undefined : ctx.env[secretName];
@@ -76,8 +85,18 @@ const tokenWorks: ConformanceCheck = async (c) => {
   const refusal = credentialRefusal(ctx, endpoint);
   if (refusal !== undefined)
     return needsInput(`${refusal} No request was sent to the token endpoint.`);
-  const resource = ctx.config.resource ?? ctx.url;
-  const t = await requestToken(ctx, endpoint, reg.clientId, secret, resource);
+  return { endpoint, clientId: reg.clientId, secret, resource: ctx.config.resource ?? ctx.url };
+}
+export const isSignIn = (v: SignIn | CheckOutcome): v is SignIn => 'endpoint' in v;
+
+const tokenWorks: ConformanceCheck = async (c) => {
+  const ctx = c.oauth!;
+  const p = await needsAuth(ctx);
+  if (isOutcome(p)) return p;
+  const s = await signIn(ctx);
+  if (!isSignIn(s)) return s;
+  const { endpoint, resource } = s;
+  const t = await requestToken(ctx, endpoint, s.clientId, s.secret, resource);
   if ('error' in t) {
     const what = 'The token endpoint';
     if (t.status === 200)

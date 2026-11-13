@@ -126,6 +126,8 @@ describe('CLI · mcp conformance · oauth · a server that keeps its requirement
     // (one run has one method: auth-registration.test.ts runs those).
     expect(Object.entries(v).filter(([, state]) => state !== 'passed')).toEqual([
       ['oauth-as-https', 'not-applicable (not-offered)'],
+      // This config has no narrowScopes: auth-scope.test.ts runs that check.
+      ['oauth-neg-insufficient-scope', 'could-not-run (needs-input)'],
       ['oauth-reg-dcr', 'not-applicable (not-offered)'],
       ['oauth-reg-dcr-http-redirect-rejected', 'not-applicable (not-offered)'],
       ['oauth-reg-cimd', 'not-applicable (not-offered)'],
