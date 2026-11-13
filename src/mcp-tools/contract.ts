@@ -94,12 +94,12 @@ export const PLUNE_TOOLS = [
     name: 'plune_cases_search',
     title: 'Find test cases',
     description:
-      'Find test cases of the project by filter — suite, state, tag, priority, text and the other filters of the case list — one page at a time, with the total and how many match.',
+      'Find test cases of the project by filter — free text in q, suite, state, tag, priority and the other filters of the case list — one page at a time, with the total and how many match.',
     input: z.strictObject({
       filters: z
         .record(z.string(), z.union([z.string(), z.array(z.string())]))
         .optional()
-        .describe('Query filters of GET /v1/test-cases: a list is OR inside one key, keys are AND-ed (e.g. {"suiteId": "s1", "tag": ["smoke"]})'),
+        .describe('Query filters of GET /v1/test-cases: free text is the key q, and a key the list does not know is ignored, so all cases come back; a list is OR inside one key, keys are AND-ed (e.g. {"q": "card", "tag": ["smoke"]})'),
       ...listPage,
     }),
     output: z.object({
