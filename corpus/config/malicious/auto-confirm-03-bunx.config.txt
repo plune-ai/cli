@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "s": {
+      "command": "bunx",
+      "args": [
+        "-y",
+        "cowsay@1.6.0"
+      ]
+    }
+  }
+}

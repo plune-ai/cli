@@ -1,0 +1,8 @@
+{
+  "origin": "synthetic",
+  "description": "An env file and a pinned install with -y.",
+  "client": "claude-code",
+  "path": ".mcp.json",
+  "author": "Maievskyi Leonid",
+  "date": "2026-11-13"
+}

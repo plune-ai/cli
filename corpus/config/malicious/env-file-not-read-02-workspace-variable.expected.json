@@ -1,0 +1,20 @@
+{
+  "client": "vscode",
+  "path": ".vscode/mcp.json",
+  "expected": [
+    {
+      "rule": "scan/cfg/env-file-not-read",
+      "path": "servers.s.envFile"
+    }
+  ],
+  "notChecked": [],
+  "provenance": {
+    "catalogClass": "reading the file",
+    "mechanism": "The entry points at an env file, which the scan does not read.",
+    "concealment": "workspace-variable",
+    "source": "not verified",
+    "catalogRefs": [],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-13"
+  }
+}

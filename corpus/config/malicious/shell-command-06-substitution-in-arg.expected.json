@@ -1,0 +1,22 @@
+{
+  "client": "claude-code",
+  "path": ".mcp.json",
+  "expected": [
+    {
+      "rule": "scan/cfg/shell-command",
+      "path": "mcpServers.s.args[0]"
+    }
+  ],
+  "notChecked": [],
+  "provenance": {
+    "catalogClass": "risky commands",
+    "mechanism": "The server is started through a shell and a script string, which hides what runs.",
+    "concealment": "substitution-in-arg",
+    "source": "not verified",
+    "catalogRefs": [
+      "DOC-SBP"
+    ],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-13"
+  }
+}

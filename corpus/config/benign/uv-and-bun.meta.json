@@ -1,0 +1,8 @@
+{
+  "origin": "synthetic",
+  "description": "Pinned uvx and bunx forms.",
+  "client": "claude-desktop",
+  "path": "claude_desktop_config.json",
+  "author": "Maievskyi Leonid",
+  "date": "2026-11-13"
+}

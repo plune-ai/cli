@@ -1,0 +1,8 @@
+{
+  "origin": "synthetic",
+  "description": "Long values that are not secrets: a hash, a UUID, a small image.",
+  "client": "claude-code",
+  "path": ".mcp.json",
+  "author": "Maievskyi Leonid",
+  "date": "2026-11-13"
+}

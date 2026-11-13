@@ -1,0 +1,8 @@
+{
+  "origin": "synthetic",
+  "description": "An empty list and a minimal entry.",
+  "client": "claude-code",
+  "path": ".mcp.json",
+  "author": "Maievskyi Leonid",
+  "date": "2026-11-13"
+}

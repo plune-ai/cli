@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "s": {
+      "command": "node",
+      "args": [
+        "s.js"
+      ],
+      "env": {
+        "PAD": "{{repeat:a:70000}}"
+      }
+    }
+  }
+}

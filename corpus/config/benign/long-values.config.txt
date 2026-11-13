@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "s": {
+      "command": "node",
+      "args": [
+        "s.js"
+      ],
+      "env": {
+        "BUILD_HASH": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "INSTANCE_ID": "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+        "LOGO": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+        "PADDING": "{{repeat:ab:3000}}"
+      }
+    }
+  }
+}

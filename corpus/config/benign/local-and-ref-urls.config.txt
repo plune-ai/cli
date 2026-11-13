@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "a": {
+      "url": "http://localhost:9000/mcp"
+    },
+    "b": {
+      "url": "http://${MCP_HOST}/mcp"
+    },
+    "c": {
+      "url": "https://${MCP_USER}:${MCP_PASS}@mcp.example.net/m?token=${MCP_TOKEN}"
+    }
+  }
+}

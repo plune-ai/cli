@@ -1,0 +1,26 @@
+{
+  "client": "claude-code",
+  "path": ".mcp.json",
+  "expected": [],
+  "notChecked": [
+    {
+      "kind": "not-evaluated",
+      "rule": "scan/cfg/shell-command",
+      "path": "mcpServers.s.command"
+    },
+    {
+      "kind": "not-evaluated",
+      "rule": "scan/cfg/download-to-shell",
+      "path": "mcpServers.s.command"
+    }
+  ],
+  "provenance": {
+    "catalogClass": "reading the file",
+    "mechanism": "Input past a limit of the scanner: it must report that it did not check, not that the file is clean.",
+    "concealment": "command-over-4096",
+    "source": "not verified",
+    "catalogRefs": [],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-13"
+  }
+}

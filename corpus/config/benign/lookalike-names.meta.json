@@ -1,0 +1,8 @@
+{
+  "origin": "synthetic",
+  "description": "Names with token prefixes inside words, and a token name holding a number.",
+  "client": "claude-code",
+  "path": ".mcp.json",
+  "author": "Maievskyi Leonid",
+  "date": "2026-11-13"
+}
