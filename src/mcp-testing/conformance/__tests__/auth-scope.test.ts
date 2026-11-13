@@ -138,6 +138,30 @@ describe('CLI · mcp conformance · oauth scope · catalog and --config', () => 
   });
 });
 
+describe('CLI · mcp conformance · oauth scope · --config scopes', () => {
+  it('narrowScopes must be a strict subset of scopes when both are given, and the extra scopes are named', () => {
+    expect(() => parseOauthConfig('{"scopes":["a"],"narrowScopes":["a","b"]}')).toThrow(
+      /narrowScopes.*"b"/,
+    );
+    expect(() => parseOauthConfig('{"scopes":["a","b"],"narrowScopes":["c","a"]}')).toThrow(
+      /narrowScopes.*"c"/,
+    );
+    expect(parseOauthConfig('{"scopes":["a","b"],"narrowScopes":["b"]}').narrowScopes).toEqual([
+      'b',
+    ]);
+    // Without scopes nothing can be compared.
+    expect(parseOauthConfig('{"narrowScopes":["z"]}').narrowScopes).toEqual(['z']);
+  });
+
+  it('a scope that holds white space is two scopes in one: refused in scopes and in narrowScopes', () => {
+    expect(() => parseOauthConfig('{"scopes":["a b"]}')).toThrow(/"scopes".*white space/);
+    expect(() => parseOauthConfig('{"narrowScopes":["a b"]}')).toThrow(
+      /"narrowScopes".*white space/,
+    );
+    expect(() => parseOauthConfig('{"scopes":["a\\tb"]}')).toThrow(/white space/);
+  });
+});
+
 describe('CLI · mcp conformance · oauth scope · a narrow token is refused with insufficient_scope', () => {
   it('passed, with the control first: two token requests, two requests with a token, the scopes asked as configured', async () => {
     const s = await serve({ scopeRule: 'require-full' });
@@ -250,6 +274,37 @@ describe('CLI · mcp conformance · oauth scope · the control and the narrow to
     expect(bearer(s)).toHaveLength(1);
   });
 
+  it('an unrecognised token type on the narrow token: could-not-run, nothing is sent with it, two tokens are said to be issued', async () => {
+    const s = await serve({ scopeRule: 'require-full', narrowTokenType: 'DPoP' });
+    const { report } = await run(s.url, { config: creds() });
+    expect(verdict(report)).toBe('could-not-run (prerequisite-failed)');
+    expect(actual(report)).toMatch(/token type/);
+    expect(actual(report)).toMatch(/two tokens were issued and were not revoked/i);
+    expect(tokens(s)).toHaveLength(2);
+    expect(bearer(s)).toHaveLength(1);
+  });
+
+  it('a connection error on the control request: could-not-run, and the narrow token is not asked for', async () => {
+    const s = await serve({ scopeRule: 'require-full', force: { 'mcp:own': 'drop' } });
+    const { report } = await run(s.url, { config: creds() });
+    expect(verdict(report)).toBe('could-not-run (transport-error)');
+    expect(actual(report)).toMatch(/a token was issued and was not revoked/i);
+    expect(tokens(s)).toHaveLength(1);
+  });
+
+  it('a redirect from the token endpoint on the narrow request: could-not-run, not followed', async () => {
+    const other = await serve({});
+    const s = await serve({ scopeRule: 'require-full', narrowRedirect: `${other.origin}/token` });
+    const { report } = await run(s.url, {
+      config: creds(),
+      allowOrigin: [s.origin, other.origin],
+    });
+    expect(verdict(report)).toBe('could-not-run (transport-error)');
+    expect(other.seen).toEqual([]);
+    expect(tokens(s)).toHaveLength(2);
+    expect(bearer(s)).toHaveLength(1);
+  });
+
   it('a token endpoint with a 429 for the control: could-not-run (transport-error), one token request', async () => {
     const s = await serve({ force: { 'token:own': 429 } });
     const { report } = await run(s.url, { config: creds() });
@@ -336,6 +391,18 @@ describe('CLI · mcp conformance · oauth scope · nothing issued is printed', (
         s.seen.filter((x) => x.authorization?.startsWith('Basic ')).map((x) => x.path),
       ).toEqual(['/token', '/token']);
     });
+
+  it('a failed SHOULD is an advisory: the score and the exit code do not change', async () => {
+    const good = await serve({ scopeRule: 'require-full' });
+    const ok = await run(good.url, { config: creds() }, false);
+    const bad = await serve({ scopeRule: 'unauthorized' });
+    const no = await run(bad.url, { config: creds() }, false);
+    expect(verdict(no.report)).toBe('failed');
+    expect(no.report?.summary.advisories).toContain(ID);
+    expect(no.report?.summary.failed).not.toContain(ID);
+    expect(no.code).toBe(3);
+    expect(no.report?.summary.score).toBe(ok.report?.summary.score);
+  });
 
   it('the suite still exits 3, with the id shown among the advisories and counted for nothing', async () => {
     const s = await serve({ scopeRule: 'require-full' });

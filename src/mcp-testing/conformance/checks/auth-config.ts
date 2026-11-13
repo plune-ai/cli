@@ -67,6 +67,17 @@ function strings(flag: string, value: unknown): string[] {
   return value as string[];
 }
 
+/** A list of scopes: each one word, since a scope with white space is two scopes written as one. */
+function scopeList(flag: string, value: unknown): string[] {
+  const list = strings(flag, value);
+  const bad = list.find((s) => /\s/.test(s));
+  if (bad !== undefined)
+    throw new UsageError(
+      `--config: "${flag}" has ${JSON.stringify(bad)}, which holds white space: list each scope as its own string.`,
+    );
+  return list;
+}
+
 function text(flag: string, value: unknown): string {
   if (typeof value !== 'string' || value === '')
     throw new UsageError(`--config: "${flag}" must be a non-empty string.`);
@@ -91,9 +102,9 @@ export function parseOauthConfig(source: string): OauthConfig {
       throw new UsageError(`--config: unknown key "${key}"${why}.`);
     }
     if (key === 'protocolVersions') config.protocolVersions = strings(key, value);
-    else if (key === 'scopes') config.scopes = strings(key, value);
+    else if (key === 'scopes') config.scopes = scopeList(key, value);
     else if (key === 'narrowScopes') {
-      const list = strings(key, value);
+      const list = scopeList(key, value);
       if (list.length === 0 || new Set(list).size !== list.length)
         throw new UsageError(
           '--config: "narrowScopes" must be a non-empty list of scopes with no duplicates.',
@@ -175,13 +186,16 @@ export function parseOauthConfig(source: string): OauthConfig {
       config.registration = reg;
     }
   }
-  if (
-    config.narrowScopes !== undefined &&
-    config.scopes !== undefined &&
-    config.narrowScopes.length === config.scopes.length &&
-    config.narrowScopes.every((s) => config.scopes!.includes(s))
-  )
-    throw new UsageError('--config: "narrowScopes" must differ from "scopes".');
+  if (config.narrowScopes !== undefined && config.scopes !== undefined) {
+    const full = config.scopes;
+    const extra = config.narrowScopes.filter((s) => !full.includes(s));
+    if (extra.length > 0)
+      throw new UsageError(
+        `--config: "narrowScopes" must be a subset of "scopes", and ${extra.map((s) => JSON.stringify(s)).join(', ')} ${extra.length === 1 ? 'is' : 'are'} not in "scopes".`,
+      );
+    if (config.narrowScopes.length === full.length)
+      throw new UsageError('--config: "narrowScopes" must differ from "scopes".');
+  }
   return config;
 }
 

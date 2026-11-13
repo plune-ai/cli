@@ -114,6 +114,10 @@ export interface AuthOpts {
    * Without it the scope is granted and the answer has no `scope` field.
    */
   tokenScope?: 'echo' | 'full' | 'refuse-narrow' | 'drop-narrow';
+  /** The `token_type` of a token asked for without `mcp:tools`, in place of Bearer. */
+  narrowTokenType?: string;
+  /** Where the token endpoint redirects a request for a token without `mcp:tools`. */
+  narrowRedirect?: string;
   tokenResponse?: 'ok' | 'no-type' | 'mac' | 'dpop' | 'bearer-lower' | 'no-expires' | 'no-token';
   /**
    * What the access token is: `opaque` (default), or a JWT built when it is issued, without a signature, whose `aud`
@@ -523,6 +527,14 @@ export async function authFixture(o: AuthOpts = {}, seen: Seen[] = []): Promise<
         return;
       }
       if (
+        o.narrowRedirect !== undefined &&
+        asked !== null &&
+        !asked.split(' ').includes('mcp:tools')
+      ) {
+        res.writeHead(302, { location: o.narrowRedirect }).end();
+        return;
+      }
+      if (
         o.tokenScope === 'refuse-narrow' &&
         asked !== null &&
         !asked.split(' ').includes('mcp:tools')
@@ -553,15 +565,18 @@ export async function authFixture(o: AuthOpts = {}, seen: Seen[] = []): Promise<
           ? {}
           : {
               token_type:
-                o.tokenType !== undefined
-                  ? o.tokenType
-                  : t === 'mac'
-                    ? 'mac'
-                    : t === 'dpop'
-                      ? 'DPoP'
-                      : t === 'bearer-lower'
-                        ? 'bearer'
-                        : 'Bearer',
+                o.narrowTokenType !== undefined &&
+                !(asked ?? FULL_SCOPE).split(' ').includes('mcp:tools')
+                  ? o.narrowTokenType
+                  : o.tokenType !== undefined
+                    ? o.tokenType
+                    : t === 'mac'
+                      ? 'mac'
+                      : t === 'dpop'
+                        ? 'DPoP'
+                        : t === 'bearer-lower'
+                          ? 'bearer'
+                          : 'Bearer',
             }),
         ...(t === 'no-expires' ? {} : { expires_in: 300 }),
         ...(o.tokenScope === 'echo' || o.tokenScope === 'full' ? { scope: scopeGranted } : {}),
