@@ -2,6 +2,7 @@
 // own. Both speak plain node:http, no OAuth library. The tokens are made-up strings; the server remembers which
 // resource each one was issued for, so it can accept or refuse by audience the way a real one does.
 
+import { createHash } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
@@ -120,6 +121,25 @@ export interface AuthOpts {
   narrowTokenType?: string;
   /** Where the token endpoint redirects a request for a token without `mcp:tools`. */
   narrowRedirect?: string;
+  /** The authorization redirect carries `iss`: the issuer of this server (`correct`) or another one (`wrong`). */
+  authIss?: 'correct' | 'wrong';
+  /** The `state` of the redirect is the one the request sent, not a made-up one. */
+  echoState?: boolean;
+  /**
+   * What the token endpoint does with an authorization code: by default it checks the redirect_uri and the PKCE
+   * verifier and says which one was wrong; `generic-redirect` answers a bare invalid_grant to a wrong redirect_uri;
+   * `lax-redirect` and `lax-pkce` do not check that one at all (the faults).
+   */
+  /** `iss` is in the redirect twice (both the right one, when `authIss` is `correct`). */
+  issRepeat?: boolean;
+  /** The redirect with a code goes to this address (built from the redirect_uri of the request) instead of to it. */
+  codeRedirect?: (redirectUri: string) => string;
+  /**
+   * The answer to the second and later authorization-code exchanges (the probes, after the control): a status and the
+   * `error` of the body, if any.
+   */
+  probeRefusal?: { status: number; error?: string; description?: string };
+  codeFault?: 'generic-redirect' | 'lax-redirect' | 'lax-pkce';
   tokenResponse?: 'ok' | 'no-type' | 'mac' | 'dpop' | 'bearer-lower' | 'no-expires' | 'no-token';
   /**
    * What the access token is: `opaque` (default), or a JWT built when it is issued, without a signature, whose `aud`
@@ -214,6 +234,9 @@ const readBody = (req: IncomingMessage): Promise<string> =>
 export async function authFixture(o: AuthOpts = {}, seen: Seen[] = []): Promise<AuthFixture> {
   const issued = new Map<string, string>();
   const granted = new Map<string, string>();
+  const codes = new Map<string, { clientId: string; redirect: string; challenge: string }>();
+  let codeCount = 0;
+  let exchanges = 0;
   const clients = new Map<string, { token: string }>();
   const registered: string[] = [];
   const deleted: string[] = [];
@@ -494,18 +517,80 @@ export async function authFixture(o: AuthOpts = {}, seen: Seen[] = []): Promise<
           error: 'invalid_request',
           error_description: 'redirect_uri is not registered',
         });
-      const to = new URL(redirect || `${origin}/cb`);
+      const to = new URL(
+        o.codeRedirect !== undefined && !foreign
+          ? o.codeRedirect(redirect)
+          : redirect || `${origin}/cb`,
+      );
       if (foreign && o.authorize === 'redirect-any-error')
         to.searchParams.set('error', 'invalid_request');
       else {
-        to.searchParams.set('code', AUTH_CODE);
-        to.searchParams.set('state', AUTH_STATE);
+        const code = `${AUTH_CODE}${++codeCount}`;
+        codes.set(code, {
+          clientId: id,
+          redirect,
+          challenge: q.get('code_challenge') ?? '',
+        });
+        to.searchParams.set('code', code);
+        to.searchParams.set('state', o.echoState === true ? (q.get('state') ?? '') : AUTH_STATE);
+        if (o.authIss !== undefined)
+          to.searchParams.set('iss', o.authIss === 'correct' ? origin : 'https://evil.example');
+        if (o.authIss !== undefined && o.issRepeat === true) to.searchParams.append('iss', origin);
       }
       res.writeHead(302, { location: to.href }).end();
       return;
     }
     if (path === '/token' && req.method === 'POST') {
       if (o.tokenError !== undefined) return json(res, 400, { error: o.tokenError });
+      const grant = new URLSearchParams(body);
+      if (grant.get('grant_type') === 'authorization_code') {
+        const basicAuth = req.headers.authorization?.startsWith('Basic ')
+          ? Buffer.from(req.headers.authorization.slice(6), 'base64').toString()
+          : '';
+        const known =
+          basicAuth === `${CLIENT_ID}:${CLIENT_SECRET}` ||
+          (basicAuth === '' && grant.get('client_id') === CLIENT_ID);
+        if (!known) return json(res, 401, { error: 'invalid_client' });
+        // `token:code` answers every exchange, `token:code:2` the second one and the ones after it.
+        exchanges += 1;
+        if (forced('token:code') || (exchanges >= 2 && forced('token:code:2'))) return;
+        if (exchanges >= 2 && o.probeRefusal !== undefined)
+          return json(
+            res,
+            o.probeRefusal.status,
+            o.probeRefusal.error === undefined
+              ? {}
+              : {
+                  error: o.probeRefusal.error,
+                  ...(o.probeRefusal.description === undefined
+                    ? {}
+                    : { error_description: o.probeRefusal.description }),
+                },
+          );
+        const code = grant.get('code') ?? '';
+        const entry = codes.get(code);
+        codes.delete(code);
+        if (entry === undefined) return json(res, 400, { error: 'invalid_grant' });
+        if (grant.get('redirect_uri') !== entry.redirect && o.codeFault !== 'lax-redirect')
+          return json(
+            res,
+            400,
+            o.codeFault === 'generic-redirect'
+              ? { error: 'invalid_grant' }
+              : { error: 'invalid_grant', error_description: 'redirect_uri does not match' },
+          );
+        const verifier = grant.get('code_verifier') ?? '';
+        const challenge = createHash('sha256').update(verifier).digest('base64url');
+        if (challenge !== entry.challenge && o.codeFault !== 'lax-pkce')
+          return json(res, 400, {
+            error: 'invalid_grant',
+            error_description: 'code_verifier does not match',
+          });
+        const own = `at-${++counter}-7c1d9e5b3f2a8064`;
+        issued.set(own, resource());
+        granted.set(own, FULL_SCOPE);
+        return json(res, 200, { access_token: own, token_type: 'Bearer', expires_in: 300 });
+      }
       const basic = req.headers.authorization?.startsWith('Basic ')
         ? Buffer.from(req.headers.authorization.slice(6), 'base64').toString()
         : '';

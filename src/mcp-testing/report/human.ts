@@ -264,6 +264,9 @@ const WHY: Record<Summary['verdict'], (s: Summary) => string> = {
 /** `--protocol-version both`: the report of each era in turn, and the exit code of the two. */
 export function conformanceSetHuman(set: McpConformanceReportSet): string {
   const blocks = set.reports.map((r) => conformanceHuman(r));
+  const c = set.combined;
+  if (c !== undefined)
+    return `${blocks.join('\n')}\nCombined over ${c.runs} runs: Score ${c.score === null ? 'none' : c.score.toFixed(1)} = ${c.passed} of ${c.applicable} | failed ${c.failed} | could-not-run ${c.couldNotRun} (the counters of the runs added up) | ${c.verdict}: exit ${set.exitCode}.\n`;
   return `${blocks.join('\n')}\nBoth eras, each scored on its own: exit ${set.exitCode}.\n`;
 }
 
@@ -273,7 +276,7 @@ export function conformanceHuman(r: McpConformanceReport): string {
   const how = r.eraDetection ?? (r.protocolVersionRequested === 'auto' ? 'from the handshake' : 'from --protocol-version');
   const version = `${r.protocolVersion === null ? 'protocol version unknown' : `protocol ${r.protocolVersion}`}${r.era === undefined ? '' : `, ${r.era} era`} (${how})`;
   const lines = [
-    `plune mcp conformance · ${server} · ${r.transport} · ${version}`,
+    `plune mcp conformance · ${server} · ${r.transport} · ${version}${r.matrix === undefined ? '' : ` · registration ${r.matrix.registration ?? 'none named'}`}`,
     `Profile ${r.profileId} ${r.profileVersion} · sha256 ${r.manifestDigest.slice(0, 12)}`,
     '',
   ];

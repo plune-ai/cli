@@ -248,6 +248,48 @@ export const OAUTH_CATALOG: readonly CatalogEntry[] = [
     needsFixture: true,
   }),
   oauth({
+    id: 'oauth-authz-response-iss',
+    title: 'iss in the authorization response is the issuer, and is advertised',
+    description:
+      'With auth "headless" and a pre-registered client in --config, one authorization request is made. Where the test environment answers with a redirect that carries a code, the iss of that redirect is read: if present it must be the issuer of the metadata, exactly, and the metadata must advertise authorization_response_iss_parameter_supported: true; if the metadata advertises it, iss must be present. Where the endpoint shows a sign-in, the check is could-not-run (needs-input). The code is not exchanged; it expires on the server.',
+    level: 'MUST',
+    derived: true,
+    derivation:
+      'Authorization Response Validation says: "Authorization servers that include the iss parameter MUST advertise this by setting authorization_response_iss_parameter_supported to true in their metadata (RFC9207 Section 2.3)", and gives the rows a client applies: advertised and iss absent is rejected, and a present iss is compared with the recorded issuer by simple string comparison. That a server sends an iss equal to its issuer, and sends one when it advertises, is the converse of those client rules and of RFC 9207 section 2, which is not in the saved text: derived. The level is that of the quoted MUST; the text also says "MCP authorization servers SHOULD include the iss parameter in authorization responses", which is why a server that sends none and advertises none is not-applicable, not failed.',
+    specRefs: [ref(M, AUTH, 'Authorization Response Validation')],
+    eras: MODERN,
+    needsFixture: true,
+  }),
+  oauth({
+    id: 'oauth-neg-pkce-wrong-verifier',
+    title: 'A code exchanged with a wrong code_verifier is refused',
+    description:
+      'With auth "headless" and a pre-registered client, a correct exchange (the control) must give a token; then a fresh code, sent with a code_verifier that does not match its code_challenge, must be refused. A token for the wrong verifier is a failure. Where the endpoint shows a sign-in, the check is could-not-run (needs-input). Every token issued is reported as issued and not revoked.',
+    level: 'MUST',
+    derived: true,
+    derivation:
+      'Authorization Code Protection says "MCP clients MUST implement PKCE according to OAuth 2.1 Section 7.5.2" and that PKCE ensures "that only the original requestor can exchange an authorization code for tokens". Those sentences are about the client and the purpose; that a server checks the verifier is RFC 7636 section 4.6, which is not in the saved text: derived. The level is not higher than the quoted MUST.',
+    specRefs: [
+      ref(L, AUTH, 'Authorization Code Protection'),
+      ref(M, SECURITY, 'Authorization Code Protection'),
+    ],
+    eras: BOTH,
+    needsFixture: true,
+  }),
+  oauth({
+    id: 'oauth-neg-token-redirect-mismatch',
+    title: 'A code exchanged with another redirect_uri is refused as such',
+    description:
+      'With auth "headless" and a pre-registered client, after the control exchange a fresh code is sent to the token endpoint with a redirect_uri other than the one of the authorization request. A token is a failure. A refusal whose answer names the redirect_uri is a pass; a bare invalid_grant does not show that the redirect_uri was compared and is could-not-run, not passed. Where the endpoint shows a sign-in, the check is could-not-run (needs-input).',
+    level: 'MUST',
+    derived: true,
+    derivation:
+      'Open Redirection says "Authorization servers MUST validate exact redirect URIs against pre-registered values to prevent redirection attacks" about the authorization request. That the token endpoint compares the redirect_uri of the exchange with the one of the authorization request is RFC 6749 section 4.1.3, which is not in the saved text: derived. The level is not higher than the quoted MUST.',
+    specRefs: [ref(L, AUTH, 'Open Redirection'), ref(M, SECURITY, 'Open Redirection')],
+    eras: BOTH,
+    needsFixture: true,
+  }),
+  oauth({
     id: 'oauth-reg-prereg',
     title: 'A pre-registered client is accepted',
     description:
