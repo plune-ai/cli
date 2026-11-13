@@ -275,6 +275,35 @@ describe('CLI · mcp agent scenarios · offline', () => {
     expect(seen.code).toBe(1);
   });
 
+  it('a search description that reads like the review queue turns find-smoke-cases and read-review-queue red', async () => {
+    // The script picks each tool by words of the task, as a model reads descriptions: the honest list tells search and
+    // queue apart, a server whose search describes itself like the queue does not, and both scenarios go red.
+    const plays: Record<string, MockStep[]> = {
+      'find-smoke-cases': [{ tool_calls: [{ pick: 'find test cases tag', args: { filters: { tag: 'smoke' } } }] }, done],
+      'read-review-queue': [{ tool_calls: [{ pick: 'waits decision review queue', args: { state: 'pending' } }] }, done],
+    };
+    const original = 'Find test cases of the project by filter';
+    const bundle = fs.readFileSync(cli, 'utf8');
+    expect(bundle.split(original)).toHaveLength(2);
+    // Next to the CLI, so the copy finds its dependencies as the original does.
+    const mutated = path.join(root, 'dist', `cli-mutated-${process.pid}.cjs`);
+    fs.writeFileSync(mutated, bundle.replace(original, 'See what waits for a decision in the review queue, by filter'));
+    try {
+      for (const [id, play] of Object.entries(plays)) {
+        const honest = await plune(['--only', id, '--runs', '1'], play);
+        expect(failed(rowOf(honest.result, id)), honest.stderr).toEqual([]);
+        expect(honest.code).toBe(0);
+        const confused = await plune(['--only', id, '--runs', '1'], play, { PLUNE_CLI: mutated });
+        const row = rowOf(confused.result, id);
+        expect(row.error, JSON.stringify(row.error)).toBeUndefined();
+        expect(failed(row)).toEqual([id === 'find-smoke-cases' ? 'tool-args' : 'tool-called']);
+        expect(confused.code).toBe(1);
+      }
+    } finally {
+      fs.rmSync(mutated, { force: true });
+    }
+  });
+
   it('a search by tag finds the tagged cases in one answer that fits the excerpt, so there is no reason to read every case', async () => {
     const id = 'find-smoke-cases';
     const r = await plune(['--only', id, '--runs', '1'], SCENARIOS[id]!.right);
