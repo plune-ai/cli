@@ -71,6 +71,14 @@ const check = (s: Spec): CatalogEntry => ({
   needsFixture: s.needsFixture ?? false,
 });
 const ref = (revision: string, page: string, section: string): SpecRef => ({ revision, page, section });
+/** A control or an advice: no level, no score. */
+const unscored = (kind: 'control' | 'advice', s: Omit<Spec, 'level'>): CatalogEntry => ({
+  ...check({ ...s, level: null }),
+  kind,
+});
+const HTTP: Transport[] = ['http'];
+const LT = 'basic/transports';
+const MT = 'basic/transports/streamable-http';
 
 export const CATALOG: readonly CatalogEntry[] = [
   // Lifecycle
@@ -366,6 +374,224 @@ export const CATALOG: readonly CatalogEntry[] = [
     specRefs: [ref(L, 'server/utilities/completion', 'Capabilities')],
     eras: BOTH,
     transports: ANY,
+  }),
+  // Streamable HTTP on the wire: raw requests, never an MCP client (../raw-http.ts).
+  check({
+    id: 'http-notification-202',
+    title: 'A notification POST is 202 with no body, or an error status',
+    description:
+      'A POST holding only a notification the server accepts gets 202 Accepted and an empty body; one it does not accept gets an HTTP error status. Another 2xx, or a 202 with a body, fails.',
+    level: 'MUST',
+    specRefs: [ref(L, LT, 'Sending Messages to the Server'), ref(M, MT, 'Sending Messages')],
+    eras: BOTH,
+    transports: HTTP,
+  }),
+  check({
+    id: 'http-request-content-type',
+    title: 'A request is answered as application/json or text/event-stream',
+    description: 'The answer to a JSON-RPC request has Content-Type application/json or text/event-stream.',
+    level: 'MUST',
+    specRefs: [ref(L, LT, 'Sending Messages to the Server'), ref(M, MT, 'Sending Messages')],
+    eras: BOTH,
+    transports: HTTP,
+  }),
+  check({
+    id: 'http-response-utf8',
+    title: 'The answer is UTF-8 JSON',
+    description:
+      'The body of the answer to a request is valid UTF-8, and its message (or the data of each SSE event) is JSON.',
+    level: 'MUST',
+    specRefs: [ref(L, LT, 'Transports')],
+    eras: BOTH,
+    transports: HTTP,
+  }),
+  check({
+    id: 'http-single-endpoint',
+    title: 'The MCP endpoint takes POST',
+    description:
+      'The URL under test takes a valid JSON-RPC request by POST: not 404 (other than a JSON-RPC -32601) and not 405.',
+    level: 'MUST',
+    specRefs: [ref(L, LT, 'Streamable HTTP'), ref(M, MT, 'Streamable HTTP')],
+    eras: BOTH,
+    transports: HTTP,
+  }),
+  check({
+    id: 'http-get-stream-or-405',
+    title: 'GET opens an SSE stream or is 405',
+    description: 'A GET with Accept: text/event-stream gets Content-Type text/event-stream or 405 Method Not Allowed.',
+    level: 'MUST',
+    specRefs: [ref(L, LT, 'Listening for Messages from the Server')],
+    eras: ['legacy'],
+    transports: HTTP,
+  }),
+  check({
+    id: 'http-modern-get-delete-405',
+    title: 'A modern-only server answers GET and DELETE with 405',
+    description:
+      'A server of the 2026-07-28 revision only answers GET and DELETE on its endpoint with 405 Method Not Allowed. A server that also answers initialize (dual-era) is not-applicable.',
+    level: 'SHOULD',
+    specRefs: [ref(M, MT, 'Earlier Streamable HTTP Revisions')],
+    eras: ['modern'],
+    transports: HTTP,
+  }),
+  check({
+    id: 'http-session-id-visible-ascii',
+    title: 'A session id is visible ASCII',
+    description: 'An MCP-Session-Id the server assigns holds only characters 0x21 to 0x7E. Without one, not-applicable.',
+    level: 'MUST',
+    specRefs: [ref(L, LT, 'Session Management')],
+    eras: ['legacy'],
+    transports: HTTP,
+  }),
+  check({
+    id: 'http-session-required-400',
+    title: 'A request without the session id is 400',
+    description:
+      'When the server assigned a session id, a request other than initialize without MCP-Session-Id gets 400 Bad Request.',
+    level: 'SHOULD',
+    specRefs: [ref(L, LT, 'Session Management')],
+    eras: ['legacy'],
+    transports: HTTP,
+  }),
+  check({
+    id: 'http-protocol-version-header-invalid-400',
+    title: 'An invalid MCP-Protocol-Version is 400',
+    description: 'A request after initialize with an MCP-Protocol-Version that is not a revision gets 400 Bad Request.',
+    level: 'MUST',
+    specRefs: [ref(L, LT, 'Protocol Version Header')],
+    eras: ['legacy'],
+    transports: HTTP,
+  }),
+  check({
+    id: 'http-concurrent-posts-matched',
+    title: 'Concurrent POSTs each get their own answer',
+    description: 'Several POSTs sent at once, each with its own id, are each answered with the id of their request.',
+    level: 'MUST',
+    derived: true,
+    derivation:
+      'basic/transports: every JSON-RPC message MUST be a new HTTP POST request; basic/index, Responses: a response carries the id of its request. Nothing is said of concurrency itself.',
+    specRefs: [ref(L, LT, 'Sending Messages to the Server'), ref(M, 'basic/index', 'Responses')],
+    eras: BOTH,
+    transports: HTTP,
+  }),
+  check({
+    id: 'http-sse-event-ids-unique',
+    title: 'SSE event ids are unique in the session',
+    description:
+      'When the server gives SSE events an id, no id comes back twice across the streams of the session. Without ids, not-applicable.',
+    level: 'MUST',
+    specRefs: [ref(L, LT, 'Resumability and Redelivery')],
+    eras: ['legacy'],
+    transports: HTTP,
+  }),
+  check({
+    id: 'http-sse-stream-closes',
+    title: 'The SSE stream of a request ends after its response',
+    description: 'When a request is answered over SSE, the server closes the stream once the response is sent.',
+    level: 'SHOULD',
+    specRefs: [ref(L, LT, 'Sending Messages to the Server'), ref(M, MT, 'Receiving Messages')],
+    eras: BOTH,
+    transports: HTTP,
+  }),
+  check({
+    id: 'http-sse-no-server-requests',
+    title: 'The SSE stream of a request holds no request of the server',
+    description:
+      'The SSE answer to a request holds its response and notifications, never a JSON-RPC request of the server.',
+    level: 'MUST',
+    specRefs: [ref(M, MT, 'Receiving Messages')],
+    eras: ['modern'],
+    transports: HTTP,
+  }),
+  check({
+    id: 'http-accel-buffering-header',
+    title: 'An SSE answer sends X-Accel-Buffering: no',
+    description: 'A response that opens an SSE stream has the header X-Accel-Buffering: no.',
+    level: 'SHOULD',
+    specRefs: [ref(M, MT, 'Receiving Messages')],
+    eras: ['modern'],
+    transports: HTTP,
+  }),
+  check({
+    id: 'http-close-cancels',
+    title: 'Closing the SSE stream cancels the request',
+    description:
+      'Closing the SSE answer of a long call is taken as its cancellation: the server sends nothing more for it. It shows only in the effects of a tool, so this run cannot see it yet: could-not-run (needs-input).',
+    level: 'MUST',
+    specRefs: [ref(M, MT, 'Cancellation')],
+    eras: ['modern'],
+    transports: HTTP,
+    needsFixture: true,
+  }),
+  // These two change the server's state, each in a session of its own made for it, so they come last.
+  check({
+    id: 'http-session-terminated-404',
+    title: 'A terminated session is 404',
+    description:
+      'After a DELETE with MCP-Session-Id that the server takes (not 405), a request with that session id gets 404 Not Found. Only a session this run made is deleted.',
+    level: 'MUST',
+    specRefs: [ref(L, LT, 'Session Management')],
+    eras: ['legacy'],
+    transports: HTTP,
+  }),
+  check({
+    id: 'http-sse-no-broadcast',
+    title: 'A message goes to one SSE stream, not to each',
+    description:
+      'With two GET streams open, a message of the server (made by the first --fixture call) arrives on one of them only.',
+    level: 'MUST',
+    specRefs: [ref(L, LT, 'Multiple Connections')],
+    eras: ['legacy'],
+    transports: HTTP,
+    needsFixture: true,
+  }),
+  // A local server against DNS rebinding: only for localhost, 127.0.0.1, [::1] and *.localhost.
+  check({
+    id: 'http-origin-invalid-403',
+    title: 'A foreign Origin is refused with 403',
+    description:
+      'A request with Origin: https://evil.example gets 403 Forbidden. It proves nothing when the control with a localhost Origin is refused as well: then could-not-run (prerequisite-failed).',
+    level: 'MUST',
+    specRefs: [ref(L, LT, 'Security Warning'), ref(M, MT, 'Security & Endpoint')],
+    eras: BOTH,
+    transports: HTTP,
+  }),
+  unscored('control', {
+    id: 'http-origin-localhost-accepted',
+    title: 'An Origin of localhost is accepted',
+    description:
+      'A request with Origin: http://localhost:<port> is accepted. Not a requirement: without it, a 403 to a foreign Origin shows a server that refuses everything, not a protection.',
+    specRefs: [ref(L, LT, 'Security Warning'), ref(M, MT, 'Security & Endpoint')],
+    eras: BOTH,
+    transports: HTTP,
+  }),
+  unscored('control', {
+    id: 'http-origin-absent-accepted',
+    title: 'A request without Origin is accepted',
+    description:
+      'A request with no Origin (not from a browser) is accepted: the specification speaks only of an Origin that is present and invalid.',
+    specRefs: [ref(L, LT, 'Security Warning'), ref(M, MT, 'Security & Endpoint')],
+    eras: BOTH,
+    transports: HTTP,
+  }),
+  check({
+    id: 'http-bind-loopback',
+    title: 'A local server listens on loopback only',
+    description:
+      'The port of a local server cannot be reached at an outside address of this machine. Without an outside address to try, could-not-run (needs-input).',
+    level: 'SHOULD',
+    specRefs: [ref(L, LT, 'Security Warning'), ref(M, MT, 'Security & Endpoint')],
+    eras: BOTH,
+    transports: HTTP,
+  }),
+  unscored('advice', {
+    id: 'http-host-rebinding-advice',
+    title: 'A foreign Host is refused (advice outside the specification)',
+    description:
+      'Not a requirement of the specification, practical advice: a local server that accepts a request with Host: evil.example relies on the Origin check alone against DNS rebinding.',
+    specRefs: [ref(L, LT, 'Security Warning'), ref(M, MT, 'Security & Endpoint')],
+    eras: BOTH,
+    transports: HTTP,
   }),
   // stdio
   check({

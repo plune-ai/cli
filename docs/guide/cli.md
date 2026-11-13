@@ -620,8 +620,9 @@ does not change the class or the exit code.
 Checks any MCP server against the text of the specification, check by check, and scores the run. It needs no
 Plune account. The protocol suite checks the handshake, the declared capabilities against the methods served,
 ping, the JSON-RPC answers to invalid JSON, an unknown method and wrong parameters, the entries and schemas of the
-tools, resources, templates and prompts lists, pagination, logging, completions, and on stdio what the server
-writes to stdout and whether it exits when stdin closes.
+tools, resources, templates and prompts lists, pagination, logging, completions, on stdio what the server
+writes to stdout and whether it exits when stdin closes, and on Streamable HTTP what the server does on the wire and
+whether a local server is protected against DNS rebinding.
 
 ```bash
 plune mcp conformance --list-checks                       # the catalog, no server
@@ -652,6 +653,35 @@ without a name and one for a name no server has.
 Schemas are judged in the dialect their `$schema` names, or 2020-12 without one; 2020-12, 2019-09 and draft-07 are
 supported, another dialect is `could-not-run` (`unsupported-dialect`). No `$ref` is fetched.
 
+### Streamable HTTP and a local server's protection
+
+The `http-*` checks send raw HTTP requests (no MCP client library, which would correct a status or ignore a header)
+and read the status, the headers, the bytes and the SSE events as they came. Each keeps the requests it sent and the
+answers in `details`, with `Authorization`, cookies and every `--header` value masked. Every request goes to the URL
+under test only: the `--header` values are never sent to another origin and no redirect is followed. A check makes
+its own session with an `initialize` POST (the client's session is never touched); `http-session-terminated-404` and
+`http-sse-no-broadcast`, which change the server's state, each make one more and run last. An SSE stream is read for
+at most 5 seconds.
+
+- **On the wire:** a notification is `202` with no body or an error status; a request is answered as
+  `application/json` or `text/event-stream`, in UTF-8 JSON, at one endpoint that takes POST; concurrent POSTs each get
+  the answer with their own id. Legacy era: GET opens an SSE stream or is `405`; a session id is visible ASCII; a
+  request without it is `400`, one with an invalid `MCP-Protocol-Version` is `400`, one after the session was
+  deleted is `404`; SSE event ids are unique; a message goes to one GET stream only (needs `--fixture`: its first call
+  is what makes the server send one). Modern era (2026-07-28): no request of the server on the stream of a request,
+  `X-Accel-Buffering: no`, and GET and DELETE `405` on a server that serves only that era. A request's SSE stream
+  ends after its response in both eras.
+- **A local server** (host `localhost`, `127.0.0.1`, `[::1]` or `*.localhost`; any other host is `not-applicable`,
+  `not-local`): a foreign `Origin` (`https://evil.example`) is refused with `403`, the port does not answer at an
+  outside address of this machine, and, as advice outside the specification that never moves the score, a foreign
+  `Host` is refused. Two controls without a level show that the `403` is a protection: an `Origin` of
+  `http://localhost:<port>` and no `Origin` at all are accepted. When the localhost control is refused too,
+  `http-origin-invalid-403` is `could-not-run` (`prerequisite-failed`), not `passed`.
+- `http-close-cancels` (a closed stream cancels the call) shows only in the effects of a tool, so it is
+  `could-not-run` (`needs-input`) for now. Over stdio every `http-*` check is `not-applicable` (`transport`), and over
+  HTTP+SSE `could-not-run` (`transport-error`). None of them is in profile `2026-11.1`, so they show their verdict and
+  stay out of the score until a new profile lists them.
+
 ### Options
 
 The connection flags are those of every `plune mcp` command that tests a server. The command's own:
@@ -681,7 +711,7 @@ MUST NOT or REQUIRED about that behaviour of the server; without a keyword the l
 
 Each check is `passed`, `failed`, `not-applicable` (with a reason: `era`, `capability-not-declared`, `transport`,
 `no-auth`, `not-offered`: the capability is declared but the server offers nothing the check reads, such as no
-`outputSchema`), `could-not-run` (with a reason: `timeout`, `prerequisite-failed`, `needs-input`, `transport-error`,
+`outputSchema`; `not-local`: a check of a local server's protection, on another host), `could-not-run` (with a reason: `timeout`, `prerequisite-failed`, `needs-input`, `transport-error`,
 `unsupported-dialect`) or `pending`. Each also lands in one bucket of the summary, so the buckets add up to the checks:
 
 | Bucket | Holds |
@@ -713,7 +743,9 @@ The score reads only the ids of a frozen profile, written out in the source and 
 added to the catalog later runs and shows its verdict, but stays in `pending` (and `pendingCheckIds`) until a new
 profile version lists it, so it never changes the score or the exit code of a server measured before. The result
 also records `checkerVersion` (this CLI's version), `protocolVersion`, `protocolVersionRequested`, `schemaVersion: 1`
-and, per check, `class`, `level`, `state`, `reason`, `expected`, `actual`, `fix` and `specRef`.
+and, per check, `class`, `level`, `state`, `reason`, `expected`, `actual`, `fix`, `specRef` and, for the HTTP
+checks, `details` (each request with its method, URL and headers, and the status, headers, body, number of SSE events
+and time of its answer, secrets masked).
 
 ### Exit codes
 

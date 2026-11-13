@@ -264,6 +264,16 @@ async function conformance(
         era,
         protocolVersion,
         ...(fixture !== undefined ? { fixture } : {}),
+        ...(config.target.kind === 'http'
+          ? {
+              http: {
+                url: config.target.url,
+                fetch: live.fetchForOrigin(config.target.url),
+                headers: config.target.headers,
+                redact: live.redact,
+              },
+            }
+          : {}),
         memo: <T>(key: string, make: () => Promise<T>) => {
           if (!memos.has(key)) memos.set(key, make());
           return memos.get(key) as Promise<T>;
@@ -342,5 +352,6 @@ function result(
     actual: outcome.actual === undefined ? '' : clean(outcome.actual),
     fix: 'fix' in outcome && outcome.fix !== undefined ? clean(outcome.fix) : '',
     specRef: first === undefined ? '' : `${specUrl(first)} (${first.section})`,
+    ...(outcome.details === undefined ? {} : { details: outcome.details }),
   };
 }

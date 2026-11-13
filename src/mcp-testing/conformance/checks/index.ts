@@ -8,13 +8,16 @@
 import type { Session } from '../../connect/session.js';
 import type { Era, Transport } from '../catalog.js';
 import type { CheckOutcome } from '../outcome.js';
+import type { HttpTarget } from '../raw-http.js';
 import { BASE } from './base.js';
 import { LIFECYCLE } from './lifecycle.js';
 import { PAGINATION } from './pagination.js';
 import { PROMPTS } from './prompts.js';
 import { RESOURCES } from './resources.js';
+import { SECURITY } from './security.js';
 import { STDIO } from './stdio.js';
 import { TOOLS } from './tools.js';
+import { TRANSPORT } from './transport.js';
 
 /** One call of `--fixture`: a tool the user named as safe to call, and its arguments. */
 export interface FixtureCall {
@@ -30,6 +33,8 @@ export interface ConformanceContext {
   protocolVersion: string | null;
   /** The calls of `--fixture`; undefined without it, and then no tool is called. */
   fixture?: readonly FixtureCall[];
+  /** The Streamable HTTP target, for the checks that send raw HTTP (undefined over stdio and HTTP+SSE). */
+  http?: HttpTarget;
   /** One value per key for the whole run: a list is walked once for every check that reads it. */
   memo<T>(key: string, make: () => Promise<T>): Promise<T>;
 }
@@ -43,5 +48,7 @@ export const IMPLEMENTATIONS: Readonly<Record<string, ConformanceCheck>> = {
   ...RESOURCES,
   ...PROMPTS,
   ...PAGINATION,
+  ...TRANSPORT,
+  ...SECURITY,
   ...STDIO,
 };

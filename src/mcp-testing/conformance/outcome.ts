@@ -5,9 +5,19 @@
 
 import type { CheckState } from '../result.js';
 import type { CatalogEntry, Era, Transport } from './catalog.js';
+import type { Exchange } from './raw-http.js';
 
-/** `not-offered`: the capability is declared, but the server offers nothing the check reads (no outputSchema, no resource). */
-export type NotApplicableReason = 'era' | 'capability-not-declared' | 'transport' | 'no-auth' | 'not-offered';
+/**
+ * `not-offered`: the capability is declared, but the server offers nothing the check reads (no outputSchema, no
+ * resource, no session id). `not-local`: a check of a local server's protection, on a host that is not a loopback name.
+ */
+export type NotApplicableReason =
+  | 'era'
+  | 'capability-not-declared'
+  | 'transport'
+  | 'no-auth'
+  | 'not-offered'
+  | 'not-local';
 /**
  * `needs-input`: an input only the user can give is missing (a fixture); it keeps a check out of the score.
  * `unsupported-dialect`: a schema names a JSON Schema dialect this checker cannot validate in.
@@ -19,10 +29,12 @@ export type CouldNotRunReason =
   | 'transport-error'
   | 'unsupported-dialect';
 
-export type CheckOutcome =
+/** `details`: the HTTP requests a check sent and what came back, secrets masked. */
+export type CheckOutcome = (
   | { state: 'passed' | 'failed' | 'pending'; expected?: string; actual?: string; fix?: string }
   | { state: 'not-applicable'; reason: NotApplicableReason; actual?: string }
-  | { state: 'could-not-run'; reason: CouldNotRunReason; actual?: string };
+  | { state: 'could-not-run'; reason: CouldNotRunReason; actual?: string }
+) & { details?: Exchange[] };
 
 /** The state and reason of an outcome, as a saved result holds them: all that the score reads. */
 export interface Verdict {
