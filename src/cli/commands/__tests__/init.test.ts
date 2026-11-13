@@ -13,6 +13,9 @@ import * as wizardModule from '../../../config/init/wizard.js';
 import { initCommand } from '../init.js';
 import { createProgram } from '../../../cli.js';
 import { NonTtyError } from '../../../config/errors.js';
+import { loadConfig } from '../../../config/loader.js';
+import { getAssertion } from '../../../assertions/registry.js';
+import type { AssertionKind, DatasetRow } from '../../../types/config.js';
 
 function wizardWritesYaml(cwd: string): void {
   fs.writeFileSync(path.join(cwd, 'plune.yaml'), 'version: 1\n# wizard output\n');
@@ -58,7 +61,38 @@ describe('initCommand', () => {
     // beyond the model provider. Leading with the platform would make the product look like it
     // requires a sign-up it does not.
     await initCommand({ cwd: tmp, force: false, yes: true });
-    expect(printed.join('')).toMatch(/No account, no token needed/);
+    expect(printed.join('')).toMatch(/no account or platform token needed/i);
+  });
+
+  it('names what the first run needs: the provider key, where it goes, and the mock (#246)', async () => {
+    // The first run calls the model, so "nothing needed" was untrue: it stopped on a missing key.
+    await initCommand({ cwd: tmp, force: false, yes: true });
+    const out = printed.join('');
+    expect(out).toContain('ANTHROPIC_API_KEY');
+    expect(out).toContain('.env.example');
+    expect(out).toContain('PLUNE_MOCK_PROVIDER=1');
+  });
+
+  it('scaffolds an eval that passes when the model gives its own dataset expected answers (#246)', async () => {
+    await initCommand({ cwd: tmp, force: false, yes: true });
+    const config = await loadConfig({ cwd: tmp, env: {} });
+    const rows = fs
+      .readFileSync(path.join(tmp, 'datasets', 'example.jsonl'), 'utf8')
+      .split('\n')
+      .filter((l) => l.trim() !== '')
+      .map((l) => JSON.parse(l) as DatasetRow);
+    expect(rows.length).toBeGreaterThan(0);
+    const assertions = config.evals[0]!.assertions!;
+    for (const row of rows) {
+      for (const a of assertions) {
+        const { type, ...params } = a as { type: AssertionKind } & Record<string, unknown>;
+        const ask = (output: string) =>
+          getAssertion(type).run({ output, vars: row.vars, row, params });
+        // The expected answer, as a model might phrase it, passes; an unrelated answer does not.
+        expect((await ask(`It is ${row.expected}.`)).passed).toBe(true);
+        expect((await ask('mock response')).passed).toBe(false);
+      }
+    }
   });
 
   it('prints the steps after the files, not before them', async () => {

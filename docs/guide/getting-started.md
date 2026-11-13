@@ -56,6 +56,22 @@ plune init
 
 It asks a few questions (provider, model, dataset, …) and writes a `plune.yaml` for you.
 
+Without a terminal, or to take the defaults, run `plune init --yes`. It writes `plune.yaml`, a sample
+`datasets/example.jsonl` and `.env.example`, and ends with:
+
+```
+Next:
+  1. plune run     — runs locally: no account or platform token needed. It calls the model,
+                     so put your key in .env (copy .env.example; ANTHROPIC_API_KEY for the
+                     default provider). With no key yet, PLUNE_MOCK_PROVIDER=1 plune run uses
+                     a built-in stand-in model: it checks the setup, and its answers fail the example.
+  2. plune login   — only if you want history and trends: paste a token from the dashboard.
+  3. plune sync    — sends the last run to the platform.
+```
+
+The sample eval checks each answer against the `expected` value of its own dataset row, so a correct
+answer passes.
+
 Prefer to write it by hand? Create `plune.yaml`:
 
 ```yaml
