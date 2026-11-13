@@ -208,7 +208,7 @@ describe('CLI · mcp conformance · the 2026-07-28 revision over stdio', () => {
   it('a server that keeps them passes every check that applies to a modern stdio run', async () => {
     const r = await report({ fixture: fixtureFile(CALLS) }, modern('good'));
     const expected = Object.fromEntries(
-      CATALOG.map((e) => [
+      CATALOG.filter((e) => e.suite === 'protocol').map((e) => [
         e.id,
         !e.transports.includes('stdio') ? 'not-applicable (transport)' : !e.eras.includes('modern') ? 'not-applicable (era)' : 'passed',
       ]),

@@ -13,7 +13,7 @@ import {
   type ConnectConfig,
   type ConnectionFlags,
 } from '../../mcp-testing/connect/options.js';
-import { redactorFor } from '../../mcp-testing/connect/redact.js';
+import { createRedactor, redactorFor } from '../../mcp-testing/connect/redact.js';
 import { ConnectError, openSession, type RawReply, type Session } from '../../mcp-testing/connect/session.js';
 import {
   CATALOG,
@@ -29,6 +29,8 @@ import {
   type ConformanceContext,
   type FixtureCall,
 } from '../../mcp-testing/conformance/checks/index.js';
+import { loadOauthConfig, type OauthConfig } from '../../mcp-testing/conformance/checks/auth-config.js';
+import type { OauthContext } from '../../mcp-testing/conformance/checks/auth.js';
 import { initializeProblems } from '../../mcp-testing/conformance/checks/lifecycle.js';
 import { modernMeta } from '../../mcp-testing/conformance/checks/modern/meta.js';
 import { answerOf, isObject, nextId, said, type Answer } from '../../mcp-testing/conformance/checks/wire.js';
@@ -52,6 +54,10 @@ export interface McpConformanceFlags extends ConnectionFlags {
   listChecks?: boolean;
   explain?: string;
   fixture?: string;
+  /** The oauth suite: a JSON file of how the run may sign in. */
+  config?: string;
+  /** The oauth suite: origins other than the server's that may be asked; repeatable. */
+  allowOrigin?: string[];
 }
 
 export interface ConformanceIo {
@@ -235,7 +241,12 @@ async function conformance(
     throw new UsageError('--protocol-version: the HTTP+SSE transport carries the legacy era only (2025-11-25 and earlier).');
   const base: Base = { requested, suites, entries, fixture };
   const reports: McpConformanceReport[] = [];
-  if (plan === 'auto') reports.push(await measure(config, base, await detect(config), io));
+  if (suites.includes('oauth')) {
+    if (suites.length > 1) throw new UsageError('--suite oauth cannot be run together with another suite yet: run it on its own.');
+    const setup = oauthSetup(flags, cwd, io.env);
+    const revisions = requested === 'auto' || requested === 'both' ? (setup.config.protocolVersions ?? OAUTH_REVISIONS) : [requested];
+    for (const revision of revisions) reports.push(await measureOauth(config, base, revision, setup, io));
+  } else if (plan === 'auto') reports.push(await measure(config, base, await detect(config), io));
   else
     for (const era of plan) {
       const version = requested !== 'both' ? requested : era === 'modern' ? MODERN : null;
@@ -472,6 +483,118 @@ function serverInfoOf(result: Record<string, unknown>): { name: string; version:
   const info = isObject(meta) ? meta['io.modelcontextprotocol/serverInfo'] : undefined;
   if (!isObject(info) || typeof info['name'] !== 'string') return undefined;
   return { name: info['name'], version: typeof info['version'] === 'string' ? info['version'] : '' };
+}
+
+/** The revisions the oauth suite covers when none is named: those of the catalog. */
+const OAUTH_REVISIONS = ['2025-11-25', '2026-07-28'];
+
+interface OauthSetup {
+  config: OauthConfig;
+  allowOrigins: Set<string>;
+  env: NodeJS.ProcessEnv;
+}
+
+/** `--config` and `--allow-origin`, read and checked before any request is sent. */
+function oauthSetup(flags: McpConformanceFlags, cwd: string, env: NodeJS.ProcessEnv): OauthSetup {
+  const allowOrigins = new Set<string>();
+  for (const raw of [flags.allowOrigin ?? []].flat()) {
+    let url: URL;
+    try {
+      url = new URL(raw);
+    } catch {
+      throw new UsageError(`--allow-origin ${raw}: not an origin such as https://auth.example.com.`);
+    }
+    if (url.protocol !== 'https:' && url.protocol !== 'http:')
+      throw new UsageError(`--allow-origin ${raw}: not an origin such as https://auth.example.com.`);
+    allowOrigins.add(url.origin);
+  }
+  return { config: flags.config === undefined ? {} : loadOauthConfig(resolve(cwd, flags.config)), allowOrigins, env };
+}
+
+/**
+ * One run of the oauth suite for one revision. No session is opened: the suite asks the server as a client that has
+ * no credentials, so a server that answers every request with 401 is a normal case, not a failed connection.
+ */
+async function measureOauth(
+  config: ConnectConfig,
+  { requested, suites, entries }: Base,
+  revision: string,
+  setup: OauthSetup,
+  io: ConformanceIo,
+): Promise<McpConformanceReport> {
+  const era = eraOf(revision);
+  const transport = config.target.kind === 'stdio' ? 'stdio' : 'http';
+  const secrets = new Set<string>();
+  // The connection's own values (--header, the URL's password) are masked as well, though this suite never sends them.
+  const own = config.target.kind === 'stdio' ? undefined : redactorFor(config.target);
+  const clean = (text: string) => cut(printable(createRedactor(secrets, { named: secrets }).text(own === undefined ? text : own.text(text))));
+  const memos = new Map<string, Promise<unknown>>();
+  const oauth: OauthContext | undefined =
+    config.target.kind === 'http' || config.target.kind === 'sse'
+      ? {
+          url: config.target.url,
+          revision,
+          era,
+          config: setup.config,
+          allowOrigins: setup.allowOrigins,
+          env: setup.env,
+          timeoutMs: config.timeoutMs,
+          fetch: (input, init) => fetch(input, init),
+          secrets,
+          memo: <T>(key: string, make: () => Promise<T>) => {
+            if (!memos.has(key)) memos.set(key, make());
+            return memos.get(key) as Promise<T>;
+          },
+        }
+      : undefined;
+  // The suite's checks read `oauth` only; the session and the rest of a protocol run's context are not part of it.
+  const ctx = { transport, era, protocolVersion: revision, ...(oauth === undefined ? {} : { oauth }) } as unknown as ConformanceContext;
+  const results: ConformanceResult[] = [];
+  let timeouts = 0;
+  for (const entry of entries) {
+    let outcome: CheckOutcome | undefined = applicability(entry, { era, transport });
+    if (outcome === undefined) {
+      const check = IMPLEMENTATIONS[entry.id];
+      if (check === undefined) outcome = { state: 'pending' };
+      else if (timeouts >= TIMEOUTS_IN_A_ROW)
+        outcome = { state: 'could-not-run', reason: 'timeout', actual: `Not run: ${TIMEOUTS_IN_A_ROW} checks in a row timed out.` };
+      else
+        try {
+          outcome = await check(ctx);
+        } catch (err) {
+          if (!(err instanceof ConnectError)) throw err;
+          outcome = { state: 'could-not-run', reason: err.kind === 'timeout' ? 'timeout' : 'transport-error', actual: err.message };
+        }
+    }
+    timeouts = outcome.state === 'could-not-run' && outcome.reason === 'timeout' ? timeouts + 1 : 0;
+    results.push(result(entry, outcome, clean));
+  }
+  const summary = summarize(results);
+  const bucket = new Map(BUCKETS.flatMap((k) => summary[k].map((id) => [id, k] as const)));
+  for (const r of results) r.bucket = bucket.get(r.id) ?? 'pending';
+  const bySuite: McpConformanceReport['bySuite'] = {};
+  for (const s of suites) bySuite[s] = summarize(results.filter((r) => r.suite === s));
+  return {
+    kind: 'mcp-conformance-report',
+    schemaVersion: 1,
+    command: 'conformance',
+    checkerVersion: io.clientVersion ?? '0.0.0',
+    profileId: PROFILE.id,
+    profileVersion: PROFILE.version,
+    manifestDigest: manifestDigest(PROFILE.checks),
+    protocolVersion: revision,
+    protocolVersionRequested: requested,
+    era,
+    eraDetection: 'the oauth suite runs once for each revision it covers',
+    server: null,
+    transport: config.target.kind,
+    suites,
+    checks: results,
+    pendingCheckIds: summary.pending,
+    bySuite,
+    summary,
+    exitCode: exitCodeOf(summary.verdict),
+  };
 }
 
 function result(
