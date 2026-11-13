@@ -807,6 +807,25 @@ It sees only what the server answers this connection: a server can answer a scan
 a model's client. The format, the exit codes and a GitHub Actions example are in
 [the CLI reference](docs/guide/cli.md#plune-mcp-pin).
 
+### Checking a server against the spec: `plune mcp conformance`
+
+`plune mcp conformance` runs the checks of the MCP specification against a server you name, stdio or
+HTTP. Every check has a level (`MUST`, `SHOULD`, ...) and the section it cites; the score counts only
+the `MUST` checks of a frozen profile, so it means the same thing next month. `--list-checks` prints
+the catalog without a server. `--suite oauth --config <file>` (JSON or YAML) checks the authorization
+side of an HTTP server.
+
+```bash
+plune mcp conformance -- node dist/server.js
+plune mcp conformance --url http://127.0.0.1:3000/mcp --out junit-xml=conformance.xml
+```
+
+It exits `1` when a counted check failed, `2` when the server did not start or a flag is wrong, and
+`3` when conformance is not established (a counted check could not run, or nothing was measured; the
+oauth suite always ends in `3`). A pass says the server answered these requests as the text asks, no
+more. The flags and the checks are in [the CLI reference](docs/guide/cli.md#plune-mcp-conformance); the
+guide is at [docs.plune.ai/cli/guides/mcp-conformance](https://docs.plune.ai/cli/guides/mcp-conformance/).
+
 ## Programmatic API
 
 The same engine that powers `plune run` is exported for use from your own code. Unlike the

@@ -87,6 +87,42 @@ last measured run.
 
 If `--only` matches nothing, Plune prints `No evals matched the selector.` and exits `0`.
 
+### The tasks suite
+
+`--suite tasks` checks a server that offers the Tasks extension (`io.modelcontextprotocol/tasks`: a server answers `tools/call`
+with a task handle that the client polls with `tasks/get`), described by the
+[extension's specification](https://github.com/modelcontextprotocol/ext-tasks/blob/main/specification/2026-07-28/tasks.md)
+(stage "Beta, to Core" in the [list of extensions](https://modelcontextprotocol.io/extensions/overview.md)). The extension
+exists from the revision 2026-07-28: on a session of an earlier revision every check is `not-applicable` (`era`), and so
+is every check against a server that does not declare the extension in the capabilities of `server/discover`
+(`capability-not-declared`). The 2025-11-25 experimental tasks are another feature and are not checked. The checks are
+outside the frozen profile, so a run of this suite alone ends with exit `3`; a run without `--suite tasks` is unchanged.
+
+Every check needs a task, and a task comes from a tool `--fixture` names: without one, every check is `could-not-run`
+(`needs-input`) and no tool is called. The run makes at most 3 tasks (the one it reads, one it cancels, and one that a
+server wrongly hands to a client that declared nothing), calls a fixture tool at most 5 times, polls `tasks/get` at most
+6 times and for at most 5 seconds (by the interval the server names, kept between 20 and 1000 ms), and never answers an
+`inputRequests` entry. After the last check it cancels every task it did not see finish; one that still runs, or whose
+state it could not learn, is named in the report after `Left behind`.
+
+| Check | Level | What it judges |
+|-------|-------|----------------|
+| `tasks-result-type` | MUST | a task handle has `resultType: "task"`, a `taskId` and a status; no other result has `resultType: "task"` |
+| `tasks-undeclared-no-task` | MUST | a client that did not declare the extension is given no task (the call that made a task with the declaration is the control) |
+| `tasks-undeclared-capability-error` | MUST | `tasks/get`, `tasks/update` and `tasks/cancel` without the declaration answer `-32021` with `data.requiredCapabilities` |
+| `tasks-get-status-shape` | MUST (derived) | `tasks/get` answers `resultType: "complete"`, the `taskId`, one of the five statuses, `createdAt` and `lastUpdatedAt` as ISO 8601, and `ttlMs` |
+| `tasks-status-payload` | MUST | `completed` has `result`, `failed` has `error`, `input_required` has `inputRequests` (a status the run did not see is not judged) |
+| `tasks-ttl-poll-integers` | SHOULD (derived) | `ttlMs` is an integer or `null`, `pollIntervalMs` an integer (the text gives these as types only) |
+| `tasks-unknown-id-get` | MUST | `tasks/get` for an unknown `taskId` answers `-32602` |
+| `tasks-unknown-id-update-cancel` | SHOULD | the same for `tasks/update` and `tasks/cancel` |
+| `tasks-cancel-ack` | MUST | `tasks/cancel` answers an empty result with `resultType: "complete"`; an error counts only for a task seen still running |
+| `tasks-update-ack` | MUST | the same for `tasks/update`; an error says nothing and is `could-not-run` |
+| `tasks-failed-status-message` | SHOULD | a `failed` task has a `statusMessage` |
+| `tasks-http-name-header` | SHOULD (derived) | over Streamable HTTP, `tasks/get` with `Mcp-Name` set to the `taskId` is accepted (the specification's MUST is on the client) |
+| `tasks-input-request-keys-unique` | MUST (derived) | a key of `inputRequests` never names a different request at a later poll (that a key is not reused after its response is not judged: the run never answers) |
+
+`--explain <id>` prints the sentence of the specification each level comes from.
+
 ### Exit codes
 
 `plune run` sets the process exit code so it slots into CI and shell scripts:
@@ -866,7 +902,16 @@ answers in `details`, with `Authorization`, cookies and every `--header` value m
 under test only: the `--header` values are never sent to another origin and no redirect is followed. A check makes
 its own session with an `initialize` POST (the client's session is never touched); `http-session-terminated-404` and
 `http-sse-no-broadcast`, which change the server's state, each make one more and run last. An SSE stream is read for
-at most 5 seconds.
+at most 5 seconds, 100 events, 1 MiB, and a line of at most 64 KiB; a check that needed more of the stream than that
+is `could-not-run` (`transport-error`), never judged from a part, and the stream is closed.
+
+A status that says nothing of a requirement is never a verdict: a redirect (not followed), `429` or a server error
+to any of these requests is `could-not-run` (`transport-error`), and `401` is `could-not-run` (`prerequisite-failed`)
+until `--header` gives the login. A refusal passes only for the status the text names, and only after the same request
+in its valid form was accepted (a session id, the negotiated version, a local `Origin`). The session id is masked in
+every `details` header and wherever the server prints it. Each session the run opened is closed with `DELETE` at the
+end; the report's `ownSessions` says how many were opened, closed and left open (a server that answers `DELETE` with
+`405` keeps them), and the human report names the ones left open.
 
 - **On the wire:** a notification is `202` with no body or an error status; a request is answered as
   `application/json` or `text/event-stream`, in UTF-8 JSON, at one endpoint that takes POST; concurrent POSTs each get
@@ -1022,7 +1067,7 @@ another resource (`oauth-neg-wrong-audience`). Each id, its level and the sectio
 
 | Flag | Meaning |
 |------|---------|
-| `--config <file>` | A JSON file, or a YAML file when its name ends in `.yaml` or `.yml` (the same keys and rules; no anchor, alias, custom tag or merge key, and at most 64 KiB, checked from the size of the file before it is read): `auth`, `registration` (one object, or a list of objects with a `method` each: the suite then runs once for each revision and each method, reports each run with its own summary, and adds a `Combined` summary made from the counters of all runs, not from their scores), `scopes`, `narrowScopes`, `resource`, `protocolVersions`. A secret is never a value in it: `registration.clientSecretEnv` names the environment variable that holds the client secret, and a file with a key that names a secret is refused. |
+| `--config <file>` | A JSON file, or a YAML file when its name ends in `.yaml` or `.yml` (the same keys and rules; no anchor, alias, custom tag or merge key, and at most 64 KiB, checked from the size of the file before it is read): `auth` (`headless` or `client-credentials`), `redirectUri`, `registration` (one object, or a list of objects with a `method` each: the suite then runs once for each revision and each method, reports each run with its own summary, and adds a `Combined` summary made from the counters of all runs, not from their scores), `scopes`, `narrowScopes`, `resource`, `protocolVersions`. A secret is never a value in it: `registration.clientSecretEnv` names the environment variable that holds the client secret, and a file with a key that names a secret is refused. |
 | `--allow-origin <origin>` | Ask this origin too. Without it, a `resource_metadata` URL or an authorization server on another origin than the server's is not asked, and the check is `could-not-run` (`needs-input`). It is also the only way the client secret leaves the run: the secret is sent only to a token endpoint whose origin is named here (the server's own origin included), and only over https, or http on a loopback name. Repeatable. |
 
 `oauth-neg-wrong-audience` needs `"auth": "client-credentials"` and a preregistered client the authorization server accepts
@@ -1087,8 +1132,9 @@ Everything the server issues is masked in every output: any string under a key t
 password, assertion or credential (`client_secret`, `registration_access_token`, `initial_access_token`, `refresh_token`,
 `id_token`, ...) at any depth, and `registration_client_uri` whole, because it often carries a secret.
 
-Not in this version: the browser and headless sign-in, the checks of the authorization endpoint that refuse a wrong
-request, and a result per registration method.
+Not supported: signing in through a browser. `auth: "interactive"` is accepted in a file but opens nothing, and the checks
+that need a signed-in person are `could-not-run` (`needs-input`). Use `auth: "headless"` (see `oauth-authz-response-iss`)
+or `auth: "client-credentials"`.
 
 ### The apps suite
 

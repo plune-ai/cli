@@ -31,6 +31,7 @@ import {
 } from '../../mcp-testing/conformance/checks/index.js';
 import { loadOauthConfig, type OauthConfig } from '../../mcp-testing/conformance/checks/auth-config.js';
 import type { OauthContext } from '../../mcp-testing/conformance/checks/auth.js';
+import { closeOwnSessions } from '../../mcp-testing/conformance/checks/transport.js';
 import { initializeProblems } from '../../mcp-testing/conformance/checks/lifecycle.js';
 import { modernMeta } from '../../mcp-testing/conformance/checks/modern/meta.js';
 import { answerOf, isObject, nextId, said, type Answer } from '../../mcp-testing/conformance/checks/wire.js';
@@ -378,6 +379,8 @@ async function measure(
   const transport = config.target.kind === 'stdio' ? 'stdio' : 'http';
   const results: ConformanceResult[] = [];
   let serverInfo: McpConformanceReport['server'] = null;
+  let ownSessions: McpConformanceReport['ownSessions'];
+  let ownCtx: ConformanceContext | undefined;
   const modern = plan.era === 'modern';
   let protocolVersion: string | null = plan.version ?? (modern ? MODERN : null);
   const sessionOptions = modern ? { modern: { version: protocolVersion ?? MODERN } } : {};
@@ -430,6 +433,7 @@ async function measure(
       // A legacy run takes its era from the revision the handshake gave; without one, the handshake itself is legacy.
       const era: Era = modern ? 'modern' : eraOf(protocolVersion ?? '2025-11-25');
       const memos = new Map<string, Promise<unknown>>();
+      const endSteps: (() => Promise<string | undefined>)[] = [];
       const ctx: ConformanceContext = {
         session: live,
         transport,
@@ -452,7 +456,9 @@ async function measure(
           if (!memos.has(key)) memos.set(key, make());
           return memos.get(key) as Promise<T>;
         },
+        onEnd: (step) => void endSteps.push(step),
       };
+      ownCtx = ctx;
       const prerequisite = modern ? DISCOVER_CHECK : HANDSHAKE_CHECK;
       let timeouts = 0;
       const run = async (entry: CatalogEntry): Promise<CheckOutcome> => {
@@ -474,8 +480,26 @@ async function measure(
       };
       for (const entry of entries)
         results.push(result(entry, applicability(entry, { era, transport }) ?? (await run(entry)), clean));
+      // What a check made on the server and has to end (a task) is ended here, and what stayed is told in the last result of its suite.
+      const left: string[] = [];
+      for (const step of endSteps) {
+        try {
+          const note = await step();
+          if (note !== undefined) left.push(note);
+        } catch (err) {
+          if (!(err instanceof ConnectError)) throw err;
+          left.push(`could not be ended: ${err.message}`);
+        }
+      }
+      const last = [...results].reverse().find((r) => r.suite === 'tasks');
+      if (left.length > 0 && last !== undefined) last.actual = clean(`${last.actual} Left behind: ${left.join(' ')}`.trim());
     } finally {
-      await live.close();
+      try {
+        // Also when a check threw: what the run opened is closed, or counted as left open.
+        if (ownCtx !== undefined) ownSessions = await closeOwnSessions(ownCtx);
+      } finally {
+        await live.close();
+      }
     }
   }
 
@@ -501,6 +525,7 @@ async function measure(
     suites,
     checks: results,
     pendingCheckIds: summary.pending,
+    ...(ownSessions === undefined ? {} : { ownSessions }),
     bySuite,
     summary,
     exitCode: exitCodeOf(summary.verdict),
