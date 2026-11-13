@@ -62,6 +62,14 @@ describe('runInitWizard', () => {
     expect(content).toContain('data/evals.jsonl');
   });
 
+  it('checks each answer against its own row, not a fixed phrase (#246)', async () => {
+    await runInitWizard(tmpDir);
+    const content = fs.readFileSync(path.join(tmpDir, 'plune.yaml'), 'utf8');
+    expect(content).toContain('{{expected}}');
+    expect(content).toContain('ignore_case: true');
+    expect(content).not.toContain('expected output');
+  });
+
   it('calls intro and outro', async () => {
     await runInitWizard(tmpDir);
     expect(vi.mocked(clack.intro)).toHaveBeenCalledOnce();

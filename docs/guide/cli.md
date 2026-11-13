@@ -18,7 +18,10 @@ writes the file in the current directory.
 plune init
 ```
 
-- Requires an interactive terminal (TTY). In a non-interactive shell it exits with an error — write
+- `--yes` skips the questions and writes a default `plune.yaml`, a sample dataset and `.env.example`;
+  it needs no terminal. It ends by naming what the first `plune run` needs: the key of the provider it wrote (in
+  `.env`), or `PLUNE_MOCK_PROVIDER=1` for a run with no key. `--force` overwrites existing files.
+- Without `--yes`, it requires an interactive terminal (TTY). In a non-interactive shell it exits with an error — write
   the `plune.yaml` by hand instead (see [Configuration](./configuration.md)).
 
 ---
