@@ -17,6 +17,7 @@ import {
   isMeta,
   isOutcome,
   lostStatus,
+  maskedCut,
   needsAuth,
   needsInput,
   prerequisite,
@@ -101,7 +102,7 @@ const tokenWorks: ConformanceCheck = async (c) => {
   if (typeof type !== 'string' || type.toLowerCase() !== 'bearer')
     return issued(
       prerequisite(
-        `The token type ${typeof type === 'string' ? JSON.stringify(type.slice(0, 40)) : type === undefined ? 'is missing' : 'is not a string'}, which this check does not support (it sends a Bearer token): the token was not sent.`,
+        `The token type ${typeof type === 'string' ? JSON.stringify(maskedCut(ctx, type, 40)) : type === undefined ? 'is missing' : 'is not a string'}, which this check does not support (it sends a Bearer token): the token was not sent.`,
         [t.detail],
       ),
     );

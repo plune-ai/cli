@@ -92,6 +92,8 @@ export interface AuthOpts {
     | number;
   /** A client the token endpoint does not know: refused with invalid_client (default), given a token, or 400 or 403 otherwise. */
   tokenUnknown?: 'refuse' | 'accept' | 'invalid-request' | 'forbidden';
+  /** The token endpoint refuses every request with this as the `error` of a 400 (any text, for the cut of a message). */
+  tokenError?: string;
   /** What a client that does not exist gets at the authorization endpoint, in place of the usual answer. */
   unknown?: Odd;
   /** What a known client gets when its redirect_uri is on an .invalid host, in place of the usual answer. */
@@ -460,6 +462,7 @@ export async function authFixture(o: AuthOpts = {}, seen: Seen[] = []): Promise<
       return;
     }
     if (path === '/token' && req.method === 'POST') {
+      if (o.tokenError !== undefined) return json(res, 400, { error: o.tokenError });
       const basic = req.headers.authorization?.startsWith('Basic ')
         ? Buffer.from(req.headers.authorization.slice(6), 'base64').toString()
         : '';

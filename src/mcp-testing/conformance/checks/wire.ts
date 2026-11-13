@@ -4,6 +4,7 @@
  * in their usual words.
  */
 
+import type { Redactor } from '../../connect/redact.js';
 import type { RawOptions, RawReply } from '../../connect/session.js';
 import type { CheckOutcome } from '../outcome.js';
 import type { ConformanceContext } from './index.js';
@@ -23,13 +24,20 @@ let counter = 0;
 /** A request id of this checker: a string, so it never meets the SDK's own numbered ones. */
 export const nextId = (): string => `plune-conformance-${++counter}`;
 
-export function answerOf(reply: RawReply): Answer {
+export function answerOf(reply: RawReply, redact?: Redactor): Answer {
   const f = reply.frame;
   const status = reply.status !== undefined ? { status: reply.status } : {};
   if (f !== undefined) {
     const error = f['error'];
     if (isObject(error))
-      return { kind: 'error', code: error['code'], message: typeof error['message'] === 'string' ? error['message'] : '', frame: f, ...status };
+      // The message is masked here, whole: said() cuts it afterwards, and a secret cut in two cannot be found again.
+      return {
+        kind: 'error',
+        code: error['code'],
+        message: typeof error['message'] === 'string' ? (redact?.text(error['message']) ?? error['message']) : '',
+        frame: f,
+        ...status,
+      };
     const result = f['result'];
     if (isObject(result)) return { kind: 'result', result, frame: f, ...status };
   }
@@ -65,7 +73,7 @@ export async function callAsIs(
 ): Promise<Answer> {
   const id = nextId();
   const message = { jsonrpc: '2.0', id, method, ...(params === undefined ? {} : { params }) };
-  return answerOf(await ctx.session.raw(JSON.stringify(message), id, options));
+  return answerOf(await ctx.session.raw(JSON.stringify(message), id, options), ctx.session.redact);
 }
 
 /** What an answer was, in a few words, for `actual`. */

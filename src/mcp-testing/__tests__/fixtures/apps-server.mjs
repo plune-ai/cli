@@ -224,6 +224,7 @@ function answer(msg) {
       if (mode === 'silent-read') return;
       if (mode === 'error-internal') return fail(id, -32603, 'Internal error');
       if (mode === 'error-method') return fail(id, -32601, 'Method not found');
+      if (mode === 'error-secret') return fail(id, -32603, `${'e'.repeat(100)}${process.env.SECRET_TEXT ?? ''}`);
       if (mode === 'empty-contents') return ok(id, { contents: [] });
       if (mode === 'many' && String(params.uri).startsWith('ui://apps/'))
         return ok(id, { contents: [{ ...content(), uri: params.uri }] });

@@ -135,6 +135,8 @@ export function answer(mode, state, msg, emit, end = () => {}) {
       // bad: the code of earlier revisions; empty: a result with no contents.
       if (bad) return send(error(id, -32002, 'Resource not found'));
       if (mode === 'empty') return send(result(id, { contents: [], ...HINTS }));
+      // secret-error: the error message is 100 characters and then SECRET_TEXT, so a cut at 120 falls inside the secret.
+      if (mode === 'secret-error') return send(error(id, -32002, `${'e'.repeat(100)}${process.env.SECRET_TEXT ?? ''}`));
       return send(error(id, -32602, 'Resource not found'));
     case 'resources/templates/list':
       // bad: no caching hints.

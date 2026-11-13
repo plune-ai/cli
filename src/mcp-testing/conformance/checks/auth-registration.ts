@@ -26,6 +26,7 @@ import {
   isMeta,
   isOutcome,
   lostStatus,
+  maskedCut,
   needsAuth,
   needsInput,
   prerequisite,
@@ -82,6 +83,7 @@ const CLIENT_REFUSED = new Set(['invalid_client', 'unauthorized_client']);
 const NAMES_CLIENT = /client_id|client id|client metadata|metadata|unknown client|invalid client/i;
 
 function judged(
+  ctx: OauthContext,
   status: number,
   error: string | null | undefined,
   description: string | null | undefined,
@@ -93,8 +95,8 @@ function judged(
     CLIENT_REFUSED.has(error) ||
     (error === 'invalid_request' && NAMES_CLIENT.test(description ?? ''));
   return refused
-    ? { kind: 'refused', status, error: error.slice(0, 60), detail }
-    : { kind: 'unclear', status, error: error.slice(0, 60), detail };
+    ? { kind: 'refused', status, error: maskedCut(ctx, error, 60), detail }
+    : { kind: 'unclear', status, error: maskedCut(ctx, error, 60), detail };
 }
 
 /** The query and fragment values of a Location that the server issued: they are masked in every exchange. */
@@ -173,6 +175,7 @@ export async function authorize(
     if (error !== null)
       return {
         ...judged(
+          ctx,
           status,
           error,
           target.searchParams.get('error_description') ?? fragment.get('error_description'),
@@ -197,7 +200,7 @@ export async function authorize(
   } catch {
     error = undefined;
   }
-  return { ...judged(status, error, description, d), toRedirectUri: false };
+  return { ...judged(ctx, status, error, description, d), toRedirectUri: false };
 }
 
 export const said = (a: { status: number; error?: string | undefined }): string =>
@@ -431,7 +434,7 @@ async function register(
   if (status === 401 || status === 403) return { kind: 'needs-credential', status, detail: d };
   if (transient(status)) return { kind: 'transient', status, maybe: status !== 429, detail: d };
   const error =
-    isObject(doc) && typeof doc['error'] === 'string' ? doc['error'].slice(0, 60) : undefined;
+    isObject(doc) && typeof doc['error'] === 'string' ? maskedCut(ctx, doc['error'], 60) : undefined;
   return { kind: 'refused', status, error, detail: d };
 }
 
@@ -789,7 +792,7 @@ const tokenFormat: ConformanceCheck = async (c) => {
   const type = d['token_type'];
   if (typeof type !== 'string') problems.push('token_type is missing');
   else if (type.toLowerCase() !== 'bearer')
-    problems.push(`token_type is ${JSON.stringify(type.slice(0, 40))}, not Bearer`);
+    problems.push(`token_type is ${JSON.stringify(maskedCut(ctx, type, 40))}, not Bearer`);
   if (problems.length > 0)
     return {
       ...failed(
