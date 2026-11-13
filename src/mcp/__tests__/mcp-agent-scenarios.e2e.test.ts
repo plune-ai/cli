@@ -39,7 +39,10 @@ interface Wrong {
 const SCENARIOS: Record<string, { right: MockStep[]; wrong: Wrong[] }> = {
   'find-smoke-cases': {
     right: [call('plune_cases_search', { filters: { tag: ['smoke'] } }), done],
-    wrong: [{ why: 'looks around first, then searches', script: [call('plune_project_context'), call('plune_cases_search', { filters: { tag: ['smoke'] } }), done], fails: ['first-tool'] }],
+    wrong: [
+      { why: 'searches by another tag', script: [call('plune_cases_search', { filters: { tag: 'regression' } }), done], fails: ['tool-args'] },
+      { why: 'finds the cases, then writes a proposal', script: [call('plune_cases_search', { filters: { tag: 'smoke' } }), call('plune_case_propose', { target: 'Smoke', cases: [proposal] }), done], fails: ['only-tools'] },
+    ],
   },
   'orient-in-project': {
     right: [call('plune_project_context'), done],
@@ -262,6 +265,29 @@ describe('CLI · mcp agent scenarios · offline', () => {
     const answer = rowOf(r.result, id).agent!.steps[0]!.calls[0]!.result!;
     expect(answer.truncated).toBe(false);
     expect(JSON.parse(answer.text)).toMatchObject({ total: 48, matching: 3, nextCursor: null });
+  });
+
+  it('find-smoke-cases: the plays of the real run pass, and a string tag and a one-item list send the same query', async () => {
+    const id = 'find-smoke-cases';
+    // Both models sent the tag as a string; one looked at the project first. Each found the three smoke cases.
+    const plays = [
+      [call('plune_cases_search', { filters: { tag: 'smoke' }, limit: 100 }), done],
+      [call('plune_project_context'), call('plune_cases_search', { filters: { tag: 'smoke' }, limit: 100 }), done],
+    ];
+    for (const play of plays) {
+      const r = await plune(['--only', id, '--runs', '1'], play);
+      expect(failed(rowOf(r.result, id)), r.stderr).toEqual([]);
+      expect(r.code).toBe(0);
+    }
+    const searches = async (tag: string | string[]) => {
+      const before = stub.requests.length;
+      await plune(['--only', id, '--runs', '1'], [call('plune_cases_search', { filters: { tag } }), done]);
+      return stub.requests.slice(before).filter((r) => r.startsWith('GET /v1/test-cases?'));
+    };
+    const asString = await searches('smoke');
+    expect(asString).toHaveLength(1);
+    expect(asString[0]).toMatch(/[?&]tag=smoke(&|$)/);
+    expect(await searches(['smoke'])).toEqual(asString);
   });
 
   it('a tool switched on by discovery is offered from the next step, its call runs, and the step records the change', async () => {

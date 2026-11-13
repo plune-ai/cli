@@ -196,7 +196,7 @@ Each check has a class:
 |------|-------|--------|--------|
 | `tool-called` | deterministic | `tool`, `min_count` (default `1`) | `tool` was called at least `min_count` times, whatever the arguments |
 | `tool-not-called` | deterministic, negative | `tool` | `tool` was never called |
-| `tool-args` | deterministic | `tool`, `args`, `match` (`partial` default, `exact`, `ignore`), `min_count` (default `1`) | at least `min_count` calls of `tool` have arguments that match `args` |
+| `tool-args` | deterministic | `tool`, `args` (an object, or a list of them as alternatives), `match` (`partial` default, `exact`, `ignore`), `min_count` (default `1`) | at least `min_count` calls of `tool` have arguments that match `args` (with a list, any one of its objects) |
 | `tool-order` | deterministic | `tools`, `strict` (default `false`) | the calls come in this order; other calls may come between, unless `strict`, where the calls are exactly `tools` |
 | `only-tools` | deterministic, negative | `tools` (may be `[]`) | no tool off the list was called; `[]` means no call at all |
 | `first-tool` | deterministic | `tool` | the first call is `tool`; no call at all fails, and says so |

@@ -108,7 +108,8 @@ export interface ToolNotCalledAssertion {
 export interface ToolArgsAssertion {
   type: 'tool-args';
   tool: string;
-  args: Record<string, unknown>;
+  /** A list is alternatives: a call that fits any one of them matches. */
+  args: Record<string, unknown> | Record<string, unknown>[];
   /** `partial` (default): every expected key, deeply; `exact`: the same arguments; `ignore`: any arguments. */
   match?: 'partial' | 'exact' | 'ignore';
   /** Default 1. */

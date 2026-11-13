@@ -21,7 +21,11 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 - **`provider.reasoning_effort`: `none`, `minimal`, `low`, `medium`, `high` or `xhigh`, sent as is by `openai` on plain and agentic rows (#220).** Unset, nothing is sent and requests are unchanged. `gpt-6-luna` refuses function tools on Chat Completions while it reasons, so the agent scenarios in `mcp-evals/plune.yaml` set `none`. `anthropic` does not send it and says so once per model on stderr; `openrouter` does not send it, its reasoning parameter has another shape. The cache key is unchanged and does not hold it.
 
+- **`tool-args` takes a list of argument sets as alternatives: a call that fits any one of them matches.** For a parameter a tool accepts in more than one form (a string or a list of strings), a check can name each form instead of picking one. One object, as before, works unchanged; `match` applies to each set, and the failure reason names every set.
+
 ### Fixed
+
+- **The `find-smoke-cases` agent scenario checks the search, not the form of its filter.** It failed every run of both models of the weekly run, which found the three smoke cases with `{"tag": "smoke"}`: the check wanted the list form, though the tool sends a string and a one-item list as the same query (`tag=smoke`). It now takes either form and no longer asks for the search to come first (a look at the project overview before it is a read, not a mistake); a wrong tag or a write still fails, and the offline plays prove both.
 
 - **`tool-not-called`, `only-tools`, `no-tool-errors` and `no-destructive-tool` are measured on a loop that ended on its own, even when an answer's stored excerpt was cut (#223).** They read only the calls and the tool list, and a cut excerpt shortens only texts, never drops a call, so a model that read a page of cases over 4 KiB no longer left the row `errored` with `ASSERTION_UNMEASURED`. A loop stopped by a limit stays unmeasured, and `collection` still reads `partial` when an excerpt was cut.
 

@@ -116,7 +116,7 @@ const toolCallAssertionSchemas = [
   z.object({
     type: z.literal('tool-args'),
     tool: toolName,
-    args: z.record(z.string(), z.unknown()),
+    args: z.union([z.record(z.string(), z.unknown()), z.array(z.record(z.string(), z.unknown())).min(1)]),
     match: z.enum(['partial', 'exact', 'ignore']).optional(),
     min_count: count.optional(),
   }),
