@@ -10,7 +10,19 @@ export function loadDataset(ref: DatasetRef, baseDir: string): DatasetRow[] {
   if (typeof ref !== 'string') {
     return ref.examples;
   }
-  const content = fs.readFileSync(path.resolve(baseDir, ref), 'utf8');
+  const file = path.resolve(baseDir, ref);
+  let content: string;
+  try {
+    content = fs.readFileSync(file, 'utf8');
+  } catch (err) {
+    // A file the config names is the user's to fix (#256): a config error, as a missing prompt_file is,
+    // not the raw file-system error that the top-level handler reports as an internal one.
+    throw new RunConfigError(
+      (err as NodeJS.ErrnoException).code === 'ENOENT'
+        ? `${ref}: dataset file not found (looked for ${file})`
+        : `${ref}: cannot read the dataset file (${(err as Error).message})`,
+    );
+  }
   const rows: DatasetRow[] = [];
   content.split(/\r?\n/).forEach((line, i) => {
     if (line.trim().length === 0) return;
