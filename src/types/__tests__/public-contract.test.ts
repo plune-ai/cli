@@ -216,6 +216,8 @@ interface GoldenRunResult {
   started_at: string;
   finished_at: string;
   config_hash: string;
+  /** plune-ai/cli#244 — optional; `true` only on the result of a dry run. */
+  dry_run?: boolean;
   summary: GoldenSummary;
   evals: GoldenEvalResult[];
 }

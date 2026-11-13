@@ -49,7 +49,7 @@ plune report --format markdown
 plune diff baseline.json current.json --fail-on-regression
 ```
 
-Each run writes its full result to `.plune/last-run.json`.
+Each run writes its full result to `.plune/last-run.json`; a `--dry-run` writes nothing there.
 
 ## Configuration
 
@@ -117,7 +117,7 @@ the last resort, used only when `PLUNE_TOKEN` is set nowhere else. Nothing write
 
 | Command | Summary |
 | ------- | ------- |
-| `plune run` | Run the suite. Flags: `--dry-run` (price the run from the model's rates — no provider key, no network), `--only <id\|tag>` (repeatable), `--bail`, `--no-cache`, `--cache-strict`, `--cache-max-age <duration>`, `--concurrency <n>`, `--format console\|json\|markdown`, `-o, --output <file>`. |
+| `plune run` | Run the suite. Flags: `--dry-run` (price the run from the model's rates — no provider key, no network; it prints the estimate with no verdict and does not replace the last run), `--only <id\|tag>` (repeatable), `--bail`, `--no-cache`, `--cache-strict`, `--cache-max-age <duration>`, `--concurrency <n>`, `--format console\|json\|markdown`, `-o, --output <file>`. |
 | `plune report` | Re-render the most recent run. Flags: `--format`, `-o`. |
 | `plune diff <baseline> <current>` | Compare two `plune run --format json` outputs and report pass→fail regressions. Flags: `--fail-on-regression` (exit `1` on a regression, `3` when none but an eval was not measured), `--format`, `-o`. |
 | `plune init` | Scaffold `plune.yaml`, a sample dataset, and `.env.example`. Flags: `--yes` (non-interactive), `--force`. |

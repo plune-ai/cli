@@ -286,6 +286,12 @@ export interface RunResult {
   started_at: string;
   finished_at: string;
   config_hash: string;
+  /**
+   * plune-ai/cli#244. `true` on the result of `--dry-run`: the rows were priced and none was run. No
+   * row is passed, failed or errored (each is `inconclusive: 'skipped'`), no eval is `passed`, and
+   * `cost_usd` is an estimate. Optional and additive: absent on a measured run, `schemaVersion` stays 1.
+   */
+  dry_run?: boolean;
   summary: Summary;
   evals: EvalResult[];
 }

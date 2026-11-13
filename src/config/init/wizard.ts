@@ -80,7 +80,8 @@ export async function runInitWizard(cwd: string): Promise<void> {
         id: 'example-eval',
         prompt: 'Replace this with your actual prompt',
         dataset: dataset as string,
-        assertions: [{ type: 'contains', value: 'expected output' }],
+        // Each answer is checked against its own row's `expected` (#246), not a fixed phrase.
+        assertions: [{ type: 'contains', value: '{{expected}}', ignore_case: true }],
       },
     ],
   };
