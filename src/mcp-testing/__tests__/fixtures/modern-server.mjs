@@ -6,6 +6,7 @@
 // - `dual`: `good`, and it also answers initialize (a dual-era server);
 // - `bad`: breaks each modern requirement it can, one way per check (see the comments below);
 // - `empty`: `good`, but an unknown resource reads as empty contents;
+// - `unstable`: `good`, but the first page of tools/list changes from one call to the next;
 // - `no-discover`: answers server/discover without capabilities.
 
 import { createInterface } from 'node:readline';
@@ -101,7 +102,8 @@ export function answer(mode, state, msg, emit, end = () => {}) {
       if (params.cursor === undefined) {
         // bad: the first page has no resultType and a negative ttlMs.
         if (bad) return send({ jsonrpc: '2.0', id, result: { tools: [ECHO], nextCursor: 'page-2', ttlMs: -1, cacheScope: 'public' } });
-        return send(result(id, { tools: [ECHO], nextCursor: 'page-2', ...HINTS }));
+        state.listed = (state.listed ?? 0) + 1;
+        return send(result(id, { tools: mode === 'unstable' && state.listed % 2 === 0 ? [REGION] : [ECHO], nextCursor: 'page-2', ...HINTS }));
       }
       if (params.cursor === 'page-2') {
         // bad: the second page has another cacheScope, and a tool named after its process (it varies per connection).
