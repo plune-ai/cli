@@ -1,0 +1,19 @@
+{
+  "expected": [
+    {
+      "rule": "scan/desc/html-comment",
+      "pointer": "/tools/0/description"
+    }
+  ],
+  "provenance": {
+    "catalogClass": "tool-poisoning",
+    "mechanism": "An HTML comment: a client that renders Markdown or HTML hides it, the model reads it.",
+    "concealment": "hidden",
+    "source": "not verified",
+    "catalogRefs": [
+      "OWASP-03"
+    ],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-13"
+  }
+}

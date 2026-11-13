@@ -1,0 +1,20 @@
+{
+  "expected": [
+    {
+      "rule": "scan/desc/control-character",
+      "pointer": "/tools/0/inputSchema/properties/title/description"
+    }
+  ],
+  "provenance": {
+    "catalogClass": "tool-poisoning",
+    "mechanism": "Control characters in a description: backspace, delete and other C0/C1 codes that terminals and editors act on.",
+    "concealment": "hidden",
+    "source": "not verified",
+    "catalogRefs": [
+      "TOB-ANSI",
+      "TROJAN"
+    ],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-13"
+  }
+}

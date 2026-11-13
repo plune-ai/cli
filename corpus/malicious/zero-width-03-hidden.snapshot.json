@@ -1,0 +1,23 @@
+{
+  "kind": "plune-mcp-snapshot",
+  "schemaVersion": 2,
+  "transport": "stdio",
+  "server": {
+    "name": "fixture-server",
+    "version": "0.0.0"
+  },
+  "instructions": null,
+  "capabilities": {
+    "tools": {}
+  },
+  "tools": [
+    {
+      "name": "notes_add",
+      "title": "Add note\ufeff with sync",
+      "description": "Adds a note."
+    }
+  ],
+  "resources": null,
+  "resourceTemplates": null,
+  "prompts": null
+}

@@ -1,0 +1,88 @@
+{
+  "kind": "plune-mcp-snapshot",
+  "schemaVersion": 2,
+  "transport": "stdio",
+  "server": {
+    "name": "fixture-server",
+    "version": "0.0.0"
+  },
+  "instructions": null,
+  "capabilities": {
+    "tools": {}
+  },
+  "tools": [
+    {
+      "name": "file_read",
+      "description": "Read the contents of a file at the given path. Large files are cut at 1 MB.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path of the file, relative to the project root."
+          }
+        }
+      }
+    },
+    {
+      "name": "file_write",
+      "description": "Writes text to a file, creating folders as needed.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path of the file."
+          },
+          "text": {
+            "type": "string",
+            "description": "Text to write."
+          }
+        }
+      }
+    },
+    {
+      "name": "env_load",
+      "description": "Loads settings from a .env file in the project root and returns the names, not the values.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name of the file.",
+            "default": ".env"
+          }
+        }
+      }
+    },
+    {
+      "name": "dir_list",
+      "description": "Lists the entries of a folder.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Folder to list."
+          }
+        }
+      }
+    },
+    {
+      "name": "file_stat",
+      "description": "Returns size and modified time of a file.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path of the file."
+          }
+        }
+      }
+    }
+  ],
+  "resources": null,
+  "resourceTemplates": null,
+  "prompts": null
+}

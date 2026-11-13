@@ -1,0 +1,44 @@
+{
+  "kind": "plune-mcp-snapshot",
+  "schemaVersion": 2,
+  "transport": "stdio",
+  "server": {
+    "name": "fixture-server",
+    "version": "0.0.0"
+  },
+  "instructions": null,
+  "capabilities": {
+    "tools": {}
+  },
+  "tools": [
+    {
+      "name": "table_dump",
+      "description": "\ufeffDumps a table.\r\nColumns:\n\t- id\n\t- name\n\t- created\n\nRows come back in id order.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "table": {
+            "type": "string",
+            "description": "Name of the table."
+          }
+        }
+      }
+    },
+    {
+      "name": "table_count",
+      "description": "Counts rows.\n\nExample:\n\ttable_count users",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "table": {
+            "type": "string",
+            "description": "Name of the table."
+          }
+        }
+      }
+    }
+  ],
+  "resources": null,
+  "resourceTemplates": null,
+  "prompts": null
+}

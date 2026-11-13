@@ -1,0 +1,19 @@
+{
+  "expected": [
+    {
+      "rule": "scan/desc/conceal-from-user",
+      "pointer": "/tools/0/description"
+    }
+  ],
+  "provenance": {
+    "catalogClass": "tool-poisoning",
+    "mechanism": "A description that asks the model to keep something from the person.",
+    "concealment": "explicit",
+    "source": "not verified",
+    "catalogRefs": [
+      "INV"
+    ],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-13"
+  }
+}

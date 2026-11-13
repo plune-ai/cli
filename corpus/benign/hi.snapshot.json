@@ -1,0 +1,52 @@
+{
+  "kind": "plune-mcp-snapshot",
+  "schemaVersion": 2,
+  "transport": "stdio",
+  "server": {
+    "name": "fixture-server",
+    "version": "0.0.0"
+  },
+  "instructions": null,
+  "capabilities": {
+    "tools": {}
+  },
+  "tools": [
+    {
+      "name": "note_jodna",
+      "description": "नोटबुक में एक नोट जोड़ता है और उसका क्रमांक लौटाता है।",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "shirshak": {
+            "type": "string",
+            "description": "नोट का छोटा शीर्षक।"
+          }
+        }
+      }
+    },
+    {
+      "name": "note_suchi",
+      "description": "नोट दिखाता है, सबसे नए पहले। हर बार अधिकतम 50।",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tag": {
+            "type": "string",
+            "description": "केवल इस टैग वाले नोट।"
+          }
+        }
+      }
+    },
+    {
+      "name": "kriya",
+      "description": "क\u200d्ष और ज\u200d्ञ जैसे संयुक्त अक्षरों वाला पाठ दिखाता है।",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "resources": null,
+  "resourceTemplates": null,
+  "prompts": null
+}

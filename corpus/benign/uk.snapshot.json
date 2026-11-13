@@ -1,0 +1,74 @@
+{
+  "kind": "plune-mcp-snapshot",
+  "schemaVersion": 2,
+  "transport": "stdio",
+  "server": {
+    "name": "fixture-server",
+    "version": "0.0.0"
+  },
+  "instructions": null,
+  "capabilities": {
+    "tools": {}
+  },
+  "tools": [
+    {
+      "name": "notatky_dodaty",
+      "description": "Додає нотатку до записника та повертає її номер.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "zagolovok": {
+            "type": "string",
+            "description": "Короткий заголовок нотатки."
+          },
+          "tekst": {
+            "type": "string",
+            "description": "Текст нотатки у форматі Markdown."
+          }
+        }
+      }
+    },
+    {
+      "name": "notatky_spysok",
+      "description": "Показує нотатки, найновіші першими. За один виклик не більше 50 нотаток.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tehh": {
+            "type": "string",
+            "description": "Лише нотатки з цією позначкою."
+          }
+        }
+      }
+    },
+    {
+      "name": "notatky_vydalyty",
+      "description": "Видаляє нотатку за номером. Відновити її не можна.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "nomer": {
+            "type": "string",
+            "description": "Номер нотатки."
+          }
+        }
+      }
+    },
+    {
+      "name": "pohoda",
+      "description": "Повертає прогноз погоди на найближчі дні для міста.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "misto": {
+            "type": "string",
+            "description": "Назва міста, наприклад «Львів»."
+          }
+        }
+      }
+    }
+  ],
+  "resources": null,
+  "resourceTemplates": null,
+  "prompts": null
+}

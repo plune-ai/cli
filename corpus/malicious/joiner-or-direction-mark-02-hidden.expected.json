@@ -1,0 +1,20 @@
+{
+  "expected": [
+    {
+      "rule": "scan/desc/joiner-or-direction-mark",
+      "pointer": "/tools/0/description"
+    }
+  ],
+  "provenance": {
+    "catalogClass": "tool-poisoning",
+    "mechanism": "A joiner or direction mark in plain Latin text, where no script needs it.",
+    "concealment": "hidden",
+    "source": "not verified",
+    "catalogRefs": [
+      "UAX9",
+      "TROJAN"
+    ],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-13"
+  }
+}

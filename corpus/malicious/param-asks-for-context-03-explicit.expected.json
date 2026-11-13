@@ -1,0 +1,20 @@
+{
+  "expected": [
+    {
+      "rule": "scan/desc/param-asks-for-context",
+      "pointer": "/tools/0/inputSchema/properties/body/description"
+    }
+  ],
+  "provenance": {
+    "catalogClass": "tool-poisoning",
+    "mechanism": "A string parameter whose description asks for the conversation, files or other tools output, a way to move context to the server.",
+    "concealment": "explicit",
+    "source": "not verified",
+    "catalogRefs": [
+      "INV",
+      "OWASP-03"
+    ],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-13"
+  }
+}
