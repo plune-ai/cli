@@ -769,7 +769,7 @@
         "readOnlyHint": true,
         "title": "Find more tools"
       },
-      "description": "Look for a capability that is not in your tool list — editing cases (plune_cases_update), writing results into a run (plune_results_write), starting runs (plune_run_create), cataloguing API endpoints (plune_endpoint_propose), a raw API call (plune_api_request) — and switch the ones you need on for this session by name, in one call. A tool switched on can be called from the next step, and its description in this answer says what it needs. Writing results needs no read of the run first; editing a case replaces its tags and steps whole, so read the case before changing them.",
+      "description": "Look for a capability that is not in your tool list — editing cases (plune_cases_update), writing results into a run (plune_results_write), starting runs (plune_run_create), cataloguing API endpoints (plune_endpoint_propose), a raw API call (plune_api_request) — and switch the ones you need on for this session by name, in one call. A tool switched on can be called from the next step, and its description in this answer says what it needs. Writing results needs no read of the run first; editing a case replaces its title, tags and steps whole, so read the case before changing them.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {

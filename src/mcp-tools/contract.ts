@@ -315,7 +315,7 @@ export const PLUNE_TOOLS = [
     name: 'plune_discover_tools',
     title: 'Find more tools',
     description:
-      'Look for a capability that is not in your tool list — editing cases (plune_cases_update), writing results into a run (plune_results_write), starting runs (plune_run_create), cataloguing API endpoints (plune_endpoint_propose), a raw API call (plune_api_request) — and switch the ones you need on for this session by name, in one call. A tool switched on can be called from the next step, and its description in this answer says what it needs. Writing results needs no read of the run first; editing a case replaces its tags and steps whole, so read the case before changing them.',
+      'Look for a capability that is not in your tool list — editing cases (plune_cases_update), writing results into a run (plune_results_write), starting runs (plune_run_create), cataloguing API endpoints (plune_endpoint_propose), a raw API call (plune_api_request) — and switch the ones you need on for this session by name, in one call. A tool switched on can be called from the next step, and its description in this answer says what it needs. Writing results needs no read of the run first; editing a case replaces its title, tags and steps whole, so read the case before changing them.',
     input: z.strictObject({
       query: z.string().trim().min(1).max(200).optional().describe('Two or three words of the task, e.g. "write results": a tool is listed only when every word is in its name, title or description'),
       names: z.array(z.string().min(1)).min(1).max(MAX_VISIBLE_TOOLS).optional().describe('Tools to switch on'),
