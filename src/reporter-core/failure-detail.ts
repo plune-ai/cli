@@ -99,7 +99,7 @@ export const mediaTypeOf = (contentType: string | undefined): string | undefined
   contentType?.split(';')[0]?.trim().toLowerCase() || undefined;
 
 /**
- * The types the platform keeps as a text file (platform ADR 0040, its 2026-09-29 review). A log is
+ * The types the platform keeps as a text file. A log is
  * `text/plain`: `.log`, `stdout` and `stderr` are names, not types.
  */
 export const TEXT_TYPES: ReadonlySet<string> = new Set(['application/json', 'text/plain']);
@@ -222,7 +222,7 @@ function cut(text: string): { text: string; omitted: number } {
 
 const omitted = (lines: number): string => `…[omitted ${lines} lines]…`;
 
-/** The content type a test hands the reporter its metadata in (platform ADR 0023) — not an artifact. */
+/** The content type a test hands the reporter its metadata in — not an artifact. */
 const METADATA_TYPE = 'application/plune.metadata+json';
 
 /** What the platform takes as a file from the repository root; anything else would refuse the batch. */

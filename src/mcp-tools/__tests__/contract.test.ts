@@ -32,7 +32,7 @@ describe('the tool contract', () => {
     for (const name of MISSION_TOOLS) expect(names).toContain(name);
   });
 
-  it('covers the groups of plune#1284: bootstrap, read, write, review, escape hatch, discover', () => {
+  it('covers the tool groups: bootstrap, read, write, review, escape hatch, discover', () => {
     for (const name of [
       'plune_project_context',
       'plune_get',

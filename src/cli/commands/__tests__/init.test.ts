@@ -57,7 +57,7 @@ describe('initCommand', () => {
   });
 
   it('says the first step needs no account, because that is the product boundary', async () => {
-    // ADR 0006: everything before the cloud commands runs locally, with no account and no network
+    // Everything before the cloud commands runs locally, with no account and no network
     // beyond the model provider. Leading with the platform would make the product look like it
     // requires a sign-up it does not.
     await initCommand({ cwd: tmp, force: false, yes: true });

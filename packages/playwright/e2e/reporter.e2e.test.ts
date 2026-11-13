@@ -78,7 +78,7 @@ async function stub(refuseResults: boolean, answerAfterMs = 0, refuseStart = fal
         received.push({ path: url.split('?')[0] as string, body: {}, file: { type: req.headers['content-type'] ?? '', bytes: raw } });
         return json({});
       }
-      // A platform older than the bulk file routes (ADR 0051): the reporter falls back to one request per file.
+      // A platform older than the bulk file routes: the reporter falls back to one request per file.
       if (/\/v1\/files\/(uploads|complete|direct)-batch$/.test(url)) return json({}, 404);
       if (url.endsWith('/files/uploads')) {
         if (answeredAtClose !== null) return json({ error: 'the run is closed — its results stand' }, 409);
@@ -100,7 +100,7 @@ async function stub(refuseResults: boolean, answerAfterMs = 0, refuseStart = fal
         received.push({ path: url, body: {} });
         return json({ id: url.split('/')[3], storage: 'bucket' });
       }
-      // Before the JSON below: a file's body is its bytes (platform ADR 0040).
+      // Before the JSON below: a file's body is its bytes.
       if (url.includes('/files?name=')) {
         received.push({ path: url, body: {}, file: { type: req.headers['content-type'] ?? '', bytes: raw } });
         if (answeredAtClose !== null) return json({ error: 'the run is closed — its results stand' }, 409);
@@ -355,7 +355,7 @@ describe('a slow platform has every result before the run closes (#790 AC-15)', 
  * under the attachment's own name, as the PNG's bytes, to the id the batch was answered with — before
  * the run is closed, since the platform takes no file on a closed run.
  */
-describe('a screenshot a test kept reaches its result (plune#913)', () => {
+describe('a screenshot a test kept reaches its result', () => {
   // The PNG `fixture/shots/checkout.spec.ts` writes and attaches.
   const PNG = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
@@ -386,7 +386,7 @@ describe('a screenshot a test kept reaches its result (plune#913)', () => {
  * import` of the JSON report of the same run, whose `body` is base64 — and a text a byte over what Plune
  * keeps stays behind, with a line that says so and no word to the runner's exit code.
  */
-describe('a project with a bucket (plune#946)', () => {
+describe('a project with a bucket', () => {
   let shots: FixtureRun;
 
   beforeAll(async () => {
@@ -404,7 +404,7 @@ describe('a project with a bucket (plune#946)', () => {
   });
 });
 
-describe('a JSON and a log a test kept reach its result (plune#928)', () => {
+describe('a JSON and a log a test kept reach its result', () => {
   const API = JSON.stringify({ items: [1, 2, 3], ok: true });
   const LOG = 'GET /cart 200 привіт\nGET /cart/pay 402\n';
   let live: FixtureRun;
@@ -468,7 +468,7 @@ describe('both roads link the run and its failure to the CI run that ran the tes
     GITHUB_RUN_ID: '42',
     GITHUB_SHA: SHA,
     // A push to main. Named here, not left to the environment this test runs in: on GitHub Actions
-    // that one has a branch of its own, and the run opens with whichever it is (plune#927).
+    // that one has a branch of its own, and the run opens with whichever it is.
     GITHUB_HEAD_REF: '',
     GITHUB_REF_NAME: 'main',
     // No pull request: with one, Playwright fetches its base commit to diff against.
@@ -510,7 +510,7 @@ describe('both roads link the run and its failure to the CI run that ran the tes
 
   it('the reporter opens the run with the CI run, and links the failure to it (AC-04)', () => {
     // With the commit the real Playwright wrote into `metadata.ci`, and the branch it never gives on
-    // GitHub — read from the job (plune#927).
+    // GitHub — read from the job.
     expect(openedWith(live)).toEqual({
       runner: 'playwright',
       ciUrl: LINK,
@@ -596,13 +596,13 @@ describe('the JUnit road names each test the way the reporter does (cli#47, cli#
 });
 
 /**
- * cli#45 and plune#927 on the real chain: the real runner, with the platform unwilling to open a run, writes
+ * cli#45 on the real chain: the real runner, with the platform unwilling to open a run, writes
  * the fallback file; the built `plune run report` replays it. A hundred results at a batch of thirty are four
  * lines. They are one run — opened once, with the commit and branch the reporter's own job named rather than
  * those of the job replaying them — and once every result has gone the file is set aside, not left to be sent
  * a second time.
  */
-describe('the lines of one reporter run replay as one run (cli#45, plune#927)', () => {
+describe('the lines of one reporter run replay as one run (cli#45)', () => {
   const SHA = '89abcdef0123456789abcdef0123456789abcdef';
   /** A pull request's job: its branch is the head's, and `GITHUB_REF_NAME` names the merge ref. */
   const REPORTING_JOB = {

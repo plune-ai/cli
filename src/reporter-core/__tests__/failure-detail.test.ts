@@ -694,7 +694,7 @@ describe('errorContextOf — the text of every error (AC-01, AC-01c, AC-05, AC-1
  * no file at all. A body of any other type is not handed over: the platform takes no image, trace or page
  * from memory, and a suite full of screenshots kept as bodies must not sit in memory until a batch is sent.
  */
-describe('filesOf — what the core uploads from (plune#913, plune#928)', () => {
+describe('filesOf — what the core uploads from', () => {
   const files = (attachments: FailedAttempt['attachments']) => filesOf(attempt({ attachments }));
 
   it('keeps every attachment kept as a file, whatever its type — which of them go is the session’s to say', () => {

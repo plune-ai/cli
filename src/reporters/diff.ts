@@ -34,7 +34,7 @@ const GATE_STATE: Record<GateState, { mark: string; text: string }> = {
 };
 
 // The headline: a regression first (unless a waiver lifted it), then a failed gate, then evals never
-// measured (plune#2414), then a gate not measured, and only then green.
+// measured, then a gate not measured, and only then green.
 function headline(d: RunDiff): { mark: string; text: string } | null {
   const gates = d.gates?.gates ?? [];
   const named = (state: GateState): string[] => gates.filter((g) => g.state === state).map((g) => g.gate);

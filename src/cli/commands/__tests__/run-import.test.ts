@@ -37,7 +37,7 @@ function platform(
       seen.push({ path: target, body: {}, file: { type: (init?.headers as Record<string, string>)['content-type']!, bytes } });
       return json(201, { id: 'f-1', size: bytes.length });
     }
-    // A project without a bucket (ADR 0041): what the database takes goes the old way, the rest has nowhere to go.
+    // A project without a bucket: what the database takes goes the old way, the rest has nowhere to go.
     if (target.endsWith('/files/uploads')) {
       const { files } = JSON.parse(String(init?.body)) as { files: { name: string; contentType: string; size: number }[] };
       return json(200, {
@@ -115,7 +115,7 @@ const deps = (fetchImpl: typeof fetch) => ({
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plune-import-'));
   lines.length = 0;
-  // The run opens with the commit and branch of the CI it runs in (plune#927), so these tests are not
+  // The run opens with the commit and branch of the CI it runs in, so these tests are not
   // to know which CI that is: on GitHub Actions every run here would open with the job's own.
   for (const marker of ['GITHUB_ACTIONS', 'GITLAB_CI', 'JENKINS_URL']) vi.stubEnv(marker, '');
 });
@@ -137,7 +137,7 @@ describe('plune run import', () => {
     expect(lines.join('\n')).toContain('Read 2 result(s) from a junit report');
   });
 
-  // plune#1251. The import sends the reporter's way, so a job of a matrix lands in its combination too.
+  // The import sends the reporter's way, so a job of a matrix lands in its combination too.
   it('sends the combination PLUNE_CONFIGURATION names with the results, and refuses one it cannot read before sending', async () => {
     vi.stubEnv('PLUNE_CONFIGURATION', 'Browser=Chrome');
     const { seen, fetchImpl } = platform();
@@ -210,7 +210,7 @@ describe('plune run import', () => {
       const offer = seen.find((s) => s.path === '/v1/review-items/discovered');
       expect(offer?.body['discovered']).toHaveLength(2);
       expect(lines.join('\n')).toContain('2 unknown test(s) offered to the review queue');
-      // The cause and the way out, not just the fact (plune#1569).
+      // The cause and the way out, not just the fact.
       expect(lines.join('\n')).toContain('do not count on the run until approved');
       expect(lines.join('\n')).toContain('add `junit` under Settings → Trusted sources');
     });
@@ -234,7 +234,7 @@ describe('plune run import', () => {
     });
 
     /**
-     * A trusted source (platform ADR 0030) answers the offer instead of queueing it — and the
+     * A trusted source answers the offer instead of queueing it — and the
      * reporter counted only `queued`, so a run that filled a project with cases printed nothing at
      * all about them. That is the same shape as every silence that has cost a day here: the work
      * happened, the accounting did not, and there is nobody to complain to.
@@ -672,7 +672,7 @@ describe('plune run import', () => {
    * variables — as `@plune-ai/playwright` reads them, and from the report's when it names a commit:
    * whoever imports may be another job, and this job's branch is not that commit's.
    */
-  describe('the commit and branch the run opens with (plune#927)', () => {
+  describe('the commit and branch the run opens with', () => {
     const SHA = '0123456789abcdef0123456789abcdef01234567';
     const OTHER = 'fedcba9876543210fedcba9876543210fedcba98';
     const BUILD = 'https://github.com/acme/shop/actions/runs/42';
@@ -809,7 +809,7 @@ describe('plune run import', () => {
    * A Playwright JSON report names the files each attempt kept; the screenshots
    * among them go to their result — a passed test's too — once the batch that carries it is stored.
    */
-  describe('the screenshots a Playwright report keeps (plune#913)', () => {
+  describe('the screenshots a Playwright report keeps', () => {
     // A 1×1 PNG.
     const PNG = Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
@@ -884,7 +884,7 @@ describe('plune run import', () => {
    * `body` when the test attached the bytes themselves. They go to their result as the screenshots do, and
    * are counted apart from them.
    */
-  describe('the text files a Playwright report keeps (plune#928)', () => {
+  describe('the text files a Playwright report keeps', () => {
     // A 1×1 PNG.
     const PNG = Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
@@ -1025,7 +1025,7 @@ describe('plune run import', () => {
   });
 
   /**
-   * `--fail-on-failures` (plune#1247): the exit code is the verdict the platform froze at `finish` — muted
+   * `--fail-on-failures`: the exit code is the verdict the platform froze at `finish` — muted
    * failures outside `failed` and `broken` — and no verdict is no pass.
    */
   describe('--fail-on-failures', () => {

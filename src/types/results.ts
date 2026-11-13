@@ -4,7 +4,7 @@ export interface Summary {
   failed: number;
   errored: number;
   /**
-   * plune#1245. Rows the runner said were never judged (`RowResult.inconclusive`), counted apart from
+   * Rows the runner said were never judged (`RowResult.inconclusive`), counted apart from
    * `failed`. The runner always writes both; they are optional so a RunResult written before them is
    * still valid and `schemaVersion` stays 1. With them, `passed + failed + errored + blocked + skipped`
    * is `total`.
@@ -62,7 +62,7 @@ export interface RunError {
  *   - `automated` → a reference to an external automated spec (`specRef`)
  *   - `eval`      → an LLM eval: `prompt`, optional `goldenSetId`, and runnable `assertions[]`
  *
- * ADR 0045 / plune#1246: `is_flaky` and `is_muted` are optional, purely additive flags.
+ * `is_flaky` and `is_muted` are optional, purely additive flags.
  *   - `is_flaky` — assertion about a case: "this test is unstable by nature" (diagnostics).
  *   - `is_muted` — human decision: "we execute and record it, but it does not count toward the run summary" (policy).
  * Both are optional and purely additive: a producer that does not send them validates exactly as before,
@@ -120,7 +120,7 @@ export function parseTestCase(value: unknown): TestCase {
 }
 
 /**
- * The two words a row may use to say the product was never judged (ADR 0045).
+ * The two words a row may use to say the product was never judged.
  *
  * Both are already statuses this system has — they are `RESULT_STATUSES` entries — and neither was
  * reachable through this contract: a row could only report `passed`, `failed` or `broken`. So a
@@ -145,7 +145,7 @@ export interface RowResult {
   /** On a cache hit: what the call would have cost. Optional and additive. */
   cache_saved?: { input_tokens: number; output_tokens: number; cost_usd: number };
   /**
-   * ADR 0045. Say it when the test was never judged, rather than letting `failed` stand for both
+   * Say it when the test was never judged, rather than letting `failed` stand for both
    * "the environment broke" and "the code is wrong".
    *
    * Optional and purely additive: a producer that does not send it validates exactly as before,
@@ -267,7 +267,7 @@ export type RowStatus = 'passed' | 'failed' | 'errored' | RowInconclusive;
 /**
  * What a row counts as — the one classifier the summary, the reporters and the diff share.
  *
- * The platform's order (`statusFromAssertions`, ADR 0045): the runner's `inconclusive` first, since
+ * The platform's order (`statusFromAssertions`): the runner's `inconclusive` first, since
  * neither a passing assertion nor a harness error may turn "never judged" into a verdict; then an
  * error is `errored` (the platform's `broken`); then the assertions.
  */

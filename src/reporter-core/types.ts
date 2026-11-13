@@ -1,7 +1,7 @@
 /**
  * The platform's wire, mirrored in types — and only in types.
  *
- * There is deliberately no zod here. ADR 0012 says the platform owns the contract and clients
+ * There is deliberately no zod here. The platform owns the contract and clients
  * conform to it; a second copy of the schema on the client is a second place to drift, and it
  * would put a validation library into the dependency tree of every project that installs an
  * adapter. The platform validates and answers with a named reason (`validation failed — <field>:
@@ -140,7 +140,7 @@ export interface PendingResult {
   /**
    * The files the runner kept for this attempt, passed or not — built by `filesOf`. Never part of a
    * batch: the paths are this machine's. Once the platform has accepted the result, the core uploads
-   * the screenshots and the text files among them to it (platform ADR 0040) — never a body to the
+   * the screenshots and the text files among them to it — never a body to the
    * fallback file either, which keeps a file by its path and leaves the bytes out.
    */
   files?: ResultFile[];
@@ -216,7 +216,7 @@ export interface ResultSubmission extends Omit<PendingResult, 'keys' | 'testCase
 }
 
 /**
- * A test this project runs and the platform has no case for (D14, platform ADR 0029).
+ * A test this project runs and the platform has no case for (D14).
  *
  * Deliberately NOT a proposed case. A proposal carries steps and an expected result, and a reporter
  * has neither — it sees a `TestResult`, never the test's source. This says the test exists and where
@@ -236,7 +236,7 @@ export interface DiscoveredTest {
  * is already known or already refused, and only `queued` is new work for a reviewer.
  *
  * `created` is the fifth, and the one a client must not treat as noise: the project trusts this
- * source (platform ADR 0030), so the case was made without asking. Counting only `queued` would
+ * source, so the case was made without asking. Counting only `queued` would
  * report "0 offered for review" over two thousand new cases — the offer was answered, not ignored.
  */
 export interface DiscoveryOutcome {
@@ -269,7 +269,7 @@ export interface RunRecord {
 }
 
 /**
- * What the platform froze into a run at `finish` and answers the event with (plune#1247): the verdict a
+ * What the platform froze into a run at `finish` and answers the event with: the verdict a
  * release gate is made on, never recomputed. `counts` is by the status each result is counted under — a
  * muted case's `failed` or `broken` is under `muted`, outside both — and an absent key is zero.
  */
@@ -298,8 +298,7 @@ export interface RunStats extends SubmitCounts {
    * from `unresolved` because they are the same tests seen twice, not a second population. */
   offered: number;
   /**
-   * Offered tests the platform turned into cases outright, because the project trusts this source
-   * (platform ADR 0030).
+   * Offered tests the platform turned into cases outright, because the project trusts this source.
    *
    * Its own number rather than part of `offered`: these are the opposite of work to do. `offered`
    * means "somebody has to look at this"; `created` means "nobody has to, and here is what appeared
@@ -328,7 +327,7 @@ export interface RunStats extends SubmitCounts {
    */
   deferred: number;
   /**
-   * The screenshots of the accepted results (platform ADR 0040): uploaded to their result; skipped
+   * The screenshots of the accepted results: uploaded to their result; skipped
    * because the platform would refuse them or the file is not here; refused or unanswered on the way.
    * None of them costs a result — a result is reported whether its screenshots arrive or not.
    */

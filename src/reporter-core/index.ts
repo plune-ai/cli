@@ -8,7 +8,7 @@
  *
  * Nothing here imports a framework. An adapter maps its runner's output to `PendingResult` and
  * hands it over; deciding what a status means, which case a result belongs to, when to batch and
- * what to do when the platform is down all live on this side of the line (ADR 0023).
+ * what to do when the platform is down all live on this side of the line.
  */
 
 export { startRun } from './session.js';

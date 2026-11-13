@@ -61,7 +61,7 @@ export function renderMarkdown(result: RunResult, opts: MarkdownOptions = {}): s
   out.push(`| Passed | ${summary.passed} |`);
   out.push(`| Failed | ${summary.failed} |`);
   out.push(`| Errored | ${summary.errored} |`);
-  // plune#1245: only when not zero, so a report without them reads as it always has.
+  // Only when not zero, so a report without them reads as it always has.
   if ((summary.blocked ?? 0) > 0) out.push(`| Blocked | ${summary.blocked} |`);
   if ((summary.skipped ?? 0) > 0) out.push(`| Skipped | ${summary.skipped} |`);
   out.push(`| Cost (USD) | ${summary.cost_usd.toFixed(4)} |`);

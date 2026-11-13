@@ -45,7 +45,7 @@ function reportWrite(cwd: string, rel: string, content: string, force: boolean):
  * end for anyone who does not already know the next command. Three steps, in the order they happen.
  *
  * The FIRST line is the important one, and it is a boundary rather than a nicety: `plune run`
- * needs no account, no platform token and no network beyond the model provider (ADR 0006), but it
+ * needs no account, no platform token and no network beyond the model provider, but it
  * does need that provider's key (or the built-in mock), so the line says so (#246). Leading with the
  * platform would make the product look like it requires a sign-up it does not.
  */

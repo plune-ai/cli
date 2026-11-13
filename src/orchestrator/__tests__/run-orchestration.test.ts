@@ -138,9 +138,9 @@ describe('runOrchestration', () => {
   });
 });
 
-// plune#1245 — `blocked` and `skipped` are counted apart from `failed`, in the platform's order
-// (ADR 0045): the runner's `inconclusive` first, then an error, then the assertions.
-describe('summarize (plune#1245)', () => {
+// `blocked` and `skipped` are counted apart from `failed`, in the platform's order:
+// the runner's `inconclusive` first, then an error, then the assertions.
+describe('summarize', () => {
   const pass: AssertionResultRecord = { type: 'contains', passed: true };
   const fail: AssertionResultRecord = { type: 'contains', passed: false };
   const row = (extra: Partial<RowResult> = {}): RowResult => ({

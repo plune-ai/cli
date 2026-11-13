@@ -28,7 +28,7 @@ export interface ShardOf {
   total: number;
 }
 
-/** The platform's bound on N (plune#1601). */
+/** The platform's bound on N. */
 export const SHARDS_MAX = 1000;
 
 /**
@@ -148,7 +148,7 @@ function bounded(
  * middle slot, not a request for an empty label.
  *
  * Nothing is capped or truncated here on purpose. The platform states the limits and refuses what
- * exceeds them by name (ADR 0012 — one side owns the contract), and a refusal is loud and costs no
+ * exceeds them by name (one side owns the contract), and a refusal is loud and costs no
  * results: the run fails to start, the reporter says why, and every result goes to the fallback
  * file. A client-side copy of the caps would be a second place for them to drift.
  *

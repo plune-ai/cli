@@ -1,13 +1,13 @@
 // `plune automate <caseId>` (#148): a case from the platform → Cairn's `automate` → the code it wrote, as a diff.
 //
-// The direction of the dependency is the platform's ADR 0024: the CLI knows about Cairn, Cairn knows nothing about
+// The direction of the dependency is the platform's decision: the CLI knows about Cairn, Cairn knows nothing about
 // Plune. So Cairn gets the case as a file in its own published format (a run folder with `report.json` and one
 // `testcases/ATC-*.md`), and an environment with no `PLUNE_*` variable and no token in it (Cairn ADR-0010).
 //
 // What comes back is a diff of new files. The main copy of the code lives in the user's repo; writing it there is
 // the user's or their CI's job, so nothing here touches the repo. The diff goes to stdout; with `--send` the same
-// files go to the review queue as an automation proposal (`POST /v1/review-items/automations`, the platform's
-// ADR 0080), with the case's `test()` call named as the code a person approves.
+// files go to the review queue as an automation proposal (`POST /v1/review-items/automations`),
+// with the case's `test()` call named as the code a person approves.
 
 import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
@@ -87,8 +87,8 @@ export interface AutomateResult {
   cairnVersion?: string;
 }
 
-// The bounds of `automationInputSchema` and its proposal in the platform's `src/contracts/review-item.ts`
-// (ADR 0080). The server refuses an over-bound file on its own and still queues the rest; checking here first
+// The bounds of `automationInputSchema` and its proposal in the platform's `src/contracts/review-item.ts`.
+// The server refuses an over-bound file on its own and still queues the rest; checking here first
 // means nothing is sent that a person could not approve.
 export const AUTOMATION_FILES_MAX = 10;
 export const AUTOMATION_FILE_MAX_BYTES = 16_384; // TEXT_FIELD_MAX_BYTES

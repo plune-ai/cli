@@ -2,7 +2,6 @@
 
 > Спека: [`../spec.md`](../spec.md) · Дизайн: [`../design.md`](../design.md) ·
 > План тестів: [`../test-plan.md`](../test-plan.md) · ADR: [`../adr/0001-adapter-bundles-the-core.md`](../adr/0001-adapter-bundles-the-core.md)
-> Етап: B-2
 
 DoD кожної задачі живе **тут**, а не в окремому файлі на задачу: одинадцять файлів по десять
 рядків, які переказують цю ж таблицю, — це третє місце, яке розходиться з `tasks.json`.

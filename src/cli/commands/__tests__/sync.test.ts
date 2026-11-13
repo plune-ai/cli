@@ -219,7 +219,7 @@ describe('handleSync (#49)', () => {
 });
 
 /**
- * `plune sync --fail-on-failures` (plune#1247): after the upload, one `GET /v1/runs/:id/summary` — `counts`
+ * `plune sync --fail-on-failures`: after the upload, one `GET /v1/runs/:id/summary` — `counts`
  * by the status each result is counted under (a muted failure under `muted`), `notRun`, and the run's
  * `statusEvent` — and the exit code is the gate's.
  */
@@ -357,7 +357,7 @@ describe('handleSync Idempotency-Key (#104)', () => {
   });
 });
 
-describe('CLI · sync · job reporting, held to the platform contract (plune#1769, cli#139)', () => {
+describe('CLI · sync · job reporting, held to the platform contract (cli#139)', () => {
   // The platform's job routes, each body judged by its schema, as `job-platform.ts` copies them from plune master.
   const jobsFetch = (jobs: (c: JobCall) => Response | Promise<Response>, run = { status: 201, body: { id: 'run_1' } as unknown }) =>
     jobsFetchOn(jobs, run);

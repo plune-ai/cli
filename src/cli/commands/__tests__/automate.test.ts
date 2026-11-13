@@ -222,7 +222,7 @@ describe('newFilesDiff', () => {
 });
 
 /**
- * `automationInputSchema` of the platform's `src/contracts/review-item.ts` (ADR 0080), as it stands: strict, so a field the
+ * `automationInputSchema` of the platform's `src/contracts/review-item.ts`, as it stands: strict, so a field the
  * server does not store fails here as it would there. Kept by hand; a change on the server's side is a change here.
  */
 const sha = z.string().regex(/^[0-9a-f]{64}$/);

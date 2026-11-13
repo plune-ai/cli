@@ -9,7 +9,7 @@
  * The vocabulary is not invented here. The platform's default status map already carries a `junit`
  * entry — `pass` / `failure` / `error` / `skipped` — so those four words are the contract, and a
  * project that disagrees overrides the map on its side rather than waiting for a release of this.
- * The same discipline as every adapter (ADR 0023): this file knows the FORMAT, never the platform.
+ * The same discipline as every adapter: this file knows the FORMAT, never the platform.
  */
 
 import { resultKey } from '../reporter-core/result-key.js';
@@ -20,7 +20,7 @@ import { parseXml, type XmlElement } from './xml.js';
 /** The key into the project's status map. */
 const SOURCE = 'junit';
 
-/** `@P<id>` anywhere in a title — the token the adapter and `playwright-json.ts` read, and the same non-stripping (ADR 0023). */
+/** `@P<id>` anywhere in a title — the token the adapter and `playwright-json.ts` read, and the same non-stripping. */
 const TOKEN = /@P([A-Za-z0-9_-]+)/;
 
 /**
@@ -201,7 +201,7 @@ export function readJUnit(
     const { status, detail } = outcomeOf(test);
     const playwright = playwrightOf(classname, name);
     const key = keyOf(classname, name, playwright);
-    // A `@P<id>` names the case outright (ADR 0023), so a renamed test keeps it. The adapter reads the
+    // A `@P<id>` names the case outright, so a renamed test keeps it. The adapter reads the
     // test's OWN title, not its describes': the last of Playwright's joined titles; for any other writer
     // the whole name, since the file does not say where its describes end.
     const stated = TOKEN.exec(playwright?.titles.at(-1) ?? name)?.[1];

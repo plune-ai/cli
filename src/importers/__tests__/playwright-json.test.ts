@@ -138,7 +138,7 @@ describe('reading a Playwright JSON report', () => {
   });
 
   it('reads the case a test states outright, annotation before token', () => {
-    // Same order as the adapter (ADR 0023): an annotation is the most deliberate thing an author
+    // Same order as the adapter: an annotation is the most deliberate thing an author
     // writes, and the `@P` token is the same statement made where it shows in the report.
     const stated = (over: Record<string, unknown>): string =>
       JSON.stringify({
@@ -314,9 +314,9 @@ describe('a failed attempt in the report carries its failure detail (#790)', () 
     expect(refused.results[0]?.failure).not.toHaveProperty('ciUrl');
   });
 
-  // plune#927. The commit and branch the run opens with travel as the CI run does: the report's own
+  // The commit and branch the run opens with travel as the CI run does: the report's own
   // word, whichever machine imports it. What is handed up is Playwright's `metadata.ci` as written.
-  it('hands up the runner’s own CI record too, for the commit and branch the run opens with (plune#927)', () => {
+  it('hands up the runner’s own CI record too, for the commit and branch the run opens with', () => {
     expect(readPlaywrightJson(report(), 'report.json').ci).toEqual({
       buildHref: BUILD,
       commitHash: 'abc',
@@ -345,7 +345,7 @@ describe('a failed attempt in the report carries its failure detail (#790)', () 
     expect(results.map((r) => r.title)).toEqual(Object.keys(expected));
     for (const r of results) expect({ failure: r.failure, errorContext: r.errorContext }, r.title).toEqual(expected[r.title]);
     expect(ciUrl).toBe(BUILD);
-    // The commit the recording's runner wrote (plune#927) — what a real 1.63 gives under GitHub: no branch.
+    // The commit the recording's runner wrote — what a real 1.63 gives under GitHub: no branch.
     expect(ci).toEqual({
       commitHref: 'https://github.com/acme/shop/commit/0123456789abcdef0123456789abcdef01234567',
       commitHash: '0123456789abcdef0123456789abcdef01234567',
@@ -369,7 +369,7 @@ describe('a failed attempt in the report carries its failure detail (#790)', () 
  * the core as the files of the result; a body is decoded only where the platform would take it, since
  * a report full of screenshots kept as bodies is megabytes of base64 nothing will read.
  */
-describe('the files a report keeps (plune#913, plune#928)', () => {
+describe('the files a report keeps', () => {
   const report = (attachments: unknown[]): string =>
     JSON.stringify({
       config: {},

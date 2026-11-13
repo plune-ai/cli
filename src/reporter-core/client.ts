@@ -145,7 +145,7 @@ export interface PlatformClient {
   /** `retries` after the first try: the default is 2; a file's requests ask for more. */
   post<T>(path: string, body: unknown, retries?: number): Promise<ClientOutcome<T>>;
   /**
-   * A file's bytes as the body, under the file's own type (platform ADR 0040) — not JSON. Through the
+   * A file's bytes as the body, under the file's own type — not JSON. Through the
    * same retries as a POST, so a 429 on the platform's upload limit waits out its `Retry-After`.
    */
   upload<T>(path: string, bytes: Buffer, contentType: string): Promise<ClientOutcome<T>>;

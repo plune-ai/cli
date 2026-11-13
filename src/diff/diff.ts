@@ -11,7 +11,7 @@ import { baseEvalId, rowStatus } from '../types/results.js';
 import type { GatesReport } from './gates.js';
 import type { DiffAdvice } from './advice.js';
 
-// 'unjudged': no row got a verdict — every row blocked or skipped, or no rows at all (plune#2497).
+// 'unjudged': no row got a verdict — every row blocked or skipped, or no rows at all.
 export type EvalStatus = 'passed' | 'failed' | 'errored' | 'unjudged';
 export type EvalPresence = EvalStatus | 'absent';
 
@@ -23,7 +23,7 @@ export type EvalDiffStatus =
   | 'new-pass' // absent in baseline → current passed
   | 'stable-pass' // passed on both
   | 'errored' // current errored — execution error, never a regression (AC-2.6)
-  | 'unmeasured' // current unjudged, or baseline errored/unjudged → current failed: no verdict to compare (plune#2414, plune#2497)
+  | 'unmeasured' // current unjudged, or baseline errored/unjudged → current failed: no verdict to compare
   | 'removed'; // present in baseline, absent in current
 
 export interface EvalDiff {
@@ -52,7 +52,7 @@ export interface RunDiffSummary {
   errored: number;
   removed: number;
   /**
-   * Evals with no verdict (plune#2414, plune#2497): the current run errored on them or judged none
+   * Evals with no verdict: the current run errored on them or judged none
    * of their rows, or the baseline errored or judged none and the current run fails, so there was
    * nothing to compare against. Not a regression, but a
    * gate must not call such a run green.
@@ -77,8 +77,8 @@ export interface RunDiff {
 
 // Eval-level status, lifted from its rows with the same precedence as exit-code.ts:
 // a genuine assertion failure dominates an infra error, which dominates pass. Rows are read with the
-// same `rowStatus` the run was scored with; a blocked or skipped row (never judged, ADR 0045) is
-// neither a failure nor an error here, as it is not for the exit code (plune#1245).
+// same `rowStatus` the run was scored with; a blocked or skipped row (never judged) is
+// neither a failure nor an error here, as it is not for the exit code.
 function evalStatus(e: EvalResult): EvalStatus {
   const statuses = e.rows.map(rowStatus);
   if (statuses.includes('failed')) return 'failed';
@@ -88,7 +88,7 @@ function evalStatus(e: EvalResult): EvalStatus {
 
 function classify(baseline: EvalPresence, current: EvalPresence): EvalDiffStatus {
   if (current === 'errored') return 'errored'; // AC-2.6 — infra, never a regression
-  if (current === 'unjudged') return 'unmeasured'; // nothing judged — never green (plune#2497)
+  if (current === 'unjudged') return 'unmeasured'; // nothing judged — never green
   if (baseline === 'absent') return current === 'passed' ? 'new-pass' : 'new-fail';
   if (current === 'absent') return 'removed';
   // baseline ∈ {passed, failed, errored, unjudged}; current ∈ {passed, failed}

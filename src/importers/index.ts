@@ -3,8 +3,8 @@
  *
  * The whole of what these files know is a FORMAT. Which run the results join, how a test resolves
  * to a case, what a status means, what happens when the platform is down — all of that is the
- * reporter core's, and the import command drives it exactly as the Playwright reporter does
- * (ADR 0023). An importer that opened its own connection would be a second reporter to keep
+ * reporter core's, and the import command drives it exactly as the Playwright reporter does.
+ * An importer that opened its own connection would be a second reporter to keep
  * correct, and the two would drift on the day one of them was fixed.
  */
 

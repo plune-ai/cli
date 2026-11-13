@@ -330,7 +330,7 @@ export function createProgram(): Command {
   };
   const verboseOf = (command: Command): boolean =>
     (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
-  // `--fail-on-failures` (plune#1247): one wording for the four commands that take it.
+  // `--fail-on-failures`: one wording for the four commands that take it.
   const FAIL_ON_FAILURES =
     "Exit with the platform's verdict on the run: 1 on a failed or broken result (muted ones do not count), " +
     'on an expected case that never ran, or when there is no verdict at all';
@@ -658,8 +658,8 @@ export function createProgram(): Command {
           writeReport(renderDiff(diff, toFormat(options.format)), options.output);
           // Gating is opt-in (AC-4): the diff is always reported, and without --fail-on-regression or a gate
           // limit the exit is 0. With them: 1 for a measured failure (a regression first of all), 3 when
-          // something was not measured, so there is no verdict and the run is not green either
-          // (plune#2414, plune#2497). A waiver lifts a measured failure only. Input errors take the exit-2 path below.
+          // something was not measured, so there is no verdict and the run is not green either.
+          // A waiver lifts a measured failure only. Input errors take the exit-2 path below.
           process.exitCode = diff.gates?.exitCode ?? 0;
         } catch (err) {
           if (err instanceof DiffInputError) {
@@ -696,7 +696,7 @@ export function createProgram(): Command {
       }
     });
 
-  // CLOUD COMMANDS (ADR 0006) — optional, and deliberately last. They are the only commands that
+  // CLOUD COMMANDS — optional, and deliberately last. They are the only commands that
   // talk to a server; everything above runs fully local, with no account and no network, and that
   // must stay true. Nothing here is loaded unless the user invokes one of these three.
 

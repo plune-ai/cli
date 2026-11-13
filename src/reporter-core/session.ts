@@ -65,7 +65,7 @@ interface Upload {
 }
 
 /**
- * What the platform takes as a result's file, and how many (ADR 0040). Checked before sending rather
+ * What the platform takes as a result's file, and how many. Checked before sending rather
  * than left to the platform's refusal: a refused file has already crossed the wire — up to 2 MB, twenty
  * times a result — to learn what was known here. Drift costs no result: at worst a screenshot the
  * platform would now take is skipped, or one it no longer takes is refused and counted.
@@ -93,7 +93,7 @@ const TYPE_BY_EXTENSION: Record<string, string> = {
 };
 /** The attachment that tells the reporter which test case a test is: read by it, and not a file of the test. */
 const METADATA_TYPE = 'application/plune.metadata+json';
-/** The longest name the platform takes for a result's file (ADR 0040) — in UTF-16 units, as it measures. */
+/** The longest name the platform takes for a result's file — in UTF-16 units, as it measures. */
 const NAME_MAX = 200;
 
 /**
@@ -272,7 +272,7 @@ export interface RunSession {
   /** Send whatever is buffered. Safe to call when nothing is. */
   flush(): Promise<void>;
   /**
-   * Send what is left and close the run. Resolves to the summary the platform froze at `finish` (plune#1247), or
+   * Send what is left and close the run. Resolves to the summary the platform froze at `finish`, or
    * `undefined` when it answered with none: no run, a refused finish, a deployment older than the summary.
    */
   finish(reason?: string): Promise<FrozenSummary | undefined>;
@@ -397,7 +397,7 @@ export async function startRun(
   /** Requests made to the platform's file routes (not to buckets), retries not counted; and files it already had (`exists`). */
   let requests = 0;
   let existed = 0;
-  /** A platform older than ADR 0051 has no bulk routes (404, no JSON): the files go one request each, as before. Decided by the answer, not by a version. */
+  /** A platform older than the bulk routes has none (404, no JSON): the files go one request each, as before. Decided by the answer, not by a version. */
   let batchMissing = false;
   const client: PlatformClient = createClient({
     apiUrl: resolveApiUrl(cfg.apiUrl),
@@ -585,7 +585,7 @@ export async function startRun(
     };
     let start = await client.post<{ run: RunEcho; joined: boolean }>('/v1/runs', request);
 
-    // plune#1949: the one refusal that is worth a second start. A 413 is the run being too large to keep, and the
+    // The one refusal that is worth a second start. A 413 is the run being too large to keep, and the
     // list of expected tests is nearly all of a start's bytes: over the 1 MiB a run keeps, 9 512 results of the
     // platform's own CI went to a fallback file the job then deleted. Without the list the run still takes every
     // result; what it loses is said here — no not-run count, and no full-run claim, which travels with the list.
@@ -797,7 +797,7 @@ export async function startRun(
     else failed(job, out.detail || out.kind);
   }
 
-  /** The three steps of ADR 0041: the link is the platform's, the PUT the bucket's, and `complete` is the platform asking the bucket. */
+  /** The three steps of the bucket upload: the link is the platform's, the PUT the bucket's, and `complete` is the platform asking the bucket. */
   async function uploadToBucket(job: Upload, size: number, first: { id: string; url: string; headers: Record<string, string> }): Promise<void> {
     const source = job.body !== undefined ? { body: job.body } : { path: job.path as string, size };
     let link = first;
@@ -884,7 +884,7 @@ export async function startRun(
     return () => uploadToBucket(job, size, link);
   }
 
-  /** The way it was before ADR 0051: a request or three per file. Used against a platform that has no bulk routes. */
+  /** The way it was before the bulk routes: a request or three per file. Used against a platform that has no bulk routes. */
   async function uploadEach(jobs: Upload[]): Promise<void> {
     // The files of one result are asked about one after the other, in the order of the attachments; the results
     // run side by side, and the calls they make share the places of `gated`.
@@ -952,7 +952,7 @@ export async function startRun(
   const itemPause = (round: number): Promise<void> => new Promise((r) => setTimeout(r, Math.min(250 * 2 ** round, 4000)));
 
   /**
-   * Up to 100 files per request (platform ADR 0051): announce all with their SHA-256 (a file the platform has
+   * Up to 100 files per request: announce all with their SHA-256 (a file the platform has
    * already is `exists` and sends nothing), PUT the ones that got a link, complete them in one request, and send
    * the ones that have no bucket by `direct-batch`. Every item has its own verdict; one that fails costs the others nothing.
    */
@@ -1155,8 +1155,7 @@ export async function startRun(
   }
 
   /**
-   * The screenshots and the text files of the results a batch just stored, each to its own result
-   * (platform ADR 0040).
+   * The screenshots and the text files of the results a batch just stored, each to its own result.
    *
    * Only `accepted`: a `duplicate` was stored by an earlier report, files and all, and sending them
    * again would fill its places with copies. Awaited before the next batch, and so before anything
@@ -1420,7 +1419,7 @@ export async function startRun(
         // A refusal here leaves the run open, which is a truthful state — see `leaveOpen`.
         if (!out.ok) log(`plune: could not close run ${runId} (${out.detail || out.kind}).`);
         else {
-          // Handed back as it came: what it means for an exit code is the gate's to say (plune#1247).
+          // Handed back as it came: what it means for an exit code is the gate's to say.
           frozen = out.body?.summary ?? undefined;
           // The one thing a full run does outside itself (D20). Said when it happened and only then:
           // a `0 detached` on every ordinary run would teach people to stop reading the line.

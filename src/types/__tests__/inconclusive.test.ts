@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parseRunResult, runResultSchema } from '../run-result-schema.js';
 
 /**
- * ADR 0045 / plune#1244 — `inconclusive` on a result row.
+ * `inconclusive` on a result row.
  *
  * The runner must be able to say "the product was never judged" instead of letting `failed` stand for
  * both a broken environment and broken code. The Plune platform already accepts the field
@@ -11,7 +11,7 @@ import { parseRunResult, runResultSchema } from '../run-result-schema.js';
  * platform's acceptance unreachable.
  *
  * Additive and optional on purpose: output that does not send it validates exactly as before, so
- * `schemaVersion` stays 1 (ADR 0045 §2).
+ * `schemaVersion` stays 1.
  */
 
 const base = {
@@ -44,7 +44,7 @@ function withInconclusive(value: string): typeof base {
   return cloned;
 }
 
-describe('runResultSchema — inconclusive (ADR 0045, plune#1244)', () => {
+describe('runResultSchema — inconclusive', () => {
   it('accepts a row saying the product was never judged (blocked)', () => {
     const parsed = parseRunResult(withInconclusive('blocked'));
     expect(parsed.evals[0]!.rows[0]!.inconclusive).toBe('blocked');
@@ -61,7 +61,7 @@ describe('runResultSchema — inconclusive (ADR 0045, plune#1244)', () => {
     expect(parsed.schemaVersion).toBe(1);
   });
 
-  it('rejects a value outside the enum — `invalid` is `broken` in Plune (ADR 0045 §1)', () => {
+  it('rejects a value outside the enum — `invalid` is `broken` in Plune', () => {
     // The trap this pins: Qase calls it `invalid`, Plune calls it `broken` and the field would then
     // be a second word for one idea. Accepting it would fork the contract at both ends.
     expect(runResultSchema.safeParse(withInconclusive('invalid')).success).toBe(false);

@@ -74,7 +74,7 @@ beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plune-import-parser-'));
   printed = [];
   vi.stubEnv('PLUNE_TOKEN', 'tok-parser');
-  // Nothing here is to reach a file of the machine it runs on, or the CI it runs in (plune#927).
+  // Nothing here is to reach a file of the machine it runs on, or the CI it runs in.
   vi.stubEnv('PLUNE_FALLBACK', path.join(dir, 'pending.jsonl'));
   for (const marker of ['GITHUB_ACTIONS', 'GITLAB_CI', 'JENKINS_URL']) vi.stubEnv(marker, '');
   vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array): boolean => {
@@ -120,8 +120,8 @@ describe('plune run import --create, when the platform refuses the offer (cli#71
 /**
  * Through the command line. `plune run import report.json` typed into the program the
  * binary runs, answered by a platform on a real socket over the transport the binary uses: the JSON and the
- * text a Playwright report keeps reach the platform's file route (`POST /v1/results/:id/files?name=`,
- * platform ADR 0040) as the bytes and the type it reads — not as a fake `fetch` was told to expect them.
+ * text a Playwright report keeps reach the platform's file route (`POST /v1/results/:id/files?name=`)
+ * as the bytes and the type it reads — not as a fake `fetch` was told to expect them.
  */
 interface Upload {
   url: string;
@@ -137,7 +137,7 @@ interface Upload {
  */
 async function takingFiles(
   refuse?: { status: number; error: string },
-  /** A project with a bucket (ADR 0041): `uploads` answers links back to this server, which stands in for the bucket. */
+  /** A project with a bucket: `uploads` answers links back to this server, which stands in for the bucket. */
   bucket = false,
   /** How many PUTs to the bucket are answered 503 before it comes round. */
   failPuts = 0,
@@ -208,7 +208,7 @@ async function takingFiles(
   return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, uploads, puts, completed };
 }
 
-describe('plune run import of a Playwright report that keeps text files (plune#928)', () => {
+describe('plune run import of a Playwright report that keeps text files', () => {
   const LOG = 'GET /cart 200 привіт 日本語 😀\nGET /cart/pay 402\n';
   /** A report of one passed test, keeping a JSON as a file and a log as a body — the two shapes `testInfo.attach` leaves. */
   function reportKeeping(extra: object[] = []): string {

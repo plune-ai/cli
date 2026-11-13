@@ -1,5 +1,5 @@
 // The platform's job queue, as the commands that upload to it describe their work there: `plune sync` (kind `sync`,
-// cli#139) and `plune ingest` (kind `ingest`, plune#2047). Both are kinds the queue panel has words for (plune
+// cli#139) and `plune ingest` (kind `ingest`). Both are kinds the queue panel has words for (the platform's
 // `app/src/i18n/en.json`, `queue.kind.*`).
 
 /** A job report never holds the command up for long: the upload is the work, the job only describes it. */

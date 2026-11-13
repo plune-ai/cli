@@ -69,7 +69,7 @@ beforeEach(() => {
   addedAtClose.length = 0;
   addImpl = null;
   startThrows = false;
-  // The run opens with the commit and branch of the CI it runs in (plune#927), so these tests are
+  // The run opens with the commit and branch of the CI it runs in, so these tests are
   // not to know which CI that is: on GitHub Actions they would open every run with its own.
   for (const marker of ['GITHUB_ACTIONS', 'GITLAB_CI', 'JENKINS_URL']) vi.stubEnv(marker, '');
 });
@@ -682,7 +682,7 @@ describe('what failed and where, from a recorded run (#790)', () => {
 
   it('opens the run with the CI run the git plugin wrote after onConfigure, and finds the root once (AC-04)', async () => {
     await replay();
-    // With its commit too (plune#927): the same recording holds `commitHash`, and no branch — GitHub
+    // With its commit too: the same recording holds `commitHash`, and no branch — GitHub
     // gives none, and there is no GitHub environment here to name one.
     expect(startConfigs[0]?.['meta']).toEqual({
       runner: 'playwright',
@@ -784,7 +784,7 @@ describe('what failed and where, from a recorded run (#790)', () => {
  * variables (`lib/runner/index.js`): a commit and no branch on GitHub, both on GitLab and on Jenkins —
  * where there is no `buildHref` either.
  */
-describe('the commit and branch the run opens with (plune#927)', () => {
+describe('the commit and branch the run opens with', () => {
   const SHA = '0123456789abcdef0123456789abcdef01234567';
   const BUILD = 'https://github.com/acme/shop/actions/runs/42';
   const onGitHub = {

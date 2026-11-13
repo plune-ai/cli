@@ -101,7 +101,7 @@ export class JsonReportError extends Error {
   }
 }
 
-/** The case this test states outright: an annotation first, then the token in its title (ADR 0023). */
+/** The case this test states outright: an annotation first, then the token in its title. */
 function statedIdOf(test: JsonTest, title: string): string | undefined {
   const annotation = test.annotations?.find((a) => a.type === 'PluneId')?.description;
   if (annotation !== undefined && annotation !== '') return annotation;

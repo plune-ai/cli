@@ -42,7 +42,7 @@ const clean: RunDiff = {
   },
 };
 
-// plune#2414 — nothing regressed, but one eval was never measured.
+// Nothing regressed, but one eval was never measured.
 const unmeasured: RunDiff = {
   evals: [
     { id: 'err', status: 'errored', baseline: 'passed', current: 'errored' },

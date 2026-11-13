@@ -160,8 +160,8 @@ describe('formatIngestResult', () => {
   });
 });
 
-// plune#2047: an ingest shows in the platform's queue from start to end, as `plune sync` does since 0.30.2.
-describe('CLI · ingest · job reporting, held to the platform contract (plune#2047)', () => {
+// An ingest shows in the platform's queue from start to end, as `plune sync` does since 0.30.2.
+describe('CLI · ingest · job reporting, held to the platform contract', () => {
   const COUNTERS = { runId: 'run-1', linked: 0, proposed: 29, skipped: 0 };
   const ingest = (fn: typeof fetch) => handleIngest(deps({ fetchImpl: fn }));
   const imported = (jobs: Parameters<typeof jobsFetch>[0]) => jobsFetch(jobs, { status: 201, body: COUNTERS });

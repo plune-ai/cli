@@ -7,8 +7,9 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
-// Built from parts so this file does not match itself. `plune-ai/plune-x` (another repo) is fine.
-const PRIVATE_REF = new RegExp(`plune-ai/${'plune'}(#|/|[^-a-z]|$)`, 'm');
+// Built from parts so this file does not match itself: the repo by name (`plune-ai/plune-x`, another
+// repo, is fine) and an issue by its short form (the bare repo name, `#` and a number).
+const PRIVATE_REF = new RegExp(`plune-ai/${'plune'}(#|/|[^-a-z]|$)|\\b${'plune'}#\\d+`, 'm');
 
 describe('no references to the private tracker', () => {
   const files = execFileSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf8' })

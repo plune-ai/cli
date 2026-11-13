@@ -70,7 +70,7 @@ const rowResultSchema = z.object({
   error: runErrorSchema.optional(),
   assertions: z.array(assertionResultRecordSchema),
   cache_saved: savedSchema.optional(),
-  /** ADR 0045. Optional and additive — the same enum the platform validates on `POST /v1/runs`. */
+  /** Optional and additive — the same enum the platform validates on `POST /v1/runs`. */
   inconclusive: z.enum(ROW_INCONCLUSIVE).optional(),
   /** Repeats (`runs` above 1). Optional and additive — a RunResult without it validates unchanged. */
   attempts: z
@@ -160,7 +160,7 @@ const summarySchema = z.object({
   passed: z.number(),
   failed: z.number(),
   errored: z.number(),
-  /** plune#1245. Optional and additive — a RunResult written before them validates unchanged. */
+  /** Optional and additive — a RunResult written before them validates unchanged. */
   blocked: z.number().optional(),
   skipped: z.number().optional(),
   cost_usd: z.number(),

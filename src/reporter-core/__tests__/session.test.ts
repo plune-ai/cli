@@ -51,7 +51,7 @@ interface PlatformOptions {
   known?: Record<string, string>;
   /** Status to answer `POST /v1/runs` with (201 created, 200 joined). */
   startStatus?: number;
-  /** The platform's CHECK on a run's configuration (plune#1949): a start that carries one is answered 413. */
+  /** The platform's CHECK on a run's configuration: a start that carries one is answered 413. */
   refuseConfiguration?: boolean;
   /** Force a reply on `…/results`: a status + error message, or a thrown network failure. */
   resultsFailure?: { status: number; error: string } | 'network';
@@ -68,7 +68,7 @@ interface PlatformOptions {
   discoverOutcomes?: string[];
   /** How many cases the platform says a `finish` detached (D20). Absent models a platform older than that. */
   detached?: number;
-  /** The summary a `finish` answers with, frozen (plune#1247). Absent models a platform older than that. */
+  /** The summary a `finish` answers with, frozen. Absent models a platform older than that. */
   summary?: unknown;
   /** Force a reply on `…/events`. */
   eventsFailure?: { status: number; error: string };
@@ -79,7 +79,7 @@ interface PlatformOptions {
   /** How long each upload takes to be answered. */
   fileMs?: number;
   /**
-   * The project has a bucket: `uploads` answers a link for every file (ADR 0041). Absent models one without —
+   * The project has a bucket: `uploads` answers a link for every file. Absent models one without —
    * the route of the database for a picture or a text within its ceilings, `skipped` for the rest.
    */
   bucket?: boolean;
@@ -141,7 +141,7 @@ function platform(opts: PlatformOptions = {}) {
         ...(status >= 400 && opts.putRetryAfter !== undefined ? { headers: { 'retry-after': opts.putRetryAfter } } : {}),
       });
     }
-    // A platform older than the bulk routes (ADR 0051): the CLI falls back to one request per file.
+    // A platform older than the bulk routes: the CLI falls back to one request per file.
     if (/\/v1\/files\/(uploads|complete|direct)-batch$/.test(target)) return new Response('404 Not Found', { status: 404 });
     const uploadsAt = /\/v1\/results\/([^/]+)\/files\/uploads$/.exec(target);
     if (uploadsAt) {
@@ -385,7 +385,7 @@ describe('startRun — what the run intended to run (AC-09)', () => {
   });
 });
 
-// plune#1949: a list of expected tests over what a run keeps (1 MiB) refused the start, and every result of the run
+// A list of expected tests over what a run keeps (1 MiB) refused the start, and every result of the run
 // went to the fallback file, which CI deletes with the job: 9 512 results of the platform's own CI were lost that way.
 describe('startRun — a list too large for the run does not cost the results', () => {
   const declared = [[{ kind: 'playwright-id' as const, value: 'a' }]];
@@ -826,7 +826,7 @@ describe('the platform is not there (AC-05)', () => {
  * a run for it when none was — and a run opened there is to be the run the reporter would have opened,
  * with the commit and branch it ran at. So the line says where the run came from.
  */
-describe('a deferred line says where its run came from (plune#927)', () => {
+describe('a deferred line says where its run came from', () => {
   const meta = {
     runner: 'playwright',
     ciUrl: 'https://ci.test/runs/1',
@@ -878,7 +878,7 @@ describe('a deferred line says where its run came from (plune#927)', () => {
  * results batch carries it; the platform finds the combination in the run or appends it. Without the
  * variable a batch is exactly what it was.
  */
-describe('every batch names the combination the job runs (plune#1251)', () => {
+describe('every batch names the combination the job runs', () => {
   afterEach(() => vi.unstubAllEnvs());
   const named = { Browser: 'Chrome', 'Operating system': 'Windows' };
   /** The bodies posted to `…/results`, refused ones included, as they went. */
@@ -1160,7 +1160,7 @@ describe('who closes the run (AC-03, AC-08)', () => {
   });
 
   /**
-   * The verdict a release gate is made on (plune#1247): the platform freezes it into the run at `finish` and
+   * The verdict a release gate is made on: the platform freezes it into the run at `finish` and
    * answers the event with it. The session hands it back as it came — deciding what it means is the gate's.
    */
   describe('finish hands back the summary the platform froze', () => {
@@ -1666,7 +1666,7 @@ describe('a test name longer than a key (AC-13)', () => {
  * result, the screenshots its attempt kept are uploaded to that result, all of them before anything can
  * close the run, and nothing about them can cost a result.
  */
-describe('screenshots go to the result they belong to (plune#913)', () => {
+describe('screenshots go to the result they belong to', () => {
   // A 1×1 PNG.
   const PNG = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
@@ -1862,7 +1862,7 @@ describe('screenshots go to the result they belong to (plune#913)', () => {
  * platform would refuse stays behind, counted and said — a refusal known here has no business crossing the
  * wire, and the platform's answer is not the only place a limit is written down.
  */
-describe('text files go to the result they belong to (plune#928)', () => {
+describe('text files go to the result they belong to', () => {
   const KIB512 = 512 * 1024;
   /** What Playwright names the copy of a file attached by path: `<name>-<sha1 of the original's path><ext>`. */
   const SHA1 = '87f15b965a84499fbcc46f54036099902e9a69d6';

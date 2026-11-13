@@ -7,7 +7,7 @@ import { z } from 'zod';
  * as its 400 with the field named — never as a write the caller did not mean.
  */
 
-/** Objects one call takes (plune#1284 AC-03). */
+/** Objects one call takes. */
 export const BATCH_MAX = 100;
 
 const isHttp = (s: string): boolean => {
@@ -185,7 +185,7 @@ export const strategyContent = z.strictObject({
   exitCriteria: items,
 });
 
-// --- Case proposals (ingest, ADR 0010) ----------------------------------------------------------
+// --- Case proposals (ingest) ----------------------------------------------------------
 
 export const SOURCE_REF_KINDS = ['url', 'openapi-operation', 'requirement', 'pasted-text'] as const;
 
@@ -203,7 +203,7 @@ export const proposedCase = z.strictObject({
   rationale: z.string().min(1).max(400).optional().describe('Why the case is worth having'),
 });
 
-// --- Cases from pasted text (plune#1876, plune#1995) ---------------------------------------------
+// --- Cases from pasted text ---------------------------------------------
 
 /** The platform's bounds of a run (`POST /v1/projects/:id/case-generations`). */
 export const CASE_GENERATION_TITLE_MAX = 300;

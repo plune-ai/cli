@@ -3,7 +3,7 @@ import type { TestCase } from '../public.js';
 import { parseTestCase, testCaseSchema } from '../test-case-schema.js';
 
 /**
- * ADR 0045 / plune#1246 — `is_flaky` / `is_muted` on a TestCase.
+ * `is_flaky` / `is_muted` on a TestCase.
  *
  * `is_flaky` — assertion about a case: "this test is unstable by nature" (diagnostics).
  * `is_muted` — human decision: "we execute and record it, but it does not count toward the run summary" (policy).
@@ -29,7 +29,7 @@ function manualCase(is_flaky?: boolean, is_muted?: boolean): TestCase {
   return caseBase;
 }
 
-describe('testCaseSchema — is_flaky / is_muted (ADR 0045, plune#1246)', () => {
+describe('testCaseSchema — is_flaky / is_muted', () => {
   it('accepts a case with is_flaky = true', () => {
     const parsed = parseTestCase(manualCase(true));
     expect(parsed.is_flaky).toBe(true);

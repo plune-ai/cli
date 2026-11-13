@@ -178,7 +178,7 @@ function judged(summary: unknown, statusEvent = 'finished') {
 const MUTED_ONLY = { counts: { passed: 2, muted: 1 }, notRun: [], total: 3 };
 const ONE_FAILED = { counts: { passed: 2, failed: 1, muted: 1 }, notRun: [], total: 4 };
 
-describe('plune run finish --fail-on-failures (plune#1247)', () => {
+describe('plune run finish --fail-on-failures', () => {
   it('exits 0 on a run whose only failures are muted, and says the verdict', async () => {
     const { fetchImpl } = judged(MUTED_ONLY);
     await expect(handleRunFinish('r-1', { ...deps(fetchImpl), failOnFailures: true })).resolves.toBe(0);
@@ -286,7 +286,7 @@ describe('plune run exec', () => {
     expect(seen).toEqual([]);
   });
 
-  describe('--fail-on-failures (plune#1247)', () => {
+  describe('--fail-on-failures', () => {
     const exec = (fetchImpl: typeof fetch, code: number, gate = true) =>
       handleRunExec({
         ...deps(fetchImpl),
@@ -384,7 +384,7 @@ describe('plune run report', () => {
     expect(seen.map((s) => s.path)).toContain('/v1/runs');
   });
 
-  // plune#927. The run a replay opens is the run the reporter would have opened: with the commit and
+  // The run a replay opens is the run the reporter would have opened: with the commit and
   // branch the line recorded, not with those of whatever machine replays it. A line written before the
   // field existed has none, and is not given one — nothing is guessed at replay time.
   it('opens the run with the meta the line recorded, and with none for a line that has none', async () => {
@@ -622,7 +622,7 @@ describe('plune run report', () => {
     expect(lines.join('\n')).toContain('closed');
   });
 
-  // plune#1251. A batch goes back into the combination its job named (`PLUNE_CONFIGURATION`), as the line
+  // A batch goes back into the combination its job named (`PLUNE_CONFIGURATION`), as the line
   // recorded it, whether its run was reached or not; a line that recorded none is sent as it always was.
   it('sends each batch into the combination its line recorded, and none for a line that has none', async () => {
     const configuration = { Browser: 'Chrome', 'Operating system': 'Windows' };

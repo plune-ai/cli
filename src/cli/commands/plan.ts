@@ -123,7 +123,7 @@ export async function handlePlanGrep(
  * The run's cases are the platform's list (`GET /v1/runs/:id/cases`): what it expected — the
  * cases added on its page among them, run or not — and what it holds a result of. `--failed` asks
  * the platform for the ones whose latest result it COUNTS as failed or broken rather than reading
- * statuses here: a muted case's failure is counted `muted` (plune#1247), and the CLI must leave it
+ * statuses here: a muted case's failure is counted `muted`, and the CLI must leave it
  * out exactly as «Re-run N failed» does, by the platform's rule and not by a copy of it. The manual
  * cases are a person's to run; their titles in the pattern would only select tests by accident.
  */

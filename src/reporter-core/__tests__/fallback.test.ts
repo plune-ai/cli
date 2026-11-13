@@ -83,7 +83,7 @@ describe('fallback (AC-05)', () => {
     ]);
   });
 
-  // plune#927. The line holds who the run was — so the run a replay opens has the commit and branch the
+  // The line holds who the run was — so the run a replay opens has the commit and branch the
   // original would have. Nothing else about the connection: `meta` is where the run came from, not how
   // it was reached.
   it('records where the run came from, when the batch says, and no key for it when it does not', () => {

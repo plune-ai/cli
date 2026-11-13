@@ -136,7 +136,7 @@ export function costFields(c: { cost_usd: number; priced?: boolean }): {
 /**
  * The row of a dry run, plain or agentic: priced and never run, so it has no verdict. With no
  * assertion run, "every assertion passed" would make it a pass (plune-ai/cli#244); `skipped` is the
- * contract's word for a row that was never judged (ADR 0045), and `rowStatus` reads it first, so the
+ * contract's word for a row that was never judged, and `rowStatus` reads it first, so the
  * summary, the eval, the reporters and the diff all count the row as neither passed, failed nor errored.
  */
 export function dryRunRow(vars: DatasetRow['vars'], usage: Usage): RowResult {
@@ -501,7 +501,7 @@ function resolveTemplate(ev: EvalConfig, baseDir: string): string {
 }
 
 /**
- * The run's counters: every row lands in exactly one of them (plune#1245), by the shared `rowStatus`.
+ * The run's counters: every row lands in exactly one of them, by the shared `rowStatus`.
  * `blocked` and `skipped` are always written, so this runner's output never relies on their being
  * optional in the contract.
  */

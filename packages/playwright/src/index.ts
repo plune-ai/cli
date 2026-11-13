@@ -106,7 +106,7 @@ function keysFor(test: TestCase): KeyRef[] {
   ];
 }
 
-/** The content type a test uses to hand the reporter structured metadata (ADR 0023). */
+/** The content type a test uses to hand the reporter structured metadata. */
 const METADATA_TYPE = 'application/plune.metadata+json';
 
 /** `@P<id>` anywhere in a title. Deliberately not stripped from the title afterwards: the token IS
@@ -137,7 +137,7 @@ function metadataOf(result: TestResult): PluneMetadata | undefined {
 }
 
 /**
- * The case this test says it is, in the order ADR 0023 fixed.
+ * The case this test says it is, in the order the platform fixed.
  *
  * An annotation is the most deliberate thing an author can write, so it wins. The `@P` token is the
  * same statement made where it is visible in the report. An attachment is what a fixture or a
@@ -236,7 +236,7 @@ function attemptOf(test: TestCase, result: TestResult, ctx: RunContext): FailedA
       name,
       contentType,
       ...(path !== undefined ? { path } : {}),
-      // What a test attached from memory has no file: the bytes are the reporter's only copy (plune#928).
+      // What a test attached from memory has no file: the bytes are the reporter's only copy.
       ...(body !== undefined ? { body } : {}),
     })),
     ...(ctx.buildHref !== undefined ? { buildHref: ctx.buildHref } : {}),
@@ -367,7 +367,7 @@ export default class PluneReporter {
           ...(this.options.fallbackPath !== undefined
             ? { fallbackPath: this.options.fallbackPath }
             : {}),
-          // Where it ran (plune#927): the commit Playwright wrote into `metadata.ci`, and its branch —
+          // Where it ran: the commit Playwright wrote into `metadata.ci`, and its branch —
           // which Playwright gives on GitLab and Jenkins, and the core reads from the job on GitHub.
           meta: { runner: SOURCE, ...(ciUrl !== undefined ? { ciUrl } : {}), ...ciCommit(ci) },
         },

@@ -468,7 +468,7 @@ the fix below included.
 ### Changed
 
 - **The run summary counts `blocked` and `skipped` apart from `failed`.** A row
-  that reports `inconclusive` (ADR 0045) now counts by that word, not by its assertions or its error:
+  that reports `inconclusive` now counts by that word, not by its assertions or its error:
   a blocked row whose assertions failed is `blocked`, not `failed`, and a skipped row with an error is
   `skipped`, not `errored`. This is the order the platform already uses when it stores the row. **The
   numbers change** for any run with such rows: `failed` and `errored` go down, `blocked` and `skipped`
@@ -485,11 +485,11 @@ the fix below included.
 
 ### Added
 
-- **is_flaky / is_muted flags for TestCase contract (plune#1246, PR #88).** Adds two optional fields to the `TestCase` schema:
+- **is_flaky / is_muted flags for TestCase contract (PR #88).** Adds two optional fields to the `TestCase` schema:
   - `is_flaky` — assertion about a case: "this test is unstable by nature" (diagnostics).
   - `is_muted` — human decision: "we execute and record it, but it does not count toward the run summary" (policy).
   Both are purely additive: a producer that does not send them validates exactly as before, so `schemaVersion` stays at 2.
-  The platform already validates these fields on `POST /v1/test-cases` (plune#1246, ADR 0045).
+  The platform already validates these fields on `POST /v1/test-cases`.
 - **A result row can say the product was never judged (`inconclusive`).**
   `RowResult.inconclusive?: 'blocked' | 'skipped'` — optional and purely additive, so a runner that
   does not send it validates exactly as before and `schemaVersion` stays 1. Until now a row stopped
@@ -590,7 +590,7 @@ the results arrive as before and the panel shows none.
 ### Added
 
 - **`plune run import` reads a `@P<id>` in a JUnit test's name as the case the test is (#38).** The
-  token ADR 0023 fixed — read by `@plune-ai/playwright` and by the Playwright JSON import — was ignored
+  token the platform fixed — read by `@plune-ai/playwright` and by the Playwright JSON import — was ignored
   on the JUnit road, so a renamed or moved test was offered as new while the case it used to be kept
   the history. Now the same `@P<id>` in a test's name is that result's case. The key stays as the name
   gives it: the token is not stripped, as the adapter does not strip it. In Playwright's own JUnit
@@ -1241,7 +1241,7 @@ rather than depending on it, so the fix below reaches Playwright projects only t
 
 - The user guide (`docs/guide/`) and a runnable `examples/quickstart/` project — an end-to-end
   `plune.yaml`, two datasets and a GitHub Actions workflow — now ship in this repo instead of the
-  private platform repo, so the documentation sits beside the code it documents.
+  platform, so the documentation sits beside the code it documents.
 
 ## [0.6.0] - 2026-08-01
 
@@ -1258,7 +1258,7 @@ rather than depending on it, so the fix below reaches Playwright projects only t
   parsed on a guess. An unfinished run and evidence that cannot be joined to its cases unambiguously
   are refused the same way, and a refusal uploads nothing at all.
 
-  `plune run` still works with no account, no token and no network (ADR 0006) — `ingest` is opt-in,
+  `plune run` still works with no account, no token and no network — `ingest` is opt-in,
   like `sync`.
 
 ### Changed

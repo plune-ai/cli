@@ -33,7 +33,7 @@ export interface ImportOptions extends RunCommandDeps {
   create?: boolean;
   /** `--upload-concurrency`: files in flight at once, over `PLUNE_UPLOAD_CONCURRENCY`. */
   uploadConcurrency?: number;
-  /** `--fail-on-failures`: judge the run by the summary the platform froze when this import finished it (plune#1247). */
+  /** `--fail-on-failures`: judge the run by the summary the platform froze when this import finished it. */
   failOnFailures?: boolean;
   /** `--timeout`: seconds for the whole import, over `PLUNE_IMPORT_TIMEOUT`; 0 is no limit. */
   timeoutSec?: number;
@@ -62,7 +62,7 @@ export interface ImportResult {
   /** Why, when there are any: the review queue is full, the project is at its case limit, or another reason. */
   unofferedWhy?: UnofferedWhy;
   deferred: number;
-  /** The screenshots the report's files hold, as they went to the accepted results (ADR 0040). */
+  /** The screenshots the report's files hold, as they went to the accepted results. */
   screenshots: { uploaded: number; skipped: number; failed: number };
   /** Its JSON and plain-text files, kept by path or as a body, counted the same way and apart. */
   textFiles: { uploaded: number; skipped: number; failed: number };
@@ -316,7 +316,7 @@ function describe(result: ImportResult, apiUrl: string): string[] {
     );
   }
   if (result.offered > 0) {
-    // Said with the cause and the way out (plune#1569): "offered" alone read as a fact with no reason,
+    // Said with the cause and the way out: "offered" alone read as a fact with no reason,
     // and a first import of an untrusted source shows its run at zero until somebody decides.
     const source = result.format === 'playwright-json' ? 'playwright' : result.format;
     lines.push(

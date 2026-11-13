@@ -53,9 +53,9 @@ const testCaseBaseSchema = z.object({
   schemaVersion: z.literal(TEST_CASE_SCHEMA_VERSION),
   id: z.string().min(1),
   externalKeys: z.array(externalKeySchema).optional(),
-  /** ADR 0045 / plune#1246 — optional, purely additive; schemaVersion stays 2. */
+  /** Optional, purely additive; schemaVersion stays 2. */
   is_flaky: z.boolean().optional(),
-  /** ADR 0045 / plune#1246 — optional, purely additive; schemaVersion stays 2. */
+  /** Optional, purely additive; schemaVersion stays 2. */
   is_muted: z.boolean().optional(),
 });
 

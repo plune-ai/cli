@@ -22,7 +22,7 @@ import { readReportFile } from './read-file.js';
 
 const SOURCE = 'allure';
 
-/** `@P<id>` anywhere in a name — the token JUnit and Playwright read too (ADR 0023). */
+/** `@P<id>` anywhere in a name — the token JUnit and Playwright read too. */
 const TOKEN = /@P([A-Za-z0-9_-]+)/;
 
 /** A folder we could not read as a report. Exit 2 — the user can fix it. */
