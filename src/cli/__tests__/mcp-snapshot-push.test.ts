@@ -9,7 +9,7 @@ import { checkPushFlags, snapshotBody } from '../commands/mcp-snapshot-push.js';
 
 /**
  * `plune mcp snapshot --push` against a real stdio server (the snapshot fixture) and a fake platform that holds
- * the contract of plune-ai/plune#2730 (head b93dad0): strict bodies, 201 for a new contract, 200 for the same one.
+ * the platform's MCP catalog contract: strict bodies, 201 for a new contract, 200 for the same one.
  */
 // Each test starts a real server process, some twice.
 vi.setConfig({ testTimeout: 40_000 });

@@ -18,7 +18,7 @@ import {
 } from '../../reporter-core/client.js';
 import type { McpSnapshot } from '../../mcp-testing/snapshot/index.js';
 
-/** The platform contract this was written against: plune-ai/plune#2730 (`src/contracts/mcp-server.ts`), head b93dad0. */
+/** The body the platform's MCP catalog accepts for a snapshot: its schema is strict, so only these fields are sent. */
 const MAX_SERVER_NAME = 100;
 const MAX_ENVIRONMENT = 100;
 
