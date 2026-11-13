@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **`plune mcp conformance` checks Streamable HTTP on the wire and a local server's protection against DNS rebinding.** 22 new entries, all over HTTP only (`not-applicable` on stdio): a notification is `202` with no body or an error status, a request is answered as `application/json` or `text/event-stream` in UTF-8 JSON at one endpoint, concurrent POSTs get their own ids, GET is an SSE stream or `405`, session ids are visible ASCII, a missing session id or an invalid `MCP-Protocol-Version` is `400`, a deleted session is `404`, SSE event ids are unique, a message is not broadcast to two GET streams (with `--fixture`), an SSE stream ends after its response; for 2026-07-28, no server request on a request's stream, `X-Accel-Buffering: no`, and GET/DELETE `405` on a modern-only server. On `localhost`, `127.0.0.1`, `[::1]` and `*.localhost` (elsewhere `not-applicable`, a new reason `not-local`): a foreign `Origin` gets `403`, proven against two controls (a localhost `Origin` and none are accepted, else `could-not-run`), the port is not reachable at an outside address, and a foreign `Host` is refused, as advice outside the specification that never moves the score. The requests are raw HTTP, not an MCP client; each check keeps them in a new optional `details` field, secrets masked, and the `--header` values go to the URL under test only, with no redirect followed. `http-close-cancels` is catalogued but `could-not-run` (`needs-input`) for now. Profile `2026-11.1` is unchanged, so the new checks stay out of the score.
+
 ## [0.37.0] - 2026-11-13
 
 ### Added

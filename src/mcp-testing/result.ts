@@ -180,6 +180,8 @@ export interface ConformanceResult {
   fix: string;
   /** The first reference of the catalog entry, as a link and its section. */
   specRef: string;
+  /** The HTTP requests the check sent and what came back (Streamable HTTP checks), secrets masked. */
+  details?: import('./conformance/raw-http.js').Exchange[];
 }
 
 export interface McpConformanceReport {

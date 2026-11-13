@@ -60,7 +60,7 @@ function fixtureFile(calls: unknown): string {
 describe('CLI · mcp conformance · checks against a server that keeps and one that breaks each requirement', () => {
   it('a conformant server passes every check that applies to a legacy stdio server', async () => {
     const { code, report } = await run({ fixture: fixtureFile([{ tool: 'echo', arguments: { text: 'hi' } }]) }, mode('good'));
-    const expected = Object.fromEntries(CATALOG.map((e) => [e.id, 'passed']));
+    const expected = Object.fromEntries(CATALOG.map((e) => [e.id, e.transports.includes('stdio') ? 'passed' : 'not-applicable (transport)']));
     expected['tools-list-order-stable'] = 'not-applicable (era)';
     expect(states(report!)).toEqual(expected);
     expect(report!.summary).toMatchObject({ score: 100, verdict: 'passed' });
@@ -69,7 +69,7 @@ describe('CLI · mcp conformance · checks against a server that keeps and one t
 
   it('a server that breaks each requirement fails each check, with what it got and how to fix it', async () => {
     const { code, report } = await run({ fixture: fixtureFile([{ tool: 'dup' }]) }, mode('bad'));
-    const expected = Object.fromEntries(CATALOG.map((e) => [e.id, 'failed']));
+    const expected = Object.fromEntries(CATALOG.map((e) => [e.id, e.transports.includes('stdio') ? 'failed' : 'not-applicable (transport)']));
     // The handshake is sound (the connection takes nothing less), and the list order is a modern-era check.
     expected['life-initialize-result'] = 'passed';
     expected['life-version-negotiation'] = 'passed';
@@ -104,8 +104,8 @@ describe('CLI · mcp conformance · checks against a server that keeps and one t
     const s = states(report!);
     expect(s['life-initialize-result']).toBe('failed');
     for (const e of CATALOG.filter((e) => e.id !== 'life-initialize-result')) {
-      const transportOrEra = !e.transports.includes('stdio') || !e.eras.includes('legacy');
-      expect(s[e.id], e.id).toBe(transportOrEra ? 'not-applicable (era)' : 'could-not-run (prerequisite-failed)');
+      const why = !e.transports.includes('stdio') ? 'transport' : !e.eras.includes('legacy') ? 'era' : undefined;
+      expect(s[e.id], e.id).toBe(why !== undefined ? `not-applicable (${why})` : 'could-not-run (prerequisite-failed)');
     }
     expect(code).toBe(1);
   });
@@ -140,7 +140,7 @@ describe('CLI · mcp conformance · checks against a server that keeps and one t
     expect(s['stdio-exit-on-eof']).toBe('not-applicable (transport)');
     for (const e of CATALOG.filter((e) => e.transports.includes('http'))) expect(s[e.id], e.id).not.toBe('pending');
     expect(s['tools-list-shape']).toBe('passed');
-  });
+  }, 15_000);
 
   it('AC-9: a token from --header reaches neither the report, the journal nor an error message', async () => {
     const token = 'conformance-secret-marker-7f3a';
@@ -160,7 +160,7 @@ describe('CLI · mcp conformance · checks against a server that keeps and one t
     for (const text of [json.out, json.err, human.out, human.err, readFileSync(journal, 'utf8')]) expect(text).not.toContain(token);
     // The server did get the token: the masking is of what is written down, not of what is sent.
     expect(http.requests.some((r) => r.headers['authorization'] === `Bearer ${token}`)).toBe(true);
-  });
+  }, 15_000);
 
   it('AC-9: a server that repeats the token in every JSON-RPC error and in its 400 page gets it masked in every detail', async () => {
     const token = 'conformance-echo-marker-91c2';
