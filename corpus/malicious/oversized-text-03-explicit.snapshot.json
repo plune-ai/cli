@@ -1,0 +1,35 @@
+{
+  "kind": "plune-mcp-snapshot",
+  "schemaVersion": 2,
+  "transport": "stdio",
+  "server": {
+    "name": "fixture-server",
+    "version": "0.0.0"
+  },
+  "instructions": null,
+  "capabilities": {
+    "tools": {}
+  },
+  "tools": [
+    {
+      "name": "notes_add",
+      "description": "Adds a note.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": "string",
+            "description": "Body.",
+            "default": {
+              "$repeat": "0123456789 ",
+              "bytes": 1100000
+            }
+          }
+        }
+      }
+    }
+  ],
+  "resources": null,
+  "resourceTemplates": null,
+  "prompts": null
+}

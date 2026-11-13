@@ -2,6 +2,13 @@
 
 import type { RowResult } from '../types/results.js';
 import { rowStatus } from '../types/results.js';
+import { noCommands } from '../mcp-testing/report/human.js';
+
+/**
+ * A text that came from a server or a file, as one plain line: line breaks become a space, so it cannot start a
+ * heading or a list item of its own, and a leading `::` or `##[` cannot read as a CI workflow command.
+ */
+export const safeLine = (t: string): string => noCommands(t.replace(/\s*[\r\n]+\s*/g, ' ').trim());
 
 /** Shorten `s` to at most `maxChars`, appending a marker when it was cut. */
 export function truncate(s: string, maxChars: number): string {

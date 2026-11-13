@@ -1,0 +1,20 @@
+{
+  "expected": [
+    {
+      "rule": "scan/desc/sensitive-path",
+      "pointer": "/tools/0/description"
+    }
+  ],
+  "provenance": {
+    "catalogClass": "tool-poisoning",
+    "mechanism": "A description that points the model at credential files or asks it to read files.",
+    "concealment": "reworded",
+    "source": "not verified",
+    "catalogRefs": [
+      "OWASP-03",
+      "DOC-LSS"
+    ],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-13"
+  }
+}

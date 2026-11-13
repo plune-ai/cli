@@ -34,6 +34,24 @@ describe('loadDataset', () => {
     expect(loadDataset('d.jsonl', dir)).toHaveLength(2);
   });
 
+  // #256: the raw file-system error reached the top-level handler and was reported as an internal error.
+  it('a dataset file that does not exist is a config error naming the file and where it was looked for', () => {
+    const dir = tmpDir();
+    expect(() => loadDataset('datasets/none.jsonl', dir)).toThrow(RunConfigError);
+    expect(() => loadDataset('datasets/none.jsonl', dir)).toThrow(
+      `datasets/none.jsonl: dataset file not found (looked for ${path.resolve(dir, 'datasets/none.jsonl')})`,
+    );
+  });
+
+  it('a dataset path that cannot be read as a file is a config error as well', () => {
+    const dir = tmpDir();
+    fs.mkdirSync(path.join(dir, 'd.jsonl'));
+    expect(() => loadDataset('d.jsonl', dir)).toThrow(RunConfigError);
+    expect(() => loadDataset('d.jsonl', dir)).toThrow(
+      /^d\.jsonl: cannot read the dataset file \(EISDIR/,
+    );
+  });
+
   // plune-ai/plune#2543: a row without `vars` crashed the run with an internal error.
   it('a row without "vars" is a config error naming the file and line', () => {
     const dir = tmpDir();
