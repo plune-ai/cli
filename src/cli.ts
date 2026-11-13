@@ -942,6 +942,47 @@ export function createProgram(): Command {
       }
     });
 
+  addConnectionOptions(
+    mcp
+      .command('scan')
+      .description(
+        'Scan the data of MCP servers for what a model or a person cannot see: descriptions, a pin file, client configuration, tools across servers. Static: no probe is sent. Exit 0 no finding that gates, 1 a finding at --fail-on, 2 usage, 3 not measured',
+      ),
+  )
+    .option('--snapshot <[label=]file>', 'A snapshot file (plune mcp snapshot); repeatable; the label names the server (needed for the cross rules)', repeat)
+    .option('--config <file>', 'A client configuration file to read (its commands are never run); repeatable', repeat)
+    .option('--client <client>', 'claude-code, cursor or vscode: the format of --config, or the project file of that client in this folder')
+    .option('--pin-file <file>', 'The lock file of plune mcp pin: a snapshot is compared with it')
+    .option('--only <groups>', 'Only these groups: descriptions, pins, config, cross, active (repeat or comma)', repeat)
+    .option('--skip <groups>', 'Leave these groups out', repeat)
+    .option('--active', 'Active probes: not part of this version; asking for them is exit 3, never a quiet skip', false)
+    .option('--fail-on <level>', 'Exit 1 on a finding that gates at this level or above: error, warn or never', 'error')
+    .option('--gate-heuristics', 'Let heuristic findings change the exit code too (not recommended: they are advice by construction)', false)
+    .option('--allow-partial', 'Exit 0 when only part of what was asked for ran (the report says so); never when nothing ran', false)
+    .option('--ignore-file <path>', 'Exceptions file (default: plune-mcp-scan-ignore.yaml in this folder, if there is one)')
+    .option('--allow-long-exceptions', 'Accept an exception that lasts more than 180 days', false)
+    .option('--allow-host <host>', 'A host a server address may name; without any, scan/cfg/foreign-host is not evaluated; repeatable', repeat)
+    .option('--allow-package <name>', 'A package a launcher may start; without any, scan/cfg/package-not-allowed is not evaluated; repeatable', repeat)
+    .option('--save-snapshot <file>', 'With a live server: write its snapshot here, so a finding has a line to point at')
+    .option('--format <format>', 'What to print: human, json, github or sarif', 'human')
+    .option('--reporter <reporter>', 'junit-xml: a bare --out <path> is written as JUnit XML instead of JSON')
+    .option('--out <[format=]path>', 'Also write the report to this file, as json, junit-xml or sarif (default json); repeatable', repeat)
+    .action(async (server: string[], options: import('./cli/commands/mcp-scan.js').McpScanFlags, command: Command) => {
+      const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
+      const { handleMcpScan } = await import('./cli/commands/mcp-scan.js');
+      try {
+        process.exitCode = await handleMcpScan(options, server, {
+          out: (s) => process.stdout.write(s),
+          err: (s) => process.stderr.write(s),
+          env: process.env,
+          cwd: process.cwd(),
+          clientVersion: pkg.version,
+        });
+      } catch (err) {
+        failUnexpected(err, verbose);
+      }
+    });
+
   program
     .command('sync')
     .description('Upload your latest local run to the Plune platform (POST /v1/runs)')

@@ -1,0 +1,308 @@
+// `plune mcp scan`: the static rules of the scanner over what the user names (snapshot files, configuration files, a
+// pin file) or over one live server they start themselves, one report in five formats, one exit code. The rules live in
+// src/mcp-testing/scan/; the report and its formats in src/mcp-testing/scan/report.ts; this file reads, connects,
+// prints and exits. It never runs a command that a configuration file holds: that text is only read.
+
+import { existsSync, readFileSync } from 'node:fs';
+import { basename, resolve } from 'node:path';
+import { ConnectError } from '../../mcp-testing/connect/session.js';
+import {
+  connectionConfig,
+  UsageError,
+  type ConnectionFlags,
+} from '../../mcp-testing/connect/options.js';
+import { ExceptionsFileError } from '../../mcp-testing/exceptions-file.js';
+import { MCP_EXIT } from '../../mcp-testing/exit-codes.js';
+import { LockFormatError, parseLock } from '../../mcp-testing/pin/pin.js';
+import { noCommands } from '../../mcp-testing/report/human.js';
+import {
+  reportOutputs,
+  writeReport,
+  type McpRun,
+  type ReportFlags,
+} from '../../mcp-testing/report/index.js';
+import type { ConfigFile } from '../../mcp-testing/scan/config/config.js';
+import { parseScanExceptions } from '../../mcp-testing/scan/exceptions.js';
+import { GROUPS, renderScan, type FailOn, type ScanGroup } from '../../mcp-testing/scan/report.js';
+import { ALL_RULES, runScan, type ScanSnapshot } from '../../mcp-testing/scan/run.js';
+import {
+  parseSnapshot,
+  serializeSnapshot,
+  SnapshotFormatError,
+} from '../../mcp-testing/snapshot/index.js';
+import { takeSnapshot, writeAtomically, type SnapshotIo } from './mcp-snapshot.js';
+
+export interface McpScanFlags extends ConnectionFlags, ReportFlags {
+  snapshot?: string[];
+  config?: string[];
+  client?: string;
+  pinFile?: string;
+  only?: string[];
+  skip?: string[];
+  active?: boolean;
+  failOn?: string;
+  gateHeuristics?: boolean;
+  allowPartial?: boolean;
+  ignoreFile?: string;
+  allowLongExceptions?: boolean;
+  saveSnapshot?: string;
+  allowHost?: string[];
+  allowPackage?: string[];
+}
+
+export interface ScanIo extends SnapshotIo {
+  /** `YYYY-MM-DD` an exception's `expires` is compared with; today in UTC by default. */
+  today?: string;
+}
+
+export const DEFAULT_SCAN_IGNORE_FILE = 'plune-mcp-scan-ignore.yaml';
+
+/**
+ * The project files each client reads, in the folder the command runs in. Read from the clients' documentation on
+ * 2026-11-13: Claude Code, https://code.claude.com/docs/en/mcp ("storing configurations in a `.mcp.json` file at your
+ * project's root directory", key `mcpServers`); Cursor, https://cursor.com/docs/context/mcp ("Create
+ * `.cursor/mcp.json` in your project for project-specific tools", key `mcpServers`); VS Code,
+ * https://code.visualstudio.com/docs/agents/reference/mcp-configuration (the `servers` format in the workspace
+ * `.vscode/mcp.json`). User-level files (`~/.claude.json`, `~/.cursor/mcp.json`) are not read by `--client`: name one
+ * with `--config`.
+ */
+export const CLIENT_FILES = {
+  'claude-code': '.mcp.json',
+  cursor: '.cursor/mcp.json',
+  vscode: '.vscode/mcp.json',
+} as const;
+type Client = keyof typeof CLIENT_FILES;
+const CLIENTS = Object.keys(CLIENT_FILES) as Client[];
+
+const FORMATS = ['human', 'json', 'github', 'sarif'] as const;
+const FILE_FORMATS = ['json', 'junit-xml', 'sarif'] as const;
+
+/** `--only a,b` and repeated: the groups named, or a usage error. */
+function groupsOf(flag: string, values: string[] | undefined): ScanGroup[] | undefined {
+  if (values === undefined) return undefined;
+  const names = values
+    .flatMap((v) => v.split(','))
+    .map((s) => s.trim())
+    .filter((s) => s !== '');
+  for (const n of names)
+    if (!(GROUPS as readonly string[]).includes(n))
+      throw new UsageError(`${flag}: "${n}" is not a group (${GROUPS.join(', ')}).`);
+  return names as ScanGroup[];
+}
+
+function readText(cwd: string, path: string, flag: string): string {
+  const full = resolve(cwd, path);
+  if (!existsSync(full)) throw new UsageError(`${flag}: ${path} does not exist.`);
+  try {
+    return readFileSync(full, 'utf8');
+  } catch (err) {
+    throw new UsageError(
+      `${flag}: ${path} cannot be read (${(err as NodeJS.ErrnoException).code ?? 'an error'}).`,
+    );
+  }
+}
+
+/** Which client's format a configuration file is in, from its name; Claude Code's when nothing says. */
+function clientOf(path: string): ConfigFile['client'] {
+  const p = path.replace(/\\/g, '/').toLowerCase();
+  if (p.endsWith('claude_desktop_config.json')) return 'claude-desktop';
+  if (p.includes('.cursor/')) return 'cursor';
+  if (p.includes('.vscode/')) return 'vscode';
+  return 'claude-code';
+}
+
+/** The exit code. A failure the user can act on is printed here; anything else is thrown. */
+export async function handleMcpScan(
+  flags: McpScanFlags,
+  server: string[],
+  raw: ScanIo,
+): Promise<number> {
+  const io: ScanIo = { ...raw, err: (text) => raw.err(noCommands(text)) };
+  try {
+    return await scan(flags, server, io);
+  } catch (err) {
+    if (
+      err instanceof UsageError ||
+      err instanceof ExceptionsFileError ||
+      err instanceof LockFormatError ||
+      err instanceof SnapshotFormatError
+    ) {
+      io.err(`plune mcp scan: ${err.message}\n`);
+      return MCP_EXIT.usage;
+    }
+    throw err;
+  }
+}
+
+async function scan(flags: McpScanFlags, server: string[], io: ScanIo): Promise<number> {
+  const failOn = (flags.failOn ?? 'error') as FailOn;
+  if (!['error', 'warn', 'never'].includes(failOn))
+    throw new UsageError(`--fail-on must be error, warn or never (got "${flags.failOn}").`);
+  const outputs = reportOutputs(flags, io.cwd, { sarif: true });
+  if (!(FORMATS as readonly string[]).includes(outputs.format))
+    throw new UsageError(
+      `--format must be one of ${FORMATS.join(', ')} (got "${outputs.format}").`,
+    );
+  for (const f of outputs.files)
+    if (!(FILE_FORMATS as readonly string[]).includes(f.format))
+      throw new UsageError(
+        `--out: ${f.format} is not written by scan (${FILE_FORMATS.join(', ')}).`,
+      );
+  if (flags.client !== undefined && !(CLIENTS as string[]).includes(flags.client))
+    throw new UsageError(`--client must be one of ${CLIENTS.join(', ')} (got "${flags.client}").`);
+  const only = groupsOf('--only', flags.only);
+  const skip = groupsOf('--skip', flags.skip);
+  const live = flags.url !== undefined || server.length > 0;
+
+  // snapshots: files named by the user, and at most one live server
+  const snapshots: ScanSnapshot[] = [];
+  const unreadable: { target: string; reason: string }[] = [];
+  for (const spec of flags.snapshot ?? []) {
+    const named = /^([A-Za-z0-9_.-]+)=(.+)$/s.exec(spec);
+    const path = named === null ? spec : (named[2] ?? '');
+    const text = readText(io.cwd, path, '--snapshot');
+    let snapshot;
+    try {
+      snapshot = parseSnapshot(text);
+    } catch (err) {
+      if (err instanceof SnapshotFormatError)
+        throw new UsageError(`--snapshot ${path}: ${err.message}.`);
+      throw err;
+    }
+    const label =
+      named?.[1] ??
+      (snapshot.server?.name !== undefined && snapshot.server.name !== ''
+        ? snapshot.server.name
+        : basename(path).replace(/\.[^.]*$/, ''));
+    snapshots.push({ label, snapshot, file: path, text });
+  }
+  if (live) {
+    const config = connectionConfig(flags, server, io.env);
+    if (io.clientVersion !== undefined) config.clientVersion = io.clientVersion;
+    try {
+      const snapshot = await takeSnapshot(config);
+      const text = serializeSnapshot(snapshot);
+      if (flags.saveSnapshot !== undefined)
+        writeAtomically(
+          resolve(io.cwd, flags.saveSnapshot),
+          text,
+          flags.saveSnapshot,
+          '--save-snapshot',
+        );
+      snapshots.push({
+        label:
+          snapshot.server?.name !== undefined && snapshot.server.name !== ''
+            ? snapshot.server.name
+            : 'server',
+        snapshot,
+        ...(flags.saveSnapshot === undefined ? {} : { file: flags.saveSnapshot, text }),
+      });
+    } catch (err) {
+      if (!(err instanceof ConnectError) && !(err instanceof SnapshotFormatError)) throw err;
+      // Not reached: nothing was read, and that is not a pass.
+      unreadable.push({
+        target: 'live server',
+        reason: 'the server could not be reached or its lists could not be read',
+      });
+      io.err(`plune mcp scan: ${err.message} Nothing was scanned for this server.\n`);
+    }
+  } else if (flags.saveSnapshot !== undefined)
+    throw new UsageError('--save-snapshot is for a live server (--url, or a command after --).');
+
+  // configuration files: only those named, or the project file of the client named, in this folder
+  const configFiles: ConfigFile[] = [];
+  let configMissing: string | undefined;
+  for (const path of flags.config ?? [])
+    configFiles.push({
+      path,
+      client: (flags.client as Client | undefined) ?? clientOf(path),
+      text: readText(io.cwd, path, '--config'),
+    });
+  let configRequested = (flags.config ?? []).length > 0;
+  if ((flags.config ?? []).length === 0 && flags.client !== undefined) {
+    configRequested = true;
+    const path = CLIENT_FILES[flags.client as Client];
+    if (existsSync(resolve(io.cwd, path)))
+      configFiles.push({
+        path,
+        client: flags.client as Client,
+        text: readText(io.cwd, path, '--client'),
+      });
+    else configMissing = `${path} is not in this folder`;
+  }
+
+  let pin: { file: string; text: string; lock: ReturnType<typeof parseLock> } | undefined;
+  if (flags.pinFile !== undefined) {
+    const text = readText(io.cwd, flags.pinFile, '--pin-file');
+    try {
+      pin = { file: flags.pinFile, text, lock: parseLock(text) };
+    } catch (err) {
+      if (err instanceof LockFormatError)
+        throw new LockFormatError(`--pin-file ${flags.pinFile}: ${err.message}.`);
+      throw err;
+    }
+  }
+
+  const today = io.today ?? new Date().toISOString().slice(0, 10);
+  const ignoreName =
+    flags.ignoreFile ??
+    (existsSync(resolve(io.cwd, DEFAULT_SCAN_IGNORE_FILE)) ? DEFAULT_SCAN_IGNORE_FILE : undefined);
+  const exceptions =
+    ignoreName === undefined
+      ? undefined
+      : {
+          file: ignoreName,
+          ...parseScanExceptions(readText(io.cwd, ignoreName, '--ignore-file'), ignoreName, today, {
+            allowLong: flags.allowLongExceptions === true,
+          }),
+        };
+
+  const asked =
+    snapshots.length > 0 ||
+    unreadable.length > 0 ||
+    configRequested ||
+    pin !== undefined ||
+    flags.active === true ||
+    (only?.length ?? 0) > 0;
+  if (!asked)
+    throw new UsageError(
+      'Name something to scan: --snapshot <file>, --config <file> or --client, --pin-file <file>, or a server (--url, or a command after --).',
+    );
+  if (pin !== undefined && snapshots.length === 0 && unreadable.length === 0)
+    throw new UsageError(
+      '--pin-file compares a server with the file: give --snapshot <file> or a live server too.',
+    );
+
+  const report = runScan(
+    {
+      snapshots,
+      unreadable,
+      configFiles,
+      configRequested,
+      ...(configMissing === undefined ? {} : { configMissing }),
+      ...(pin === undefined ? {} : { pin }),
+      active: flags.active === true,
+      allowHosts: flags.allowHost ?? [],
+      allowPackages: flags.allowPackage ?? [],
+    },
+    {
+      ...(only === undefined ? {} : { only }),
+      ...(skip === undefined ? {} : { skip }),
+      failOn,
+      gateHeuristics: flags.gateHeuristics === true,
+      allowPartial: flags.allowPartial === true,
+      ...(exceptions === undefined ? {} : { exceptions }),
+    },
+  );
+  const run: McpRun = {
+    command: 'scan',
+    document: report,
+    cases: [],
+    checks: [],
+    nothing: '',
+    showInfo: false,
+    custom: (format) => renderScan(report, format, ALL_RULES, io.clientVersion ?? '0'),
+  };
+  writeReport(run, outputs, io);
+  return report.exitCode;
+}

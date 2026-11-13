@@ -1040,6 +1040,69 @@ So a `<failure>` is there exactly when the exit code is `1`. `could-not-run` is 
 even when it leaves the exit code alone (`needs-input`, or a check that is not scored). A run with no check
 selected is one case `run` that could not run.
 
+## `plune mcp scan`
+
+Scans the data of MCP servers for what a model or a person cannot see. It is static: it reads files you name (or one
+server you start yourself) and sends no probe. It needs no Plune account.
+
+```bash
+plune mcp snapshot --out notes.snapshot.json -- node dist/server.js
+plune mcp scan --snapshot notes.snapshot.json --client claude-code --pin-file plune-mcp.lock.json
+plune mcp scan --snapshot a=a.json --snapshot b=b.json            # tool names across servers
+plune mcp scan --format sarif --out sarif=scan.sarif --snapshot notes.snapshot.json
+```
+
+| Flag | Meaning |
+| --- | --- |
+| `--snapshot [label=]file` | A snapshot file; repeatable. The label names the server (the cross-server rules need two). |
+| `--config <file>`, `--client claude-code\|cursor\|vscode` | A client configuration file to read. `--client` alone reads the project file of that client in this folder: `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`. A command in it is read, never run. |
+| `--pin-file <file>` | The lock file of `plune mcp pin`; each snapshot is compared with it. |
+| `--only`, `--skip` | Groups: `descriptions`, `pins`, `config`, `cross`, `active`. |
+| `--fail-on error\|warn\|never` | The level at which a finding that gates exits `1` (default `error`). |
+| `--gate-heuristics` | Let heuristic findings (advice by construction) change the exit code. |
+| `--allow-partial` | Exit `0` when part of what was asked ran; the report says so. Never when nothing ran. |
+| `--allow-host`, `--allow-package` | The lists `scan/cfg/foreign-host` and `scan/cfg/package-not-allowed` need; without them those rules are reported as not evaluated. |
+| `--ignore-file <path>` | Exceptions (default `plune-mcp-scan-ignore.yaml`). Every entry has `rule`, `scope`, `reason` and `expires` (at most 180 days; `--allow-long-exceptions` lifts that). |
+| `--active` | Active probes are not part of this version: the group is reported as not evaluated and the exit code is `3`. |
+| `--format human\|json\|github\|sarif`, `--reporter junit-xml`, `--out [format=]path` | The report. Every format carries the same summary: what was checked, what was not and why, what was suppressed, how many findings do not change the exit code, and the statement that no finding is not proof of safety. |
+
+An exception file:
+
+```yaml
+ignore:
+  - rule: scan/cfg/http-plaintext
+    scope: local-mock # a server label, or { server: local-mock, path: /tools/0 } for one tool, { server: api, path: mcpServers.api.url } for one field
+    reason: Local mock on this machine only.
+    expires: 2027-01-31
+```
+
+An expired exception stops hiding its finding and is a finding itself (`scan/exception/expired`); one that matched
+nothing is `scan/exception/unused` (info). An exception never hides a `3`.
+
+| Exit | Meaning |
+| --- | --- |
+| `0` | No finding that gates at `--fail-on`. |
+| `1` | At least one finding that gates, at the level of `--fail-on`. Wins over `3`. |
+| `2` | Usage: nothing to scan, a bad flag, an unreadable or malformed file, an exception without `reason` or `expires`. |
+| `3` | Something asked for could not be measured: an empty snapshot, a configuration file with no servers or that cannot be parsed, a live server that could not be read, `--active`. |
+
+Only deterministic findings of a rule marked as gating change the exit code. Heuristics (`override-instruction`, ...)
+are advice and print as `note` in SARIF.
+
+GitHub Actions:
+
+```yaml
+- run: npx @plune-ai/cli mcp snapshot --out current.json -- node dist/server.js
+- run: npx @plune-ai/cli mcp scan --snapshot current.json --client claude-code --pin-file plune-mcp.lock.json --format github --out sarif=scan.sarif
+- uses: github/codeql-action/upload-sarif@v3
+  if: always()
+  with: { sarif_file: scan.sarif }
+```
+
+The SARIF file carries a place (file, line) for every result; a finding with no place in a file is counted in the
+run property `omittedResults` and in a notification, not dropped silently. No format prints the value of a secret or
+the text of a description: a finding names the rule, the server and the position.
+
 ## Report formats of `plune mcp lint`, `check` and `diff`
 
 The three commands that test a server share one set of report flags and five formats, built from one

@@ -8,7 +8,13 @@
 import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { UsageError } from '../connect/options.js';
-import type { McpCheckReport, McpConformanceReport, McpConformanceReportSet, McpDiffReport, McpReport } from '../result.js';
+import type {
+  McpCheckReport,
+  McpConformanceReport,
+  McpConformanceReportSet,
+  McpDiffReport,
+  McpReport,
+} from '../result.js';
 import { markdownCell } from '../snapshot/index.js';
 import {
   checkHuman,
@@ -106,6 +112,7 @@ function writeFiles(files: { name: string; path: string; text: string }[]): void
 
 /** One format of a run, with the workflow commands of its text neutralized (see `noCommands`). */
 export function render(run: McpRun, format: ReportFormat): string {
+  if (run.custom !== undefined) return run.custom(format);
   switch (format) {
     case 'json':
       return noCommandsJson(`${JSON.stringify(run.document, null, 2)}\n`);
@@ -129,6 +136,8 @@ export function render(run: McpRun, format: ReportFormat): string {
       return github(run);
     case 'junit-xml':
       return junitXml(run);
+    case 'sarif':
+      throw new Error('sarif is written by plune mcp scan only');
   }
 }
 
@@ -382,7 +391,8 @@ function junitXml(run: McpRun): string {
   ];
   for (const c of cases) {
     const time = c.durationMs === null ? '' : ` time="${(c.durationMs / 1000).toFixed(3)}"`;
-    const classname = c.suite === undefined ? `mcp.${run.command}` : `mcp.${run.command}.${c.suite}`;
+    const classname =
+      c.suite === undefined ? `mcp.${run.command}` : `mcp.${run.command}.${c.suite}`;
     const head = `    <testcase classname="${xmlAttr(classname)}" name="${xmlAttr(c.id)}"${time}`;
     if (c.outcome.kind === 'pass') {
       lines.push(`${head}/>`);
