@@ -101,6 +101,8 @@ export interface AuthOpts {
   /** A client_id URL whose document names another client_id: `reject` (default) or `accept` (the fault). */
   cimdMismatch?: 'reject' | 'accept';
   /** The token response: `ok` (default), `no-type`, `mac`, `bearer-lower`, `no-expires`, `no-token`. */
+  /** The `token_type` of the token response, exactly as given (any JSON value). */
+  tokenType?: unknown;
   tokenResponse?: 'ok' | 'no-type' | 'mac' | 'dpop' | 'bearer-lower' | 'no-expires' | 'no-token';
   /**
    * What the access token is: `opaque` (default), or a JWT built when it is issued, without a signature, whose `aud`
@@ -108,7 +110,9 @@ export interface AuthOpts {
    */
   tokenShape?: 'opaque' | 'jwt' | 'jwt-aud-list' | 'jwt-other-aud' | 'jwt-no-aud';
   /** A `WWW-Authenticate` value on every status that `force` answers. */
-  forceChallenge?: string;
+  forceChallenge?: string | string[];
+  /** The access token, exactly as given, in place of the one this server makes. */
+  tokenRaw?: string;
   /** The protected resource metadata is larger than a reader takes. */
   bigPrm?: boolean;
   /** The token endpoint hands out one token whatever resource is asked for. */
@@ -175,7 +179,7 @@ const json = (
   res: ServerResponse,
   status: number,
   body: unknown,
-  headers: Record<string, string> = {},
+  headers: Record<string, string | string[]> = {},
 ) => {
   res.writeHead(status, { 'content-type': 'application/json', ...headers });
   res.end(JSON.stringify(body));
@@ -480,9 +484,11 @@ export async function authFixture(o: AuthOpts = {}, seen: Seen[] = []): Promise<
             ? ['https://also.example/mcp', wanted]
             : wanted;
       const token =
-        shape === 'opaque'
-          ? `at-${serial}-7c1d9e5b3f2a8064`
-          : `${part({ alg: 'none', typ: 'JWT' })}.${part({ iss: origin, jti: `j${serial}`, ...(shape === 'jwt-no-aud' ? {} : { aud }) })}.sig`;
+        o.tokenRaw !== undefined
+          ? o.tokenRaw
+          : shape === 'opaque'
+            ? `at-${serial}-7c1d9e5b3f2a8064`
+            : `${part({ alg: 'none', typ: 'JWT' })}.${part({ iss: origin, jti: `j${serial}`, ...(shape === 'jwt-no-aud' ? {} : { aud }) })}.sig`;
       issued.set(token, o.sameToken === true ? resource() : wanted);
       const t = o.tokenResponse ?? 'ok';
       return json(res, 200, {
@@ -491,13 +497,15 @@ export async function authFixture(o: AuthOpts = {}, seen: Seen[] = []): Promise<
           ? {}
           : {
               token_type:
-                t === 'mac'
-                  ? 'mac'
-                  : t === 'dpop'
-                    ? 'DPoP'
-                    : t === 'bearer-lower'
-                      ? 'bearer'
-                      : 'Bearer',
+                o.tokenType !== undefined
+                  ? o.tokenType
+                  : t === 'mac'
+                    ? 'mac'
+                    : t === 'dpop'
+                      ? 'DPoP'
+                      : t === 'bearer-lower'
+                        ? 'bearer'
+                        : 'Bearer',
             }),
         ...(t === 'no-expires' ? {} : { expires_in: 300 }),
         ...(o.tokenExtras === true

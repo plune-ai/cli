@@ -411,3 +411,50 @@ describe('CLI · mcp conformance · oauth token · what the token endpoint says'
     expect(new URLSearchParams(tokens(s)[0]!.body).get('resource')).toBe(resource);
   });
 });
+
+describe('CLI · mcp conformance · oauth token · several challenge lines and hostile tokens', () => {
+  it('insufficient_scope in the second WWW-Authenticate line is read: could-not-run, not failed', async () => {
+    const s = await serve({
+      tokenShape: 'jwt',
+      force: { 'mcp:own': 401 },
+      forceChallenge: [
+        'Bearer realm="mcp"',
+        'Bearer error="insufficient_scope", scope="mcp:tools"',
+      ],
+    });
+    const { report } = await run(s.url, { config: creds() });
+    expect(verdict(report)).toBe('could-not-run (prerequisite-failed)');
+    expect(actual(report)).toMatch(/insufficient_scope/);
+  });
+
+  const b64 = (v: unknown) =>
+    Buffer.from(typeof v === 'string' ? v : JSON.stringify(v)).toString('base64url');
+  const head = b64({ alg: 'none' });
+  const hostile: [string, string][] = [
+    ['two segments', `${head}.${b64({ aud: 'x' })}`],
+    ['four segments', `${head}.${b64({ aud: 'x' })}.sig.more`],
+    ['an empty payload segment', `${head}..sig`],
+    ['a payload that is not base64url', `${head}.!!!.sig`],
+    ['a payload that is not JSON', `${head}.${b64('not json')}.sig`],
+    ['a payload that is null', `${head}.${b64('null')}.sig`],
+    ['a payload that is an array', `${head}.${b64('[]')}.sig`],
+    ['a payload that is a number', `${head}.${b64('5')}.sig`],
+    ['an aud that is a number', `${head}.${b64({ aud: 5 })}.sig`],
+    ['an aud that is an object', `${head}.${b64({ aud: { a: 1 } })}.sig`],
+    ['an aud array with a non-string', `${head}.${b64({ aud: ['x', 5] })}.sig`],
+  ];
+  for (const [name, tokenRaw] of hostile)
+    it(`${name} and a 401: could-not-run, the audience is not shown, never failed`, async () => {
+      const s = await serve({ tokenRaw, force: { 'mcp:own': 401 } });
+      const { report } = await run(s.url, { config: creds() });
+      expect(verdict(report)).toBe('could-not-run (prerequisite-failed)');
+      expect(actual(report)).toMatch(/audience of the issued token is not shown/);
+    });
+
+  it('a token_type that is not a string is said not to be a string, not to be missing', async () => {
+    const s = await serve({ tokenType: 5 });
+    const { report } = await run(s.url, { config: creds() });
+    expect(verdict(report)).toBe('could-not-run (prerequisite-failed)');
+    expect(actual(report)).toMatch(/is not a string/);
+  });
+});
