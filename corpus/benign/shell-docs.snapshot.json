@@ -1,0 +1,57 @@
+{
+  "kind": "plune-mcp-snapshot",
+  "schemaVersion": 2,
+  "transport": "stdio",
+  "server": {
+    "name": "fixture-server",
+    "version": "0.0.0"
+  },
+  "instructions": null,
+  "capabilities": {
+    "tools": {}
+  },
+  "tools": [
+    {
+      "name": "git_log",
+      "description": "Shows the commit history of the repository. It reads the history, not the files in the working tree.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "range": {
+            "type": "string",
+            "description": "A range such as main..feature."
+          }
+        }
+      }
+    },
+    {
+      "name": "config_get",
+      "description": "Returns one setting from the project configuration, for example the default region.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "Name of the setting."
+          }
+        }
+      }
+    },
+    {
+      "name": "chat_export",
+      "description": "Exports a chat as a file. The previous messages are included when the flag is set.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "chat": {
+            "type": "string",
+            "description": "Id of the chat."
+          }
+        }
+      }
+    }
+  ],
+  "resources": null,
+  "resourceTemplates": null,
+  "prompts": null
+}

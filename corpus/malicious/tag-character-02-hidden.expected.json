@@ -1,0 +1,21 @@
+{
+  "expected": [
+    {
+      "rule": "scan/desc/tag-character",
+      "pointer": "/tools/0/inputSchema/properties/title/description"
+    }
+  ],
+  "provenance": {
+    "catalogClass": "tool-poisoning",
+    "mechanism": "Text written in the Unicode tag block, which no client draws, so a model reads what a person cannot.",
+    "concealment": "hidden",
+    "source": "not verified",
+    "catalogRefs": [
+      "TROJAN",
+      "UNI-BLOCKS",
+      "OWASP-03"
+    ],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-13"
+  }
+}

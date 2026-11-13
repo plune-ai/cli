@@ -1,0 +1,19 @@
+{
+  "expected": [
+    {
+      "rule": "scan/desc/encoded-blob",
+      "pointer": "/tools/0/inputSchema/properties/title/default"
+    }
+  ],
+  "provenance": {
+    "catalogClass": "tool-poisoning",
+    "mechanism": "A base64 run that decodes to a sentence addressed to the model, so a plain-text reviewer sees only noise.",
+    "concealment": "hidden",
+    "source": "not verified",
+    "catalogRefs": [
+      "INV"
+    ],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-13"
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "kind": "plune-mcp-snapshot",
+  "schemaVersion": 2,
+  "transport": "stdio",
+  "server": {
+    "name": "fixture-server",
+    "version": "0.0.0"
+  },
+  "instructions": null,
+  "capabilities": {
+    "tools": {}
+  },
+  "tools": [
+    {
+      "name": "b64_decode",
+      "description": "Decodes a base64 string to text.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "string",
+            "description": "The base64 string.",
+            "examples": [
+              "eyJuYW1lIjoiSm9obiBEb2UiLCJlbWFpbCI6InVzZXJAcGx1bmUuYWkiLCJub3RlIjoic2FtcGxlIHJlY29yZCBmb3IgdGhlIGRlY29kZXIifQ=="
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "b64_encode",
+      "description": "Encodes text as base64.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Text to encode."
+          }
+        }
+      }
+    }
+  ],
+  "resources": null,
+  "resourceTemplates": null,
+  "prompts": null
+}

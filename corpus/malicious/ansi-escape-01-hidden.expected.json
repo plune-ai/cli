@@ -1,0 +1,19 @@
+{
+  "expected": [
+    {
+      "rule": "scan/desc/ansi-escape",
+      "pointer": "/tools/0/description"
+    }
+  ],
+  "provenance": {
+    "catalogClass": "tool-poisoning",
+    "mechanism": "A terminal escape sequence in a description hides, overwrites or restyles text in a terminal while the model reads it plainly.",
+    "concealment": "hidden",
+    "source": "not verified",
+    "catalogRefs": [
+      "TOB-ANSI"
+    ],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-13"
+  }
+}

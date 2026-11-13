@@ -1,0 +1,349 @@
+{
+  "scan/desc/ansi-escape": {
+    "status": "measured",
+    "fixtures": 4,
+    "detected": 4,
+    "missed": [],
+    "benign": {
+      "real": {
+        "units": 0,
+        "falsePositives": [],
+        "wilsonUpper95": null
+      },
+      "synthetic": {
+        "units": 582,
+        "falsePositives": [],
+        "wilsonUpper95": 0.006557
+      }
+    },
+    "gateEligible": false,
+    "gateReason": "not enough real units (0 of 385)"
+  },
+  "scan/desc/bidi-control": {
+    "status": "measured",
+    "fixtures": 5,
+    "detected": 5,
+    "missed": [],
+    "benign": {
+      "real": {
+        "units": 0,
+        "falsePositives": [],
+        "wilsonUpper95": null
+      },
+      "synthetic": {
+        "units": 582,
+        "falsePositives": [],
+        "wilsonUpper95": 0.006557
+      }
+    },
+    "gateEligible": false,
+    "gateReason": "not enough real units (0 of 385)"
+  },
+  "scan/desc/call-other-tool-first": {
+    "status": "measured",
+    "fixtures": 4,
+    "detected": 3,
+    "missed": [
+      {
+        "fixture": "call-other-tool-first-04-reworded",
+        "pointer": "/tools/0/description"
+      }
+    ],
+    "benign": {
+      "real": {
+        "units": 0,
+        "falsePositives": [],
+        "wilsonUpper95": null
+      },
+      "synthetic": {
+        "units": 582,
+        "falsePositives": [
+          {
+            "set": "workflow-en",
+            "pointer": "/tools/1/description"
+          }
+        ],
+        "wilsonUpper95": 0.009668
+      }
+    },
+    "gateEligible": false,
+    "gateReason": "class heuristic; not enough real units (0 of 385); missed fixtures"
+  },
+  "scan/desc/conceal-from-user": {
+    "status": "measured",
+    "fixtures": 4,
+    "detected": 3,
+    "missed": [
+      {
+        "fixture": "conceal-from-user-04-other-language",
+        "pointer": "/tools/0/description"
+      }
+    ],
+    "benign": {
+      "real": {
+        "units": 0,
+        "falsePositives": [],
+        "wilsonUpper95": null
+      },
+      "synthetic": {
+        "units": 582,
+        "falsePositives": [],
+        "wilsonUpper95": 0.006557
+      }
+    },
+    "gateEligible": false,
+    "gateReason": "class heuristic; not enough real units (0 of 385); missed fixtures"
+  },
+  "scan/desc/control-character": {
+    "status": "measured",
+    "fixtures": 4,
+    "detected": 4,
+    "missed": [],
+    "benign": {
+      "real": {
+        "units": 0,
+        "falsePositives": [],
+        "wilsonUpper95": null
+      },
+      "synthetic": {
+        "units": 582,
+        "falsePositives": [],
+        "wilsonUpper95": 0.006557
+      }
+    },
+    "gateEligible": false,
+    "gateReason": "not enough real units (0 of 385)"
+  },
+  "scan/desc/encoded-blob": {
+    "status": "measured",
+    "fixtures": 3,
+    "detected": 3,
+    "missed": [],
+    "benign": {
+      "real": {
+        "units": 0,
+        "falsePositives": [],
+        "wilsonUpper95": null
+      },
+      "synthetic": {
+        "units": 582,
+        "falsePositives": [
+          {
+            "set": "base64-legit",
+            "pointer": "/tools/0/inputSchema/properties/data/examples/0"
+          }
+        ],
+        "wilsonUpper95": 0.009668
+      }
+    },
+    "gateEligible": false,
+    "gateReason": "class measured; not enough real units (0 of 385)"
+  },
+  "scan/desc/html-comment": {
+    "status": "measured",
+    "fixtures": 4,
+    "detected": 4,
+    "missed": [],
+    "benign": {
+      "real": {
+        "units": 0,
+        "falsePositives": [],
+        "wilsonUpper95": null
+      },
+      "synthetic": {
+        "units": 582,
+        "falsePositives": [
+          {
+            "set": "html-legit",
+            "pointer": "/tools/0/description"
+          }
+        ],
+        "wilsonUpper95": 0.009668
+      }
+    },
+    "gateEligible": false,
+    "gateReason": "not enough real units (0 of 385)"
+  },
+  "scan/desc/joiner-or-direction-mark": {
+    "status": "measured",
+    "fixtures": 4,
+    "detected": 3,
+    "missed": [
+      {
+        "fixture": "joiner-or-direction-mark-04-hidden",
+        "pointer": "/tools/0/inputSchema/properties/title/description"
+      }
+    ],
+    "benign": {
+      "real": {
+        "units": 0,
+        "falsePositives": [],
+        "wilsonUpper95": null
+      },
+      "synthetic": {
+        "units": 582,
+        "falsePositives": [],
+        "wilsonUpper95": 0.006557
+      }
+    },
+    "gateEligible": false,
+    "gateReason": "class heuristic; not enough real units (0 of 385); missed fixtures"
+  },
+  "scan/desc/override-instruction": {
+    "status": "measured",
+    "fixtures": 5,
+    "detected": 3,
+    "missed": [
+      {
+        "fixture": "override-instruction-04-reworded",
+        "pointer": "/tools/0/description"
+      },
+      {
+        "fixture": "override-instruction-05-other-language",
+        "pointer": "/tools/0/description"
+      }
+    ],
+    "benign": {
+      "real": {
+        "units": 0,
+        "falsePositives": [],
+        "wilsonUpper95": null
+      },
+      "synthetic": {
+        "units": 582,
+        "falsePositives": [],
+        "wilsonUpper95": 0.006557
+      }
+    },
+    "gateEligible": false,
+    "gateReason": "class heuristic; not enough real units (0 of 385); missed fixtures"
+  },
+  "scan/desc/oversized-text": {
+    "status": "measured",
+    "fixtures": 3,
+    "detected": 3,
+    "missed": [],
+    "benign": {
+      "real": {
+        "units": 0,
+        "falsePositives": [],
+        "wilsonUpper95": null
+      },
+      "synthetic": {
+        "units": 582,
+        "falsePositives": [],
+        "wilsonUpper95": 0.006557
+      }
+    },
+    "gateEligible": false,
+    "gateReason": "class measured; not enough real units (0 of 385)"
+  },
+  "scan/desc/param-asks-for-context": {
+    "status": "measured",
+    "fixtures": 4,
+    "detected": 3,
+    "missed": [
+      {
+        "fixture": "param-asks-for-context-04-reworded",
+        "pointer": "/tools/0/inputSchema/properties/body/description"
+      }
+    ],
+    "benign": {
+      "real": {
+        "units": 0,
+        "falsePositives": [],
+        "wilsonUpper95": null
+      },
+      "synthetic": {
+        "units": 57,
+        "falsePositives": [
+          {
+            "set": "summarizer-en",
+            "pointer": "/tools/0/inputSchema/properties/text/description"
+          }
+        ],
+        "wilsonUpper95": 0.09291
+      }
+    },
+    "gateEligible": false,
+    "gateReason": "class heuristic; not enough real units (0 of 385); missed fixtures"
+  },
+  "scan/desc/sensitive-path": {
+    "status": "measured",
+    "fixtures": 4,
+    "detected": 3,
+    "missed": [
+      {
+        "fixture": "sensitive-path-04-reworded",
+        "pointer": "/tools/0/description"
+      }
+    ],
+    "benign": {
+      "real": {
+        "units": 0,
+        "falsePositives": [],
+        "wilsonUpper95": null
+      },
+      "synthetic": {
+        "units": 582,
+        "falsePositives": [
+          {
+            "set": "files-en",
+            "pointer": "/tools/0/description"
+          },
+          {
+            "set": "files-en",
+            "pointer": "/tools/2/description"
+          },
+          {
+            "set": "files-en",
+            "pointer": "/tools/2/inputSchema/properties/name/default"
+          }
+        ],
+        "wilsonUpper95": 0.015045
+      }
+    },
+    "gateEligible": false,
+    "gateReason": "class heuristic; not enough real units (0 of 385); missed fixtures"
+  },
+  "scan/desc/tag-character": {
+    "status": "measured",
+    "fixtures": 5,
+    "detected": 5,
+    "missed": [],
+    "benign": {
+      "real": {
+        "units": 0,
+        "falsePositives": [],
+        "wilsonUpper95": null
+      },
+      "synthetic": {
+        "units": 582,
+        "falsePositives": [],
+        "wilsonUpper95": 0.006557
+      }
+    },
+    "gateEligible": false,
+    "gateReason": "not enough real units (0 of 385)"
+  },
+  "scan/desc/zero-width": {
+    "status": "measured",
+    "fixtures": 4,
+    "detected": 4,
+    "missed": [],
+    "benign": {
+      "real": {
+        "units": 0,
+        "falsePositives": [],
+        "wilsonUpper95": null
+      },
+      "synthetic": {
+        "units": 582,
+        "falsePositives": [],
+        "wilsonUpper95": 0.006557
+      }
+    },
+    "gateEligible": false,
+    "gateReason": "not enough real units (0 of 385)"
+  }
+}

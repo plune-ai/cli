@@ -1,0 +1,17 @@
+{
+  "expected": [
+    {
+      "rule": "scan/desc/oversized-text",
+      "pointer": "/instructions"
+    }
+  ],
+  "provenance": {
+    "catalogClass": "tool-poisoning",
+    "mechanism": "A text past the scanner limit, so the part after the limit is never checked.",
+    "concealment": "explicit",
+    "source": "not verified",
+    "catalogRefs": [],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-13"
+  }
+}

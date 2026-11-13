@@ -1,0 +1,186 @@
+{
+  "measuredAt": "2026-11-13",
+  "commit": "989f151",
+  "corpusSha256": "a1da22390f6c7fecd100217971b679fa69c1a66d2409c3e189a29b102c8ca9c1",
+  "rules": {
+    "scan/desc/ansi-escape": {
+      "fixtures": 4,
+      "missed": [],
+      "falsePositives": {
+        "real": [],
+        "synthetic": []
+      }
+    },
+    "scan/desc/bidi-control": {
+      "fixtures": 5,
+      "missed": [],
+      "falsePositives": {
+        "real": [],
+        "synthetic": []
+      }
+    },
+    "scan/desc/call-other-tool-first": {
+      "fixtures": 4,
+      "missed": [
+        {
+          "fixture": "call-other-tool-first-04-reworded",
+          "pointer": "/tools/0/description"
+        }
+      ],
+      "falsePositives": {
+        "real": [],
+        "synthetic": [
+          {
+            "set": "workflow-en",
+            "pointer": "/tools/1/description"
+          }
+        ]
+      }
+    },
+    "scan/desc/conceal-from-user": {
+      "fixtures": 4,
+      "missed": [
+        {
+          "fixture": "conceal-from-user-04-other-language",
+          "pointer": "/tools/0/description"
+        }
+      ],
+      "falsePositives": {
+        "real": [],
+        "synthetic": []
+      }
+    },
+    "scan/desc/control-character": {
+      "fixtures": 4,
+      "missed": [],
+      "falsePositives": {
+        "real": [],
+        "synthetic": []
+      }
+    },
+    "scan/desc/encoded-blob": {
+      "fixtures": 3,
+      "missed": [],
+      "falsePositives": {
+        "real": [],
+        "synthetic": [
+          {
+            "set": "base64-legit",
+            "pointer": "/tools/0/inputSchema/properties/data/examples/0"
+          }
+        ]
+      }
+    },
+    "scan/desc/html-comment": {
+      "fixtures": 4,
+      "missed": [],
+      "falsePositives": {
+        "real": [],
+        "synthetic": [
+          {
+            "set": "html-legit",
+            "pointer": "/tools/0/description"
+          }
+        ]
+      }
+    },
+    "scan/desc/joiner-or-direction-mark": {
+      "fixtures": 4,
+      "missed": [
+        {
+          "fixture": "joiner-or-direction-mark-04-hidden",
+          "pointer": "/tools/0/inputSchema/properties/title/description"
+        }
+      ],
+      "falsePositives": {
+        "real": [],
+        "synthetic": []
+      }
+    },
+    "scan/desc/override-instruction": {
+      "fixtures": 5,
+      "missed": [
+        {
+          "fixture": "override-instruction-04-reworded",
+          "pointer": "/tools/0/description"
+        },
+        {
+          "fixture": "override-instruction-05-other-language",
+          "pointer": "/tools/0/description"
+        }
+      ],
+      "falsePositives": {
+        "real": [],
+        "synthetic": []
+      }
+    },
+    "scan/desc/oversized-text": {
+      "fixtures": 3,
+      "missed": [],
+      "falsePositives": {
+        "real": [],
+        "synthetic": []
+      }
+    },
+    "scan/desc/param-asks-for-context": {
+      "fixtures": 4,
+      "missed": [
+        {
+          "fixture": "param-asks-for-context-04-reworded",
+          "pointer": "/tools/0/inputSchema/properties/body/description"
+        }
+      ],
+      "falsePositives": {
+        "real": [],
+        "synthetic": [
+          {
+            "set": "summarizer-en",
+            "pointer": "/tools/0/inputSchema/properties/text/description"
+          }
+        ]
+      }
+    },
+    "scan/desc/sensitive-path": {
+      "fixtures": 4,
+      "missed": [
+        {
+          "fixture": "sensitive-path-04-reworded",
+          "pointer": "/tools/0/description"
+        }
+      ],
+      "falsePositives": {
+        "real": [],
+        "synthetic": [
+          {
+            "set": "files-en",
+            "pointer": "/tools/0/description"
+          },
+          {
+            "set": "files-en",
+            "pointer": "/tools/2/description"
+          },
+          {
+            "set": "files-en",
+            "pointer": "/tools/2/inputSchema/properties/name/default"
+          }
+        ]
+      }
+    },
+    "scan/desc/tag-character": {
+      "fixtures": 5,
+      "missed": [],
+      "falsePositives": {
+        "real": [],
+        "synthetic": []
+      }
+    },
+    "scan/desc/zero-width": {
+      "fixtures": 4,
+      "missed": [],
+      "falsePositives": {
+        "real": [],
+        "synthetic": []
+      }
+    }
+  }
+}

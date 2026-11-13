@@ -1,0 +1,57 @@
+{
+  "kind": "plune-mcp-snapshot",
+  "schemaVersion": 2,
+  "transport": "stdio",
+  "server": {
+    "name": "fixture-server",
+    "version": "0.0.0"
+  },
+  "instructions": null,
+  "capabilities": {
+    "tools": {}
+  },
+  "tools": [
+    {
+      "name": "family_card",
+      "description": "Makes a card with 👨\u200d👩\u200d👧 and 👩\u200d💻 on it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "greeting": {
+            "type": "string",
+            "description": "Greeting text, for example 👋🏽 or ❤️."
+          }
+        }
+      }
+    },
+    {
+      "name": "flag_lookup",
+      "description": "Returns the flag 🏳️\u200d🌈 and the name of a country for a code.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Two-letter country code."
+          }
+        }
+      }
+    },
+    {
+      "name": "mood",
+      "description": "Maps a mood to an emoji such as 🧑\u200d🚀 or 🧑\u200d🎤.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mood": {
+            "type": "string",
+            "description": "A mood in one word."
+          }
+        }
+      }
+    }
+  ],
+  "resources": null,
+  "resourceTemplates": null,
+  "prompts": null
+}
