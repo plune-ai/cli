@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { handleMcpConformance, type McpConformanceFlags } from '../../../cli/commands/mcp-conformance.js';
 import { closeServed, serve } from '../../__tests__/fixtures/conformance-http-servers.js';
-import { recorder, type Fixture } from '../../__tests__/fixtures/http-servers.js';
+import { recorder } from '../../__tests__/fixtures/http-servers.js';
 import { ConnectError } from '../../connect/session.js';
 import { createRedactor } from '../../connect/redact.js';
 import type { McpConformanceReport } from '../../result.js';
