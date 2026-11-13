@@ -1,0 +1,61 @@
+{
+  "kind": "plune-mcp-snapshot",
+  "schemaVersion": 2,
+  "transport": "stdio",
+  "server": {
+    "name": "fixture-server",
+    "version": "0.0.0"
+  },
+  "instructions": null,
+  "capabilities": {
+    "tools": {}
+  },
+  "tools": [
+    {
+      "name": "yaddasht_afzudan",
+      "description": "یادداشتی به دفترچه اضافه می\u200cکند و شناسه\u200cی آن را برمی\u200cگرداند.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "onvan": {
+            "type": "string",
+            "description": "عنوان کوتاه یادداشت."
+          },
+          "matn": {
+            "type": "string",
+            "description": "متن یادداشت."
+          }
+        }
+      }
+    },
+    {
+      "name": "yaddasht_fehrest",
+      "description": "فهرست یادداشت\u200cها را نشان می\u200cدهد؛ تازه\u200cترین\u200cها اول.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "barchasb": {
+            "type": "string",
+            "description": "فقط یادداشت\u200cهای دارای این برچسب."
+          }
+        }
+      }
+    },
+    {
+      "name": "hazf",
+      "description": "یک یادداشت را با شناسه\u200cاش حذف می\u200cکند.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "شناسه\u200cی یادداشت."
+          }
+        }
+      }
+    }
+  ],
+  "resources": null,
+  "resourceTemplates": null,
+  "prompts": null
+}

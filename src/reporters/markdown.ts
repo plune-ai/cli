@@ -4,7 +4,7 @@
 
 import type { RunResult, RowResult } from '../types/results.js';
 import { adviceOf, rowStatus } from '../types/results.js';
-import { repeatsText, truncate } from './helpers.js';
+import { repeatsText, safeLine, truncate } from './helpers.js';
 
 const DEFAULT_MAX_OUTPUT = 500;
 const TICK = String.fromCharCode(96); // backtick
@@ -91,7 +91,7 @@ export function renderMarkdown(result: RunResult, opts: MarkdownOptions = {}): s
     out.push('Heuristic findings: they do not change any status.');
     out.push('');
     for (const { id, row, a } of advice)
-      out.push(`- ${id} ${JSON.stringify(row.vars)}: ${a.type}: ${a.reason}`);
+      out.push(`- ${id} ${JSON.stringify(row.vars)}: ${safeLine(a.type)}: ${safeLine(a.reason)}`);
     out.push('');
   }
 

@@ -1,0 +1,59 @@
+{
+  "kind": "plune-mcp-snapshot",
+  "schemaVersion": 2,
+  "transport": "stdio",
+  "server": {
+    "name": "fixture-server",
+    "version": "0.0.0"
+  },
+  "instructions": "This server keeps notes. Use notes_add to save one and notes_search to find one.",
+  "capabilities": {
+    "tools": {},
+    "prompts": {},
+    "resources": {}
+  },
+  "tools": [
+    {
+      "name": "notes_add",
+      "description": "Adds a note.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": "string",
+            "description": "Text of the note."
+          }
+        }
+      }
+    }
+  ],
+  "resources": [
+    {
+      "uri": "notes://all",
+      "name": "all-notes",
+      "description": "Every note as one Markdown file.",
+      "mimeType": "text/markdown"
+    }
+  ],
+  "resourceTemplates": [
+    {
+      "uriTemplate": "notes://{id}",
+      "name": "note",
+      "description": "One note by id."
+    }
+  ],
+  "prompts": [
+    {
+      "name": "weekly_review",
+      "title": "Weekly review",
+      "description": "Asks the model to review the notes of the week.",
+      "arguments": [
+        {
+          "name": "week",
+          "description": "ISO week to review.",
+          "required": true
+        }
+      ]
+    }
+  ]
+}

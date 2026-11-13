@@ -1,0 +1,61 @@
+{
+  "kind": "plune-mcp-snapshot",
+  "schemaVersion": 2,
+  "transport": "stdio",
+  "server": {
+    "name": "fixture-server",
+    "version": "0.0.0"
+  },
+  "instructions": null,
+  "capabilities": {
+    "tools": {}
+  },
+  "tools": [
+    {
+      "name": "biji_tianjia",
+      "description": "向笔记本添加一条笔记，并返回它的编号。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "biaoti": {
+            "type": "string",
+            "description": "笔记的简短标题。"
+          },
+          "zhengwen": {
+            "type": "string",
+            "description": "笔记正文，使用 Markdown 格式。"
+          }
+        }
+      }
+    },
+    {
+      "name": "biji_liebiao",
+      "description": "列出笔记，最新的在前，每次最多返回 50 条。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "biaoqian": {
+            "type": "string",
+            "description": "只返回带有此标签的笔记。"
+          }
+        }
+      }
+    },
+    {
+      "name": "biji_shanchu",
+      "description": "按编号删除笔记，删除后无法恢复。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "bianhao": {
+            "type": "string",
+            "description": "笔记编号。"
+          }
+        }
+      }
+    }
+  ],
+  "resources": null,
+  "resourceTemplates": null,
+  "prompts": null
+}

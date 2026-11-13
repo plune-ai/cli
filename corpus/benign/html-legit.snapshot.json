@@ -1,0 +1,52 @@
+{
+  "kind": "plune-mcp-snapshot",
+  "schemaVersion": 2,
+  "transport": "stdio",
+  "server": {
+    "name": "fixture-server",
+    "version": "0.0.0"
+  },
+  "instructions": null,
+  "capabilities": {
+    "tools": {}
+  },
+  "tools": [
+    {
+      "name": "md_render",
+      "description": "Renders Markdown to HTML. Comments such as <!-- note --> are removed from the output.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "description": "Markdown source."
+          }
+        }
+      }
+    },
+    {
+      "name": "md_lint",
+      "description": "Checks Markdown for broken links and headings.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "description": "Markdown source."
+          }
+        }
+      }
+    },
+    {
+      "name": "md_tips",
+      "description": "Explains the syntax: write <!-- to open a comment and close it again; a > b means a is greater than b.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "resources": null,
+  "resourceTemplates": null,
+  "prompts": null
+}

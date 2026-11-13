@@ -1,0 +1,20 @@
+{
+  "expected": [
+    {
+      "rule": "scan/desc/zero-width",
+      "pointer": "/tools/0/inputSchema/properties/title/description"
+    }
+  ],
+  "provenance": {
+    "catalogClass": "tool-poisoning",
+    "mechanism": "Zero-width characters inside the text split words or carry a payload a reviewer does not see.",
+    "concealment": "hidden",
+    "source": "not verified",
+    "catalogRefs": [
+      "TROJAN",
+      "OWASP-03"
+    ],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-13"
+  }
+}

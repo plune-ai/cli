@@ -1,0 +1,20 @@
+{
+  "expected": [
+    {
+      "rule": "scan/desc/call-other-tool-first",
+      "pointer": "/tools/0/description"
+    }
+  ],
+  "provenance": {
+    "catalogClass": "tool-poisoning",
+    "mechanism": "A description that makes a call to another tool a precondition of this one.",
+    "concealment": "reworded",
+    "source": "not verified",
+    "catalogRefs": [
+      "INV",
+      "TOB-LJ"
+    ],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-13"
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "kind": "plune-mcp-snapshot",
+  "schemaVersion": 2,
+  "transport": "stdio",
+  "server": {
+    "name": "fixture-server",
+    "version": "0.0.0"
+  },
+  "instructions": null,
+  "capabilities": {
+    "tools": {}
+  },
+  "tools": [
+    {
+      "name": "project_list",
+      "description": "Lists the projects the account can see.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "task_create",
+      "description": "Creates a task. Call project_list first to get a project id.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Id from project_list."
+          },
+          "title": {
+            "type": "string",
+            "description": "Title of the task."
+          }
+        }
+      }
+    },
+    {
+      "name": "task_close",
+      "description": "Closes a task. Before using this tool, make sure the task has no open subtasks.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Id of the task."
+          }
+        }
+      }
+    }
+  ],
+  "resources": null,
+  "resourceTemplates": null,
+  "prompts": null
+}

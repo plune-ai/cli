@@ -168,11 +168,18 @@ export function createProgram(): Command {
       'Run every dataset row n times (1-100) for this run, over runs in plune.yaml',
       (v: string) => Number(v),
     )
+    .option(
+      '--tool-description <tool=text|@file>',
+      "Show the model this text as a tool's description in place of the server's, for this run only (repeatable); the server is not changed",
+      (val: string, prev: string[]) => [...prev, val],
+      [] as string[],
+    )
     .option('--format <fmt>', 'console | json | markdown', 'console')
     .option('-o, --output <path>', 'Write the report to a file instead of stdout')
     .action(
       async (
         options: {
+          toolDescription: string[];
           dryRun: boolean;
           config?: string;
           only: string[];
@@ -240,6 +247,9 @@ export function createProgram(): Command {
             noCache: options.cache === false,
             bail: options.bail,
             ...(options.runs !== undefined ? { runs: options.runs } : {}),
+            ...(options.toolDescription.length > 0
+              ? { toolDescription: options.toolDescription }
+              : {}),
             ...(options.cacheStrict ? { cacheStrict: true } : {}),
             ...(cacheMaxAgeMs !== undefined ? { cacheMaxAgeMs } : {}),
           });

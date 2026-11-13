@@ -236,6 +236,14 @@ export interface AgentTranscript {
 export interface AgentAdvice {
   type: string;
   reason: string;
+  /**
+   * Friction signals (`identical-retry`, `search-after-id`, `pagination-continuation`, `friction-unmeasured`) say
+   * where: the tool, the steps, how many times, and the key paths where identifiers were found. Never their values.
+   */
+  tool?: string;
+  steps?: number[];
+  count?: number;
+  paths?: string[];
 }
 
 /**
@@ -243,7 +251,11 @@ export interface AgentAdvice {
  * row's `assertions` and does not change its status. It is kept beside the golden-pinned `AgentTranscript` rather
  * than in it, so the frozen type is unchanged; the RunResult schema validates it as an optional field.
  */
-export type AgentRecord = AgentTranscript & { advice?: AgentAdvice[] };
+export type AgentRecord = AgentTranscript & {
+  advice?: AgentAdvice[];
+  /** `--tool-description`: the tools whose description the model was shown in place of the server's, with the SHA-256 of the new text. */
+  description_overrides?: { tool: string; sha256: string }[];
+};
 
 /** The advice on a row, empty when there is none. */
 export function adviceOf(row: RowResult): AgentAdvice[] {

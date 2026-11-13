@@ -1,0 +1,61 @@
+{
+  "kind": "plune-mcp-snapshot",
+  "schemaVersion": 2,
+  "transport": "stdio",
+  "server": {
+    "name": "fixture-server",
+    "version": "0.0.0"
+  },
+  "instructions": null,
+  "capabilities": {
+    "tools": {}
+  },
+  "tools": [
+    {
+      "name": "memo_tsuika",
+      "description": "ノートにメモを追加し、その番号を返します。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "メモの短いタイトル。"
+          },
+          "body": {
+            "type": "string",
+            "description": "メモの本文（Markdown）。"
+          }
+        }
+      }
+    },
+    {
+      "name": "memo_ichiran",
+      "description": "メモを新しい順に一覧表示します。1回の呼び出しで最大50件です。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tag": {
+            "type": "string",
+            "description": "このタグが付いたメモのみ。"
+          }
+        }
+      }
+    },
+    {
+      "name": "memo_sakujo",
+      "description": "番号でメモを削除します。元に戻せません。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "メモの番号。"
+          }
+        }
+      }
+    }
+  ],
+  "resources": null,
+  "resourceTemplates": null,
+  "prompts": null
+}
