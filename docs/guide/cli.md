@@ -624,7 +624,7 @@ secrets reads no deeper, and a cut schema could not be compared.
 | `--out <path>` | Write the snapshot to this file: to a temporary file beside it first, then renamed over it, so the file is whole or not there. Without it the snapshot goes to stdout. |
 | `--push` | Send the snapshot to the platform's MCP catalog. Nothing is sent without this flag. Needs `--server` or `--server-name`, and a login (`plune login` or `PLUNE_TOKEN`) whose token may write. With `--push` stdout carries the answer, not the snapshot; add `--out` to keep the file too. |
 | `--server <id>` | `--push`: the id of an MCP server the platform already has. |
-| `--server-name <name>` | `--push`: the server by name (1 to 100 characters); found among the project's servers, or added on the first push. |
+| `--server-name <name>` | `--push`: the server by name (1 to 100 characters); found among the project's servers whatever its case (the platform holds a name once per project), or added on the first push. |
 | `--environment <text>` | `--push`: where the server was running (`ci`, `staging`). Kept with the snapshot; not part of the contract, so the same contract from two environments is still one snapshot. |
 
 The connection flags are those of `plune mcp lint`.
@@ -644,16 +644,20 @@ The platform answers one of two ways, and the command says which:
 - `Snapshot 3 of server "Notes MCP" already holds this contract; nothing new was recorded`: the same contract again.
   Pushing twice never makes a copy.
 
-If the platform cannot be reached (no connection, a 5xx or a rate limit after the retries), the snapshot is kept in
+If the platform cannot be reached (no connection, a 5xx, or a rate limit still in force after the retries), the snapshot is kept in
 `mcp-snapshot.unsent.json` in the current directory (or in the `--out` file) and the exit code is `1`.
+
+A quota is not a rate limit: a `429` whose body carries a `quota` object (at most so many snapshots per server, so
+many servers per project) frees nothing by waiting. The command is not retried, prints one line naming the limit
+(`mcpSnapshotsPerServer: 200 of 200 used`) with the platform's reason, and exits `2`.
 
 ### Exit codes
 
 | Exit | Meaning |
 |------|---------|
 | `0` | The snapshot was written, or with `--push` it was sent (a new snapshot or the same contract again). |
-| `1` | With `--push`: the platform could not be reached or answered 5xx or 429. The snapshot is kept in a file; try again later. |
-| `2` | The server did not start or did not answer; a list the server declared failed, answered without its array or did not end within 100 pages (the message names the list); an entity is nested deeper than 64 levels (the message names it); `--out` cannot be written; or a flag is wrong. With `--push` also: not logged in (checked before the server is started), a token the platform rejects or may not write with (401, 403), a refused body (400, the platform's reason is printed), or an unknown `--server` id (404); a file named by `--out` is written before the push, so these leave it. Otherwise no file is written. |
+| `1` | With `--push`: the platform could not be reached, answered 5xx, or kept rate-limiting (a `429` without a `quota` object) through the retries. The snapshot is kept in a file; try again later. |
+| `2` | The server did not start or did not answer; a list the server declared failed, answered without its array or did not end within 100 pages (the message names the list); an entity is nested deeper than 64 levels (the message names it); `--out` cannot be written; or a flag is wrong. With `--push` also: not logged in (checked before the server is started), a token the platform rejects or may not write with (401, 403), a refused body (400, the platform's reason is printed), a quota reached (`429` with a `quota` object; the line names the limit), or an unknown `--server` id (404); a file named by `--out` is written before the push, so these leave it. Otherwise no file is written. |
 | `3` | Nothing measured: the server lists no tool, resource, resource template or prompt. No file is written. |
 
 ## `plune mcp diff`

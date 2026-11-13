@@ -186,7 +186,8 @@ function failure(
   out: Extract<ClientOutcome<unknown>, { ok: false }>,
   what: string,
 ): SnapshotPushError {
-  const said = out.detail === '' ? '' : `: ${out.detail}`;
+  // The platform's sentences end in a full stop, and so do ours.
+  const said = out.detail === '' ? '' : `: ${out.detail.replace(/\.$/, '')}`;
   switch (out.kind) {
     case 'auth':
       return new SnapshotPushError(
@@ -253,7 +254,9 @@ export async function pushSnapshot(
       const rows = Array.isArray(listed.body.servers)
         ? listed.body.servers.filter(isServerRow)
         : [];
-      return rows.find((s) => s.name === name)?.id;
+      // The platform names a server once per project whatever its case (409 `server_exists`): find it the same way.
+      const key = name.toLowerCase();
+      return rows.find((s) => s.name.toLowerCase() === key)?.id;
     };
     serverId = await find();
     if (serverId === undefined) {

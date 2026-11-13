@@ -82,6 +82,19 @@ function refusedField(body: Record<string, unknown>): string | undefined {
   );
 }
 
+const AT = '2026-11-13T09:00:00.000Z';
+/** `McpServer` as the platform answers it. */
+const serverRow = (s: { id: string; name: string; transport: string }) => ({
+  ...s,
+  projectId: 'proj-1',
+  description: null,
+  tools: 0,
+  snapshots: 0,
+  createdBy: 'user-1',
+  createdAt: AT,
+  updatedAt: AT,
+});
+
 interface Seen {
   method: string;
   path: string;
@@ -89,7 +102,11 @@ interface Seen {
   body: Record<string, unknown> | undefined;
 }
 
-/** An in-memory platform: servers by name, snapshots by hash of the contract (the environment is not in it). */
+/**
+ * An in-memory platform: servers by name (one per project whatever its case, as the platform's unique index has it),
+ * snapshots by hash of the contract (the environment is not in it). Its answers carry every field the platform's
+ * `McpServer` and `McpSnapshot` schemas require, so the CLI is read against the shape it will get, not a subset.
+ */
 function platform(over: { fail?: (req: Seen) => Response | undefined } = {}) {
   const servers: { id: string; name: string; transport: string }[] = [];
   const snapshots = new Map<string, { number: number; hash: string }[]>();
@@ -111,14 +128,15 @@ function platform(over: { fail?: (req: Seen) => Response | undefined } = {}) {
     seen.push(req);
     const failed = over.fail?.(req);
     if (failed !== undefined) return failed;
-    if (req.method === 'GET' && path === '/v1/mcp-servers') return json({ servers });
+    if (req.method === 'GET' && path === '/v1/mcp-servers')
+      return json({ servers: servers.map(serverRow) });
     if (req.method === 'POST' && path === '/v1/mcp-servers') {
       const extra = Object.keys(body ?? {}).find(
         (k) => !['name', 'transport', 'description'].includes(k),
       );
       if (extra !== undefined)
         return json({ error: `validation failed — unrecognized key '${extra}'` }, 400);
-      if (servers.some((s) => s.name === body?.['name']))
+      if (servers.some((s) => s.name.toLowerCase() === String(body?.['name']).toLowerCase()))
         return json(
           { error: 'the project has an MCP server of this name', code: 'server_exists' },
           409,
@@ -130,7 +148,7 @@ function platform(over: { fail?: (req: Seen) => Response | undefined } = {}) {
       };
       servers.push(made);
       snapshots.set(made.id, []);
-      return json(made, 201);
+      return json(serverRow(made), 201);
     }
     const m = /^\/v1\/mcp-servers\/([^/]+)\/snapshots$/.exec(path);
     if (req.method === 'POST' && m !== null) {
@@ -147,11 +165,26 @@ function platform(over: { fail?: (req: Seen) => Response | undefined } = {}) {
       } = body ?? {};
       const hash = createHash('sha256').update(JSON.stringify(contract)).digest('hex');
       const latest = list[list.length - 1];
-      if (latest?.hash === hash)
-        return json({ id: 'snap', number: latest.number, hash, tools: 3 }, 200);
+      const answer = (n: number, status: number) =>
+        json(
+          {
+            id: `snap-${n}`,
+            projectId: 'proj-1',
+            serverId: decodeURIComponent(m[1] ?? ''),
+            number: n,
+            hash,
+            environment: body?.['environment'] ?? null,
+            tools: Array.isArray(contract['tools']) ? contract['tools'].length : null,
+            createdBy: 'user-1',
+            createdAt: AT,
+            content: contract,
+          },
+          status,
+        );
+      if (latest?.hash === hash) return answer(latest.number, 200);
       const taken = { number: list.length + 1, hash };
       list.push(taken);
-      return json({ id: `snap-${taken.number}`, number: taken.number, hash, tools: 3 }, 201);
+      return answer(taken.number, 201);
     }
     return json({ error: 'not found' }, 404);
   }) as unknown as typeof fetch;
@@ -397,6 +430,68 @@ describe('CLI · mcp snapshot · push · nothing goes up unasked, and every fail
       '"plune-mcp-snapshot"',
     );
     expect(r.out + r.err).not.toContain(TOKEN);
+  });
+
+  /** The platform's quota refusal: 429 with a `quota` object and no Retry-After (it frees only by an operator's action). */
+  const quotaRefusal = (kind: string, limit: number, error: string): Response =>
+    new Response(
+      JSON.stringify({ error, quota: { kind, limit, used: limit, remaining: 0, resetsAt: null } }),
+      { status: 429, headers: { 'content-type': 'application/json' } },
+    );
+
+  it('a snapshot quota (429 with a quota object) is exit 2 with one line naming the limit; not retried, nothing kept', async () => {
+    const fake = platform({
+      fail: (req) =>
+        req.method === 'POST' && req.path.endsWith('/snapshots')
+          ? quotaRefusal('mcpSnapshotsPerServer', 200, 'MCP snapshot quota reached — at most 200 snapshots per server.')
+          : undefined,
+    });
+    const r = await push({ push: true, serverName: 'Notes MCP' }, fake);
+    expect(r.code, r.err).toBe(2);
+    const lines = r.err.trim().split('\n');
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/\(429\).*mcpSnapshotsPerServer: 200 of 200 used/);
+    expect(r.err).not.toMatch(/try again/i);
+    expect(fake.seen.filter((s) => s.path.endsWith('/snapshots'))).toHaveLength(1);
+    expect(readdirSync(r.cwd)).toEqual([]);
+  });
+
+  it('a server quota on the first push is exit 2 naming that limit', async () => {
+    const fake = platform({
+      fail: (req) =>
+        req.method === 'POST' && req.path === '/v1/mcp-servers'
+          ? quotaRefusal('mcpServersPerProject', 50, 'MCP server quota reached — at most 50 servers per project.')
+          : undefined,
+    });
+    const r = await push({ push: true, serverName: 'Notes MCP' }, fake);
+    expect(r.code, r.err).toBe(2);
+    expect(r.err).toMatch(/mcpServersPerProject: 50 of 50 used/);
+    expect(fake.seen.some((s) => s.path.endsWith('/snapshots'))).toBe(false);
+  });
+
+  it('a throttle (429 with Retry-After, no quota object) is waited out and retried, then exit 1 with the snapshot kept', async () => {
+    const fake = platform({
+      fail: (req) =>
+        req.path.endsWith('/snapshots')
+          ? new Response(JSON.stringify({ error: 'too many requests' }), {
+              status: 429,
+              headers: { 'retry-after': '1' },
+            })
+          : undefined,
+    });
+    const r = await push({ push: true, serverName: 'Notes MCP' }, fake);
+    expect(r.code, r.err).toBe(1);
+    expect(fake.seen.filter((s) => s.path.endsWith('/snapshots')).length).toBeGreaterThan(1);
+    expect(r.err).toMatch(/The snapshot is kept in mcp-snapshot\.unsent\.json/);
+  });
+
+  it('finds the server whose name differs only in case, as the platform names it once whatever its case', async () => {
+    const fake = platform();
+    await push({ push: true, serverName: 'Notes MCP' }, fake);
+    const r = await push({ push: true, serverName: 'notes mcp', environment: 'ci' }, fake);
+    expect(r.code, r.err).toBe(0);
+    expect(fake.servers).toHaveLength(1);
+    expect(r.out).toMatch(/already holds this contract/);
   });
 
   it('with the platform down and --out given, keeps that file and writes no other', async () => {
