@@ -87,42 +87,6 @@ last measured run.
 
 If `--only` matches nothing, Plune prints `No evals matched the selector.` and exits `0`.
 
-### The tasks suite
-
-`--suite tasks` checks a server that offers the Tasks extension (`io.modelcontextprotocol/tasks`: a server answers `tools/call`
-with a task handle that the client polls with `tasks/get`), described by the
-[extension's specification](https://github.com/modelcontextprotocol/ext-tasks/blob/main/specification/2026-07-28/tasks.md)
-(stage "Beta, to Core" in the [list of extensions](https://modelcontextprotocol.io/extensions/overview.md)). The extension
-exists from the revision 2026-07-28: on a session of an earlier revision every check is `not-applicable` (`era`), and so
-is every check against a server that does not declare the extension in the capabilities of `server/discover`
-(`capability-not-declared`). The 2025-11-25 experimental tasks are another feature and are not checked. The checks are
-outside the frozen profile, so a run of this suite alone ends with exit `3`; a run without `--suite tasks` is unchanged.
-
-Every check needs a task, and a task comes from a tool `--fixture` names: without one, every check is `could-not-run`
-(`needs-input`) and no tool is called. The run makes at most 3 tasks (the one it reads, one it cancels, and one that a
-server wrongly hands to a client that declared nothing), calls a fixture tool at most 5 times, polls `tasks/get` at most
-6 times and for at most 5 seconds (by the interval the server names, kept between 20 and 1000 ms), and never answers an
-`inputRequests` entry. After the last check it cancels every task it did not see finish; one that still runs, or whose
-state it could not learn, is named in the report after `Left behind`.
-
-| Check | Level | What it judges |
-|-------|-------|----------------|
-| `tasks-result-type` | MUST | a task handle has `resultType: "task"`, a `taskId` and a status; no other result has `resultType: "task"` |
-| `tasks-undeclared-no-task` | MUST | a client that did not declare the extension is given no task (the call that made a task with the declaration is the control) |
-| `tasks-undeclared-capability-error` | MUST | `tasks/get`, `tasks/update` and `tasks/cancel` without the declaration answer `-32021` with `data.requiredCapabilities` |
-| `tasks-get-status-shape` | MUST (derived) | `tasks/get` answers `resultType: "complete"`, the `taskId`, one of the five statuses, `createdAt` and `lastUpdatedAt` as ISO 8601, and `ttlMs` |
-| `tasks-status-payload` | MUST | `completed` has `result`, `failed` has `error`, `input_required` has `inputRequests` (a status the run did not see is not judged) |
-| `tasks-ttl-poll-integers` | SHOULD (derived) | `ttlMs` is an integer or `null`, `pollIntervalMs` an integer (the text gives these as types only) |
-| `tasks-unknown-id-get` | MUST | `tasks/get` for an unknown `taskId` answers `-32602` |
-| `tasks-unknown-id-update-cancel` | SHOULD | the same for `tasks/update` and `tasks/cancel` |
-| `tasks-cancel-ack` | MUST | `tasks/cancel` answers an empty result with `resultType: "complete"`; an error counts only for a task seen still running |
-| `tasks-update-ack` | MUST | the same for `tasks/update`; an error says nothing and is `could-not-run` |
-| `tasks-failed-status-message` | SHOULD | a `failed` task has a `statusMessage` |
-| `tasks-http-name-header` | SHOULD (derived) | over Streamable HTTP, `tasks/get` with `Mcp-Name` set to the `taskId` is accepted (the specification's MUST is on the client) |
-| `tasks-input-request-keys-unique` | MUST (derived) | a key of `inputRequests` never names a different request at a later poll (that a key is not reused after its response is not judged: the run never answers) |
-
-`--explain <id>` prints the sentence of the specification each level comes from.
-
 ### Exit codes
 
 `plune run` sets the process exit code so it slots into CI and shell scripts:
@@ -1164,6 +1128,42 @@ say; read the list of checks.**
 `apps-ui-tool-text-fallback` has to call a tool. It calls only the tools of `--fixture` that have `_meta.ui`; without such
 an entry it is `could-not-run` (`needs-input`) and no tool is called. `--explain <id>` prints the sentence of the
 specification each level comes from.
+
+### The tasks suite
+
+`--suite tasks` checks a server that offers the Tasks extension (`io.modelcontextprotocol/tasks`: a server answers `tools/call`
+with a task handle that the client polls with `tasks/get`), described by the
+[extension's specification](https://github.com/modelcontextprotocol/ext-tasks/blob/main/specification/2026-07-28/tasks.md)
+(stage "Beta, to Core" in the [list of extensions](https://modelcontextprotocol.io/extensions/overview.md)). The extension
+exists from the revision 2026-07-28: on a session of an earlier revision every check is `not-applicable` (`era`), and so
+is every check against a server that does not declare the extension in the capabilities of `server/discover`
+(`capability-not-declared`). The 2025-11-25 experimental tasks are another feature and are not checked. The checks are
+outside the frozen profile, so a run of this suite alone ends with exit `3`; a run without `--suite tasks` is unchanged.
+
+Every check needs a task, and a task comes from a tool `--fixture` names: without one, every check is `could-not-run`
+(`needs-input`) and no tool is called. The run makes at most 3 tasks (the one it reads, one it cancels, and one that a
+server wrongly hands to a client that declared nothing), calls a fixture tool at most 5 times, polls `tasks/get` at most
+6 times and for at most 5 seconds (by the interval the server names, kept between 20 and 1000 ms), and never answers an
+`inputRequests` entry. After the last check it cancels every task it did not see finish; one that still runs, or whose
+state it could not learn, is named in the report after `Left behind`.
+
+| Check | Level | What it judges |
+|-------|-------|----------------|
+| `tasks-result-type` | MUST | a task handle has `resultType: "task"`, a `taskId` and a status; no other result has `resultType: "task"` |
+| `tasks-undeclared-no-task` | MUST | a client that did not declare the extension is given no task (the call that made a task with the declaration is the control) |
+| `tasks-undeclared-capability-error` | MUST | `tasks/get`, `tasks/update` and `tasks/cancel` without the declaration answer `-32021` with `data.requiredCapabilities` |
+| `tasks-get-status-shape` | MUST (derived) | `tasks/get` answers `resultType: "complete"`, the `taskId`, one of the five statuses, `createdAt` and `lastUpdatedAt` as ISO 8601, and `ttlMs` |
+| `tasks-status-payload` | MUST | `completed` has `result`, `failed` has `error`, `input_required` has `inputRequests` (a status the run did not see is not judged) |
+| `tasks-ttl-poll-integers` | SHOULD (derived) | `ttlMs` is an integer or `null`, `pollIntervalMs` an integer (the text gives these as types only) |
+| `tasks-unknown-id-get` | MUST | `tasks/get` for an unknown `taskId` answers `-32602` |
+| `tasks-unknown-id-update-cancel` | SHOULD | the same for `tasks/update` and `tasks/cancel` |
+| `tasks-cancel-ack` | MUST | `tasks/cancel` answers an empty result with `resultType: "complete"`; an error counts only for a task seen still running |
+| `tasks-update-ack` | MUST | the same for `tasks/update`; an error says nothing and is `could-not-run` |
+| `tasks-failed-status-message` | SHOULD | a `failed` task has a `statusMessage` |
+| `tasks-http-name-header` | SHOULD (derived) | over Streamable HTTP, `tasks/get` with `Mcp-Name` set to the `taskId` is accepted (the specification's MUST is on the client) |
+| `tasks-input-request-keys-unique` | MUST (derived) | a key of `inputRequests` never names a different request at a later poll (that a key is not reused after its response is not judged: the run never answers) |
+
+`--explain <id>` prints the sentence of the specification each level comes from.
 
 ### Exit codes
 
