@@ -2,6 +2,7 @@ import {
   copyFile,
   mkdir,
   mkdtemp,
+  readFile,
   rename,
   rm,
   symlink,
@@ -452,6 +453,11 @@ describe('plune ingest · the run’s recordings go with its proposals', () => {
 describe('plune ingest · the run’s recordings are declared on the ingest, and each upload names its declared file', () => {
   const caseOf = (p: ReturnType<typeof fakePlatform>, stableId: string) =>
     p.sent.ingest?.cases.find((c) => c['stableId'] === stableId);
+  /** More screencasts.json entries, as written. */
+  const addEntries = async (dir: string, entries: unknown[]) => {
+    const index = path.join(dir, 'screencasts', 'screencasts.json');
+    await writeFile(index, JSON.stringify([...(JSON.parse(await readFile(index, 'utf8')) as unknown[]), ...entries]));
+  };
 
   it('each case declares its recordings: the test as title, timing, chapters as written, and each file’s key, name, kind and size', async () => {
     const dir = await recordedRun([
@@ -560,6 +566,12 @@ describe('plune ingest · the run’s recordings are declared on the ingest, and
       { test: 'hand-written' },
     ]);
     await truncate(path.join(dir, 'screencasts', 'cart', 'trace.zip'), 0);
+    await addEntries(dir, [
+      // A file that is not there.
+      { test: 'gone', stableId: A, video: 'screencasts/gone/video.webm', chapters: [] },
+      // A file that is there, outside the run.
+      { test: 'away', stableId: A, video: path.join(here, 'fixtures', 'cairn', 'design', 'report.json'), chapters: [] },
+    ]);
     const p = fakePlatform({ items: [{ stableId: A, reviewItemId: 'ri-1' }] });
     await ingest(dir, p.fetchImpl);
     expect(caseOf(p, A)?.['screencasts']).toEqual([
@@ -573,6 +585,64 @@ describe('plune ingest · the run’s recordings are declared on the ingest, and
     expect(p.sent.asked).toEqual([
       { to: 'review-items/ri-1', file: { name: 'video.webm', contentType: 'video/webm', size: 10, key: 'screencasts/cart/video.webm' } },
     ]);
+  });
+
+  it('a file two entries of one case both name is declared once; the second entry, with nothing left to declare, is not', async () => {
+    const dir = await recordedRun([{ stableId: A, test: 'cart' }]);
+    await addEntries(dir, [{ test: 'cart again', stableId: A, video: 'screencasts/cart/video.webm', chapters: [] }]);
+    const p = fakePlatform({ items: [{ stableId: A, reviewItemId: 'ri-1' }] });
+    await ingest(dir, p.fetchImpl);
+    expect(caseOf(p, A)?.['screencasts']).toEqual([
+      {
+        title: 'cart',
+        chapters: [],
+        files: [{ key: 'screencasts/cart/video.webm', name: 'video.webm', kind: 'video', size: 10 }],
+      },
+    ]);
+  });
+
+  it('a key over 500 characters or a name over 200 is not declared', async () => {
+    const dir = await recordedRun([{ stableId: A, test: 'cart' }]);
+    // A run-relative path of 600+ characters, no segment over 200: within what the disk takes.
+    const deep = ['a', 'b', 'c'].map((c) => c.repeat(200)).join('/');
+    const longKey = `screencasts/${deep}/video.webm`;
+    await mkdir(path.join(dir, ...longKey.split('/').slice(0, -1)), { recursive: true });
+    await writeFile(path.join(dir, ...longKey.split('/')), 'webm-bytes');
+    const longName = `screencasts/named/${'v'.repeat(201)}.webm`;
+    await mkdir(path.join(dir, 'screencasts', 'named'));
+    await writeFile(path.join(dir, ...longName.split('/')), 'webm-bytes');
+    await addEntries(dir, [
+      { test: 'deep', stableId: A, video: longKey, chapters: [] },
+      { test: 'named', stableId: A, video: longName, chapters: [] },
+    ]);
+    // No bucket: only the declaration is under test, and no upload is attempted.
+    const p = fakePlatform({ items: [{ stableId: A, reviewItemId: 'ri-1' }], bucket: false });
+    await ingest(dir, p.fetchImpl);
+    expect(caseOf(p, A)?.['screencasts']).toEqual([
+      { title: 'cart', chapters: [], files: [{ key: 'screencasts/cart/video.webm', name: 'video.webm', kind: 'video', size: 10 }] },
+    ]);
+  });
+
+  it('a title or a chapter title over 500 characters is clipped to 500, never mid-pair; more than 200 chapters keep the first 200', async () => {
+    // An emoji at 499-500: the clip at 500 would keep half of it.
+    const split = `${'e'.repeat(499)}😀tail`;
+    const dir = await recordedRun([]);
+    await mkdir(path.join(dir, 'screencasts', 'long'));
+    await writeFile(path.join(dir, 'screencasts', 'long', 'video.webm'), 'webm-bytes');
+    const chapters = [{ title: 'y'.repeat(600), atMs: 0 }, { title: split, atMs: 1 }, ...Array.from({ length: 200 }, (_, i) => ({ title: `c${i}`, atMs: i + 2 }))];
+    await addEntries(dir, [
+      { test: 'x'.repeat(600), stableId: A, video: 'screencasts/long/video.webm', chapters },
+      { test: split, stableId: B, video: 'screencasts/long/video.webm', chapters: [] },
+    ]);
+    const p = fakePlatform({ items: [{ stableId: A, reviewItemId: 'ri-1' }, { stableId: B, reviewItemId: 'ri-2' }] });
+    await ingest(dir, p.fetchImpl);
+    const [a] = caseOf(p, A)?.['screencasts'] as { title: string; chapters: { title: string; atMs: number }[] }[];
+    expect(a?.title).toBe('x'.repeat(500));
+    expect(a?.chapters).toHaveLength(200);
+    expect(a?.chapters[0]).toEqual({ title: 'y'.repeat(500), atMs: 0 });
+    expect(a?.chapters[1]).toEqual({ title: 'e'.repeat(499), atMs: 1 });
+    expect(a?.chapters[199]).toEqual({ title: 'c197', atMs: 199 });
+    expect((caseOf(p, B)?.['screencasts'] as { title: string }[])[0]?.title).toBe('e'.repeat(499));
   });
 
   it('at most 20 recordings are declared for a case; the others upload without a key', async () => {

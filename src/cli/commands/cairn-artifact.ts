@@ -560,8 +560,10 @@ export interface CairnSessionFile {
   key?: string;
 }
 
-/** The platform's limits on a declaration: a value past one refuses the whole ingest, so it is left out here instead. */
+/** The platform's limits on a declaration: a value past one refuses the whole ingest, so here a title is clipped and anything else is left out. */
 const DECLARED = { text: 500, name: 200, chapters: 200, perCase: 20 };
+/** A title cut to the platform's limit, counted as it counts (UTF-16 units), never ending on half of a surrogate pair. */
+const clip = (s: string): string => s.slice(0, DECLARED.text).replace(/[\uD800-\uDBFF]$/, '');
 
 /** A run's recordings (`--screencast`): each case's video and trace files, by its `stableId`. */
 export interface CairnSessionFiles {
@@ -629,7 +631,7 @@ export async function readCairnSessionFiles(dir: string): Promise<CairnSessionFi
     // a missing or empty one, or a value past a limit, is left out of it and its upload goes without a key, as before.
     const declared = screencasts.get(stableId) ?? [];
     const keys = new Set(declared.flatMap((s) => s.files.map((f) => f.key)));
-    const title = str(own(rec, 'test')).slice(0, DECLARED.text);
+    const title = clip(str(own(rec, 'test')));
     const files = found.filter((f) => {
       if ((f.file.size ?? 0) < 1 || f.rel.length > DECLARED.text || path.basename(f.file.path).length > DECLARED.name || keys.has(f.rel)) return false;
       keys.add(f.rel); // unique within the case, this entry included
@@ -644,7 +646,7 @@ export async function readCairnSessionFiles(dir: string): Promise<CairnSessionFi
       chapters: (Array.isArray(own(rec, 'chapters')) ? (own(rec, 'chapters') as unknown[]) : [])
         .flatMap((c) => {
           const chapter = asRecord(c);
-          const t = str(own(chapter, 'title')).slice(0, DECLARED.text);
+          const t = clip(str(own(chapter, 'title')));
           const atMs = own(chapter, 'atMs');
           return t !== '' && Number.isInteger(atMs) && (atMs as number) >= 0 ? [{ title: t, atMs: atMs as number }] : [];
         })
