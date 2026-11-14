@@ -38,6 +38,18 @@ export interface CairnIngestCase {
   verdict?: CairnVerdict;
   technique?: string;
   priority?: string;
+  /** The case's recordings, from `screencasts/screencasts.json`. Absent when the run recorded none for it. */
+  screencasts?: CairnScreencast[];
+}
+
+/** One recorded test, declared so the platform can show each file's state (uploaded, too big, no bucket) on the proposal. */
+export interface CairnScreencast {
+  /** The screencasts.json `test`. */
+  title: string;
+  timing?: 'trace' | 'estimated';
+  chapters: { title: string; atMs: number }[];
+  /** `key` is the file's run-relative path, unique within the case; the upload of that file sends it back. */
+  files: { key: string; name: string; kind: 'video' | 'trace'; size: number }[];
 }
 
 export interface CairnIngestPayload {
@@ -541,10 +553,22 @@ export async function readCairnRun(
   };
 }
 
+/** A recording file to upload: where it is, its size when it could be read, and its declared `key` when it was declared. */
+export interface CairnSessionFile {
+  path: string;
+  size?: number;
+  key?: string;
+}
+
+/** The platform's limits on a declaration: a value past one refuses the whole ingest, so it is left out here instead. */
+const DECLARED = { text: 500, name: 200, chapters: 200, perCase: 20 };
+
 /** A run's recordings (`--screencast`): each case's video and trace files, by its `stableId`. */
 export interface CairnSessionFiles {
-  /** Absolute paths, inside the run directory, by the case's `stableId`. */
-  byCase: Map<string, string[]>;
+  /** Files inside the run directory (absolute paths), by the case's `stableId`. */
+  byCase: Map<string, CairnSessionFile[]>;
+  /** What each case declares to the ingest, by its `stableId`: only files that exist, are not empty, and fit the limits. */
+  screencasts: Map<string, CairnScreencast[]>;
   /** Recordings that name no case: a hand-written spec, a test the model did not map, or a Cairn older than the id. */
   unmapped: number;
   /** Paths dropped because they lead out of the run directory, by their text or through a link. */
@@ -567,28 +591,67 @@ export async function readCairnSessionFiles(dir: string): Promise<CairnSessionFi
     return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
   };
   let outside = 0;
-  /** The file's real path when it stays inside the run; a missing file keeps its own, and the upload says it is missing. */
-  const inside = async (p: unknown): Promise<string | undefined> => {
+  /**
+   * The file's real path when it stays inside the run (a missing file keeps its own, and the upload says it is missing), with
+   * its run-relative path as Cairn writes it (`/` on any OS) and its size before anything is sent.
+   */
+  const inside = async (p: unknown) => {
     if (typeof p !== 'string' || p === '') return undefined;
     const abs = path.resolve(root, p);
     const real = await fs.realpath(abs).catch(() => undefined);
-    if (within(abs) && (real === undefined || within(real))) return real ?? abs;
+    if (within(abs) && (real === undefined || within(real))) {
+      const file = real ?? abs;
+      const size = await fs.stat(file).then((s) => s.size, () => undefined);
+      return { path: file, rel: path.relative(root, abs).split(path.sep).join('/'), ...(size !== undefined ? { size } : {}) };
+    }
     outside += 1;
     return undefined;
   };
-  const byCase = new Map<string, string[]>();
+  const byCase = new Map<string, CairnSessionFile[]>();
+  const screencasts = new Map<string, CairnScreencast[]>();
   let unmapped = 0;
   for (const entry of raw) {
     const rec = asRecord(entry);
-    const files: string[] = [];
-    for (const p of [own(rec, 'video'), own(rec, 'trace')]) {
-      const file = await inside(p);
-      if (file !== undefined) files.push(file);
+    const found: { file: CairnSessionFile; rel: string; kind: 'video' | 'trace' }[] = [];
+    for (const kind of ['video', 'trace'] as const) {
+      const at = await inside(own(rec, kind));
+      if (at !== undefined) found.push({ file: { path: at.path, ...(at.size !== undefined ? { size: at.size } : {}) }, rel: at.rel, kind });
     }
-    if (files.length === 0) continue; // whatever paths it named are counted in `outside`
+    if (found.length === 0) continue; // whatever paths it named are counted in `outside`
     const stableId = own(rec, 'stableId');
-    if (typeof stableId !== 'string' || stableId === '') unmapped += 1;
-    else byCase.set(stableId, [...(byCase.get(stableId) ?? []), ...files]);
+    if (typeof stableId !== 'string' || stableId === '') {
+      unmapped += 1;
+      continue;
+    }
+    byCase.set(stableId, [...(byCase.get(stableId) ?? []), ...found.map((f) => f.file)]);
+
+    // The declaration. A file over the platform's size limit is declared with its real size (the platform shows it skipped);
+    // a missing or empty one, or a value past a limit, is left out of it and its upload goes without a key, as before.
+    const declared = screencasts.get(stableId) ?? [];
+    const keys = new Set(declared.flatMap((s) => s.files.map((f) => f.key)));
+    const title = str(own(rec, 'test')).slice(0, DECLARED.text);
+    const files = found.filter((f) => {
+      if ((f.file.size ?? 0) < 1 || f.rel.length > DECLARED.text || path.basename(f.file.path).length > DECLARED.name || keys.has(f.rel)) return false;
+      keys.add(f.rel); // unique within the case, this entry included
+      return true;
+    });
+    if (title === '' || files.length === 0 || declared.length >= DECLARED.perCase) continue;
+    for (const f of files) f.file.key = f.rel;
+    const timing = own(rec, 'timing');
+    declared.push({
+      title,
+      ...(timing === 'trace' || timing === 'estimated' ? { timing } : {}),
+      chapters: (Array.isArray(own(rec, 'chapters')) ? (own(rec, 'chapters') as unknown[]) : [])
+        .flatMap((c) => {
+          const chapter = asRecord(c);
+          const t = str(own(chapter, 'title')).slice(0, DECLARED.text);
+          const atMs = own(chapter, 'atMs');
+          return t !== '' && Number.isInteger(atMs) && (atMs as number) >= 0 ? [{ title: t, atMs: atMs as number }] : [];
+        })
+        .slice(0, DECLARED.chapters),
+      files: files.map((f) => ({ key: f.rel, name: path.basename(f.file.path), kind: f.kind, size: f.file.size as number })),
+    });
+    screencasts.set(stableId, declared);
   }
-  return { byCase, unmapped, outside };
+  return { byCase, screencasts, unmapped, outside };
 }

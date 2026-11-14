@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **`plune ingest` declares a Cairn run's recordings on each case.** Before the ingest call, the CLI reads `screencasts/screencasts.json`, sizes each file, and sends each case's recordings as `screencasts[]`: the test title, `timing` when written, the chapters as Cairn writes them, and each file's `key` (its run-relative path), `name`, `kind` (`video` or `trace`) and `size`. A file over 100 MiB is declared with its real size and still not uploaded, so the platform can say why it is missing; files are declared without a storage bucket too. A recording that names no case, a path that leaves the run directory, an empty or missing file, and a value past the platform's limits are left out of the declaration, so they can never refuse the ingest. Each upload to a proposal names its declared file by `key`. A platform without these fields ignores them, so no version check is needed. Cairn records no command line in the run, so `run.command` is not sent.
+
 ## [0.39.0] - 2026-11-14
 
 ### Added

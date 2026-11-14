@@ -12,7 +12,6 @@
 // as `sync`: typed errors, actionable messages, never a stack trace, never the token. And the same job report:
 // the platform's queue shows the ingest from start to end, and the report never decides the exit code.
 
-import { promises as disk } from 'node:fs';
 import * as path from 'node:path';
 import { createClient, type PlatformClient } from '../../reporter-core/client.js';
 import { UPLOAD_RETRIES } from '../../reporter-core/env.js';
@@ -30,6 +29,7 @@ import {
   CairnRunVersionError,
   NoCairnRunsError,
   type CairnIngestPayload,
+  type CairnSessionFiles,
 } from './cairn-artifact.js';
 import { JobReporter } from './job-reporter.js';
 
@@ -168,11 +168,10 @@ const targetOf = (job: Upload): string => `${job.owner ?? 'results'}/${job.id}`;
  * machinery. A file that does not go is a line, and the ingest ends as it would have without it.
  */
 async function sendSessionFiles(
-  dir: string,
+  session: CairnSessionFiles | undefined,
   sent: { items: IngestItem[] | undefined; repeat: boolean; runId: string },
   platform: { apiUrl: string; token: string; fetchImpl?: typeof fetch },
 ): Promise<string[]> {
-  const session = await readCairnSessionFiles(dir);
   if (session === undefined || (session.byCase.size === 0 && session.unmapped === 0 && session.outside === 0)) return [];
   if (sent.items === undefined) {
     return ['session files not uploaded — this Plune is older than the routes that take them'];
@@ -188,9 +187,8 @@ async function sendSessionFiles(
     const paths = session.byCase.get(item.stableId);
     if (paths === undefined || placed.has(item.stableId)) continue;
     placed.add(item.stableId);
-    for (const file of paths) {
+    for (const { path: file, size, key } of paths) {
       const name = path.basename(file);
-      const size = await disk.stat(file).then((s) => s.size, () => undefined);
       if (size !== undefined && size > SESSION_FILE_MAX) {
         tooBig += 1;
         lines.push(`"${name}" skipped — larger than the ${SESSION_FILE_MAX / (1024 * 1024)} MiB a session file may be`);
@@ -204,6 +202,8 @@ async function sendSessionFiles(
         name,
         type,
         path: file,
+        // Declared on the proposal only: a result's route has no declaration to match.
+        ...(key !== undefined && item.reviewItemId !== undefined ? { key } : {}),
       });
     }
   }
@@ -278,6 +278,12 @@ export async function handleIngest(deps: IngestDeps): Promise<IngestResult> {
   // Throws a typed error for an unknown format, an unfinished run, or evidence that cannot be joined
   // safely — all before anything leaves the machine, so a refusal uploads nothing.
   const payload: CairnIngestPayload = await readCairnRun(dir);
+  // The recordings are read and sized before the ingest, which declares them on their cases. Never a reason to refuse the run.
+  const session = await readCairnSessionFiles(dir).catch(() => undefined);
+  for (const c of payload.cases) {
+    const screencasts = session?.screencasts.get(c.stableId);
+    if (screencasts !== undefined) c.screencasts = screencasts;
+  }
 
   const doFetch = deps.fetchImpl ?? fetch;
   const endpoint = `${apiUrl}/v1/ingest/cairn`;
@@ -291,7 +297,7 @@ export async function handleIngest(deps: IngestDeps): Promise<IngestResult> {
     // The run the ingest landed in is the job's subject, so the run's page lists it.
     await job.uploaded({ subjectId: result.runId || undefined });
     // The run is recorded by now: nothing about its recordings may turn that into a failure.
-    const files = await sendSessionFiles(dir, { ...sent, runId: result.runId }, { apiUrl, token, ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}) }).catch(
+    const files = await sendSessionFiles(session, { ...sent, runId: result.runId }, { apiUrl, token, ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}) }).catch(
       () => ['session files not uploaded (an unexpected error) — the run is recorded'],
     );
     if (files.length > 0) result.files = files;
