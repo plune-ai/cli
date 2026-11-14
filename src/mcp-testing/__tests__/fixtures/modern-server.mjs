@@ -7,7 +7,11 @@
 // - `bad`: breaks each modern requirement it can, one way per check (see the comments below);
 // - `empty`: `good`, but an unknown resource reads as empty contents;
 // - `unstable`: `good`, but the first page of tools/list changes from one call to the next;
-// - `no-discover`: answers server/discover without capabilities.
+// - `no-discover`: answers server/discover without capabilities;
+// - `sticky`: `good` that also answers initialize while server/discover names only 2026-07-28, and that keeps a process
+//   in the legacy era once a request comes without a protocol version (as the reference server does): a run that sends
+//   such a request on the shared connection reads every later answer of that process in the other era;
+// - `quiet-parse`: `good`, but a line that is not JSON gets no answer (stdio only).
 
 import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
@@ -65,7 +69,7 @@ export function answer(mode, state, msg, emit, end = () => {}) {
     end();
   };
   if (method === 'initialize') {
-    if (mode !== 'dual') return send(error(id, -32601, 'Method not found'));
+    if (mode !== 'dual' && mode !== 'sticky') return send(error(id, -32601, 'Method not found'));
     // A dual-era server: initialize puts this connection in the legacy era.
     state.legacy = true;
     return send({
@@ -78,6 +82,7 @@ export function answer(mode, state, msg, emit, end = () => {}) {
   const meta = params._meta ?? {};
   // bad: a request without the required _meta fields, or for a revision it does not know, is served all the same.
   if (!bad && !state.legacy) {
+    if (mode === 'sticky' && typeof meta[META.version] !== 'string') state.legacy = true;
     if (typeof meta[META.version] !== 'string' || meta[META.capabilities] === null || typeof meta[META.capabilities] !== 'object')
       return send(error(id, -32602, 'Missing required _meta field'));
     if (!supported(mode).includes(meta[META.version]))
@@ -189,6 +194,7 @@ if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.a
     try {
       msg = JSON.parse(line);
     } catch {
+      if (mode === 'quiet-parse') return;
       return write({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } });
     }
     answer(mode, state, msg, write);

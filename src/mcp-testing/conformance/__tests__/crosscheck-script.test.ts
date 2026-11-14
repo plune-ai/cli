@@ -3,13 +3,16 @@
 
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error a plain .mjs script, without types
 import {
+  exactRevision,
   exactVersion,
   folderProblem,
   minimalEnv,
+  plan,
+  shellUnsafe,
 } from '../../../../scripts/conformance-crosscheck.mjs';
 
 const repo = resolve(__dirname, '../../../..');
@@ -34,6 +37,41 @@ describe('CLI · mcp conformance · the cross-check script keeps the third-party
     expect(exactVersion('0.1.16')).toBe(true);
     for (const v of ['^0.1.16', 'latest', '0.1', '1.2.3-alpha', '../x', '1.2.3 && x'])
       expect(exactVersion(v), v).toBe(false);
+  });
+
+  it('no process starts in the folder of the third-party packages, both sides check one revision, every checks.json is kept', () => {
+    const dir = fresh();
+    type Step = { cmd: string; args: string[]; cwd: string };
+    const p = plan(dir, {
+      cli: ['plune'],
+      node: 'node',
+      url: 'http://127.0.0.1:3001/mcp',
+      revision: '2025-11-25',
+      conformance: '0.1.16',
+      everything: '2.3.0',
+    }) as Record<string, Step> & { packages: string; work: string };
+    const steps = ['install', 'server', 'ours', 'list', 'official'].map((k) => p[k] as Step);
+    for (const s of steps) {
+      const inside = relative(p.packages, s.cwd);
+      expect(inside === '' || !inside.startsWith('..'), s.cwd).toBe(false);
+      expect(s.cwd).toBe(p.work);
+    }
+    const after = (s: Step, flag: string) => s.args[s.args.indexOf(flag) + 1];
+    expect(after(p['ours'] as Step, '--protocol-version')).toBe('2025-11-25');
+    expect(after(p['official'] as Step, '--spec-version')).toBe('2025-11-25');
+    expect(after(p['official'] as Step, '-o')).toBe(join(dir, 'official'));
+    expect(after(p['install'] as Step, '--prefix')).toBe(p.packages);
+    expect(after(p['list'] as Step, '--spec-version')).toBe('2025-11-25');
+    // The third-party scripts start with node itself, never through a shell.
+    for (const k of ['server', 'list', 'official']) expect((p[k] as Step).cmd, k).toBe('node');
+    expect(exactRevision('2025-11-25')).toBe(true);
+    for (const v of ['latest', '2025-11', '2025-11-25; x']) expect(exactRevision(v), v).toBe(false);
+  });
+
+  it('an argument the Windows shell would expand or unquote is caught: %NAME%, !NAME! and a quote', () => {
+    for (const a of ['C:/x/%PATH%/out', 'C:/x/!USERNAME!', 'a"b']) expect(shellUnsafe(a), a).toBe(true);
+    for (const a of ['C:/Users/me/out dir', 'http://127.0.0.1:3001/mcp', '@modelcontextprotocol/conformance@0.1.16'])
+      expect(shellUnsafe(a), a).toBe(false);
   });
 
   it('a folder in the repository, one that does not exist yet inside it, or one that is not empty is refused', () => {

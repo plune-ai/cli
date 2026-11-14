@@ -86,8 +86,10 @@ const metaRequired: ConformanceCheck = async (ctx) => {
   ];
   const wrong: string[] = [];
   const got: string[] = [];
+  // Each probe on a connection of its own: a dual-era server may take a request without a version for the legacy era
+  // and keep the process there, which would change what every later check on the shared connection reads.
   for (const [what, meta, codes] of probes) {
-    const a = await callAsIs(ctx, 'server/discover', { _meta: meta });
+    const a = await fresh(ctx, (other) => callAsIs(other, 'server/discover', { _meta: meta }));
     got.push(`${what}: ${said(a)}${status(a)}`);
     const code = a.kind === 'error' && typeof a.code === 'number' && codes.includes(a.code);
     if (!code || (http(ctx) && a.status !== 400)) wrong.push(`${what} answered ${said(a)}${status(a)}`);
@@ -101,7 +103,10 @@ const metaRequired: ConformanceCheck = async (ctx) => {
 };
 
 const unsupportedVersion: ConformanceCheck = async (ctx) => {
-  const a = await callAsIs(ctx, 'server/discover', { _meta: { ...modernMeta(version(ctx)), [META.version]: '1900-01-01' } });
+  // On a connection of its own, so the verdict does not depend on what the checks before it sent on the shared one.
+  const a = await fresh(ctx, (other) =>
+    callAsIs(other, 'server/discover', { _meta: { ...modernMeta(version(ctx)), [META.version]: '1900-01-01' } }),
+  );
   const data = a.kind === 'error' && isObject(a.frame['error']) ? (a.frame['error'] as Record<string, unknown>)['data'] : undefined;
   const supported = isObject(data) ? data['supported'] : undefined;
   const problems: string[] = [];

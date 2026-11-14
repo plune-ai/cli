@@ -9,7 +9,7 @@ import { exchange, header, rawRequest, type Exchange } from '../../raw-http.js';
 import { UNKNOWN_METHOD } from '../base.js';
 import type { ConformanceCheck, ConformanceContext } from '../index.js';
 import { tools } from '../tools.js';
-import { ask, frameOf, message, target, type Asked } from '../transport.js';
+import { ask, frameOf, message, servesLegacy, target, type Asked } from '../transport.js';
 import {
   declares,
   failed,
@@ -20,7 +20,6 @@ import {
   passed,
   some,
   supportedVersions,
-  dualEra,
   walk,
 } from '../wire.js';
 import { headerMarks, paramHeaders, staticallyReachable } from './meta.js';
@@ -226,8 +225,10 @@ const declarations: ConformanceCheck = async (ctx) => {
 };
 
 const noSessionId: ConformanceCheck = async (ctx) => {
-  if (dualEra(ctx))
-    return { state: 'not-applicable', reason: 'era', actual: `server/discover names ${some(supportedVersions(ctx))}: a dual-era server may use sessions.` };
+  const era = await servesLegacy(ctx);
+  if (era.unknown !== undefined) return era.unknown;
+  if (era.legacy !== undefined)
+    return { state: 'not-applicable', reason: 'era', actual: `${era.legacy}: a dual-era server may use sessions.`, details: era.details };
   const a = await ask(ctx, own(ctx), 'server/discover', { set: [['Mcp-Session-Id', 'plune-conformance-session']] });
   const sid = header(a.res.headers, 'mcp-session-id');
   if (sid === undefined) return { ...passed('server/discover sent with Mcp-Session-Id got an answer without one.'), details: [a.detail] };

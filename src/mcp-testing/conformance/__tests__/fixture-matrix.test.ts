@@ -89,6 +89,8 @@ const BROKEN: Record<string, () => Promise<McpConformanceReport>> = {
   'legacy http, an SSE answer that never ends, repeating event ids': () =>
     http({ answer: 'sse', keepOpen: true, eventIds: 'repeat' }),
   'legacy http, answers under another id': () => http({ wrongId: true }),
+  'legacy http, invalid JSON answered as a request': () =>
+    http({ parseResult: true }, { check: ['base-jsonrpc-parse-error'] }),
   'legacy http, one message sent to every GET stream': () =>
     http({ get: 'sse', broadcast: true }, { fixture: FIXTURE }),
   'legacy http, a notification answered 202 with a body': () => http({ notification: 'body202' }),
@@ -99,6 +101,8 @@ const BROKEN: Record<string, () => Promise<McpConformanceReport>> = {
       { sessions: false, answer: 'sse', serverRequest: true, discover: true },
       { protocolVersion: '2026-07-28' },
     ),
+  // Silence on a line that is not JSON: the client may not write one on stdio, so only the advice is red there.
+  'modern stdio, no answer to invalid JSON': () => run({ fixture: FIXTURE }, modernServer('quiet-parse')),
   'modern-only http, GET answered with a stream': () =>
     http(
       { sessions: false, get: 'sse', discover: 'modern-only' },
@@ -112,6 +116,17 @@ const GOOD: Record<string, () => Promise<McpConformanceReport>> = {
   'modern stdio': () => run({ fixture: FIXTURE }, modernServer('good')),
   'legacy http': () => http({ origin: 'check', host: 'check' }),
   'modern http': () => modernHttp({}),
+  // A dual-era server that says so only by answering initialize: GET and DELETE without a session get 400 by the rules
+  // of 2025-11-25, and the 405 asked of a modern-only server is not for it.
+  'dual-era http, server/discover names 2026-07-28 only': () =>
+    http(
+      { sessions: false, get: 400, del: 400, discover: 'names-modern', host: 'check' },
+      { protocolVersion: '2026-07-28' },
+    ),
+  // A process that a request without a protocol version moves to the legacy era: a check may not inherit that from
+  // the checks before it, so the full run gives each check the verdict it gets alone.
+  'dual-era stdio, the era of the process set by an earlier request': () =>
+    run({ fixture: FIXTURE }, modernServer('sticky')),
 };
 
 /** Ids no server here can make red, each with its own reason; the test below holds this list exact. */
@@ -168,12 +183,48 @@ describe('CLI · mcp conformance · every check has a server that makes it red',
   });
 
   it('a server that keeps every requirement has no failed check, on each transport and era', () => {
-    for (const [name, r] of goodRuns)
-      expect(
-        r.checks.filter((c) => c.state === 'failed').map((c) => c.id),
-        name,
-      ).toEqual([]);
+    const failing = Object.fromEntries(
+      [...goodRuns].map(([name, r]) => [name, r.checks.filter((c) => c.state === 'failed').map((c) => c.id)]),
+    );
+    expect(failing).toEqual(Object.fromEntries([...goodRuns.keys()].map((name) => [name, []])));
   });
+
+  it('a stdio server silent on invalid JSON fails the advice only, never a requirement, and keeps its verdict', () => {
+    const r = runs.get('modern stdio, no answer to invalid JSON');
+    expect(r?.checks.filter((c) => c.state === 'failed').map((c) => c.id)).toEqual([
+      'stdio-parse-error-advice',
+    ]);
+    expect(r?.summary.verdict).toBe('passed');
+  });
+
+  it('a dual-era server with sessions that names 2026-07-28 only: both dual-era checks are not-applicable, and the session of the probe is ended', async () => {
+    const served = await serve({ discover: 'names-modern', get: 400, host: 'check' });
+    const r = await run({
+      url: served.url,
+      check: ['mod-no-session-id', 'http-modern-get-delete-405'],
+      protocolVersion: '2026-07-28',
+    });
+    for (const id of ['mod-no-session-id', 'http-modern-get-delete-405']) {
+      const c = r.checks.find((x) => x.id === id);
+      expect(`${c?.state} (${c?.reason})`, id).toBe('not-applicable (era)');
+      expect(c?.actual, id).toContain('initialize sent as a 2025-11-25 client');
+      expect(c?.details?.length, id).toBeGreaterThan(0);
+    }
+    const alive = served.alive();
+    expect(Object.keys(alive).length).toBeGreaterThan(0);
+    expect(Object.values(alive)).not.toContain(true);
+  });
+
+  it('when the legacy probe gets no answer or a server error, the 405 check is could-not-run, never judged as modern-only', async () => {
+    const at = async (initStatus: number | 'hang') => {
+      const served = await serve({ sessions: false, discover: 'names-modern', get: 400, del: 400, initStatus });
+      const r = await run({ url: served.url, check: ['http-modern-get-delete-405'], protocolVersion: '2026-07-28' });
+      const c = r.checks[0];
+      return `${c?.state} (${c?.reason})`;
+    };
+    expect(await at('hang')).toBe('could-not-run (timeout)');
+    expect(await at(503)).toBe('could-not-run (transport-error)');
+  }, 30_000);
 
   it('what a good server leaves unmeasured always comes with a reason', () => {
     for (const [name, r] of goodRuns)

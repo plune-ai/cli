@@ -89,7 +89,7 @@ describe('CLI · mcp conformance · checks against a server that keeps and one t
       expect(c.specRef, c.id).toMatch(/^https:\/\/modelcontextprotocol\.io\/specification\//);
     }
     const actual = (id: string) => report!.checks.find((c) => c.id === id)?.actual;
-    expect(actual('base-jsonrpc-parse-error')).toContain('no answer');
+    expect(actual('stdio-parse-error-advice')).toContain('no answer');
     expect(actual('base-response-id-matches')).toContain('both result and error');
     expect(actual('stdio-stdout-clean')).toContain('"server starting"');
     expect(actual('tools-name-unique')).toContain('dup');
@@ -216,7 +216,7 @@ describe('CLI · mcp conformance · checks against a server that keeps and one t
     // Every list is declared, so this one asks nothing; a check that sends nothing breaks the row of timeouts.
     expect(s['life-capabilities-served-declared']).toBe('passed');
     expect(s['life-ping-empty-result']).toBe('could-not-run (timeout)');
-    expect(s['base-jsonrpc-parse-error']).toBe('could-not-run (timeout)');
+    expect(s['stdio-parse-error-advice']).toBe('could-not-run (timeout)');
     const skipped = report!.checks.filter((c) => c.actual.startsWith('Not run: 2 checks in a row timed out'));
     expect(skipped.map((c) => c.id)).toEqual(
       report!.checks.slice(report!.checks.findIndex((c) => c.id === 'base-unknown-method-error')).filter((c) => c.state === 'could-not-run').map((c) => c.id),

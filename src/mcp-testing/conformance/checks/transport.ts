@@ -22,7 +22,7 @@ import {
 } from '../raw-http.js';
 import type { ConformanceCheck, ConformanceContext } from './index.js';
 import { CLIENT, modernMeta } from './modern/meta.js';
-import { dualEra, failed, isObject, nextId, notOffered, passed, prerequisite, some, supportedVersions } from './wire.js';
+import { failed, isObject, nextId, notOffered, passed, prerequisite, some, supportedVersions } from './wire.js';
 
 const ACCEPT = 'application/json, text/event-stream';
 /** How long a stream is watched for its end once the response came on it. */
@@ -361,12 +361,77 @@ const getStreamOr405: ConformanceCheck = async (ctx) => {
   };
 };
 
+/** What a modern run found out about the legacy era of its server, with the exchange that told it. */
+export interface LegacyProbe {
+  /** Why the server serves 2025-11-25 as well (dual-era), or undefined when it does not. */
+  legacy?: string;
+  /** The probe could not tell (a timeout, a network error, an answer that says nothing): the outcome to report. */
+  unknown?: CheckOutcome;
+  details: Exchange[];
+}
+
+/**
+ * Whether a server of a modern run serves the legacy era as well (dual-era): server/discover names a revision before
+ * 2026-07-28, or an initialize sent as a 2025-11-25 client sends it (no MCP-Protocol-Version, no modern _meta) is
+ * answered with an initialize result. A server may name 2026-07-28 only and still answer it. Asked once per run; a
+ * session the probe opened is ended with a DELETE.
+ */
+export function servesLegacy(ctx: ConformanceContext): Promise<LegacyProbe> {
+  return ctx.memo('serves legacy', async (): Promise<LegacyProbe> => {
+    const named = supportedVersions(ctx).filter((v) => v < '2026-07-28');
+    if (named.length > 0) return { legacy: `server/discover names ${some(supportedVersions(ctx))}`, details: [] };
+    const t = target(ctx);
+    const id = nextId();
+    const params = { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: CLIENT };
+    const req: RawRequest = {
+      method: 'POST',
+      headers: [
+        ['Content-Type', 'application/json'],
+        ['Accept', ACCEPT],
+      ],
+      body: JSON.stringify({ jsonrpc: '2.0', id, method: 'initialize', params }),
+    };
+    let res: RawResponse;
+    try {
+      res = await rawRequest(t, req, { stopWhen: (e) => answers(e.data, id) !== undefined });
+    } catch (err) {
+      const details = [exchange(t, req)];
+      const timeout = err instanceof ConnectError && err.kind === 'timeout';
+      return {
+        details,
+        unknown: {
+          state: 'could-not-run',
+          reason: timeout ? 'timeout' : 'transport-error',
+          actual: `Whether the server serves 2025-11-25 as well could not be told: an initialize sent as a 2025-11-25 client sends it got ${timeout ? 'no answer in time' : 'no answer'} (${err instanceof Error ? err.message : String(err)}).`,
+          details,
+        },
+      };
+    }
+    const details = [exchange(t, req, res)];
+    const stop = unjudged(res, details);
+    if (stop !== undefined) return { details, unknown: stop };
+    const sid = header(res.headers, 'mcp-session-id');
+    if (sid !== undefined) {
+      const end: RawRequest = { method: 'DELETE', headers: [['Mcp-Session-Id', sid], ['MCP-Protocol-Version', '2025-11-25']] };
+      const ended = await rawRequest(t, end, { headersOnly: true }).catch(() => undefined);
+      details.push(exchange(t, end, ended));
+    }
+    const result = frameOf(res, id)?.['result'];
+    return isObject(result) && typeof result['protocolVersion'] === 'string'
+      ? { legacy: `initialize sent as a 2025-11-25 client answered protocolVersion ${result['protocolVersion']}`, details }
+      : { details };
+  });
+}
+
 const modernGetDelete405: ConformanceCheck = async (ctx) => {
-  if (dualEra(ctx))
+  const era = await servesLegacy(ctx);
+  if (era.unknown !== undefined) return era.unknown;
+  if (era.legacy !== undefined)
     return {
       state: 'not-applicable',
       reason: 'era',
-      actual: `server/discover names ${some(supportedVersions(ctx))}: the server serves the legacy era as well (dual-era).`,
+      actual: `${era.legacy}: the server serves the legacy era as well (dual-era).`,
+      details: era.details,
     };
   const s = await session(ctx);
   if (isOutcome(s)) return s;
