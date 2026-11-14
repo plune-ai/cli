@@ -62,6 +62,12 @@ const open = (port) =>
     s.once('error', () => done(false));
   });
 
+/**
+ * A word cmd.exe would still read inside double quotes: `%NAME%` and `!NAME!` expand, and a quote ends the quoting.
+ * Only npm and a CLI shim go through the shell on Windows; such an argument is refused for them, never passed on.
+ */
+export const shellUnsafe = (a) => /[%!"]/.test(a);
+
 /** A revision as the specification names it: a date. */
 export const exactRevision = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v);
 
@@ -94,7 +100,7 @@ export function plan(dir, { cli, node, url, revision, conformance, everything })
         '--format', 'json', '--out', join(dir, 'run-ours.json')],
       cwd: work,
     },
-    list: { cmd: node, args: [official, 'list', '--server'], cwd: work },
+    list: { cmd: node, args: [official, 'list', '--server', '--spec-version', revision], cwd: work },
     official: {
       cmd: node,
       args: [official, 'server', '--url', url, '--suite', 'all', '--spec-version', revision, '-o', join(dir, 'official')],
@@ -132,10 +138,16 @@ async function main() {
   mkdirSync(p.packages, { recursive: true });
 
   const env = minimalEnv(process.env);
-  // On Windows npm is a .cmd file and needs a shell, which joins the arguments as text: quote the ones with a space.
+  // On Windows npm (and a CLI shim) is a .cmd file and needs a shell, which joins the arguments as text: quote the ones
+  // with a space, refuse the ones it would expand. Node itself is started without a shell.
   const win = process.platform === 'win32';
-  const quote = (a) => (win && /[\s&|<>^()]/.test(a) ? `"${a.replaceAll('"', '')}"` : a);
-  const run = ({ cmd, args: argv, cwd }) => spawnSync(quote(cmd), argv.map(quote), { cwd, encoding: 'utf8', shell: win, env });
+  const quote = (a) => (/[\s&|<>^()]/.test(a) ? `"${a}"` : a);
+  const run = ({ cmd, args: argv, cwd }) => {
+    if (!win || cmd === process.execPath) return spawnSync(cmd, argv, { cwd, encoding: 'utf8', env });
+    const unsafe = [cmd, ...argv].find(shellUnsafe);
+    if (unsafe !== undefined) stop(`${unsafe} holds %, ! or a quote, which the Windows shell would read: choose another --out or --cli.`, 2);
+    return spawnSync(quote(cmd), argv.map(quote), { cwd, encoding: 'utf8', shell: true, env });
+  };
 
   const install = run(p.install);
   if (install.status !== 0) stop(install.stderr, 1);

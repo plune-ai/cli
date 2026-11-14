@@ -197,6 +197,35 @@ describe('CLI · mcp conformance · every check has a server that makes it red',
     expect(r?.summary.verdict).toBe('passed');
   });
 
+  it('a dual-era server with sessions that names 2026-07-28 only: both dual-era checks are not-applicable, and the session of the probe is ended', async () => {
+    const served = await serve({ discover: 'names-modern', get: 400, host: 'check' });
+    const r = await run({
+      url: served.url,
+      check: ['mod-no-session-id', 'http-modern-get-delete-405'],
+      protocolVersion: '2026-07-28',
+    });
+    for (const id of ['mod-no-session-id', 'http-modern-get-delete-405']) {
+      const c = r.checks.find((x) => x.id === id);
+      expect(`${c?.state} (${c?.reason})`, id).toBe('not-applicable (era)');
+      expect(c?.actual, id).toContain('initialize sent as a 2025-11-25 client');
+      expect(c?.details?.length, id).toBeGreaterThan(0);
+    }
+    const alive = served.alive();
+    expect(Object.keys(alive).length).toBeGreaterThan(0);
+    expect(Object.values(alive)).not.toContain(true);
+  });
+
+  it('when the legacy probe gets no answer or a server error, the 405 check is could-not-run, never judged as modern-only', async () => {
+    const at = async (initStatus: number | 'hang') => {
+      const served = await serve({ sessions: false, discover: 'names-modern', get: 400, del: 400, initStatus });
+      const r = await run({ url: served.url, check: ['http-modern-get-delete-405'], protocolVersion: '2026-07-28' });
+      const c = r.checks[0];
+      return `${c?.state} (${c?.reason})`;
+    };
+    expect(await at('hang')).toBe('could-not-run (timeout)');
+    expect(await at(503)).toBe('could-not-run (transport-error)');
+  }, 30_000);
+
   it('what a good server leaves unmeasured always comes with a reason', () => {
     for (const [name, r] of goodRuns)
       for (const c of r.checks.filter(

@@ -199,7 +199,7 @@ export const CATALOG: readonly CatalogEntry[] = [
     id: 'base-jsonrpc-parse-error',
     title: 'Invalid JSON is a parse error',
     description:
-      'A message that is not valid JSON gets the error -32700 with id: null. Over HTTP only: on stdio the client may not send such a line at all, and stdio-parse-error-advice reads the answer there.',
+      'A message that is not valid JSON gets the error -32700 with id: null. Over HTTP only: on stdio the client may not send such a line at all, and stdio-parse-error-advice reads the answer there. Over HTTP the endpoint is open to any POST, not only to what an MCP client writes, so the JSON-RPC 2.0 rule stands there: an input it cannot accept gets an error (https://modelcontextprotocol.io/specification/2025-11-25/basic/transports, Sending Messages to the Server).',
     level: 'MUST',
     derived: true,
     derivation:

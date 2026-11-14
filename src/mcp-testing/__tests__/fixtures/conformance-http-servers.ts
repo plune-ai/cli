@@ -56,6 +56,8 @@ export interface Opts {
   noEndpoint?: boolean;
   /** A body that is not JSON answered with a result, as if it were a request, instead of 400. */
   parseResult?: boolean;
+  /** initialize answered with this status and no body, or never answered (`hang`). */
+  initStatus?: number | 'hang';
 }
 
 export interface Served extends Fixture {
@@ -63,6 +65,8 @@ export interface Served extends Fixture {
   bodies: { headers: IncomingMessage['headers']; body: string }[];
   /** How many flooded streams the client has closed so far. */
   closed(): number;
+  /** Whether each session id the server minted is still alive (a DELETE ends it). */
+  alive(): Record<string, boolean>;
 }
 
 export async function serve(o: Opts = {}): Promise<Served> {
@@ -121,6 +125,8 @@ export async function serve(o: Opts = {}): Promise<Served> {
           return res.writeHead(200, { 'content-type': 'application/json' }).end('{"jsonrpc":"2.0","id":"x","result":{}}');
         return res.writeHead(400).end();
       }
+      if (msg.method === 'initialize' && o.initStatus === 'hang') return;
+      if (msg.method === 'initialize' && typeof o.initStatus === 'number') return res.writeHead(o.initStatus).end();
       if (msg.method === 'initialize' && o.discover === 'modern-only')
         return res
           .writeHead(400, { 'content-type': 'application/json' })
@@ -152,7 +158,9 @@ export async function serve(o: Opts = {}): Promise<Served> {
         return res.writeHead(404).end();
       if (o.redirect !== undefined && msg.id !== undefined)
         return res.writeHead(307, { location: `${o.redirect}${req.url ?? '/'}` }).end();
-      if (sessionIds !== false && o.lax !== true) {
+      // names-modern: a request of the modern era (it carries Mcp-Method) needs no session; a legacy one does.
+      const modern = o.discover === 'names-modern' && req.headers['mcp-method'] !== undefined;
+      if (sessionIds !== false && o.lax !== true && !modern) {
         if (sid === undefined) return res.writeHead(o.refuse ?? 400).end();
         if (state?.alive !== true) return res.writeHead(o.refuse ?? 404).end();
       }
@@ -265,6 +273,7 @@ export async function serve(o: Opts = {}): Promise<Served> {
     requests,
     bodies,
     closed: () => closedStreams,
+    alive: () => Object.fromEntries([...sessions].map(([id, s]) => [id, s.alive])),
     close: () =>
       new Promise<void>((resolve) => {
         server.closeAllConnections();

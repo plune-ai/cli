@@ -1,6 +1,7 @@
 // The conformance model as pure functions: the catalog against the registry of implementations, the frozen profile,
 // and the score and verdict of a set of verdicts. No server, no process.
 
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -13,6 +14,25 @@ import { BUCKETS, exitCodeOf, floorScore, summarize, summaryLine } from '../scor
 /** The digest each profile version was frozen with. A new list is a new version, and a new line here. */
 const FROZEN: Record<string, string> = {
   '2026-11.1': '466f528105d991a6734e4d9b03572d3f4882e393a0623f06831be3acd7c2e200',
+  // The same ids: base-jsonrpc-parse-error moved to HTTP only, which changes the score of a stdio server.
+  '2026-11.2': '466f528105d991a6734e4d9b03572d3f4882e393a0623f06831be3acd7c2e200',
+};
+
+/**
+ * Where each id of the profile applies (kind, level, eras, transports), per version: an id moved to another transport
+ * or era leaves or joins the denominator, so it re-scores a server and needs a new version as a new list does.
+ */
+const RULES: Record<string, string> = {
+  '2026-11.1': 'a00f6a2d31a8e9c381bc38d97f709927401b9ae789aba425c5a8f34c0d4655df',
+  '2026-11.2': '95caebf216f085d053c2615d55152b6c9318094ae3e9544bba5a67bf865696be',
+};
+const rulesDigest = (ids: readonly string[]) => {
+  const byId = new Map(CATALOG.map((e) => [e.id, e]));
+  const lines = [...ids].sort().map((id) => {
+    const e = byId.get(id);
+    return `${id} ${e?.kind} ${e?.level} ${[...(e?.eras ?? [])].sort().join(',')} ${[...(e?.transports ?? [])].sort().join(',')}`;
+  });
+  return createHash('sha256').update(lines.join('\n')).digest('hex');
 };
 
 const PROFILE_SOURCE = fileURLToPath(new URL('../profile.ts', import.meta.url));
@@ -79,6 +99,17 @@ describe('CLI · mcp conformance · frozen profile', () => {
   it('the digest is the one its version was frozen with', () => {
     expect(manifestDigest(PROFILE.checks)).toBe(FROZEN[PROFILE.version]);
     expect(PROFILE.version).toMatch(/^\d{4}-\d{2}\.\d+$/);
+  });
+
+  it('where each id of the profile applies is what its version was frozen with: a change of transport or era is a new version', () => {
+    expect(rulesDigest(PROFILE.checks)).toBe(RULES[PROFILE.version]);
+  });
+
+  it('a saved 2026-11.1 stdio result with base-jsonrpc-parse-error failed still scores as it recorded: failed', () => {
+    const ids = PROFILE.checks.filter((id) => id !== 'base-jsonrpc-parse-error');
+    const s = summarize([...ids.map((id) => v(id, 'passed')), v('base-jsonrpc-parse-error', 'failed')]);
+    expect(s.verdict).toBe('failed');
+    expect(s.failed).toEqual(['base-jsonrpc-parse-error']);
   });
 
   it('the digest does not depend on the order, and changes with the set', () => {

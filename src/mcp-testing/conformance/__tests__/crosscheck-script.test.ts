@@ -12,6 +12,7 @@ import {
   folderProblem,
   minimalEnv,
   plan,
+  shellUnsafe,
 } from '../../../../scripts/conformance-crosscheck.mjs';
 
 const repo = resolve(__dirname, '../../../..');
@@ -60,8 +61,17 @@ describe('CLI · mcp conformance · the cross-check script keeps the third-party
     expect(after(p['official'] as Step, '--spec-version')).toBe('2025-11-25');
     expect(after(p['official'] as Step, '-o')).toBe(join(dir, 'official'));
     expect(after(p['install'] as Step, '--prefix')).toBe(p.packages);
+    expect(after(p['list'] as Step, '--spec-version')).toBe('2025-11-25');
+    // The third-party scripts start with node itself, never through a shell.
+    for (const k of ['server', 'list', 'official']) expect((p[k] as Step).cmd, k).toBe('node');
     expect(exactRevision('2025-11-25')).toBe(true);
     for (const v of ['latest', '2025-11', '2025-11-25; x']) expect(exactRevision(v), v).toBe(false);
+  });
+
+  it('an argument the Windows shell would expand or unquote is caught: %NAME%, !NAME! and a quote', () => {
+    for (const a of ['C:/x/%PATH%/out', 'C:/x/!USERNAME!', 'a"b']) expect(shellUnsafe(a), a).toBe(true);
+    for (const a of ['C:/Users/me/out dir', 'http://127.0.0.1:3001/mcp', '@modelcontextprotocol/conformance@0.1.16'])
+      expect(shellUnsafe(a), a).toBe(false);
   });
 
   it('a folder in the repository, one that does not exist yet inside it, or one that is not empty is refused', () => {

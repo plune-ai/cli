@@ -955,7 +955,7 @@ end; the report's `ownSessions` says how many were opened, closed and left open 
   `http-origin-invalid-403` is `could-not-run` (`prerequisite-failed`), not `passed`.
 - `http-close-cancels` (a closed stream cancels the call) shows only in the effects of a tool, so it is
   `could-not-run` (`needs-input`) for now. Over stdio every `http-*` check is `not-applicable` (`transport`), and over
-  HTTP+SSE `could-not-run` (`transport-error`). None of them is in profile `2026-11.1`, so they show their verdict and
+  HTTP+SSE `could-not-run` (`transport-error`). None of them is in profile `2026-11.2`, so they show their verdict and
   stay out of the score until a new profile lists them.
 
 ### The 2026-07-28 revision (modern era)
@@ -1006,7 +1006,7 @@ parameters. The `mod-*` checks (31) are `not-applicable` (`era`) in a legacy run
   roots. Without `--fixture` it is `could-not-run` (`needs-input`).
 
 Where the text of the specification leaves a choice, the catalog entry (`--explain <id>`) says which reading the
-check takes. None of the `mod-*` checks is in profile `2026-11.1`: they show their verdict and stay out of the score
+check takes. None of the `mod-*` checks is in profile `2026-11.2`: they show their verdict and stay out of the score
 until a new profile lists them.
 
 ### Options
@@ -1066,7 +1066,7 @@ measured; else `passed`.
 ### The profile
 
 The score reads only the ids of a frozen profile, written out in the source and named in every result:
-`profileId`, `profileVersion` (`2026-11.1`), `manifestDigest` (SHA-256 of the sorted ids, one per line). A check
+`profileId`, `profileVersion` (`2026-11.2`), `manifestDigest` (SHA-256 of the sorted ids, one per line). A check
 added to the catalog later runs and shows its verdict, but stays in `pending` (and `pendingCheckIds`) until a new
 profile version lists it, so it never changes the score or the exit code of a server measured before. The result
 also records `checkerVersion` (this CLI's version), `protocolVersion`, `protocolVersionRequested`, `era`, `eraDetection`, `schemaVersion: 1`
