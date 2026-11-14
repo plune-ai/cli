@@ -64,6 +64,8 @@ export interface Upload {
   type: string;
   path?: string;
   body?: Buffer;
+  /** The `key` an ingest declared this file by on its review item; sent with the file's step 1 so the platform matches it. */
+  key?: string;
 }
 
 /**
@@ -386,7 +388,7 @@ export function fileSender(options: FileSenderOptions) {
   function ask(job: Upload, size: number) {
     requests += 1;
     return client.post<{ files?: unknown[] }>(`${filesOf(job)}/uploads`, {
-      files: [{ name: job.name, contentType: job.type, size }],
+      files: [{ name: job.name, contentType: job.type, size, ...(job.key !== undefined ? { key: job.key } : {}) }],
     }, uploadRetries);
   }
 
