@@ -23,6 +23,7 @@ const FROZEN: Record<string, string> = {
  * or era leaves or joins the denominator, so it re-scores a server and needs a new version as a new list does.
  */
 const RULES: Record<string, string> = {
+  // Kept as history, not re-checked: only the current version is compared with today's catalog.
   '2026-11.1': 'a00f6a2d31a8e9c381bc38d97f709927401b9ae789aba425c5a8f34c0d4655df',
   '2026-11.2': '95caebf216f085d053c2615d55152b6c9318094ae3e9544bba5a67bf865696be',
 };

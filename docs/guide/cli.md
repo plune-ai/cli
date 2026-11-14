@@ -1068,7 +1068,9 @@ measured; else `passed`.
 The score reads only the ids of a frozen profile, written out in the source and named in every result:
 `profileId`, `profileVersion` (`2026-11.2`), `manifestDigest` (SHA-256 of the sorted ids, one per line). A check
 added to the catalog later runs and shows its verdict, but stays in `pending` (and `pendingCheckIds`) until a new
-profile version lists it, so it never changes the score or the exit code of a server measured before. The result
+profile version lists it, so it never changes the score or the exit code of a server measured before. A change in
+where a listed id applies (its eras or transports) also means a new profile version: `2026-11.2` lists the same ids as
+`2026-11.1` and differs from it only in `base-jsonrpc-parse-error`, which no longer counts on stdio. The result
 also records `checkerVersion` (this CLI's version), `protocolVersion`, `protocolVersionRequested`, `era`, `eraDetection`, `schemaVersion: 1`
 and, per check, `class`, `level`, `state`, `reason`, `expected`, `actual`, `fix`, `specRef` and, for the HTTP
 checks, `details` (each request with its method, URL and headers, and the status, headers, body, number of SSE events
