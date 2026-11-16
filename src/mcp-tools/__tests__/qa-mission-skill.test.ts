@@ -95,6 +95,51 @@ describe('the qa-mission skill', () => {
     }
   });
 
+  it('shows a strategy the platform would not refuse: every item rests on exactly one basis', () => {
+    // The platform's `strategy_lint` refuses an item with no basis (`source-missing`) or two (`basis-ambiguous`);
+    // the schema above does not, so a copied example could still be refused.
+    const json = /<!-- input: plune_strategy_propose -->\r?\n```json\r?\n([\s\S]*?)\r?\n```/.exec(
+      all,
+    )![1]!;
+    type Item = { source?: unknown; assumption?: boolean; waitingOn?: string };
+    const c = (JSON.parse(json) as { content: Record<string, never> }).content as {
+      objectives: Item[];
+      scope: { in: Item[]; out: Item[] };
+      approach: Item[];
+      profile: { notes?: Item[] };
+      risks: Item[];
+      entryCriteria: Item[];
+      exitCriteria: Item[];
+    };
+    const items = Object.entries({
+      objectives: c.objectives,
+      'scope.in': c.scope.in,
+      'scope.out': c.scope.out,
+      approach: c.approach,
+      'profile.notes': c.profile.notes ?? [],
+      risks: c.risks,
+      entryCriteria: c.entryCriteria,
+      exitCriteria: c.exitCriteria,
+    }).flatMap(([path, xs]) => xs.map((item, i) => [`${path}[${i}]`, item] as const));
+    expect(items.length).toBeGreaterThanOrEqual(8);
+    for (const [path, item] of items) {
+      const bases = [
+        item.source !== undefined,
+        item.assumption === true,
+        item.waitingOn !== undefined,
+      ];
+      expect(bases.filter(Boolean).length, path).toBe(1);
+    }
+  });
+
+  it('sends the cases with their mission, so the queue can be counted by mission', () => {
+    expect(stage(3)).toContain('plune_case_propose(target, missionId, cases, dry_run)');
+    const json = /<!-- input: plune_case_propose -->\r?\n```json\r?\n([\s\S]*?)\r?\n```/.exec(
+      all,
+    )![1]!;
+    expect(JSON.parse(json)).toHaveProperty('missionId');
+  });
+
   it('reads the accepted memory rules at the start and proposes a new one only to the review queue', () => {
     const skill = texts.get('SKILL.md')!;
     const context = skill.indexOf('`plune_project_context()`');
