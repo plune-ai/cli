@@ -15,7 +15,9 @@ mission with your own agent and the Plune MCP tools. The agent:
    (`docs/testing/test-strategy.md` by default), and proposes it to the mission with
    `plune_strategy_propose` when there is one;
 3. **Implementation.** Proposes 20 or more test cases to the review queue with `plune_case_propose`. They
-   become cases only when a person approves them;
+   become cases only when a person approves them. A product with an AI feature also gets an eval set in
+   `plune.yaml` (`llm-judge`, `faithfulness`, `answer-relevance`, each row run several times), proposed
+   in a pull request where [eval-action](https://github.com/plune-ai/eval-action) comments the diff;
 4. **Execution.** Skipped: the skill designs the testing and starts no run;
 5. **Completion.** Once a person has accepted the strategy, asks the platform for the mission report
    (`plune_report_request`), which waits in the queue for approval.

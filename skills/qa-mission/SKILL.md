@@ -181,6 +181,14 @@ the surfaces in the order above. Prefer a technique the profile names, and write
 - Not connected: write the cases to `docs/testing/test-cases.md` next to the strategy, one
   heading per case with its steps, expected result, technique, priority and source.
 
+The LLM surface is switched on only when the product has an AI feature (a chatbot, an answer a model
+writes, an agent), read in a source. Its cases are not steps for a person: they are evals in a
+`plune.yaml` eval set, on the assertions `llm-judge`, `faithfulness` and `answer-relevance`, each row
+run several times (`runs` and `pass_threshold`) because a model does not answer the same way twice.
+The review queue takes cases with steps only, so the eval set goes to a person in a pull request
+instead, where eval-action runs it and comments the diff; ask the user before you push or open it.
+How to build the set and the workflow is in [references/llm-evals.md](references/llm-evals.md).
+
 Do not approve your own proposals and do not call any tool that decides queue entries.
 
 ## Stage 4: Execution
@@ -228,7 +236,7 @@ final message:
 |---|---|---|---|
 | 1. Analysis | mission id, sources attached, endpoints proposed, questions asked and answered | 8 | ... |
 | 2. Design | strategy file path, proposed or not | 2 | ... |
-| 3. Implementation | cases proposed, applied | 2 | ... |
+| 3. Implementation | cases proposed, applied; eval set and its pull request, if any | 2 | ... |
 | 4. Execution | skipped: a person reviews the cases first | 0 | skipped |
 | 5. Completion | report requested or not, memory rules proposed | 2 | ... |
 
@@ -239,6 +247,6 @@ number. A stage you skipped gets a row with `skipped` and the reason.
 ## Finish
 
 End with a short message: the strategy file path, whether the strategy was proposed, how many
-sources and endpoints you attached or proposed, how many cases were proposed and applied, whether
+sources and endpoints you attached or proposed, how many cases were proposed and applied, the eval set and its pull request (or why there is no LLM surface), whether
 the report was requested, the memory rules you followed and the ones you proposed, the questions
 still open, and the stage log table.
