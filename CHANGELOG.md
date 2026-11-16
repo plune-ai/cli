@@ -11,6 +11,13 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.39.2] - 2026-11-16
+
+### Changed
+
+- **The `qa-mission` skill's examples pass the platform's strategy checks and carry the mission.** Every item of the strategy example rests on exactly one basis (`source`, `assumption` or `waitingOn`), so a strategy written from it is not refused, and `plune_case_propose` is called with `missionId`, so the proposed cases stay on the mission's review queue.
+- **The `qa-mission` skill covers an AI feature's answers.** Only when the product has an AI feature, the strategy gets a surface for the LLM's answers, and its checks become an eval set in `plune.yaml` (`llm-judge`, `faithfulness`, `answer-relevance`, with `runs` of 5 or more and a `pass_threshold`), reviewed through a pull request and the eval action rather than the review queue.
+
 ## [0.39.1] - 2026-11-14
 
 ### Added
