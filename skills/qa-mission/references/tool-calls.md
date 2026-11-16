@@ -93,10 +93,10 @@ refuses the strategy with `strategy_lint` and a finding (rule and path) for each
   "content": {
     "objectives": [{ "text": "Show that sign-up and sign-in work for a new user", "source": { "kind": "doc-section", "ref": "README.md#getting-started" } }],
     "scope": {
-      "in": [{ "text": "Sign-up, sign-in, password reset" }],
-      "out": [{ "text": "Billing: handled by the payment provider, not by this product" }]
+      "in": [{ "text": "Sign-up, sign-in, password reset", "source": { "kind": "doc-section", "ref": "README.md#features" } }],
+      "out": [{ "text": "Billing: handled by the payment provider, not by this product", "assumption": true }]
     },
-    "approach": [{ "text": "Risk-based: the highest risks get cases first" }],
+    "approach": [{ "text": "Risk-based: the highest risks get cases first", "assumption": true }],
     "profile": {
       "levels": ["system", "acceptance"],
       "characteristics": ["functional-suitability", "security"],
@@ -104,9 +104,9 @@ refuses the strategy with `strategy_lint` and a finding (rule and path) for each
       "split": { "api": 40, "ui": 40, "manual": 20 },
       "notes": [{ "text": "Staging is the only environment", "assumption": true }]
     },
-    "risks": [{ "text": "A reset link can be used twice", "likelihood": "medium", "impact": "high" }],
-    "entryCriteria": [{ "text": "A build is deployed to staging" }],
-    "exitCriteria": [{ "text": "Every high risk has a passed case" }]
+    "risks": [{ "text": "A reset link can be used twice", "likelihood": "medium", "impact": "high", "assumption": true }],
+    "entryCriteria": [{ "text": "A build is deployed to staging", "waitingOn": "q_123" }],
+    "exitCriteria": [{ "text": "Every high risk has a passed case", "assumption": true }]
   }
 }
 ```
@@ -120,6 +120,7 @@ refuses the strategy with `strategy_lint` and a finding (rule and path) for each
 ```json
 {
   "target": "https://staging.example.com",
+  "missionId": "m_123",
   "dry_run": true,
   "cases": [
     {

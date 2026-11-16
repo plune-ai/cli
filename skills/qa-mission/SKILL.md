@@ -170,8 +170,9 @@ Design at least 20 cases from the strategy: the highest risks first, every in-sc
 covered at least once, each case with steps a person can follow and one expected result. Go through
 the surfaces in the order above. Prefer a technique the profile names, and write it in the case.
 
-- Connected: send them with `plune_case_propose(target, cases, dry_run)`. `target` is the
-  product address or the mission name; pass `missionId` too, so the queue can be read by mission.
+- Connected: send them with `plune_case_propose(target, missionId, cases, dry_run)`. `target` is
+  the product address or the mission name; `missionId` is the mission's id, so the queue can be read
+  by mission and a person can count how many of its cases were approved as proposed.
   At most 100 cases go in one call. Call it first with `dry_run` `true`, fix what the answer
   refuses, then send the same cases once without `dry_run`; they land in the review queue as
   proposals. Report how many the answer says were
