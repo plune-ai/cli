@@ -3,6 +3,9 @@
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
+import { createDefaultRegistry } from '../../assertions/registry.js';
+import { pluneConfigSchema } from '../../config/schema.js';
 import { isPluneToolName, pluneTool } from '../index.js';
 
 const dir = new URL('../../../skills/qa-mission/', import.meta.url);
@@ -310,6 +313,42 @@ describe('the qa-mission skill', () => {
         .replace(/\s+/g, ' ');
       expect(execution).toMatch(/skipped/);
       expect(execution).toMatch(/do not start a run/i);
+    });
+  });
+
+  describe('the LLM surface', () => {
+    const ref = texts.get('references/llm-evals.md') ?? '';
+    const config = /<!-- config: plune\.yaml -->\r?\n```yaml\r?\n([\s\S]*?)\r?\n```/.exec(ref)?.[1];
+
+    it('is switched on only for a product with an AI feature, and its cases are evals in a pull request', () => {
+      const t = flatten(stage(3));
+      expect(t).toMatch(/only when the product has an AI feature/);
+      expect(t).toContain('[references/llm-evals.md](references/llm-evals.md)');
+      for (const word of ['`plune.yaml`', 'eval-action', 'pull request', 'review queue'])
+        expect(t, word).toContain(word);
+    });
+
+    it('shows an eval set the CLI accepts, on its LLM assertions, with repeats for non-determinism', () => {
+      expect(config, 'the plune.yaml example').toBeDefined();
+      const parsed = pluneConfigSchema.safeParse(parse(config!));
+      expect(parsed.error?.issues).toBeUndefined();
+      const evals = parsed.data!.evals;
+      const kinds = new Set(evals.flatMap((e) => e.assertions.map((a) => a.type)));
+      for (const kind of ['llm-judge', 'faithfulness', 'answer-relevance'])
+        expect(kinds.has(kind as never), kind).toBe(true);
+      const registry = createDefaultRegistry();
+      for (const kind of kinds) expect(registry.has(kind), kind).toBe(true);
+      // pass^k: every eval repeats, and a threshold below 1 needs at least 5 runs.
+      for (const e of evals) {
+        expect(e.runs ?? parsed.data!.runs ?? 1, e.id).toBeGreaterThanOrEqual(5);
+        expect(e.pass_threshold ?? parsed.data!.pass_threshold, e.id).toBeDefined();
+      }
+    });
+
+    it('runs the eval set in a pull request with eval-action, on a real model', () => {
+      expect(ref).toContain('uses: plune-ai/eval-action@v1');
+      expect(ref).toContain("use-mock: 'false'");
+      expect(flatten(ref)).toMatch(/judge calibration/i);
     });
   });
 
