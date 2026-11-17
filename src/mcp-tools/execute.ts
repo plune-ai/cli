@@ -225,7 +225,7 @@ export function createPluneToolExecutor(opts: PluneToolExecutorOptions): PluneTo
       const query = withoutUndefined({
         ...(i['filters'] as Record<string, string | string[]> | undefined),
         // A full case weighs ~160 estimated tokens, so the platform's own page of up to 200 filled a model's context
-        // in one answer (plune-ai/plune#2423); 20 a page, the rest a cursor away, unless the caller asks for more.
+        // in one answer; 20 a page, the rest a cursor away, unless the caller asks for more.
         limit: String(i['limit'] ?? 20),
         cursor: i['cursor'] as string | undefined,
         stability: '0',
