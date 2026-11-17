@@ -31,4 +31,26 @@ export const PRICE_TABLE: PricingMap = {
   // in plune.yaml (or report cost_usd=0). Verify against OpenRouter's current rates.
   'openai/gpt-4o': { input_per_1k_usd: 0.0025, output_per_1k_usd: 0.01 },
   'openai/gpt-4o-mini': { input_per_1k_usd: 0.00015, output_per_1k_usd: 0.0006 },
+  // Via OpenRouter, the models the agent scenarios workflow can be run on. Source:
+  // https://openrouter.ai/api/v1/models (`pricing`, USD per token), read on 2026-11-18, kept here
+  // per thousand. A real OpenRouter call reports its own cost, which wins over these; they price a
+  // dry run and any call that reports none. Long prompts may cost more on some of them.
+  // The cheap set:
+  'deepseek/deepseek-v4-flash': { input_per_1k_usd: 0.00009, output_per_1k_usd: 0.00018 },
+  'qwen/qwen3.7-flash': { input_per_1k_usd: 0.00003, output_per_1k_usd: 0.00013 },
+  'google/gemini-2.5-flash-lite': { input_per_1k_usd: 0.0001, output_per_1k_usd: 0.0004 },
+  'mistralai/mistral-small-3.2-24b-instruct': {
+    input_per_1k_usd: 0.000075,
+    output_per_1k_usd: 0.0002,
+  },
+  'openai/gpt-oss-120b': { input_per_1k_usd: 0.00015, output_per_1k_usd: 0.0006 },
+  'anthropic/claude-haiku-5.5': { input_per_1k_usd: 0.0001, output_per_1k_usd: 0.0005 },
+  'z-ai/glm-5.3-flash': { input_per_1k_usd: 0.0000399, output_per_1k_usd: 0.0000784 },
+  // The middle set:
+  'moonshotai/kimi-k2.6': { input_per_1k_usd: 0.00065, output_per_1k_usd: 0.00341 },
+  'minimax/minimax-m3': { input_per_1k_usd: 0.0003, output_per_1k_usd: 0.0012 },
+  'qwen/qwen3.7-plus': { input_per_1k_usd: 0.00032, output_per_1k_usd: 0.00128 },
+  'google/gemini-3.8-flash': { input_per_1k_usd: 0.000825, output_per_1k_usd: 0.004125 },
+  'deepseek/deepseek-v4-pro': { input_per_1k_usd: 0.0009, output_per_1k_usd: 0.0015 },
+  'openai/gpt-6.1-terra': { input_per_1k_usd: 0.001, output_per_1k_usd: 0.005 },
 };

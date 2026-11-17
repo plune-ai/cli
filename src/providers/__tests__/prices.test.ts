@@ -30,6 +30,33 @@ describe('PRICE_TABLE — current models (#48)', () => {
   });
 });
 
+describe('PRICE_TABLE — OpenRouter ids the agent scenarios can run on', () => {
+  // A dry run prices a model from this table only, so an unlisted id plans at $0.
+  // openrouter.ai/api/v1/models, per million tokens, read on 2026-11-18.
+  it.each([
+    ['deepseek/deepseek-v4-flash', 0.09, 0.18],
+    ['qwen/qwen3.7-flash', 0.03, 0.13],
+    ['google/gemini-2.5-flash-lite', 0.1, 0.4],
+    ['mistralai/mistral-small-3.2-24b-instruct', 0.075, 0.2],
+    ['openai/gpt-oss-120b', 0.15, 0.6],
+    ['anthropic/claude-haiku-5.5', 0.1, 0.5],
+    ['z-ai/glm-5.3-flash', 0.0399, 0.0784],
+    // The middle tier
+    ['moonshotai/kimi-k2.6', 0.65, 3.41],
+    ['minimax/minimax-m3', 0.3, 1.2],
+    ['qwen/qwen3.7-plus', 0.32, 1.28],
+    ['google/gemini-3.8-flash', 0.825, 4.125],
+    ['deepseek/deepseek-v4-pro', 0.9, 1.5],
+    ['openai/gpt-6.1-terra', 1, 5],
+  ])('prices %s at $%s in / $%s out per million tokens', (model, inPerMillion, outPerMillion) => {
+    const price = PRICE_TABLE[model];
+
+    expect(price).toBeDefined();
+    expect(price!.input_per_1k_usd).toBeCloseTo(inPerMillion / 1000, 10);
+    expect(price!.output_per_1k_usd).toBeCloseTo(outPerMillion / 1000, 10);
+  });
+});
+
 describe('PRICE_TABLE — ids older configs already name', () => {
   // Nobody's plune.yaml is edited for them; a row that vanished would turn a project's cost to
   // zero the day it upgraded.
