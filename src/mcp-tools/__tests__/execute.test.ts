@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { createPluneToolExecutor, pluneTool, type PluneToolExecutor } from '../index.js';
+import { fakeFetch, platformAnswer } from '../../mcp/__tests__/fixtures/platform.js';
 
 interface Seen {
   method: string;
@@ -282,8 +283,34 @@ describe('a strategy that does not pass its checks', () => {
   });
 });
 
+describe('plune_cases_search', () => {
+  // The stub platform answers a search with no limit with every matching case (48 recorded cases of the demo project).
+  const stub = () => {
+    const platform = fakeFetch(platformAnswer);
+    return { ...platform, exec: createPluneToolExecutor({ token: 'plt_test', apiUrl: 'https://api.test', projectId: 'proj-1', fetchImpl: platform.fetchImpl }) };
+  };
+
+  it('asks for a page of 20 when no limit is given, so one answer stays small and the next page is a cursor away', async () => {
+    const { exec, calls } = stub();
+    const data = (await ok(exec, 'plune_cases_search', {})) as { testCases: unknown[]; matching: number; nextCursor: string | null };
+    expect(calls[0]!.url.searchParams.get('limit')).toBe('20');
+    expect(data.testCases).toHaveLength(20);
+    expect(data.matching).toBe(48);
+    expect(data.nextCursor).not.toBeNull();
+    // Estimated tokens (characters / 4, as the budget counts): 7.7k for the whole project, ~3.2k for a page of 20.
+    expect(Math.ceil(JSON.stringify(data).length / 4)).toBeLessThan(3600);
+  });
+
+  it('still sends the limit the caller gave', async () => {
+    const { exec, calls } = stub();
+    const data = (await ok(exec, 'plune_cases_search', { limit: 100 })) as { testCases: unknown[] };
+    expect(calls[0]!.url.searchParams.get('limit')).toBe('100');
+    expect(data.testCases).toHaveLength(48);
+  });
+});
+
 describe('plune_case_propose', () => {
-  const one = { title: 'Cart keeps items', steps: ['Add an item', 'Reload'], expected: 'The item is still there' };
+  const one ={ title: 'Cart keeps items', steps: ['Add an item', 'Reload'], expected: 'The item is still there' };
 
   it('queues up to 100 proposals through the ingest, a fresh run id each call, and says how many were proposed', async () => {
     const { exec, seen } = executor((r) => ({ status: 201, body: { runId: 'run-x', linked: 0, proposed: (r.body as { cases: unknown[] }).cases.length, skipped: 0 } }));

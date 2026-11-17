@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Changed
+
+- **`plune_cases_search` returns 20 cases a page unless `limit` says otherwise.** With no `limit`, the platform's own page (up to 200 full cases) went back in one answer: on the 48 cases of the demo project that is ~7.7k estimated tokens, now ~3.2k, with `nextCursor` for the rest. A `limit` the caller gives is sent as before.
+
 ### Fixed
 
 - **`plune mcp serve` with a read token no longer offers `plune_discover_tools`.** Every tool it finds writes, so for a read token (or `--read-only`) it could only answer with a refusal. In the weekly agent scenarios both models asked it for `plune_cases_update` when told to rename a case and got that refusal, 0 of 3 runs each. The read list is now 7 tools, about 2.2k estimated tokens instead of 2.5k.
