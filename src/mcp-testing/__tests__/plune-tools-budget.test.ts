@@ -42,7 +42,7 @@ async function withServer<T>(era: ProtocolEra, scope: 'read' | 'write', run: (c:
 const LISTS = [
   { key: 'writeFirst', name: '2025 era, write scope, as listed first', era: 'legacy', scope: 'write', reveal: false, count: 17 },
   { key: 'writeAll', name: '2025 era, write scope, after plune_discover_tools', era: 'legacy', scope: 'write', reveal: true, count: 22 },
-  { key: 'read', name: '2025 era, read scope', era: 'legacy', scope: 'read', reveal: false, count: 8 },
+  { key: 'read', name: '2025 era, read scope', era: 'legacy', scope: 'read', reveal: false, count: 7 },
   { key: 'modernWrite', name: '2026-07-28 era, write scope', era: 'modern', scope: 'write', reveal: true, count: 17 },
 ] as const;
 

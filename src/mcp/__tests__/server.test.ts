@@ -155,6 +155,8 @@ describe.each(['legacy', 'modern'] as const)('plune mcp serve, %s era', (era) =>
     const listed = await names(c);
     expect(listed).not.toContain('plune_mission_create');
     expect(listed).toContain('plune_mission_get');
+    // Every hidden tool writes, so discovery has nothing to offer a read token and could only answer with a refusal.
+    expect(listed).not.toContain('plune_discover_tools');
     // An unlisted tool is unknown to the server: a protocol error -32602, as both eras' tools page specifies (the
     // SDK 1.x server answered it with an isError result instead).
     await expect(c.callTool('plune_mission_create', { name: 'x' })).rejects.toThrow(/-32602/);

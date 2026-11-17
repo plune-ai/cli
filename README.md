@@ -637,8 +637,9 @@ useful for a self-hosted backend. The Markdown format `pull` writes and `push` r
 ### Plune tools for AI agents: `plune mcp`
 
 `plune mcp serve` gives an agent the same Plune your token reaches — the review queue, cases,
-missions, questions, strategy, reports — as MCP tools over stdio. The agent is shown 17 tools, 8 with a
-read token or `--read-only`; five more write tools it finds with `plune_discover_tools`. Every write
+missions, questions, strategy, reports — as MCP tools over stdio. The agent is shown 17 tools, 7 with a
+read token or `--read-only`; five more write tools it finds with `plune_discover_tools`, which a read token
+is not offered, as every tool it finds writes. Every write
 tool takes `dry_run`, batches stop at 100 items, and the agent is held to the platform's agent rules: a proposed case lands in the review
 queue, a bulk decision needs a confirm, and nothing is deleted through MCP.
 

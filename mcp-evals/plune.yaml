@@ -15,7 +15,7 @@
 # runs the suite once per model and puts the two side by side. The operator confirms both before a paid run.
 #
 # Cost. `plune run --dry-run` prices `max_steps` calls of each prompt, times `runs`, per model; it does not count the
-# tool list sent with every step (~8.3k estimated tokens for the 17 tools listed first, ~2.4k for the 8 of a read
+# tool list sent with every step (~8.3k estimated tokens for the 17 tools listed first, ~2.2k for the 7 of a read
 # token; src/mcp-testing/lint/thresholds.ts) or the tool answers. Measured on the first real run (2026-11-11, both
 # models, 3 repeats a scenario): $2.01 a run, of which claude-sonnet-5-5 $1.94 (875,420 input and 18,977 output
 # tokens) and gpt-6-luna $0.07 (670,070 and 5,844). So the workflow runs weekly, about $8-9 a month.
@@ -242,10 +242,17 @@ evals:
     dataset: { examples: [{ vars: {} }] }
     mcp: { server: plune-read }
     assertions:
-      # Every tool a read token is listed: a call to any writer, hidden or not, is off this list. Switching a writer
-      # on through discovery is refused for a read token, and no-tool-errors sees the refusal.
+      # Every tool a read token is listed: a call to any writer, hidden or not, is off this list. Nor is
+      # plune_discover_tools: every tool it finds writes, so a read token is not offered it.
       - type: only-tools
-        tools: *read-tools
+        tools:
+          - plune_project_context
+          - plune_get
+          - plune_cases_search
+          - plune_review_list
+          - plune_cases_generation_get
+          - plune_mission_get
+          - plune_question_list
       - type: no-tool-errors
       - type: token-budget
         max: 25000

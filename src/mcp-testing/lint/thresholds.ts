@@ -15,8 +15,8 @@ const PLUNE_BUDGET = {
     writeFirst: 9272,
     /** 2025 era, write scope, after plune_discover_tools: 22 tools, measured 10841 (10739 before the memory rules). */
     writeAll: 11926,
-    /** Read scope, either era: 8 tools, measured 2482 (2380 before the memory rules). */
-    read: 2731,
+    /** Read scope, either era: 7 tools, measured 2222 (2482 with plune_discover_tools, which a read token is not offered). */
+    read: 2445,
     /** 2026-07-28 era, write scope: 17 tools, the list does not change after discover; measured 8429 (8327 before the memory rules). */
     modernWrite: 9272,
   },

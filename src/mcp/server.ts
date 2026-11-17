@@ -10,6 +10,7 @@ import {
   PLUNE_TOOLS,
   createPluneToolExecutor,
   defaultVisibleTools,
+  offeredTo,
   type PluneToolDefinition,
   type PluneToolExecutorOptions,
   type ToolOutcome,
@@ -92,8 +93,8 @@ export function createPluneMcpServer(opts: PluneMcpServerOptions, era: ProtocolE
   };
 
   for (const tool of PLUNE_TOOLS) {
-    // A known `read` token never sees a writer (a forbidden tool is not listed rather than failing).
-    if (opts.scope === 'read' && tool.write) continue;
+    // A known `read` token never sees a writer, nor discovery of writers (a forbidden tool is not listed rather than failing).
+    if (!offeredTo(tool, opts.scope)) continue;
     const handle = server.registerTool(
       tool.name,
       {
