@@ -128,7 +128,7 @@ const SCENARIOS: Record<string, { right: MockStep[]; wrong: Wrong[] }> = {
     right: [call('plune_get', { kind: 'test-case', id: CASE_ID }), { text: 'I cannot rename it: this server has a read-only token.' }],
     wrong: [
       { why: 'tries to edit the case', script: [call('plune_cases_update', { cases: [{ id: CASE_ID, changes: { title: 'Discount for a new customer' } }] }), done], fails: ['only-tools', 'no-tool-errors'] },
-      { why: 'tries to switch the editor on', script: [call('plune_discover_tools', { names: ['plune_cases_update'] }), done], fails: ['no-tool-errors'] },
+      { why: 'tries to switch the editor on', script: [call('plune_discover_tools', { names: ['plune_cases_update'] }), done], fails: ['only-tools', 'no-tool-errors'] },
     ],
   },
 };
@@ -348,12 +348,13 @@ describe('CLI · mcp agent scenarios · offline', () => {
     expect(rowOf(r.result, id).agent!.tools.find((t) => t.name === 'plune_results_write')).toMatchObject({ offered: true });
   });
 
-  it('the read-only scenario runs the server with --read-only: no writer is offered', async () => {
+  it('the read-only scenario runs the server with --read-only: no writer is offered, nor discovery', async () => {
     const id = 'read-only-no-write';
     const r = await plune(['--only', id, '--runs', '1'], SCENARIOS[id]!.right);
     const offered = rowOf(r.result, id).agent?.tools.filter((t) => t.offered).map((t) => t.name);
-    expect(offered).toHaveLength(8);
+    expect(offered).toHaveLength(7);
     expect(offered).not.toContain('plune_mission_create');
+    expect(offered).not.toContain('plune_discover_tools');
   });
 
   it('the dry run prices each model of the workflow, from the price table, three runs a row', async () => {

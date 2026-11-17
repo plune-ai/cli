@@ -438,7 +438,17 @@ export function isPluneToolName(name: string): name is PluneToolName {
   return BY_NAME.has(name);
 }
 
-/** The tools a client is shown before it asks for more; without the writers for a `read` token. */
+/**
+ * Whether a token of this scope is offered the tool at all. A `read` token gets no writer, and no discovery while every
+ * hidden tool writes: there it could only answer with a refusal, which a model reads as a way to write.
+ */
+export function offeredTo(tool: PluneToolDefinition, scope?: 'read' | 'write'): boolean {
+  if (scope !== 'read') return true;
+  if (tool.write) return false;
+  return tool.name !== 'plune_discover_tools' || PLUNE_TOOLS.some((t) => t.visibility !== 'core' && !t.write);
+}
+
+/** The tools a client is shown before it asks for more; for a `read` token, only those it is offered. */
 export function defaultVisibleTools(scope?: 'read' | 'write'): PluneToolName[] {
-  return PLUNE_TOOLS.filter((t) => t.visibility === 'core' && !(scope === 'read' && t.write)).map((t) => t.name);
+  return PLUNE_TOOLS.filter((t) => t.visibility === 'core' && offeredTo(t, scope)).map((t) => t.name);
 }

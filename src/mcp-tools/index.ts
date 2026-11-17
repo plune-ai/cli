@@ -11,6 +11,7 @@ export {
   PLUNE_TOOL_NAMES,
   defaultVisibleTools,
   isPluneToolName,
+  offeredTo,
   pluneTool,
   type PluneToolDefinition,
   type PluneToolName,

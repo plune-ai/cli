@@ -98,13 +98,13 @@ function table(findings: readonly LintFinding[]): string {
   return rows.map((r) => r.map((cell, i) => (i < widths.length ? cell.padEnd(widths[i] ?? 0) : cell)).join('  ')).join('\n');
 }
 
-// Counts as the server lists them today: write scope 17 core tools, and 8 for a read token (every hidden tool writes, so a
-// read token never sees them). After discover_tools the 2025 era lists all 22; in 2026-07-28 the list must not change as
+// Counts as the server lists them today: write scope 17 core tools, and 7 for a read token (every hidden tool writes, so a
+// read token never sees them, nor plune_discover_tools). After discover_tools the 2025 era lists all 22; in 2026-07-28 the list must not change as
 // a side effect of a request, so it is the very list the same connection gave before.
 const VIEWS = (['legacy', 'modern'] as const).flatMap((era) => [
   { name: `${era} era, write scope, as listed first`, era, scope: 'write', revealHidden: false, count: 17, unchanged: false } as const,
   { name: `${era} era, write scope, after plune_discover_tools`, era, scope: 'write', revealHidden: true, count: era === 'legacy' ? 22 : 17, unchanged: era === 'modern' } as const,
-  { name: `${era} era, read scope`, era, scope: 'read', revealHidden: false, count: 8, unchanged: false } as const,
+  { name: `${era} era, read scope`, era, scope: 'read', revealHidden: false, count: 7, unchanged: false } as const,
 ]);
 
 describe('CLI · mcp lint · Plune tools contract', () => {
