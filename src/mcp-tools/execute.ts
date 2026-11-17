@@ -224,7 +224,9 @@ export function createPluneToolExecutor(opts: PluneToolExecutorOptions): PluneTo
     async plune_cases_search(i) {
       const query = withoutUndefined({
         ...(i['filters'] as Record<string, string | string[]> | undefined),
-        limit: i['limit'] === undefined ? undefined : String(i['limit']),
+        // A full case weighs ~160 estimated tokens, so the platform's own page of up to 200 filled a model's context
+        // in one answer; 20 a page, the rest a cursor away, unless the caller asks for more.
+        limit: String(i['limit'] ?? 20),
         cursor: i['cursor'] as string | undefined,
         stability: '0',
       }) as Record<string, string | string[]>;
