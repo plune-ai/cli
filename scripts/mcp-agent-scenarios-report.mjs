@@ -2,7 +2,8 @@
 // The record of one run of the agent scenarios (mcp-evals/plune.yaml): the model × scenario summary as Markdown on
 // stdout, for the job summary, and the same cells as JUnit XML for `plune run import`, one test case per model and
 // scenario whose message says how many of its runs passed. The input is a folder with one `plune run --format json`
-// result per model, each named <model>.json. Exit 2 on a wrong call, 1 when the folder holds no result.
+// result per model, each named <model>.json, a "/" of the model written "__". Exit 2 on a wrong call, 1 when the
+// folder holds no result.
 //
 //   node scripts/mcp-agent-scenarios-report.mjs <results-folder> <junit-file>
 
@@ -42,7 +43,8 @@ const models = files.map((f) => {
   const tokens = result.evals
     .flatMap((ev) => ev.rows)
     .reduce((sum, row) => sum + (row.usage?.input_tokens ?? 0) + (row.usage?.output_tokens ?? 0), 0);
-  return { model: f.slice(0, -'.json'.length), cells, tokens, cost: result.summary.cost_usd, seconds: result.summary.duration_ms / 1000 };
+  // An OpenRouter model's own "/" is written "__" in the file name (the workflow's run step).
+  return { model: f.slice(0, -'.json'.length).replaceAll('__', '/'), cells, tokens, cost: result.summary.cost_usd, seconds: result.summary.duration_ms / 1000 };
 });
 const scenarios = [...new Set(models.flatMap((m) => [...m.cells.keys()]))];
 

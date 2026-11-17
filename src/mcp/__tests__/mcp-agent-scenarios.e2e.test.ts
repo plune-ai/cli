@@ -4,7 +4,7 @@
 // exactly the checks that name the mistake: a check that does not go red on a wrong call measures nothing. No key,
 // no model, no network beyond 127.0.0.1. Run with `pnpm test:e2e` (it builds first).
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -371,6 +371,53 @@ describe('CLI · mcp agent scenarios · offline', () => {
     }
     expect(costs.every((c) => c > 0)).toBe(true);
     expect(costs[0]).toBeLessThan(costs[1]!);
+  });
+
+  it('a models input replaces MODELS for one run, an OpenRouter id is written without "/", and the summary names it as given', () => {
+    type Step = { name?: string; env?: Record<string, string>; run?: string };
+    const workflow = parse(fs.readFileSync(path.join(root, '.github', 'workflows', 'mcp-agent-scenarios.yml'), 'utf8')) as {
+      on: { workflow_dispatch: { inputs: Record<string, { type: string; default?: unknown }> } };
+      jobs: Record<string, { env: { MODELS: string }; steps: Step[] }>;
+    };
+    expect(workflow.on.workflow_dispatch.inputs['models']).toMatchObject({ type: 'string', default: '' });
+    const job = Object.values(workflow.jobs)[0]!;
+    const step = job.steps.find((s) => s.name?.startsWith('Run the scenarios'))!;
+    // The input reaches the script as a variable, never pasted into it; the key reaches this step only.
+    expect(step.env).toMatchObject({ MODELS_INPUT: '${{ inputs.models }}', OPENROUTER_API_KEY: '${{ secrets.OPENROUTER_API_KEY }}' });
+
+    // The step's own script, `node` replaced by a stand-in that writes an empty result where -o says.
+    const tmp = fs.mkdtempSync(path.join(dir, 'step-'));
+    const bin = path.join(tmp, 'bin');
+    fs.mkdirSync(bin);
+    fs.writeFileSync(path.join(bin, 'node'), '#!/usr/bin/env bash\nwhile [ $# -gt 0 ]; do if [ "$1" = -o ]; then printf "{}" > "$2"; fi; shift; done\n', { mode: 0o755 });
+    const base = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.endsWith('_API_KEY')));
+    const runStep = (models: string, summary: string) => {
+      const r = spawnSync('bash', ['-c', step.run!], {
+        encoding: 'utf8',
+        env: { ...base, PATH: `${bin}${path.delimiter}${process.env['PATH']}`, RUNNER_TEMP: tmp, GITHUB_STEP_SUMMARY: summary, MODELS: job.env.MODELS, MODELS_INPUT: models, OPENROUTER_API_KEY: 'test-key', PROBE: 'false' },
+      });
+      expect(r.status, r.stderr).toBe(0);
+      return fs.readFileSync(summary, 'utf8');
+    };
+    const out = path.join(tmp, 'scenarios');
+    // Empty input: the two models of the schedule, both skipped here for want of their keys.
+    const scheduled = runStep('', path.join(tmp, 'scheduled.md'));
+    for (const [provider, model] of job.env.MODELS.split(/\s+/).map((m) => m.split('/'))) expect(scheduled).toContain(`No ${provider!.toUpperCase()}_API_KEY: ${model} was not run.`);
+    expect(fs.readdirSync(out)).toEqual([]);
+    // Given: only what it names, and the OpenRouter id, which holds a "/", lands in the folder itself.
+    const given = runStep('openrouter/deepseek/deepseek-v4-flash openai/gpt-6-luna', path.join(tmp, 'given.md'));
+    expect(given).toContain('No OPENAI_API_KEY: gpt-6-luna was not run.');
+    expect(given).not.toContain('claude-sonnet-5-5');
+    expect(fs.readdirSync(out)).toEqual(['deepseek__deepseek-v4-flash.json']);
+
+    const row = { assertions: [{ type: 'first-tool', passed: true }], attempts: { runs: 3, passed: 3, pass_threshold: 1 } };
+    fs.writeFileSync(path.join(out, 'deepseek__deepseek-v4-flash.json'), JSON.stringify({ summary: { cost_usd: 0.01, duration_ms: 1000 }, evals: [{ id: 'orient-in-project', rows: [row] }] }));
+    const junit = path.join(tmp, 'junit', 'scenarios.xml');
+    const report = spawnSync(process.execPath, [path.join(root, 'scripts', 'mcp-agent-scenarios-report.mjs'), out, junit], { encoding: 'utf8' });
+    expect(report.status, report.stderr).toBe(0);
+    expect(report.stdout).toContain('| Scenario | deepseek/deepseek-v4-flash |');
+    expect(report.stdout).toContain('| orient-in-project | pass 3/3 |');
+    expect(fs.readFileSync(junit, 'utf8')).toContain('classname="mcp-agent-scenarios.deepseek/deepseek-v4-flash" name="orient-in-project"');
   });
 
   it('the report script writes the model × scenario summary and a JUnit case per cell with its count of runs', async () => {

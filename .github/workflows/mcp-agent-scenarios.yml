@@ -5,8 +5,18 @@ name: MCP agent scenarios
 # money, so this never runs on a push or a pull request, and never on a fork. One model after another; the model ×
 # scenario summary goes to the job summary, every result to an artifact, and the cells to Plune.
 #
-# ANTHROPIC_API_KEY and OPENAI_API_KEY (repository secrets) reach only the run step, never the MCP server process (the
-# runner gives it only the variables its `env` names). A model whose key is not set is skipped and said so.
+# ANTHROPIC_API_KEY, OPENAI_API_KEY and OPENROUTER_API_KEY (repository secrets) reach only the run step, never the MCP
+# server process (the runner gives it only the variables its `env` names). A model whose key is not set is skipped and
+# said so.
+#
+# A manual run can name its own models, provider/model separated by spaces; an OpenRouter id keeps its own "/" after
+# the provider, and needs the OPENROUTER_API_KEY secret. The cheap and the middle set, as two separate runs:
+#
+#   gh workflow run mcp-agent-scenarios.yml -f models="openrouter/deepseek/deepseek-v4-flash openrouter/qwen/qwen3.7-flash openrouter/google/gemini-2.5-flash-lite openrouter/mistralai/mistral-small-3.2-24b-instruct openrouter/openai/gpt-oss-120b openrouter/anthropic/claude-haiku-5.5 openrouter/z-ai/glm-5.3-flash"
+#   gh workflow run mcp-agent-scenarios.yml -f models="openrouter/moonshotai/kimi-k2.6 openrouter/minimax/minimax-m3 openrouter/qwen/qwen3.7-plus openrouter/google/gemini-3.8-flash openrouter/deepseek/deepseek-v4-pro openrouter/openai/gpt-6.1-terra"
+#
+# Each costs money: the price of every model named there is in src/providers/prices.ts, and `plune run --dry-run`
+# estimates a run before it is made.
 # Reporting reuses mcp-self-check-report.yml: PLUNE_DOGFOOD_TOKEN (secret), PLUNE_DOGFOOD_API_URL (variable). Without
 # the token nothing is imported.
 
@@ -17,6 +27,10 @@ on:
         description: One scenario, one repeat per model, to check that each provider takes the requests before a full run
         type: boolean
         default: false
+      models:
+        description: Models for this run instead of MODELS, provider/model separated by spaces (openrouter/deepseek/deepseek-v4-flash); empty runs MODELS
+        type: string
+        default: ''
   # Weekly, Monday 03:23 UTC: one full run costs about $2 in model calls (both models, 3 repeats a scenario), so weekly
   # is about $8-9 a month. The behaviour measured so far is stable run to run, so a nightly run would buy little.
   schedule:
@@ -37,7 +51,7 @@ jobs:
     timeout-minutes: 60
     env:
       # provider/model, the cheaper first, as mcp-evals/plune.yaml names them; the operator confirms both before the
-      # first paid run.
+      # first paid run. The schedule and a manual run with an empty `models` input run these.
       MODELS: openai/gpt-6-luna anthropic/claude-sonnet-5-5
       PLUNE_STUB_URL: http://127.0.0.1:4010
 
@@ -80,13 +94,18 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           PROBE: ${{ inputs.probe }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # A variable, never pasted into the script: the input is text anyone who can run the workflow types.
+          MODELS_INPUT: ${{ inputs.models }}
         run: |
           out="$RUNNER_TEMP/scenarios"
           mkdir -p "$out"
           worst=0
-          for m in $MODELS; do
+          for m in ${MODELS_INPUT:-$MODELS}; do
             provider="${m%%/*}"
             model="${m#*/}"
+            # An OpenRouter model holds a "/" of its own; the report script reads "__" back as "/".
+            file="${model//\//__}"
             key="$(echo "$provider" | tr '[:lower:]' '[:upper:]')_API_KEY"
             if [ -z "${!key:-}" ]; then
               echo "No $key: $model was not run." >> "$GITHUB_STEP_SUMMARY"
@@ -96,7 +115,7 @@ jobs:
             subset=()
             if [ "${PROBE:-false}" = true ]; then subset=(--only find-smoke-cases --runs 1); fi
             PLUNE_PROVIDER="$provider" PLUNE_MODEL="$model" node dist/cli.cjs run \
-              --config mcp-evals/plune.yaml --no-cache "${subset[@]}" --format json -o "$out/$model.json"
+              --config mcp-evals/plune.yaml --no-cache "${subset[@]}" --format json -o "$out/$file.json"
             code=$?
             set -e
             echo "$model: plune run exited $code"
