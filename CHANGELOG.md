@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **`plune run import` and the Playwright reporter send each automated case the text of its test.** «Draft from code» on a case that only ever came in through the CLI answered `no_code_snapshot`: nothing gave the case its code. Now, when a run ends, every matched automated case whose snapshot is missing or differs gets the text of its `test()` / `it()` call, read from the spec file on this machine at the line the report names, with credentials masked before it leaves (a value given to something named password, token, secret or API key, a value filled into such a field, a URL's user:password, and well-known key shapes). A case that already holds the same text gets no write. A test whose text cannot be read (a report from another machine, a call that does not close, over 16 384 bytes) gets no snapshot and the run is not affected; a refused update is one line in the log (plune-ai/plune#2936).
+
 ### Changed
 
 - **`plune_cases_search` returns 20 cases a page unless `limit` says otherwise.** With no `limit`, the platform's own page (up to 200 full cases) went back in one answer: on the 48 cases of the demo project that is ~7.7k estimated tokens, now ~3.2k, with `nextCursor` for the rest. A `limit` the caller gives is sent as before.

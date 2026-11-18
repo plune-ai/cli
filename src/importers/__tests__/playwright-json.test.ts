@@ -82,6 +82,8 @@ describe('reading a Playwright JSON report', () => {
     expect(result?.title).toBe('cart › rejects a negative quantity');
     expect(result?.specRef).toBe('tests/cart.spec.ts:12');
     expect(result?.resultKey).toBe('tid-1#0');
+    // Where the core reads the test's text for the case's code snapshot (plune-ai/plune#2936).
+    expect(result?.codeAt).toEqual({ file: 'tests/cart.spec.ts', line: 12 });
   });
 
   it('carries the runner’s own word for the status, unmapped', () => {
