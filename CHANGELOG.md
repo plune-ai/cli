@@ -11,6 +11,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.39.3] - 2026-11-18
+
 ### Added
 
 - **`plune run import` and the Playwright reporter send each automated case the text of its test.** «Draft from code» on a case that only ever came in through the CLI answered `no_code_snapshot`: nothing gave the case its code. Now, when a run ends, every matched automated case whose snapshot is missing or differs gets the text of its `test()` / `it()` call, read from the spec file on this machine at the line the report names, with credentials masked before it leaves (a value given to something named for a credential — password, pass, pwd, token, secret, API key, private key, auth, credential, session, cookie — a value typed into such a field with `fill`, `type` or `pressSequentially`, header lines such as `Authorization:` and `Cookie:`, `Bearer`/`Basic`/`Token` values, `PLUNE_*=` variables, credential URL parameters, a URL's user:password, and well-known key shapes). A case that already holds the same text gets no write. One run updates at most 100 cases, in an order that differs from run to run, and leaves the rest to the next; a case the platform refuses is skipped, and a refused token or an exhausted limit stops the updates. A test whose text cannot be read (a report from another machine, a call that does not close, over 16 384 bytes) gets no snapshot and the run is not affected.
@@ -20,6 +22,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 - **`plune mcp conformance` scores the Streamable HTTP checks: profile `2026-11.3`.** The 14 `MUST` checks of Streamable HTTP and of a local server's protection (`http-*`) now count in the score of a run over `--url`, so a server that breaks them gets a lower score, and can get exit 1 where it got exit 3. Over stdio they are `not-applicable` (`transport`), and a stdio server scores the same as before; on a host that is not a loopback name the `Origin` check is `not-applicable` (`not-local`). The `SHOULD` checks, the controls and the advice stay outside the score. `--profile 2026-11.2` gives the score as it was.
 
 - **`plune_cases_search` returns 20 cases a page unless `limit` says otherwise.** With no `limit`, the platform's own page (up to 200 full cases) went back in one answer: on the 48 cases of the demo project that is ~7.7k estimated tokens, now ~3.2k, with `nextCursor` for the rest. A `limit` the caller gives is sent as before.
+
+- **The `qa-mission` skill works on a product with no docs, and its eval sets avoid assertions that need local embeddings.** Headless, it asks and proposes instead of stopping when the product has no documentation; the eval set it writes no longer uses assertions that only run with a local embedding model.
+
+- **`@plune-ai/playwright` 0.7.2** carries the code snapshot upload above (the reporter core it embeds changed); nothing else in the adapter changed.
 
 ### Fixed
 
