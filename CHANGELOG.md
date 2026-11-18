@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Changed
+
+- **`plune mcp conformance` scores the checks of the 2026-07-28 revision that a real server passed: profile `2026-11.4`.** 15 `MUST` checks of `mod-*` (discovery, the removed methods, statelessness, resources, caching hints, the acknowledgment of a subscription and the whole run read back) now count in the score of a modern run, so a modern server that breaks them gets a lower score, and can get exit 1 where it got exit 0 or 3. Each passed on `plune mcp serve` or `@modelcontextprotocol/server-everything` 2.3.1 and failed on neither. `mod-meta-required-fields` stays outside the score: servers built on the official SDK answer `-32601` to a server/discover without a protocol version. So do the `mod-*` checks a real server has not been measured on yet (`mod-undeclared-capability`, `mod-cache-scope-stable-pages`, `mod-sub-filter-and-tag` and the request-header checks over HTTP). A legacy server scores the same as before. `--profile 2026-11.3` gives the score as it was.
+
 ## [0.39.3] - 2026-11-18
 
 ### Added

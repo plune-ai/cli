@@ -11,9 +11,14 @@
  * again to what it recorded. `2026-11.3` adds the MUST checks of Streamable HTTP and of a local server's protection
  * (`http-*`): they apply over HTTP only, so a stdio server scores the same as under `2026-11.2`;
  * on a host that is not a loopback name the protection checks are not-applicable (not-local). The `http-*` checks
- * of level SHOULD, the controls and the advice stay outside the score, as in every version.
+ * of level SHOULD, the controls and the advice stay outside the score, as in every version. `2026-11.4` adds the
+ * MUST checks of the 2026-07-28 revision (`mod-*`) that passed on at least one real server and failed on none in the
+ * live runs of 18.11.2026 (`plune mcp serve` and `@modelcontextprotocol/server-everything` 2.3.1, stdio).
+ * They apply to the modern era only, so a legacy server scores the same as under `2026-11.3`. The other `mod-*`
+ * MUST checks stay pending: `mod-meta-required-fields` fails on every server built on the official SDK, and the rest
+ * were not measured on a real server (they need a fixture, the servers offered nothing to judge, or HTTP only).
  *
- * A run is `2026-11.3` unless `--profile` names another version of `PROFILES`. `2026-11.1` is not offered: its ids
+ * A run is `2026-11.4` unless `--profile` names another version of `PROFILES`. `2026-11.1` is not offered: its ids
  * are those of `2026-11.2`, and a new run applies them by today's rules, which are the rules of `2026-11.2`.
  */
 
@@ -88,11 +93,64 @@ const PROFILE_2026_11_3: Profile = {
   ],
 };
 
+const PROFILE_2026_11_4: Profile = {
+  id: 'plune-mcp-conformance',
+  version: '2026-11.4',
+  checks: [
+    'life-initialize-result',
+    'life-version-negotiation',
+    'life-capabilities-declared-served',
+    'life-capabilities-served-declared',
+    'life-ping-empty-result',
+    'base-jsonrpc-parse-error',
+    'base-unknown-method-error',
+    'base-response-id-matches',
+    'tools-list-shape',
+    'tools-input-schema-valid',
+    'tools-output-schema-valid',
+    'tools-structured-conformant',
+    'resources-list-shape',
+    'resources-read-listed',
+    'resources-templates-shape',
+    'prompts-list-shape',
+    'stdio-stdout-clean',
+    'http-notification-202',
+    'http-request-content-type',
+    'http-response-utf8',
+    'http-single-endpoint',
+    'http-get-stream-or-405',
+    'http-session-id-visible-ascii',
+    'http-protocol-version-header-invalid-400',
+    'http-concurrent-posts-matched',
+    'http-sse-event-ids-unique',
+    'http-sse-no-server-requests',
+    'http-close-cancels',
+    'http-session-terminated-404',
+    'http-sse-no-broadcast',
+    'http-origin-invalid-403',
+    'mod-discover-result',
+    'mod-unsupported-version',
+    'mod-removed-methods',
+    'mod-stateless-no-prior-context',
+    'mod-list-stable-across-connections',
+    'mod-resource-not-found',
+    'mod-resource-no-empty-contents',
+    'mod-cache-hints-coverage',
+    'mod-cache-ttl-valid',
+    'mod-cache-scope-valid',
+    'mod-sub-ack-first',
+    'mod-result-type-present',
+    'mod-error-code-range',
+    'mod-logs-need-log-level',
+    'mod-wire-schema-valid',
+  ],
+};
+
 /** The current profile: a run without `--profile`. */
-export const PROFILE: Profile = PROFILE_2026_11_3;
+export const PROFILE: Profile = PROFILE_2026_11_4;
 
 /** The versions `--profile` takes, oldest first. */
-export const PROFILES: readonly Profile[] = [PROFILE_2026_11_2, PROFILE_2026_11_3];
+export const PROFILES: readonly Profile[] = [PROFILE_2026_11_2, PROFILE_2026_11_3, PROFILE_2026_11_4];
 
 /** The profile of this version, or undefined when `--profile` does not offer it. */
 export const profileOf = (version: string): Profile | undefined => PROFILES.find((p) => p.version === version);
