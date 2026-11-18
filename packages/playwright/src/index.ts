@@ -278,7 +278,7 @@ function pendingFrom(
     // `specRef` is the only thing the entry carries that can take them there.
     specRef: `${fileOf(test)}:${test.location.line}`,
     // Where the core reads the test's text for its case's code snapshot; never sent as it is.
-    codeAt: { file: test.location.file, line: test.location.line },
+    codeAt: { file: test.location.file, line: test.location.line, column: test.location.column },
     source: SOURCE,
     // The runner's own word, untouched. Mapping it is the platform's job and a project's setting.
     rawStatus: result.status,

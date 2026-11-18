@@ -95,39 +95,54 @@ function matching(src: string, i: number, close: string): number {
 }
 
 /**
- * The text of the test call that starts on `line` (from 1): from its name to its own `)`, line breaks
- * as LF, no trailing `;`. Undefined when the line holds no test call, the call does not close, or the
- * text is larger than the platform keeps.
+ * The text of the test call declared on `line` (from 1): from its name to its own `)`, line breaks as
+ * LF, no trailing `;`. `column` (from 1, as the runner reports it) picks the call when the line holds
+ * more than one; without it such a line gives none rather than the wrong one. Undefined too when the
+ * line holds no test call, the call does not close, or the text is larger than the platform keeps.
  */
-export function callTextAt(source: string, line: number): string | undefined {
+export function callTextAt(source: string, line: number, column?: number): string | undefined {
   const lines = source.split('\n');
   if (line < 1 || line > lines.length) return undefined;
   const lineStart = lines.slice(0, line - 1).reduce((n, l) => n + l.length + 1, 0);
+  const lineEnd = lineStart + lines[line - 1]!.length;
+  const heads: RegExpExecArray[] = [];
   CALL.lastIndex = lineStart;
-  const head = CALL.exec(source);
-  if (head === null || head.index >= lineStart + lines[line - 1]!.length) return undefined;
+  for (let h = CALL.exec(source); h !== null && h.index < lineEnd; h = CALL.exec(source))
+    heads.push(h);
+  const at = column === undefined ? -1 : lineStart + column - 1;
+  const head =
+    heads.find((h) => h.index <= at && at < h.index + h[0].length) ??
+    (heads.length === 1 ? heads[0] : undefined);
+  if (head === undefined) return undefined;
   const end = matching(source, head.index + head[0].length, ')');
   if (end < 0) return undefined;
   const text = source.slice(head.index, end + 1).replace(/\r\n/g, '\n');
   return Buffer.byteLength(text, 'utf8') <= SNAPSHOT_MAX_BYTES ? text : undefined;
 }
 
-/** A word that says the value next to it is a credential. */
-const CREDENTIAL = 'password|passwd|token|secret|api[-_]?key';
+/** A word that says the value next to it is a credential. Wide on purpose: masking a harmless value
+ * (`author: 'Jane'`, `bypass('x')`) costs a word of the snapshot; missing a password leaks it. */
+const CREDENTIAL =
+  'password|passphrase|passwd|pass|pwd|token|secret|api[-_]?key|private[-_]?key|credential|auth|session|cookie';
 /** One string literal, its quote in group `q`. */
 const LITERAL = String.raw`(?<q>['"\x60])(?:\\.|(?!\k<q>)[^\\\n])*\k<q>`;
+/** The Playwright calls that type a value into a field. */
+const TYPING = '(?:fill|type|pressSequentially)';
 
 /** Well-known shapes of a credential, wherever they stand. */
 const SHAPES: { kind: string; re: RegExp }[] = [
   { kind: 'github-token', re: /\b(?:ghp|gho|ghs|ghu)_[A-Za-z0-9]{36}\b|\bgithub_pat_\w{20,}/g },
   { kind: 'api-key', re: /\bsk-[\w-]{20,}/g },
+  { kind: 'api-key', re: /\b[sr]k_(?:live|test)_[A-Za-z0-9]{10,}/g },
+  { kind: 'npm-token', re: /\bnpm_[A-Za-z0-9]{20,}/g },
+  { kind: 'google-key', re: /\bAIza[\w-]{30,}/g },
+  { kind: 'plune-token', re: /\bplune_[A-Za-z0-9_]{16,}/g },
   { kind: 'aws-key', re: /\bAKIA[0-9A-Z]{16}\b/g },
   { kind: 'slack-token', re: /\bxox[abprs]-[A-Za-z0-9-]{10,}/g },
   {
     kind: 'private-key',
     re: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
   },
-  { kind: 'bearer', re: /\bBearer [\w.~+/=-]{20,}/g },
   { kind: 'jwt', re: /\beyJ[\w-]{10,}\.[\w-]{10,}\.[\w-]{10,}/g },
 ];
 
@@ -140,23 +155,37 @@ const PLACES: RegExp[] = [
   ),
   // `setToken('…')`: the call is named for a credential
   new RegExp(String.raw`(?<lead>\b(?<role>[\w$]*(?:${CREDENTIAL})[\w$]*)\s*\(\s*)${LITERAL}`, 'gi'),
-  // `.fill('#password', '…')`: the field the value goes to is named in the same call
+  // `.fill('#password', '…')`, `.type('#pwd', '…')`: the field is named in the same call
   new RegExp(
-    String.raw`(?<lead>\.fill\(\s*['"][^'"\n]*?(?<role>${CREDENTIAL})[^'"\n]*['"]\s*,\s*)${LITERAL}`,
+    String.raw`(?<lead>\.${TYPING}\(\s*['"][^'"\n]*?(?<role>${CREDENTIAL})[^'"\n]*['"]\s*,\s*)${LITERAL}`,
     'gi',
   ),
-  // `getByLabel('Password').fill('…')`: … or in the call the fill is chained off
+  // `getByLabel('Password').fill('…')`, `getByRole('textbox', { name: 'Password' }).type('…')`: … or
+  // anywhere in the call the typing is chained off
   new RegExp(
-    String.raw`(?<lead>\(\s*['"][^'"\n]*?(?<role>${CREDENTIAL})[^'"\n]*['"][^()\n]*\)\s*\.fill\(\s*)${LITERAL}`,
+    String.raw`(?<lead>\([^()\n]*?(?<role>${CREDENTIAL})[^()\n]*\)\s*\.${TYPING}\(\s*)${LITERAL}`,
     'gi',
   ),
 ];
 
 /**
+ * A header written out as a line (a raw request in a template, a log pasted into a test):
+ * `Authorization: …`, `Cookie: …`, `x-session-id: …`. The name stays, the value goes, to the end of
+ * the line or of the string. A quoted value is the literal rules' to take.
+ */
+const HEADER_LINE =
+  /((?:^|\\[nr]|\x60)[ \t>*<+-]*['"]?)((?:proxy-)?authorization|(?:set-)?cookie|[\w-]*session[\w-]*)(['"]?[ \t]*:[ \t]*)[^\s'"\x60\\][^\r\n'"\x60\\]*/gim;
+
+/** A URL parameter whose name says credential: its value goes. */
+const QUERY_PARAM =
+  /([?&][\w.-]*(?:token|key|secret|password|passwd|pass|pwd|auth|signature|sig|credential|session)[\w.-]*=)(?!‹)[^&#\s'"\x60]+/gi;
+
+/**
  * The text with every credential replaced by a `‹role›` marker, the shape the platform's own masking
- * uses: by its form (a key, a token, a private key block), by its place (a value given to something
- * named for a credential, or filled into a field that is), and the user:password of a URL.
- * The platform masks again before a draft; this is so that the secret never leaves the machine.
+ * uses: by its form (a key, a token, a private key block, the value of an `Authorization` scheme), by
+ * its place (a value given to something named for a credential, typed into a field that is, a header
+ * line, a URL parameter, a `PLUNE_` variable), and the user:password of a URL. The platform masks
+ * again before a draft; this is so that the secret never leaves the machine.
  */
 export function maskCredentials(text: string): string {
   let out = text;
@@ -167,13 +196,19 @@ export function maskCredentials(text: string): string {
       return `${groups.lead}${groups.q}‹${groups.role.toLowerCase().replace(/^[^a-z]+/, '')}›${groups.q}`;
     });
   }
-  return out.replace(/\b([a-z][\w+.-]*:\/\/)[^\s/@'"\x60]+@/gi, '$1‹credential›@');
+  return out
+    .replace(HEADER_LINE, '$1$2$3‹header›')
+    .replace(/\b(Bearer|Basic|Token)([ \t]+)(?!‹)[\w.~+/=-]{8,}/g, '$1$2‹credential›')
+    .replace(/\b(PLUNE_[A-Z0-9_]*=)(?!‹)[^\s'"\x60;,)]+/g, '$1‹env-secret›')
+    .replace(QUERY_PARAM, '$1‹credential›')
+    .replace(/\b([a-z][\w+.-]*:\/\/)[^\s/@'"\x60]+@/gi, '$1‹credential›@');
 }
 
 /** Where a test is declared: its file (absolute, or from the working directory) and line, from 1. */
 export interface CodeLocation {
   file: string;
   line: number;
+  column?: number;
 }
 
 /**
@@ -194,7 +229,7 @@ export function snapshotAt(
     files.set(at.file, source);
   }
   if (source === null) return undefined;
-  const text = callTextAt(source, at.line);
+  const text = callTextAt(source, at.line, at.column);
   if (text === undefined) return undefined;
   const masked = maskCredentials(text);
   return Buffer.byteLength(masked, 'utf8') <= SNAPSHOT_MAX_BYTES ? masked : undefined;

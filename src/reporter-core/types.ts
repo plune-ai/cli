@@ -135,7 +135,7 @@ export interface PendingResult {
    * the line of its `test()` call. Never sent as it is: the core reads the call's text from it and, for a
    * matched automated case, sends that as the case's code snapshot (plune-ai/plune#2936).
    */
-  codeAt?: { file: string; line: number };
+  codeAt?: { file: string; line: number; column?: number };
   execution?: Execution;
   errorContext?: string;
   /** What failed and where, for a failed attempt; a pass carries none. Built by `failureOf`. */

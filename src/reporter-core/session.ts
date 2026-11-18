@@ -32,6 +32,8 @@ const BATCH_MAX = 500;
  * because it is a different endpoint's promise and they are free to diverge. */
 const DISCOVER_MAX = 500;
 const BATCH_DEFAULT = 500;
+/** Code snapshots one run updates at most; the rest wait for the next run (plune-ai/plune#2936). */
+const SNAPSHOT_UPDATES_MAX = 100;
 /** Result batches of one run in flight at once. */
 const SEND_CONCURRENCY = 4;
 /** What `configuration.expected` may hold before the contract refuses the whole start. */
@@ -1286,18 +1288,35 @@ export async function startRun(
       cursor = typeof out.body.nextCursor === 'string' ? out.body.nextCursor : null;
     } while (cursor !== null && stored.size < snapshots.size);
 
+    const sha = (text: string): string => createHash('sha256').update(text).digest('hex');
+    // In an order of this run's own, so that a project with more stale cases than one run updates reaches
+    // different ones on the next run rather than the same first hundred every time.
+    const due = [...snapshots]
+      .filter(([id, text]) => stored.has(id) && stored.get(id) !== sha(text))
+      .sort(([a], [b]) => sha(`${runId}:${a}`).localeCompare(sha(`${runId}:${b}`)));
     let updated = 0;
-    for (const [id, text] of snapshots) {
-      if (!stored.has(id) || stored.get(id) === createHash('sha256').update(text).digest('hex')) continue;
+    let refused = 0;
+    let tried = 0;
+    for (const [id, text] of due.slice(0, SNAPSHOT_UPDATES_MAX)) {
+      tried += 1;
       const out = await client.patch(`/v1/test-cases/${encodeURIComponent(id)}`, { codeSnapshot: text });
       if (out.ok) {
         updated += 1;
         continue;
       }
-      log(`plune: could not update the code snapshot of test case ${id} (${out.detail || out.kind}); the rest are left as they are.`);
-      break;
+      // A refused token, a limit the retries could not wait out, or no platform: every next one would meet the same.
+      if (out.kind === 'auth' || out.kind === 'unavailable' || out.status === 429) {
+        log(`plune: could not update the code snapshot of test case ${id} (${out.detail || out.kind}); the rest are left as they are.`);
+        break;
+      }
+      // This one case's answer (gone, changed meanwhile, refused): the others are not affected.
+      refused += 1;
     }
-    if (updated > 0) log(`plune: ${updated} code snapshot(s) updated`);
+    const left = due.length - tried;
+    const parts = [`${updated} code snapshot(s) updated`];
+    if (refused > 0) parts.push(`${refused} not updated`);
+    if (left > 0 && tried === Math.min(due.length, SNAPSHOT_UPDATES_MAX)) parts.push(`${left} left for the next run`);
+    if (updated + refused > 0) log(`plune: ${parts.join(', ')}`);
   }
 
   /**

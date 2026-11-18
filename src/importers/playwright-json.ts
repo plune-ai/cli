@@ -65,6 +65,7 @@ interface JsonSpec {
   title?: string;
   file?: string;
   line?: number;
+  column?: number;
   tests?: JsonTest[];
 }
 interface JsonSuite {
@@ -170,7 +171,7 @@ function pendingFrom(
     title: titles.join(' › '),
     specRef: spec.line !== undefined ? `${file}:${spec.line}` : file,
     // The test's own text is read from here for its case's code snapshot; a report from another machine names a file that is not here, and then there is none.
-    ...(spec.line !== undefined ? { codeAt: { file: attempt.testFile, line: spec.line } } : {}),
+    ...(spec.line !== undefined ? { codeAt: { file: attempt.testFile, line: spec.line, ...(typeof spec.column === 'number' ? { column: spec.column } : {}) } } : {}),
     source: SOURCE,
     // Untouched, as everywhere: `timedOut` means what the project's map says it means, not what
     // this file decided.
