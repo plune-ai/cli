@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "note": "Real tool lists are not part of the corpus yet: the sources and licences are for the operator to decide. Each real set needs the fields below.",
+  "note": "Real tool lists, each read from the source of an open project licensed MIT or Apache-2.0 at the commit named; THIRD_PARTY_NOTICES names each project, its licence and what was taken.",
   "fields": [
     "id",
     "address",
@@ -15,5 +15,56 @@
     "static reading of source code",
     "snapshot taken by our own client from a server we may run"
   ],
-  "real": []
+  "real": [
+    {
+      "id": "github-mcp-server",
+      "address": "https://github.com/github/github-mcp-server/tree/df32d7ec5786e0e71932767fce9982409cbaec40/pkg/github/__toolsnaps__",
+      "version": "commit df32d7ec5786e0e71932767fce9982409cbaec40",
+      "license": "MIT",
+      "sha256": "54692f404d7ee726e8a29732cc774e1a792c54b6b1b45f7044c94f09276e5dcb",
+      "capturedAt": "2026-11-18",
+      "method": "static reading of source code",
+      "committed": "corpus/benign/github-mcp-server.snapshot.json"
+    },
+    {
+      "id": "playwright-mcp",
+      "address": "https://github.com/microsoft/playwright-mcp/blob/2337aff0213d28db41d3e3daf48cee19b3d0bd82/README.md",
+      "version": "commit 2337aff0213d28db41d3e3daf48cee19b3d0bd82",
+      "license": "Apache-2.0",
+      "sha256": "f266caba4014853b72260389d47aaf36212b9649b7c35040a56030f79f681935",
+      "capturedAt": "2026-11-18",
+      "method": "static reading of source code",
+      "committed": "corpus/benign/playwright-mcp.snapshot.json"
+    },
+    {
+      "id": "iam-mcp-server",
+      "address": "https://github.com/awslabs/mcp/blob/a6147efeef51412806528b937e6e5b885945a133/src/iam-mcp-server/awslabs/iam_mcp_server/server.py",
+      "version": "commit a6147efeef51412806528b937e6e5b885945a133",
+      "license": "Apache-2.0",
+      "sha256": "17f95530f5dc1fd06cba53e21d2c6fe8a186693555929f4bb828e612847bc255",
+      "capturedAt": "2026-11-18",
+      "method": "static reading of source code",
+      "committed": "corpus/benign/iam-mcp-server.snapshot.json"
+    },
+    {
+      "id": "timestream-for-influxdb-mcp-server",
+      "address": "https://github.com/awslabs/mcp/blob/a6147efeef51412806528b937e6e5b885945a133/src/timestream-for-influxdb-mcp-server/awslabs/timestream_for_influxdb_mcp_server/server.py",
+      "version": "commit a6147efeef51412806528b937e6e5b885945a133",
+      "license": "Apache-2.0",
+      "sha256": "aea4693b7bf485e94e4ceeb04d15daed95579b9bef1f8e8d97ae2c40c389a669",
+      "capturedAt": "2026-11-18",
+      "method": "static reading of source code",
+      "committed": "corpus/benign/timestream-for-influxdb-mcp-server.snapshot.json"
+    },
+    {
+      "id": "redshift-mcp-server",
+      "address": "https://github.com/awslabs/mcp/blob/a6147efeef51412806528b937e6e5b885945a133/src/redshift-mcp-server/awslabs/redshift_mcp_server/server.py",
+      "version": "commit a6147efeef51412806528b937e6e5b885945a133",
+      "license": "Apache-2.0",
+      "sha256": "f64502c555d5991d60f9472bdb11decf326e863b5157c9bf0bf7a627146b0267",
+      "capturedAt": "2026-11-18",
+      "method": "static reading of source code",
+      "committed": "corpus/benign/redshift-mcp-server.snapshot.json"
+    }
+  ]
 }

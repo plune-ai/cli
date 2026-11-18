@@ -1,0 +1,11 @@
+{
+  "origin": "real",
+  "description": "The tool list of README.md that update-readme.js generates from the tool schemas: name, title, description, read-only flag, and each parameter with its type, whether it is required and its description. Other schema keywords (enum, default, items) are not in that list and so not here.",
+  "project": "microsoft/playwright-mcp",
+  "address": "https://github.com/microsoft/playwright-mcp/blob/2337aff0213d28db41d3e3daf48cee19b3d0bd82/README.md",
+  "commit": "2337aff0213d28db41d3e3daf48cee19b3d0bd82",
+  "license": "Apache-2.0",
+  "copyright": "Copyright (c) Microsoft Corporation.",
+  "method": "static reading of source code",
+  "capturedAt": "2026-11-18"
+}

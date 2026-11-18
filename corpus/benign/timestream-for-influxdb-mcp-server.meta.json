@@ -1,0 +1,11 @@
+{
+  "origin": "real",
+  "description": "As for iam-mcp-server: the @mcp.tool functions of server.py, read with an AST parser; Field descriptions held in module constants are resolved from the same file.",
+  "project": "awslabs/mcp",
+  "address": "https://github.com/awslabs/mcp/blob/a6147efeef51412806528b937e6e5b885945a133/src/timestream-for-influxdb-mcp-server/awslabs/timestream_for_influxdb_mcp_server/server.py",
+  "commit": "a6147efeef51412806528b937e6e5b885945a133",
+  "license": "Apache-2.0",
+  "copyright": "Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.",
+  "method": "static reading of source code",
+  "capturedAt": "2026-11-18"
+}

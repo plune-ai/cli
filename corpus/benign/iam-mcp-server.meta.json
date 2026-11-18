@@ -1,0 +1,11 @@
+{
+  "origin": "real",
+  "description": "The functions registered with @mcp.tool in server.py, read with an AST parser without importing the module: the tool name, the description (the docstring, as inspect.cleandoc leaves it, when the decorator gives none), and each parameter with the description of its Field and a JSON type from its annotation.",
+  "project": "awslabs/mcp",
+  "address": "https://github.com/awslabs/mcp/blob/a6147efeef51412806528b937e6e5b885945a133/src/iam-mcp-server/awslabs/iam_mcp_server/server.py",
+  "commit": "a6147efeef51412806528b937e6e5b885945a133",
+  "license": "Apache-2.0",
+  "copyright": "Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.",
+  "method": "static reading of source code",
+  "capturedAt": "2026-11-18"
+}

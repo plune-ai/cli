@@ -268,3 +268,79 @@ Creative Commons Attribution 4.0 International (CC-BY-4.0)
 Documentation in this project (excluding specifications) is licensed under
 CC-BY-4.0. See https://creativecommons.org/licenses/by/4.0/legalcode for
 the full license text.
+
+--------------------------------------------------------------------------------
+
+The tool lists below are kept in the repository as data for the accuracy corpus of plune mcp scan
+(corpus/benign/, not part of the npm package). Each was read from the source at the commit named,
+without running the server; the tool names, titles, descriptions and parameter descriptions are
+copied unchanged, since they are the texts the corpus measures. corpus/SOURCES.json gives the
+SHA-256 of each file.
+
+--------------------------------------------------------------------------------
+
+GitHub MCP Server
+https://github.com/github/github-mcp-server (commit df32d7ec5786e0e71932767fce9982409cbaec40)
+Author: GitHub
+Licence: MIT
+
+What is included: corpus/benign/github-mcp-server.snapshot.json, the name, description,
+inputSchema and annotations of each of the 154 tool snapshots the project commits in
+pkg/github/__toolsnaps__/ (outputSchema left out), in the snapshot format of plune mcp. No code of
+the project is included.
+
+MIT License
+
+Copyright (c) 2025 GitHub
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------------------
+
+Playwright MCP
+https://github.com/microsoft/playwright-mcp (commit 2337aff0213d28db41d3e3daf48cee19b3d0bd82)
+Author: Microsoft Corporation
+Licence: Apache-2.0
+Copyright (c) Microsoft Corporation.
+
+What is included: corpus/benign/playwright-mcp.snapshot.json, the 72 tools of the tool list that
+update-readme.js generates into README.md (name, title, description, read-only flag, and each
+parameter with its type, whether it is required and its description), in the snapshot format of
+plune mcp. No code of the project is included. The text of the Apache License 2.0 is given above,
+in the entry of the Model Context Protocol specification.
+
+--------------------------------------------------------------------------------
+
+AWS MCP Servers: IAM, Timestream for InfluxDB and Redshift servers
+https://github.com/awslabs/mcp (commit a6147efeef51412806528b937e6e5b885945a133)
+Author: Amazon Web Services (awslabs)
+Licence: Apache-2.0
+Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+
+What is included: corpus/benign/iam-mcp-server.snapshot.json,
+corpus/benign/timestream-for-influxdb-mcp-server.snapshot.json and
+corpus/benign/redshift-mcp-server.snapshot.json: for the functions registered with @mcp.tool in
+src/iam-mcp-server/awslabs/iam_mcp_server/server.py,
+src/timestream-for-influxdb-mcp-server/awslabs/timestream_for_influxdb_mcp_server/server.py and
+src/redshift-mcp-server/awslabs/redshift_mcp_server/server.py, the tool name, the description (the
+decorator's, or the docstring) and each parameter's description, with a JSON type read from its
+annotation, in the snapshot format of plune mcp. No code of the project is included. The NOTICE
+files of the three servers read "Copyright Amazon.com, Inc. or its affiliates. All Rights
+Reserved." The text of the Apache License 2.0 is given above, in the entry of the Model Context
+Protocol specification.

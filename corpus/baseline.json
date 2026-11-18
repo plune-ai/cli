@@ -1,7 +1,7 @@
 {
-  "measuredAt": "2026-11-13",
-  "commit": "729e572",
-  "corpusSha256": "a1da22390f6c7fecd100217971b679fa69c1a66d2409c3e189a29b102c8ca9c1",
+  "measuredAt": "2026-11-18",
+  "commit": "81999e0",
+  "corpusSha256": "ea4bb40ba7c2b3aca6e0b7b1f3f57e8aab821ba2908c66b29a53a095c9e75253",
   "rules": {
     "scan/desc/ansi-escape": {
       "fixtures": 4,
@@ -131,7 +131,12 @@
         }
       ],
       "falsePositives": {
-        "real": [],
+        "real": [
+          {
+            "set": "github-mcp-server",
+            "pointer": "/tools/17/inputSchema/properties/content/description"
+          }
+        ],
         "synthetic": [
           {
             "set": "summarizer-en",

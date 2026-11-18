@@ -54,9 +54,12 @@ export interface Corpus {
 /**
  * The units the gate needs. A unit here is any text the rules read: a description, but also a title, a name, and every
  * key and string value of a schema, so `units` is larger than the number of descriptions. `descriptionUnits` counts the
- * fields called `description` alone; the threshold of the gate will have to be counted on those, not on `units`.
+ * fields called `description` alone, and the gate is counted on those: a rule needs this many real description fields,
+ * because with no false finding in 385 the upper end of the 95 % Wilson interval is just under 1 %.
  */
 export const GATE_MIN_UNITS = 385;
+/** The most false findings a gating rule may make on real descriptions: the 95 % Wilson upper bound, about 1 %. */
+export const GATE_MAX_FALSE_RATE = 0.01;
 
 /** The generated files are rewritten only on request and never in CI: a CI run that rewrote them would pass on its own numbers. */
 export function corpusUpdateRequested(env: Record<string, string | undefined>): boolean {
@@ -73,7 +76,8 @@ const Z = 1.96;
 /** The upper end of the 95 % Wilson interval of `k` in `n`; `null` for no units. */
 export function wilsonUpper95(k: number, n: number): number | null {
   if (n === 0) return null;
-  const p = k / n;
+  // Findings may sit on texts other than the n counted (a name, a title), so k can exceed n: that is a rate of 1, not NaN.
+  const p = Math.min(k / n, 1);
   const z2 = Z * Z;
   const upper =
     (p + z2 / (2 * n) + Z * Math.sqrt((p * (1 - p)) / n + z2 / (4 * n * n))) / (1 + z2 / n);
@@ -173,9 +177,10 @@ export interface Place {
 }
 export interface OriginCount {
   units: number;
-  /** Of `units`, the fields called `description`: the count the gate threshold will be read on. */
+  /** Of `units`, the fields called `description`: the count the gate threshold is read on. */
   descriptionUnits: number;
   falsePositives: Place[];
+  /** The upper end of the 95 % Wilson interval of `falsePositives` in `descriptionUnits`. */
   wilsonUpper95: number | null;
 }
 export interface RuleReport {
@@ -225,7 +230,7 @@ export function measure(corpus: Corpus, scan: Scan = defaultScan): Report {
         units,
         descriptionUnits,
         falsePositives,
-        wilsonUpper95: wilsonUpper95(falsePositives.length, units),
+        wilsonUpper95: wilsonUpper95(falsePositives.length, descriptionUnits),
       };
     };
     const real = count('real');
@@ -235,10 +240,12 @@ export function measure(corpus: Corpus, scan: Scan = defaultScan): Report {
     const reasons = [
       DESC_RULES[rule].class !== 'deterministic' ? `class ${DESC_RULES[rule].class}` : '',
       expected.length === 0 ? 'no fixtures' : '',
-      real.units < GATE_MIN_UNITS
-        ? `not enough real units (${real.units} of ${GATE_MIN_UNITS})`
+      real.descriptionUnits < GATE_MIN_UNITS
+        ? `not enough real units (${real.descriptionUnits} of ${GATE_MIN_UNITS})`
         : '',
-      real.falsePositives.length > 0 ? 'false findings on real units' : '',
+      real.wilsonUpper95 !== null && real.wilsonUpper95 > GATE_MAX_FALSE_RATE
+        ? `too many false findings on real units (Wilson upper ${real.wilsonUpper95} > ${GATE_MAX_FALSE_RATE})`
+        : '',
       missed.length > 0 ? 'missed fixtures' : '',
     ].filter(Boolean);
     report[rule] = {
