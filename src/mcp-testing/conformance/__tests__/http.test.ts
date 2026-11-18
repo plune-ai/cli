@@ -88,9 +88,17 @@ describe('CLI · mcp conformance · Streamable HTTP on the wire', () => {
       expect(byId(report!, id).details?.length, id).toBeGreaterThan(0);
     expect(byId(report!, 'http-origin-invalid-403').details?.[1]?.request.headers).toContainEqual(['Origin', 'https://evil.example']);
     if (outside) triedEach(byId(report!, 'http-bind-loopback').actual, /^(refused|no answer in 500 ms)$/);
-    // None of these is in the frozen profile yet: they show their verdict and stay out of the score.
-    expect(report!.summary).toMatchObject({ failed: [], score: null });
-    expect(code).toBe(3);
+    // Profile 2026-11.3 (the default) scores the MUST ones; a needs-input or not-offered check stays outside.
+    expect(report!.profileVersion).toBe('2026-11.3');
+    expect(report!.summary).toMatchObject({ failed: [], score: 100, applicable: 10, verdict: 'passed' });
+    expect(report!.summary.needsInput).toEqual(['http-sse-no-broadcast']);
+    expect(code).toBe(0);
+    // Under 2026-11.2 none of them is in the profile: they show their verdict and stay out of the score.
+    const old = await run({ url: s.url, profile: '2026-11.2' });
+    expect(old.report!.profileVersion).toBe('2026-11.2');
+    expect(states(old.report!)).toEqual(states(report!));
+    expect(old.report!.summary).toMatchObject({ failed: [], score: null, applicable: 0 });
+    expect(old.code).toBe(3);
   });
 
   it('a server that breaks each requirement fails each check, with what it got and how to fix it', async () => {
@@ -132,8 +140,26 @@ describe('CLI · mcp conformance · Streamable HTTP on the wire', () => {
     expect(byId(report!, 'http-notification-202').actual).toContain('HTTP 200 and a body');
     expect(byId(report!, 'http-session-id-visible-ascii').actual).toContain('0x20');
     expect(byId(report!, 'http-response-utf8').actual).toContain('not valid UTF-8');
-    expect(report!.summary.score).toBeNull();
-    expect(code).toBe(3);
+    // 2026-11.3: one MUST of the ten measured holds (http-single-endpoint), so the score is low and the run failed.
+    expect(report!.summary).toMatchObject({ score: 10, applicable: 10, verdict: 'failed', passed: ['http-single-endpoint'] });
+    expect(report!.summary.failed).not.toContain('http-host-rebinding-advice');
+    expect(report!.summary.failed).not.toContain('http-bind-loopback');
+    expect(code).toBe(1);
+    // 2026-11.2 does not score them: the same verdicts, no score.
+    const old = await run({ url: s.url, profile: '2026-11.2' });
+    expect(states(old.report!)).toEqual(got);
+    expect(old.report!.summary.score).toBeNull();
+    expect(old.code).toBe(3);
+  });
+
+  it('--profile takes only a version it offers: another is exit 2 before any request', async () => {
+    const s = await serve({});
+    for (const profile of ['2026-11.1', 'latest']) {
+      const r = await run({ url: s.url, profile });
+      expect(r.code, profile).toBe(2);
+      expect(r.err, profile).toContain(`--profile must be one of 2026-11.2, 2026-11.3 (got "${profile}")`);
+    }
+    expect(s.requests).toEqual([]);
   });
 
   it('AC-6: a non-ASCII session id fails, and a server without sessions makes the session checks not-applicable', async () => {

@@ -13,6 +13,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ### Changed
 
+- **`plune mcp conformance` scores the Streamable HTTP checks: profile `2026-11.3`.** The 14 `MUST` checks of Streamable HTTP and of a local server's protection (`http-*`) now count in the score of a run over `--url`, so a server that breaks them gets a lower score, and can get exit 1 where it got exit 3. Over stdio they are `not-applicable` (`transport`), and a stdio server scores the same as before; on a host that is not a loopback name the `Origin` check is `not-applicable` (`not-local`). The `SHOULD` checks, the controls and the advice stay outside the score. `--profile 2026-11.2` gives the score as it was.
+
 - **`plune_cases_search` returns 20 cases a page unless `limit` says otherwise.** With no `limit`, the platform's own page (up to 200 full cases) went back in one answer: on the 48 cases of the demo project that is ~7.7k estimated tokens, now ~3.2k, with `nextCursor` for the rest. A `limit` the caller gives is sent as before.
 
 ### Fixed

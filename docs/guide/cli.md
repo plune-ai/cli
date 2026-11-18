@@ -955,8 +955,9 @@ end; the report's `ownSessions` says how many were opened, closed and left open 
   `http-origin-invalid-403` is `could-not-run` (`prerequisite-failed`), not `passed`.
 - `http-close-cancels` (a closed stream cancels the call) shows only in the effects of a tool, so it is
   `could-not-run` (`needs-input`) for now. Over stdio every `http-*` check is `not-applicable` (`transport`), and over
-  HTTP+SSE `could-not-run` (`transport-error`). None of them is in profile `2026-11.2`, so they show their verdict and
-  stay out of the score until a new profile lists them.
+  HTTP+SSE `could-not-run` (`transport-error`). Profile `2026-11.3` (the default) scores the `MUST` ones; the
+  `SHOULD` ones, the two controls and the `Host` advice stay outside the score. Under `--profile 2026-11.2` none of
+  them is scored.
 
 ### The 2026-07-28 revision (modern era)
 
@@ -1006,7 +1007,7 @@ parameters. The `mod-*` checks (31) are `not-applicable` (`era`) in a legacy run
   roots. Without `--fixture` it is `could-not-run` (`needs-input`).
 
 Where the text of the specification leaves a choice, the catalog entry (`--explain <id>`) says which reading the
-check takes. None of the `mod-*` checks is in profile `2026-11.2`: they show their verdict and stay out of the score
+check takes. None of the `mod-*` checks is in profile `2026-11.3`: they show their verdict and stay out of the score
 until a new profile lists them.
 
 ### Options
@@ -1017,6 +1018,7 @@ The connection flags are those of every `plune mcp` command that tests a server.
 |--------|---------|
 | `--suite <suite>` | `protocol` (default), `oauth`, `tasks` or `apps`; repeatable. |
 | `--check <id>` | Run only this check; repeatable. An id the catalog does not have, or one outside the selected suites, is exit `2`. |
+| `--profile <version>` | The score profile: `2026-11.3` (default) or `2026-11.2`, the score before the `http-*` checks counted. Another value is exit 2. |
 | `--protocol-version <revision>` | The revision to check against; `auto` (default): the era found by a server/discover probe, then the revision the server answered with; `both`: a legacy and a modern run of a dual-era server, each scored on its own. A check for the other era (`legacy`: up to 2025-11-25, `modern`: 2026-07-28 on) is `not-applicable` (`era`). |
 | `--format <fmt>` | `human` (default) or `json`. |
 | `--reporter junit-xml` | A bare `--out <path>` is written as JUnit XML instead of JSON. It needs an `--out`. |
@@ -1066,11 +1068,15 @@ measured; else `passed`.
 ### The profile
 
 The score reads only the ids of a frozen profile, written out in the source and named in every result:
-`profileId`, `profileVersion` (`2026-11.2`), `manifestDigest` (SHA-256 of the sorted ids, one per line). A check
+`profileId`, `profileVersion` (`2026-11.3` by default), `manifestDigest` (SHA-256 of the sorted ids, one per line). A check
 added to the catalog later runs and shows its verdict, but stays in `pending` (and `pendingCheckIds`) until a new
 profile version lists it, so it never changes the score or the exit code of a server measured before. A change in
 where a listed id applies (its eras or transports) also means a new profile version: `2026-11.2` lists the same ids as
-`2026-11.1` and differs from it only in `base-jsonrpc-parse-error`, which no longer counts on stdio. The result
+`2026-11.1` and differs from it only in `base-jsonrpc-parse-error`, which no longer counts on stdio. `2026-11.3` adds
+the `MUST` checks of Streamable HTTP and of a local server's protection (`http-*`): over stdio they are
+`not-applicable` (`transport`), so a stdio server scores the same under both, and on a host that is not a loopback
+name the protection check is `not-applicable` (`not-local`). `--profile 2026-11.2` scores a new run as before them;
+`2026-11.1` is not offered, since today's rules for its ids are those of `2026-11.2`. The result
 also records `checkerVersion` (this CLI's version), `protocolVersion`, `protocolVersionRequested`, `era`, `eraDetection`, `schemaVersion: 1`
 and, per check, `class`, `level`, `state`, `reason`, `expected`, `actual`, `fix`, `specRef` and, for the HTTP
 checks, `details` (each request with its method, URL and headers, and the status, headers, body, number of SSE events

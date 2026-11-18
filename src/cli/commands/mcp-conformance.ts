@@ -36,7 +36,7 @@ import { initializeProblems } from '../../mcp-testing/conformance/checks/lifecyc
 import { modernMeta } from '../../mcp-testing/conformance/checks/modern/meta.js';
 import { answerOf, isObject, nextId, said, type Answer } from '../../mcp-testing/conformance/checks/wire.js';
 import { applicability, eraOf, type CheckOutcome } from '../../mcp-testing/conformance/outcome.js';
-import { manifestDigest, PROFILE } from '../../mcp-testing/conformance/profile.js';
+import { manifestDigest, PROFILE, PROFILES, profileOf, type Profile } from '../../mcp-testing/conformance/profile.js';
 import { BUCKETS, exitCodeOf, floorScore, summarize } from '../../mcp-testing/conformance/score.js';
 import { MCP_EXIT } from '../../mcp-testing/exit-codes.js';
 import { noCommands, noCommandsJson } from '../../mcp-testing/report/human.js';
@@ -48,6 +48,8 @@ export interface McpConformanceFlags extends ConnectionFlags {
   suite?: string[];
   check?: string[];
   protocolVersion?: string;
+  /** The version of the score profile: the current one when absent. */
+  profile?: string;
   format?: string;
   reporter?: string;
   /** Repeatable; a string from a caller that passes one. */
@@ -153,22 +155,22 @@ function selection(flags: McpConformanceFlags): { suites: Suite[]; entries: Cata
   return { suites, entries };
 }
 
-function catalogText(entries: readonly CatalogEntry[]): string {
+function catalogText(entries: readonly CatalogEntry[], profile: Profile): string {
   const rows = entries.map((e) => [
     e.id,
     e.suite,
     e.kind === 'check' ? `${e.level}${e.derived ? '*' : ''}` : e.kind,
     e.eras.join('+'),
     e.transports.join('+'),
-    PROFILE.checks.includes(e.id) ? 'scored' : '',
+    profile.checks.includes(e.id) ? 'scored' : '',
   ]);
   const head = ['id', 'suite', 'level', 'eras', 'transports', 'profile'];
   const widths = head.map((h, i) => Math.max(h.length, ...rows.map((r) => (r[i] ?? '').length)));
   const line = (r: string[]) => r.map((c, i) => c.padEnd(widths[i] ?? 0)).join('  ').trimEnd();
-  return `${[head, ...rows].map(line).join('\n')}\n\n${entries.length} checks. * level derived from neighbouring provisions. Profile ${PROFILE.id} ${PROFILE.version}: ${PROFILE.checks.length} scored.\n`;
+  return `${[head, ...rows].map(line).join('\n')}\n\n${entries.length} checks. * level derived from neighbouring provisions. Profile ${profile.id} ${profile.version}: ${profile.checks.length} scored.\n`;
 }
 
-function explainText(e: CatalogEntry): string {
+function explainText(e: CatalogEntry, profile: Profile): string {
   const lines = [
     `${e.id}: ${e.title}`,
     e.description,
@@ -179,7 +181,7 @@ function explainText(e: CatalogEntry): string {
     `eras: ${e.eras.join(', ')}`,
     `transports: ${e.transports.join(', ')}`,
     `needs a fixture: ${e.needsFixture ? 'yes' : 'no'}`,
-    `in profile ${PROFILE.id} ${PROFILE.version}: ${PROFILE.checks.includes(e.id) ? 'yes, scored' : 'no'}`,
+    `in profile ${profile.id} ${profile.version}: ${profile.checks.includes(e.id) ? 'yes, scored' : 'no'}`,
     ...e.specRefs.map((r) => `spec: ${specUrl(r)} (${r.section})`),
   ];
   return `${lines.join('\n')}\n`;
@@ -192,13 +194,15 @@ async function conformance(
   rawOut: (text: string) => void,
 ): Promise<number> {
   const format = oneOf('--format', flags.format ?? 'human', FORMATS);
+  const versions = PROFILES.map((p) => p.version);
+  const profile = profileOf(oneOf('--profile', flags.profile ?? PROFILE.version, versions)) ?? PROFILE;
   if (flags.listChecks === true || flags.explain !== undefined) {
     if (flags.out !== undefined || flags.reporter !== undefined)
       throw new UsageError('--list-checks and --explain print the catalog: --out is for a run.');
     if (flags.explain !== undefined) {
       const entry = catalogEntry(flags.explain);
       if (entry === undefined) throw new UsageError(`--explain ${flags.explain}: no such check.`);
-      io.out(format === 'json' ? json(entry) : explainText(entry));
+      io.out(format === 'json' ? json(entry) : explainText(entry, profile));
       return MCP_EXIT.ok;
     }
     const entries = flags.suite === undefined ? CATALOG : selection(flags).entries;
@@ -207,10 +211,10 @@ async function conformance(
         ? json({
             kind: 'mcp-conformance-catalog',
             schemaVersion: 1,
-            profile: { id: PROFILE.id, version: PROFILE.version, manifestDigest: manifestDigest(PROFILE.checks), checks: PROFILE.checks },
+            profile: { id: profile.id, version: profile.version, manifestDigest: manifestDigest(profile.checks), checks: profile.checks },
             checks: entries,
           })
-        : catalogText(entries),
+        : catalogText(entries, profile),
     );
     return MCP_EXIT.ok;
   }
@@ -241,7 +245,7 @@ async function conformance(
     requested === 'both' ? ['legacy', 'modern'] : requested === 'auto' ? 'auto' : [eraOf(requested)];
   if (config.target.kind === 'sse' && plan !== 'auto' && plan.includes('modern'))
     throw new UsageError('--protocol-version: the HTTP+SSE transport carries the legacy era only (2025-11-25 and earlier).');
-  const base: Base = { requested, suites, entries, fixture };
+  const base: Base = { requested, suites, entries, fixture, profile };
   const reports: McpConformanceReport[] = [];
   if (suites.includes('oauth')) {
     if (suites.length > 1) throw new UsageError('--suite oauth cannot be run together with another suite yet: run it on its own.');
@@ -311,6 +315,8 @@ interface Base {
   suites: Suite[];
   entries: CatalogEntry[];
   fixture: FixtureCall[] | undefined;
+  /** The profile the run is scored with. */
+  profile: Profile;
 }
 
 /** The era a run is for, the revision when it is known before the run, and how it was chosen. */
@@ -372,7 +378,7 @@ function discoverRaw(session: Session, version: string): Promise<RawReply> {
 /** One run of the selected checks in one era: connect, check, score. */
 async function measure(
   config: ConnectConfig,
-  { requested, suites, entries, fixture }: Base,
+  { requested, suites, entries, fixture, profile }: Base,
   plan: Plan,
   io: ConformanceIo,
 ): Promise<McpConformanceReport> {
@@ -503,19 +509,19 @@ async function measure(
     }
   }
 
-  const summary = summarize(results);
+  const summary = summarize(results, CATALOG, profile);
   const bucket = new Map(BUCKETS.flatMap((k) => summary[k].map((id) => [id, k] as const)));
   for (const r of results) r.bucket = bucket.get(r.id) ?? 'pending';
   const bySuite: McpConformanceReport['bySuite'] = {};
-  for (const s of suites) bySuite[s] = summarize(results.filter((r) => r.suite === s));
+  for (const s of suites) bySuite[s] = summarize(results.filter((r) => r.suite === s), CATALOG, profile);
   return {
     kind: 'mcp-conformance-report',
     schemaVersion: 1,
     command: 'conformance',
     checkerVersion: io.clientVersion ?? '0.0.0',
-    profileId: PROFILE.id,
-    profileVersion: PROFILE.version,
-    manifestDigest: manifestDigest(PROFILE.checks),
+    profileId: profile.id,
+    profileVersion: profile.version,
+    manifestDigest: manifestDigest(profile.checks),
     protocolVersion,
     protocolVersionRequested: requested,
     era: plan.era,
@@ -572,7 +578,7 @@ function oauthSetup(flags: McpConformanceFlags, cwd: string, env: NodeJS.Process
  */
 async function measureOauth(
   config: ConnectConfig,
-  { requested, suites, entries }: Base,
+  { requested, suites, entries, profile }: Base,
   revision: string,
   setup: OauthSetup,
   io: ConformanceIo,
@@ -624,19 +630,19 @@ async function measureOauth(
     timeouts = outcome.state === 'could-not-run' && outcome.reason === 'timeout' ? timeouts + 1 : 0;
     results.push(result(entry, outcome, clean));
   }
-  const summary = summarize(results);
+  const summary = summarize(results, CATALOG, profile);
   const bucket = new Map(BUCKETS.flatMap((k) => summary[k].map((id) => [id, k] as const)));
   for (const r of results) r.bucket = bucket.get(r.id) ?? 'pending';
   const bySuite: McpConformanceReport['bySuite'] = {};
-  for (const s of suites) bySuite[s] = summarize(results.filter((r) => r.suite === s));
+  for (const s of suites) bySuite[s] = summarize(results.filter((r) => r.suite === s), CATALOG, profile);
   return {
     kind: 'mcp-conformance-report',
     schemaVersion: 1,
     command: 'conformance',
     checkerVersion: io.clientVersion ?? '0.0.0',
-    profileId: PROFILE.id,
-    profileVersion: PROFILE.version,
-    manifestDigest: manifestDigest(PROFILE.checks),
+    profileId: profile.id,
+    profileVersion: profile.version,
+    manifestDigest: manifestDigest(profile.checks),
     protocolVersion: revision,
     protocolVersionRequested: requested,
     era,
