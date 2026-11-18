@@ -957,7 +957,7 @@ export function createProgram(): Command {
     .option('--suite <suite>', 'protocol (default), oauth, tasks or apps; repeatable', repeat)
     .option('--check <id>', 'Run only this check; repeatable', repeat)
     .option('--protocol-version <revision>', 'The revision to check against, or auto (the one the server answers with)', 'auto')
-    .option('--profile <version>', 'The score profile: 2026-11.3 (default, with the Streamable HTTP checks) or 2026-11.2 (the score before them)')
+    .option('--profile <version>', 'The score profile: 2026-11.4 (default, with the 2026-07-28 checks), 2026-11.3 (the score before them) or 2026-11.2 (before the Streamable HTTP checks)')
     .option('--format <format>', 'What to print: human or json', 'human')
     .option('--reporter <reporter>', 'junit-xml: a bare --out <path> is written as JUnit XML instead of JSON')
     .option(

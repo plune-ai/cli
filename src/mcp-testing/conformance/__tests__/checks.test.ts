@@ -75,13 +75,14 @@ describe('CLI · mcp conformance · checks against a server that keeps and one t
     expect(code).toBe(0);
   }, 15_000);
 
-  it('a stdio server has the same score under 2026-11.3 as under 2026-11.2: every http- check is not-applicable (transport)', async () => {
+  it('a legacy stdio server has the same score under 2026-11.4 as under 2026-11.2: every http- check is not-applicable (transport), every mod- one not-applicable too', async () => {
     for (const [m, calls] of [['good', [{ tool: 'echo', arguments: { text: 'hi' } }]], ['bad', [{ tool: 'dup' }]]] as const) {
       const now = (await run({ fixture: fixtureFile(calls) }, mode(m))).report!;
       const old = (await run({ fixture: fixtureFile(calls), profile: '2026-11.2' }, mode(m))).report!;
-      expect([now.profileVersion, old.profileVersion], m).toEqual(['2026-11.3', '2026-11.2']);
+      expect([now.profileVersion, old.profileVersion], m).toEqual(['2026-11.4', '2026-11.2']);
       for (const c of now.checks.filter((c) => c.id.startsWith('http-')))
         expect(`${c.state} (${c.reason})`, c.id).toBe('not-applicable (transport)');
+      for (const c of now.checks.filter((c) => c.id.startsWith('mod-'))) expect(c.state, c.id).toBe('not-applicable');
       const { score, applicable, verdict } = old.summary;
       expect(now.summary, m).toMatchObject({ score, applicable, verdict });
       expect(now.exitCode, m).toBe(old.exitCode);

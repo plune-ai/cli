@@ -18,6 +18,8 @@ const FROZEN: Record<string, string> = {
   '2026-11.2': '466f528105d991a6734e4d9b03572d3f4882e393a0623f06831be3acd7c2e200',
   // The MUST checks of Streamable HTTP and of a local server's protection join the list.
   '2026-11.3': 'fd68f7f5dc2e52b28269749103d40787d243738e137a746acfc11452f1c59c02',
+  // The MUST checks of the 2026-07-28 revision that passed on a real server and failed on none.
+  '2026-11.4': '9e4704961de88e301bd801c6f227800b08b746cb8d9146c1da86842b7f0a21dc',
 };
 
 /**
@@ -29,7 +31,30 @@ const RULES: Record<string, string> = {
   '2026-11.1': 'a00f6a2d31a8e9c381bc38d97f709927401b9ae789aba425c5a8f34c0d4655df',
   '2026-11.2': '95caebf216f085d053c2615d55152b6c9318094ae3e9544bba5a67bf865696be',
   '2026-11.3': '11f34877d0d73b303e5ea8278c577c26059a2ec5175e2d5e15ba49222eedf2d2',
+  '2026-11.4': '20e4d1d0fe900777723e0048aed38f068c11afda332cfb2059bb5b97d132f612',
 };
+
+/**
+ * The mod- checks 2026-11.4 scores: each passed on at least one of the two real servers of the live runs of 18.11
+ * (`plune mcp serve` and `@modelcontextprotocol/server-everything` 2.3.1, both over stdio) and failed on none.
+ */
+const PROMOTED = [
+  'mod-discover-result',
+  'mod-unsupported-version',
+  'mod-removed-methods',
+  'mod-stateless-no-prior-context',
+  'mod-list-stable-across-connections',
+  'mod-resource-not-found',
+  'mod-resource-no-empty-contents',
+  'mod-cache-hints-coverage',
+  'mod-cache-ttl-valid',
+  'mod-cache-scope-valid',
+  'mod-sub-ack-first',
+  'mod-result-type-present',
+  'mod-error-code-range',
+  'mod-logs-need-log-level',
+  'mod-wire-schema-valid',
+];
 const rulesDigest = (ids: readonly string[]) => {
   const byId = new Map(CATALOG.map((e) => [e.id, e]));
   const lines = [...ids].sort().map((id) => {
@@ -101,13 +126,13 @@ describe('CLI · mcp conformance · catalog and registry', () => {
 
 describe('CLI · mcp conformance · frozen profile', () => {
   it('the digest of each version --profile offers is the one it was frozen with', () => {
-    expect(PROFILES.map((p) => p.version)).toEqual(['2026-11.2', '2026-11.3']);
+    expect(PROFILES.map((p) => p.version)).toEqual(['2026-11.2', '2026-11.3', '2026-11.4']);
     for (const p of PROFILES) {
       expect(manifestDigest(p.checks), p.version).toBe(FROZEN[p.version]);
       expect(p.version).toMatch(/^\d{4}-\d{2}\.\d+$/);
       expect(p.id).toBe(PROFILE.id);
     }
-    expect(PROFILE.version).toBe('2026-11.3');
+    expect(PROFILE.version).toBe('2026-11.4');
     expect(profileOf('2026-11.1')).toBeUndefined();
   });
 
@@ -117,11 +142,38 @@ describe('CLI · mcp conformance · frozen profile', () => {
 
   it('2026-11.3 is 2026-11.2 and the MUST checks of http-, each over HTTP only', () => {
     const old = profileOf('2026-11.2')!;
-    const added = PROFILE.checks.filter((id) => !old.checks.includes(id));
-    expect(old.checks.filter((id) => !PROFILE.checks.includes(id))).toEqual([]);
+    const now = profileOf('2026-11.3')!;
+    const added = now.checks.filter((id) => !old.checks.includes(id));
+    expect(old.checks.filter((id) => !now.checks.includes(id))).toEqual([]);
     const http = CATALOG.filter((e) => e.id.startsWith('http-') && e.kind === 'check' && e.level === 'MUST').map((e) => e.id);
     expect(added).toEqual(http);
     for (const id of added) expect(CATALOG.find((e) => e.id === id)?.transports, id).toEqual(['http']);
+  });
+
+  it('2026-11.4 is 2026-11.3 and the mod- checks a real server passed; the rest of mod- stays pending', () => {
+    const old = profileOf('2026-11.3')!;
+    expect(old.checks.filter((id) => !PROFILE.checks.includes(id))).toEqual([]);
+    expect(PROFILE.checks.filter((id) => !old.checks.includes(id))).toEqual(PROMOTED);
+    for (const id of PROMOTED) expect(CATALOG.find((e) => e.id === id)?.eras, id).toEqual(['modern']);
+    // Failed on every server built on the official SDK (server/discover without a protocolVersion: -32601).
+    expect(PROFILE.checks).not.toContain('mod-meta-required-fields');
+    // Not measured on a real server: needs a fixture, nothing offered, or over HTTP only.
+    const unmeasured = CATALOG.filter((e) => e.id.startsWith('mod-') && e.level === 'MUST' && !PROMOTED.includes(e.id));
+    expect(unmeasured.map((e) => e.id)).toEqual([
+      'mod-meta-required-fields',
+      'mod-cache-scope-stable-pages',
+      'mod-undeclared-capability',
+      'mod-sub-filter-and-tag',
+      'mod-unimplemented-method',
+      'mod-header-protocol-version-mismatch',
+      'mod-header-method-mismatch',
+      'mod-header-name-mismatch',
+      'mod-header-missing-rejected',
+      'mod-header-names-case-insensitive',
+      'mod-header-name-base64-decoded',
+      'mod-param-header-mismatch',
+      'mod-x-mcp-header-declarations',
+    ]);
   });
 
   it('a saved 2026-11.1 stdio result with base-jsonrpc-parse-error failed still scores as it recorded: failed', () => {

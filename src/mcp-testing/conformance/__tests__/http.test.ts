@@ -88,8 +88,8 @@ describe('CLI · mcp conformance · Streamable HTTP on the wire', () => {
       expect(byId(report!, id).details?.length, id).toBeGreaterThan(0);
     expect(byId(report!, 'http-origin-invalid-403').details?.[1]?.request.headers).toContainEqual(['Origin', 'https://evil.example']);
     if (outside) triedEach(byId(report!, 'http-bind-loopback').actual, /^(refused|no answer in 500 ms)$/);
-    // Profile 2026-11.3 (the default) scores the MUST ones; a needs-input or not-offered check stays outside.
-    expect(report!.profileVersion).toBe('2026-11.3');
+    // Profile 2026-11.3 and later (2026-11.4 is the default) score the MUST ones; a needs-input or not-offered check stays outside.
+    expect(report!.profileVersion).toBe('2026-11.4');
     expect(report!.summary).toMatchObject({ failed: [], score: 100, applicable: 10, verdict: 'passed' });
     expect(report!.summary.needsInput).toEqual(['http-sse-no-broadcast']);
     expect(code).toBe(0);
@@ -157,7 +157,7 @@ describe('CLI · mcp conformance · Streamable HTTP on the wire', () => {
     for (const profile of ['2026-11.1', 'latest']) {
       const r = await run({ url: s.url, profile });
       expect(r.code, profile).toBe(2);
-      expect(r.err, profile).toContain(`--profile must be one of 2026-11.2, 2026-11.3 (got "${profile}")`);
+      expect(r.err, profile).toContain(`--profile must be one of 2026-11.2, 2026-11.3, 2026-11.4 (got "${profile}")`);
     }
     expect(s.requests).toEqual([]);
   });

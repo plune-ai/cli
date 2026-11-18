@@ -118,12 +118,30 @@ describe('CLI · mcp conformance · the 2026-07-28 revision over stdio', () => {
     );
     expect(states(r)).toEqual(expected);
     expect(r.server).toEqual({ name: 'modern-good', version: '1.0.0' });
-    // AC-1: every new id is in the catalog, none in the profile: a MUST is pending for the score, a SHOULD advice.
+    // Profile 2026-11.4 scores the MUST ones a real server passed; the other MUST ones stay pending, a SHOULD is advice.
+    expect(r.profileVersion).toBe('2026-11.4');
     for (const e of MOD) {
-      expect(PROFILE.checks, e.id).not.toContain(e.id);
-      expect(e.level === 'MUST' ? r.pendingCheckIds : r.summary.advisories, e.id).toContain(e.id);
+      const bucket = e.level !== 'MUST' ? r.summary.advisories : PROFILE.checks.includes(e.id) ? r.summary.passed : r.pendingCheckIds;
+      expect(bucket, e.id).toContain(e.id);
     }
+    expect(r.pendingCheckIds).toContain('mod-meta-required-fields');
+    expect(r.summary).toMatchObject({ failed: [], verdict: 'passed', score: 100 });
+    expect(r.exitCode).toBe(0);
     expect(byId(r, 'mod-wire-schema-valid').actual).toContain(`sha256 ${SCHEMA_SHA256.slice(0, 12)}`);
+  }, 60_000);
+
+  it('2026-11.4: a modern server that breaks a scored mod- check fails the run (exit 1); under 2026-11.3 the same verdicts leave mod- out of the score', async () => {
+    const now = await run({ fixture: fixtureFile(CALLS) }, modern('bad'));
+    const r = now.doc as McpConformanceReport;
+    expect(r.summary.failed).toEqual(expect.arrayContaining(['mod-unsupported-version', 'mod-wire-schema-valid']));
+    expect(r.summary.failed).not.toContain('mod-meta-required-fields');
+    expect(r.pendingCheckIds).toContain('mod-meta-required-fields');
+    expect([r.summary.verdict, now.code]).toEqual(['failed', 1]);
+    const old = await run({ fixture: fixtureFile(CALLS), profile: '2026-11.3' }, modern('bad'));
+    const o = old.doc as McpConformanceReport;
+    expect(o.profileVersion).toBe('2026-11.3');
+    expect(states(o, MOD_IDS)).toEqual(states(r, MOD_IDS));
+    expect(o.summary.failed.filter((id) => id.startsWith('mod-'))).toEqual([]);
   }, 60_000);
 
   it('mod-resource-no-empty-contents: empty contents for an unknown resource fails, an error passes', async () => {
