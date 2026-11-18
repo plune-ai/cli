@@ -75,8 +75,8 @@ describe('what installing this package costs', () => {
   it('weighs what a fetch client and a mapping layer weigh', () => {
     const bytes = fs.statSync(path.join(root, 'dist', 'index.js')).size;
 
-    // 80 KiB since the bulk file routes joined the reporter core (57.8 KiB before, 65.7 KiB with them): still the tripwire for "something else came along".
-    expect(bytes).toBeLessThan(80 * 1024);
+    // 96 KiB since the code snapshot upload joined the reporter core (85.6 KiB with it; 80 KiB after the bulk file routes, 57.8 KiB before them): still the tripwire for "something else came along".
+    expect(bytes).toBeLessThan(96 * 1024);
   });
 });
 
