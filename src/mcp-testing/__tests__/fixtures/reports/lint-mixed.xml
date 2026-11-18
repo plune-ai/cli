@@ -3,6 +3,9 @@
   <testsuite name="plune mcp lint" tests="28" failures="1" errors="0" skipped="6">
     <testcase classname="mcp.lint" name="tools-list"/>
     <testcase classname="mcp.lint" name="input-schema-not-object">
+      <properties>
+        <property name="plune.mcp.tool" value="broken"/>
+      </properties>
       <failure type="deterministic" message="broken: The input schema is not a JSON Schema object of type &quot;object&quot;.">broken: The input schema is not a JSON Schema object of type "object".
 expected: inputSchema.type = "object"
 actual: inputSchema.type = undefined
@@ -14,6 +17,9 @@ spec: https://modelcontextprotocol.io/specification/2025-11-25/schema#tool-input
     <testcase classname="mcp.lint" name="name-duplicate"/>
     <testcase classname="mcp.lint" name="name-invalid"/>
     <testcase classname="mcp.lint" name="desc-missing">
+      <properties>
+        <property name="plune.mcp.tool" value="broken"/>
+      </properties>
       <skipped type="advisory" message="advisory: broken: The tool has no description.">broken: The tool has no description.
 expected: a description
 actual: none
@@ -32,6 +38,9 @@ spec: https://modelcontextprotocol.io/specification/2025-11-25/schema#tool-descr
     <testcase classname="mcp.lint" name="name-style-mismatch"/>
     <testcase classname="mcp.lint" name="name-not-snake"/>
     <testcase classname="mcp.lint" name="annotations-missing">
+      <properties>
+        <property name="plune.mcp.tool" value="broken"/>
+      </properties>
       <skipped type="advisory" message="advisory: broken: The tool has no annotations.">broken: The tool has no annotations.
 expected: annotations
 actual: none

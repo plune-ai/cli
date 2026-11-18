@@ -67,3 +67,56 @@ describe('CLI · run import · JUnit · the reports of plune mcp', () => {
     expect(all).toContain('skipped:not-applicable');
   });
 });
+
+describe('CLI · run import · JUnit · the tools a case of plune mcp is about', () => {
+  const read = (name: string) => {
+    const file = path.join(DIR, name);
+    return readReport(readFileSync(file, 'utf8'), file).results;
+  };
+  const targetsByKey = (name: string) =>
+    Object.fromEntries(
+      read(name)
+        .filter((r) => r.targets !== undefined)
+        .map((r) => [r.keys[0]?.value, r.targets]),
+    );
+
+  it('each plune.mcp.tool property is a target of the result; the key stays classname#name', () => {
+    expect(targetsByKey('check-smoke.xml')).toEqual({
+      'mcp.check#smoke': ['read_error', 'read_ok', 'read_rpc_error'],
+    });
+    expect(targetsByKey('lint-mixed.xml')['mcp.lint#input-schema-not-object']).toEqual(['broken']);
+    expect(targetsByKey('conformance-bad.xml')).toEqual({});
+    // A case about no tool sends no `targets` key at all, not an empty list.
+    expect(
+      read('check-smoke.xml').find((r) => r.keys[0]?.value === 'mcp.check#ping'),
+    ).not.toHaveProperty('targets');
+  });
+
+  it('only plune.mcp.tool feeds targets: trimmed, distinct, a value the platform refuses left out', () => {
+    const xml = `<testsuite><testcase classname="c" name="n"><properties>
+      <property name="plune.mcp.tool" value=" b "/>
+      <property name="plune.mcp.tool" value="b"/>
+      <property name="plune.mcp.tool" value="   "/>
+      <property name="plune.mcp.tool" value="${'x'.repeat(201)}"/>
+      <property name="plune.mcp.tool" value="a"/>
+      <property name="browser" value="chromium"/>
+    </properties></testcase></testsuite>`;
+    expect(readReport(xml, 'r.xml').results[0]?.targets).toEqual(['b', 'a']);
+    const many = Array.from(
+      { length: 60 },
+      (_, i) => `<property name="plune.mcp.tool" value="t${i}"/>`,
+    ).join('');
+    const capped = `<testsuite><testcase classname="c" name="n"><properties>${many}</properties></testcase></testsuite>`;
+    expect(readReport(capped, 'r.xml').results[0]?.targets).toHaveLength(50);
+  });
+
+  it('a value with a control character is no target: NUL by reference, BEL, NEL (C1)', () => {
+    const xml = `<testsuite><testcase classname="c" name="n"><properties>
+      <property name="plune.mcp.tool" value="a&#0;b"/>
+      <property name="plune.mcp.tool" value="bell&#7;"/>
+      <property name="plune.mcp.tool" value="next&#133;line"/>
+      <property name="plune.mcp.tool" value="ok"/>
+    </properties></testcase></testsuite>`;
+    expect(readReport(xml, 'r.xml').results[0]?.targets).toEqual(['ok']);
+  });
+});

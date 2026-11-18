@@ -23,6 +23,8 @@ export interface ReportCheck {
   title: string;
   /** What was checked: a tool, `tool.param`, an entity of the contract; empty for the server itself. */
   target: string;
+  /** The tool this check is about, when it is about one: what the JUnit case lists as `plune.mcp.tool`. */
+  tool?: string;
   state: CheckState;
   class: CheckClass;
   level: CheckLevel;

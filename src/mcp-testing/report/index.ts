@@ -194,7 +194,21 @@ interface Case {
   suite?: string;
   outcome: CaseOutcome;
   durationMs: number | null;
+  /** The distinct tools the case's checks are about, sorted: the `plune.mcp.tool` properties of its JUnit case. */
+  tools: string[];
 }
+
+/**
+ * As many tools as the platform keeps on one result. A case about more lists the first of them in sort order and
+ * says nothing of the rest: the list is a hint for a reader, and its text already names every tool it found.
+ */
+const MAX_TOOLS = 50;
+/** The longest target the platform keeps, after trimming. A longer name is left out before the cap, not counted in it. */
+const MAX_TOOL_LENGTH = 200;
+const keptTool = (t: string | undefined): t is string =>
+  t !== undefined && t.trim() !== '' && t.trim().length <= MAX_TOOL_LENGTH;
+const toolsOf = (checks: ReportCheck[]): string[] =>
+  [...new Set(checks.map((c) => c.tool).filter(keptTool))].sort().slice(0, MAX_TOOLS);
 
 /** The fixed cases with their outcomes; nothing measured is one `run` case that could not run, never an empty list. */
 function casesOf(run: McpRun): Case[] {
@@ -213,7 +227,9 @@ function casesOf(run: McpRun): Case[] {
       specRef: '',
       durationMs: null,
     };
-    return [{ id: 'run', title: check.title, outcome: outcomeOf([check]), durationMs: null }];
+    return [
+      { id: 'run', title: check.title, outcome: outcomeOf([check]), durationMs: null, tools: [] },
+    ];
   }
   return run.cases.map(({ id, title, suite }) => {
     const mine = run.checks.filter((c) => c.id === id);
@@ -223,6 +239,7 @@ function casesOf(run: McpRun): Case[] {
       title,
       ...(suite === undefined ? {} : { suite }),
       outcome: outcomeOf(mine),
+      tools: toolsOf(mine),
       durationMs:
         timed.length === 0 ? null : timed.reduce((sum, c) => sum + (c.durationMs ?? 0), 0),
     };
@@ -394,8 +411,23 @@ function junitXml(run: McpRun): string {
     const classname =
       c.suite === undefined ? `mcp.${run.command}` : `mcp.${run.command}.${c.suite}`;
     const head = `    <testcase classname="${xmlAttr(classname)}" name="${xmlAttr(c.id)}"${time}`;
+    // What the case is about, beside its identity: `plune run import` sends these as the result's targets.
+    const properties =
+      c.tools.length === 0
+        ? []
+        : [
+            '      <properties>',
+            ...c.tools.map(
+              (t) => `        <property name="plune.mcp.tool" value="${xmlAttr(t)}"/>`,
+            ),
+            '      </properties>',
+          ];
     if (c.outcome.kind === 'pass') {
-      lines.push(`${head}/>`);
+      lines.push(
+        ...(properties.length === 0
+          ? [`${head}/>`]
+          : [`${head}>`, ...properties, '    </testcase>']),
+      );
       continue;
     }
     const { checks } = c.outcome;
@@ -405,6 +437,7 @@ function junitXml(run: McpRun): string {
     ].join('\n\n');
     lines.push(
       `${head}>`,
+      ...properties,
       `      <${c.outcome.kind} type="${xmlAttr(c.outcome.type)}" message="${xmlAttr(c.outcome.message)}">${xmlText(body)}</${c.outcome.kind}>`,
       '    </testcase>',
     );

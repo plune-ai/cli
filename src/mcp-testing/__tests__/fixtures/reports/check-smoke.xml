@@ -26,6 +26,11 @@ fix: Answer prompts/list with a prompts array, or do not declare prompts.</skipp
     </testcase>
     <testcase classname="mcp.check" name="ping"/>
     <testcase classname="mcp.check" name="smoke">
+      <properties>
+        <property name="plune.mcp.tool" value="read_error"/>
+        <property name="plune.mcp.tool" value="read_ok"/>
+        <property name="plune.mcp.tool" value="read_rpc_error"/>
+      </properties>
       <failure type="deterministic" message="read_error: isError: the cache is cold (and 1 more)">read_error: isError: the cache is cold
 expected: an answer without isError within --smoke-timeout
 actual: isError: the cache is cold

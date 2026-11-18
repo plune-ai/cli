@@ -44,6 +44,8 @@ interface Seen {
 }
 
 interface PlatformOptions {
+  /** A platform older than `targets`: its strict schema answers 400 to a batch where any result carries them. */
+  refuseTargets?: boolean;
   /**
    * Which keys the platform knows: by `value` in any kind, or by `kind:value` in that kind only — as the platform keeps a key,
    * where two kinds can hold one string (cli#156). Anything else resolves to null.
@@ -54,7 +56,7 @@ interface PlatformOptions {
   /** The platform's CHECK on a run's configuration: a start that carries one is answered 413. */
   refuseConfiguration?: boolean;
   /** Force a reply on `…/results`: a status + error message, or a thrown network failure. */
-  resultsFailure?: { status: number; error: string } | 'network';
+  resultsFailure?: { status: number; error: string; quota?: Record<string, unknown> } | 'network';
   /** Only this call to `…/results` (from 0) meets `resultsFailure`; absent means every call does. */
   failCall?: number;
   /**
@@ -222,9 +224,13 @@ function platform(opts: PlatformOptions = {}) {
       const fails = opts.failCall === undefined || opts.failCall === call;
       if (fails && opts.resultsFailure === 'network') throw new TypeError('fetch failed');
       if (fails && opts.resultsFailure !== undefined) {
-        return json({ error: opts.resultsFailure.error }, opts.resultsFailure.status);
+        const { error, quota, status } = opts.resultsFailure;
+        return json({ error, ...(quota !== undefined ? { quota } : {}) }, status);
       }
       const list = body['results'] as Record<string, unknown>[];
+      if (opts.refuseTargets === true && list.some((r) => 'targets' in r)) {
+        return json({ error: "Unrecognized key(s) in object: 'targets'" }, 400);
+      }
       seen.results.push({ runId: results[1] as string, results: list });
       seen.order.push('results');
       // As the platform answers: a verdict per result, and an id for each one it stored.
@@ -414,6 +420,79 @@ describe('startRun — a list too large for the run does not cost the results', 
 
     expect(seen.starts).toHaveLength(1);
     expect(logOf(cfg).join('\n')).toMatch(/could not start the run/);
+  });
+});
+
+describe('targets on a result', () => {
+  const sent = (seen: Seen) => seen.results.flatMap((r) => r.results);
+
+  it('are sent to a platform that takes them', async () => {
+    const { seen, fetchImpl } = platform({ known: { a: 'tc-a', b: 'tc-b' } });
+    const run = await startRun(config(fetchImpl));
+    await run.add(result('a', { targets: ['notes_get'] }));
+    await run.add(result('b'));
+    await run.flush();
+
+    expect(sent(seen).map((r) => r['targets'])).toEqual([['notes_get'], undefined]);
+    expect(sent(seen)[1]).not.toHaveProperty('targets');
+  });
+
+  it('a platform without the field refuses the batch: it is sent again without them, every result lands, and no later batch carries them', async () => {
+    const { seen, fetchImpl } = platform({ known: { a: 'tc-a', b: 'tc-b', c: 'tc-c' }, refuseTargets: true });
+    const cfg = config(fetchImpl, { batchSize: 2 });
+    const run = await startRun(cfg);
+    await run.add(result('a', { targets: ['notes_get'] }));
+    await run.add(result('b'));
+    await run.add(result('c', { targets: ['read_ok'] }));
+    await run.flush();
+
+    // The refused first try, its resend, then the second batch sent without them from the start.
+    expect(seen.resultCalls).toHaveLength(3);
+    expect(sent(seen).map((r) => r['resultKey'])).toEqual(['a#0', 'b#0', 'c#0']);
+    for (const r of sent(seen)) expect(r).not.toHaveProperty('targets');
+    expect(fs.existsSync(cfg.fallbackPath as string)).toBe(false);
+    expect(logOf(cfg).filter((l) => /does not take targets/.test(l))).toHaveLength(1);
+  });
+
+  it('a 400 about something else is not sent again when no result carries targets', async () => {
+    const { seen, fetchImpl } = platform({ known: { a: 'tc-a' }, resultsFailure: { status: 400, error: 'bad' } });
+    const cfg = config(fetchImpl);
+    const run = await startRun(cfg);
+    await run.add(result('a'));
+    await run.flush();
+
+    expect(seen.resultCalls).toHaveLength(1);
+    expect(logOf(cfg).join('\n')).not.toMatch(/targets/);
+  });
+
+  it('a quota refusal (429) of a batch with targets is not a refusal of the field: no resend, and the next batch keeps them', async () => {
+    const { seen, fetchImpl } = platform({
+      known: { a: 'tc-a', b: 'tc-b' },
+      resultsFailure: { status: 429, error: 'results quota reached', quota: { kind: 'results', used: 10, limit: 10 } },
+      failCall: 0,
+    });
+    const cfg = config(fetchImpl, { batchSize: 1 });
+    const run = await startRun(cfg);
+    await run.add(result('a', { targets: ['notes_get'] }));
+    await run.add(result('b', { targets: ['read_ok'] }));
+    await run.flush();
+
+    // The refused batch once, then the next one, still with its targets.
+    expect(seen.resultCalls).toHaveLength(2);
+    expect(sent(seen).map((r) => [r['resultKey'], r['targets']])).toEqual([['b#0', ['read_ok']]]);
+    expect(logOf(cfg).join('\n')).not.toMatch(/does not take targets/);
+  });
+
+  it('a result kept in the fallback file carries none: a replay does not know what the platform takes', async () => {
+    const { fetchImpl } = platform({ known: { a: 'tc-a' }, resultsFailure: { status: 422, error: 'refused' } });
+    const cfg = config(fetchImpl);
+    const run = await startRun(cfg);
+    await run.add(result('a', { targets: ['notes_get'] }));
+    await run.flush();
+
+    const line = fs.readFileSync(cfg.fallbackPath as string, 'utf8');
+    expect(line).toContain('a#0');
+    expect(line).not.toContain('targets');
   });
 });
 

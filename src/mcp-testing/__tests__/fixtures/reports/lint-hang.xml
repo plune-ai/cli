@@ -26,12 +26,18 @@
     <testcase classname="mcp.lint" name="list-no-paging"/>
     <testcase classname="mcp.lint" name="list-size"/>
     <testcase classname="mcp.lint" name="call-result-large">
+      <properties>
+        <property name="plune.mcp.tool" value="read_slow"/>
+      </properties>
       <error type="could-not-run" message="could-not-run: read_slow: no answer within --call-timeout (300ms)">read_slow: no answer within --call-timeout (300ms)
 expected: an answer of the tool to judge
 actual: no answer within --call-timeout (300ms)
 fix: Return less by default: a page with a cursor, a summary with the details behind another call, or fewer fields.</error>
     </testcase>
     <testcase classname="mcp.lint" name="call-error-no-text">
+      <properties>
+        <property name="plune.mcp.tool" value="read_slow"/>
+      </properties>
       <error type="could-not-run" message="could-not-run: read_slow: no answer within --call-timeout (300ms)">read_slow: no answer within --call-timeout (300ms)
 expected: an answer of the tool to judge
 actual: no answer within --call-timeout (300ms)
@@ -39,12 +45,18 @@ fix: Put what went wrong and what to do about it in a text block of the error re
 spec: https://modelcontextprotocol.io/specification/2025-11-25/server/tools</error>
     </testcase>
     <testcase classname="mcp.lint" name="call-structured-duplicates-text">
+      <properties>
+        <property name="plune.mcp.tool" value="read_slow"/>
+      </properties>
       <error type="could-not-run" message="could-not-run: read_slow: no answer within --call-timeout (300ms)">read_slow: no answer within --call-timeout (300ms)
 expected: an answer of the tool to judge
 actual: no answer within --call-timeout (300ms)
 fix: Clients that read structuredContent get the data twice. Keep the JSON text only for clients that need it, or make the text a short summary of the result.</error>
     </testcase>
     <testcase classname="mcp.lint" name="call-output-schema-mismatch">
+      <properties>
+        <property name="plune.mcp.tool" value="read_slow"/>
+      </properties>
       <error type="could-not-run" message="could-not-run: read_slow: no answer within --call-timeout (300ms)">read_slow: no answer within --call-timeout (300ms)
 expected: an answer of the tool to judge
 actual: no answer within --call-timeout (300ms)
