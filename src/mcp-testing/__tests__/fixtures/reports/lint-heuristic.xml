@@ -14,6 +14,9 @@
     <testcase classname="mcp.lint" name="tools-similar"/>
     <testcase classname="mcp.lint" name="param-enum-in-text"/>
     <testcase classname="mcp.lint" name="param-type-by-name">
+      <properties>
+        <property name="plune.mcp.tool" value="notes_get"/>
+      </properties>
       <skipped type="advisory" message="advisory: notes_get.count: The name &quot;count&quot; suggests a number, but the parameter is a free string.">notes_get.count: The name "count" suggests a number, but the parameter is a free string.
 expected: a number type or format
 actual: type string, no format

@@ -30,6 +30,26 @@ const TOKEN = /@P([A-Za-z0-9_-]+)/;
  */
 const SPEC_FILE = /\.(?:spec|test)\.[cm]?[jt]sx?$/;
 
+/** The one testcase property that names what a case is about: `plune mcp` writes a tool per property. */
+const TARGET_PROPERTY = 'plune.mcp.tool';
+
+/** What the platform keeps of a result's targets: at most 50, each 1–200 characters after trimming. */
+const TARGETS = { max: 50, length: 200 } as const;
+
+/**
+ * The `plune.mcp.tool` properties of a case, as the result's `targets`: trimmed, distinct, in the file's order. A value
+ * the platform would refuse is left out rather than costing the whole batch; any other property is not a target.
+ */
+function targetsOf(test: XmlElement): string[] {
+  const values = test.children
+    .filter((c) => c.name === 'properties')
+    .flatMap((p) => p.children)
+    .filter((p) => p.name === 'property' && p.attrs['name'] === TARGET_PROPERTY)
+    .map((p) => (p.attrs['value'] ?? '').trim())
+    .filter((v) => v !== '' && v.length <= TARGETS.length);
+  return [...new Set(values)].slice(0, TARGETS.max);
+}
+
 /** The four words the platform's default map already spells for this format. */
 type JUnitStatus = 'pass' | 'failure' | 'error' | 'skipped';
 
@@ -211,6 +231,7 @@ export function readJUnit(
     const title = titleOf(classname, name);
     const rkey = resultKey(key.value, 0);
     const files = filesOfTest(test, folder, title, missing, { lexical, resultKey: rkey, notes });
+    const targets = targetsOf(test);
 
     return {
       resultKey: rkey,
@@ -223,6 +244,7 @@ export function readJUnit(
       ...(execution !== undefined ? { execution } : {}),
       ...(errorContext !== '' ? { errorContext } : {}),
       ...(files.length > 0 ? { files } : {}),
+      ...(targets.length > 0 ? { targets } : {}),
     };
   });
 }

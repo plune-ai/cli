@@ -24,6 +24,7 @@ const clean = (c: ReportCheck): ReportCheck => ({
   ...c,
   title: printable(c.title),
   target: printable(c.target),
+  ...(c.tool === undefined ? {} : { tool: printable(c.tool) }),
   message: printable(c.message),
   expected: printable(c.expected),
   actual: printable(c.actual),
@@ -62,6 +63,7 @@ export function lintRun(report: McpReport, showInfo: boolean): McpRun {
       id: f.rule,
       title: titles.get(f.rule) ?? f.rule,
       target: targetOf(f.target),
+      ...(f.target.tool === '' ? {} : { tool: f.target.tool }),
       state: f.state,
       class: f.class,
       level: f.level,
@@ -83,6 +85,7 @@ export function lintRun(report: McpReport, showInfo: boolean): McpRun {
         id: r.id,
         title: r.description,
         target,
+        ...(target === '' ? {} : { tool: target }),
         state,
         class: r.class,
         level: r.level,
@@ -197,7 +200,12 @@ export function checkRun(report: McpCheckReport): McpRun {
       of('smoke', { state: 'not-applicable', detail: '--smoke was not given' }, '', null),
     );
   else {
-    for (const c of calls) checks.push(of('smoke', c, c.tool, callMs.get(c.tool) ?? null));
+    // A tool --smoke did not call (`not-applicable`) is named in the case's text, not among the tools it concerns.
+    for (const c of calls)
+      checks.push({
+        ...of('smoke', c, c.tool, callMs.get(c.tool) ?? null),
+        ...(c.state === 'not-applicable' ? {} : { tool: c.tool }),
+      });
     // The exit code says it too: a smoke run that called nothing measured nothing.
     if (!calls.some((c) => c.state !== 'not-applicable'))
       checks.push(
@@ -292,6 +300,7 @@ export function diffRun(report: McpDiffReport): McpRun {
         id: c.id,
         title: c.title,
         target: ch.name === '' ? ch.entity : `${ch.entity} ${ch.name}`,
+        ...(ch.entity === 'tool' && ch.name !== '' ? { tool: ch.name } : {}),
         state: 'failed',
         class: c.class,
         // What fails the run is an error; advice a warning, and every change listed again an info line.

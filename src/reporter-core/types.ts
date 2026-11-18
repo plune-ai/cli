@@ -150,6 +150,12 @@ export interface PendingResult {
    * fallback file either, which keeps a file by its path and leaves the bytes out.
    */
   files?: ResultFile[];
+  /**
+   * What the test is about, beside who it is (a tool of an MCP server): stored with the result, never part of its
+   * identity. Absent rather than empty. A platform older than the field refuses the batch; the session then sends it
+   * again without them (see `send`).
+   */
+  targets?: string[];
 }
 
 /**

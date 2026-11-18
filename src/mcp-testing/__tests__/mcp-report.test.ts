@@ -492,6 +492,75 @@ describe('CLI · mcp report · junit-xml', () => {
     expect(readJUnit(xml, 'r.xml')[0]?.keys[0]?.value).toBe('mcp.lint#xy<a&b"c>');
   });
 
+  it('CLI · mcp report · each case lists the tools its checks are about as plune.mcp.tool properties, sorted and distinct', () => {
+    /** `classname#name` → the values of its `plune.mcp.tool` properties, for the cases that have any. */
+    const toolsByCase = (file: string) => {
+      const out: Record<string, string[]> = {};
+      const walk = (el: ReturnType<typeof parseXml>) => {
+        for (const child of el.children) {
+          if (child.name !== 'testcase') {
+            walk(child);
+            continue;
+          }
+          const values = child.children
+            .filter((c) => c.name === 'properties')
+            .flatMap((p) => p.children)
+            .filter((p) => p.name === 'property' && p.attrs['name'] === 'plune.mcp.tool')
+            .map((p) => p.attrs['value'] ?? '');
+          if (values.length > 0) out[`${child.attrs['classname']}#${child.attrs['name']}`] = values;
+        }
+      };
+      walk(parseXml(readFileSync(join(REPORTS, file), 'utf8'), file));
+      return out;
+    };
+    expect(toolsByCase('lint-mixed.xml')).toEqual({
+      'mcp.lint#input-schema-not-object': ['broken'],
+      'mcp.lint#desc-missing': ['broken'],
+      'mcp.lint#annotations-missing': ['broken'],
+    });
+    // The tools --smoke called; one it did not call is named in the text only.
+    expect(toolsByCase('check-smoke.xml')).toEqual({
+      'mcp.check#smoke': ['read_error', 'read_ok', 'read_rpc_error'],
+    });
+    expect(toolsByCase('diff-breaking.xml')['mcp.diff#breaking-changes']).toEqual([
+      'Zeta',
+      'alpha',
+      'note_delete',
+      'weather_get',
+    ]);
+    // No check of conformance is about a tool, nor are the checks of the server itself.
+    for (const f of [
+      'conformance-bad.xml',
+      'conformance-silent.xml',
+      'check-broken.xml',
+      'lint-clean.xml',
+    ])
+      expect(toolsByCase(f), f).toEqual({});
+
+    // Distinct, sorted, at most 50; a check about no tool adds none; the case set and names stay as they were.
+    const checks = [
+      ...Array.from({ length: 60 }, (_, i) =>
+        make({ id: 'r', state: 'failed', tool: `t${String(59 - i).padStart(2, '0')}` }),
+      ),
+      make({ id: 'r', state: 'failed', tool: 't00' }),
+      make({ id: 'r', state: 'failed', target: '' }),
+      make({ id: 'q', state: 'passed', tool: 'b' }),
+    ];
+    const xml = render(runOf(checks), 'junit-xml');
+    const values = [...xml.matchAll(/<property name="plune\.mcp\.tool" value="([^"]*)"\/>/g)].map(
+      (m) => m[1],
+    );
+    expect(values).toEqual([
+      ...Array.from({ length: 50 }, (_, i) => `t${String(i).padStart(2, '0')}`),
+      'b',
+    ]);
+    expect(readJUnit(xml, 'r.xml').map((r) => r.keys[0]?.value)).toEqual([
+      'mcp.lint#r',
+      'mcp.lint#q',
+    ]);
+    expect(statuses(xml)).toEqual({ 'mcp.lint#r': 'failure', 'mcp.lint#q': 'pass' });
+  });
+
   it('CLI · mcp report · the fixtures are what the commands write today: generating again gives the same bytes (AC-10)', async () => {
     const { dir, codes } = await fresh();
     expect(codes).toMatchObject({

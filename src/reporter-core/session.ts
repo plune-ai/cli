@@ -200,7 +200,17 @@ function textRefusal(bytes: Buffer): keyof typeof SKIPPED | undefined {
  * writes a Buffer as one number for every byte, which a replay could not tell from the text it was — and
  * a text attached from memory is uploaded once its result is stored or not at all, like every file.
  */
-function onDisk(result: DeferredResult): DeferredResult {
+/** A result as a platform older than `targets` takes it. */
+function withoutTargets<T extends DeferredResult>(result: T): T {
+  if (result.targets === undefined) return result;
+  const { targets: _targets, ...rest } = result;
+  return rest as T;
+}
+
+function onDisk(deferred: DeferredResult): DeferredResult {
+  // ponytail: a replayed line has no way to learn what the platform takes, so it carries no targets; keep them once
+  // every platform a fallback file can reach accepts the field.
+  const result = withoutTargets(deferred);
   if (!('files' in result) || result.files === undefined) return result;
   const { files, ...rest } = result;
   const kept = files.filter((f) => f.path !== undefined).map(({ body: _body, ...file }) => file);
@@ -996,6 +1006,8 @@ export async function startRun(
   let joined = false;
   /** Set once the platform has told us it will not accept anything more from this process. */
   let offline = token === '';
+  /** The platform refused a batch that carried `targets`: none is sent again by this process. */
+  let targetsRefused = false;
   let done = false;
   /** Names shortened to fit a key or a title, by original value — said once, counted once. */
   const shortened = new Set<string>();
@@ -1405,16 +1417,28 @@ export async function startRun(
   async function send(submissions: ResultSubmission[], filesByKey: ReadonlyMap<string, ResultFile[]>): Promise<void> {
     // One fallback line per batch, never the rest of the flush on one line: `plune run report` sends
     // a line as one request, and a line of every batch left would be the request the route refuses.
-    for (const part of packed(submissions)) {
+    for (const packedPart of packed(submissions)) {
+      let part = targetsRefused ? packedPart.map(withoutTargets) : packedPart;
       if (offline) {
         defer(part);
         continue;
       }
-      const out = await client.post<{ counts: Record<keyof RunStats, number>; items?: BatchItem[] }>(
-        `/v1/runs/${runId}/results`,
-        // The job's combination on every batch; a refusal of it is a 422 said below as it came.
-        { results: part, ...(configuration !== undefined ? { configuration } : {}) },
-      );
+      const post = (results: ResultSubmission[]) =>
+        client.post<{ counts: Record<keyof RunStats, number>; items?: BatchItem[] }>(
+          `/v1/runs/${runId}/results`,
+          // The job's combination on every batch; a refusal of it is a 422 said below as it came.
+          { results, ...(configuration !== undefined ? { configuration } : {}) },
+        );
+      let out = await post(part);
+      // `targets` is newer than some platforms, and their schema refuses a key it does not know (400). The batch goes
+      // again without them, once, and no later one carries them: the results land, only what they are about is lost.
+      // Any other 400 is refused again and said below as before.
+      if (!out.ok && out.kind === 'invalid' && part.some((r) => r.targets !== undefined)) {
+        if (!targetsRefused) log('plune: the platform does not take targets on a result yet — the results are sent without them.');
+        targetsRefused = true;
+        part = part.map(withoutTargets);
+        out = await post(part);
+      }
       // A success with no counts says nothing about what was stored: kept for a replay, not guessed —
       // and counts with no number in them say no more.
       const counts = out.ok ? out.body?.counts : undefined;
