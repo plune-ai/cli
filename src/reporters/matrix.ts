@@ -5,6 +5,7 @@
 import type { EvalResult, RunResult } from '../types/results.js';
 import { baseEvalId, rowStatus } from '../types/results.js';
 import { mdCell, safeLine } from './helpers.js';
+import { NOT_MEASURED } from './diff.js';
 
 export type CellState = 'pass' | 'fail' | 'error' | 'unmeasured';
 
@@ -16,6 +17,8 @@ export interface MatrixCell {
   passed: number;
   total: number;
   cost_usd: number;
+  /** Whether any row of the cell has a known price; without one `cost_usd` is a placeholder 0, as the cost gate reads it. */
+  priced: boolean;
   /** Median over the runs that report one; undefined when none does. */
   latency_ms?: number;
 }
@@ -38,6 +41,7 @@ export function cellOf(ev: EvalResult): MatrixCell {
   let passed = 0;
   let total = 0;
   let cost = 0;
+  let priced = false;
   const latencies: number[] = [];
   const states = new Set<CellState>();
   for (const row of ev.rows) {
@@ -46,6 +50,7 @@ export function cellOf(ev: EvalResult): MatrixCell {
       status === 'passed' ? 'pass' : status === 'failed' ? 'fail' : status === 'errored' ? 'error' : 'unmeasured',
     );
     cost += row.usage?.cost_usd ?? 0;
+    if (row.usage?.priced === true) priced = true;
     const a = row.attempts;
     if (a !== undefined && a.results.length > 0) {
       passed += a.passed;
@@ -65,6 +70,7 @@ export function cellOf(ev: EvalResult): MatrixCell {
     passed,
     total,
     cost_usd: cost,
+    priced,
     ...(latency !== undefined ? { latency_ms: latency } : {}),
   };
 }
@@ -113,7 +119,7 @@ export const EMPTY_CELL = '—';
 /** `PASS 7/10 · $0.0123 · 1.2s`; a dry run has only the price, and a cell never run is a dash. */
 export function cellText(cell: MatrixCell | null, dry = false): string {
   if (cell === null) return EMPTY_CELL;
-  const cost = `$${cell.cost_usd.toFixed(4)}`;
+  const cost = cell.priced ? `$${cell.cost_usd.toFixed(4)}` : `cost ${NOT_MEASURED}`;
   if (dry) return cost;
   const head = cell.state === 'unmeasured' ? CELL_LABEL.unmeasured : `${CELL_LABEL[cell.state]} ${cell.passed}/${cell.total}`;
   return [head, cost, ...(cell.latency_ms !== undefined ? [formatLatency(cell.latency_ms)] : [])].join(' · ');
