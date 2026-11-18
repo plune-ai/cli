@@ -19,6 +19,12 @@ const fixture = path.join(root, 'src', 'mcp-testing', '__tests__', 'fixtures', '
 /** Made up; it must never come back out of any command. */
 const TOKEN = 'plt_selfcheck_never_printed_51c8e2';
 
+/** The case `name` is a `<failure>`: its first child, after the `<properties>` that name its tools when it has any. */
+const failedCase = (name: string) =>
+  new RegExp(
+    `<testcase[^>]*name="${name}"[^>]*>\\s*(?:<properties>(?:(?!</properties>)[\\s\\S])*</properties>\\s*)?<failure`,
+  );
+
 let dir = '';
 
 beforeAll(() => {
@@ -102,11 +108,11 @@ describe('CLI · mcp self-check step · lint, check and conformance against the 
     const r = step(fixtureServer('broken'), { PLUNE_TOKEN: TOKEN });
     expect(r.status, r.stderr).toBe(1);
     for (const command of ['lint', 'check', 'conformance']) expect(r.stdout).toContain(`plune mcp ${command}: exit 1,`);
-    expect(r.lint).toMatch(/<testcase[^>]*name="name-duplicate"[^>]*>\s*<failure/);
-    expect(r.lint).toMatch(/<testcase[^>]*name="input-schema-not-object"[^>]*>\s*<failure/);
-    expect(r.check).toMatch(/<testcase[^>]*name="ping"[^>]*>\s*<failure/);
+    expect(r.lint).toMatch(failedCase('name-duplicate'));
+    expect(r.lint).toMatch(failedCase('input-schema-not-object'));
+    expect(r.check).toMatch(failedCase('ping'));
     expect(failedConformance(r.conformance)).toContain('life-ping-empty-result');
-    expect(r.conformanceXml).toMatch(/<testcase[^>]*name="life-ping-empty-result"[^>]*>\s*<failure/);
+    expect(r.conformanceXml).toMatch(failedCase('life-ping-empty-result'));
   });
 
   it('CLI · mcp self-check step · a server that cannot start is exit 2, and the token it prints is masked', () => {

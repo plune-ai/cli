@@ -1553,12 +1553,18 @@ so `classname#name`, the key `plune run import` matches a case by, is the same o
 
 A case's text spells out at most 200 findings, then one line with how many more the JSON holds.
 
+A case about tools names them first, before its outcome, as `<properties>` with one
+`<property name="plune.mcp.tool" value="…"/>` per tool, sorted, at most 50: the tool of each `lint`
+finding, the tools `check --smoke` called, the tools a `diff` changed. A case about no tool (every
+`conformance` check, the checks of the server itself) has none. `plune run import` sends them as the
+result's targets; they are not part of the case's `classname#name`.
+
 No count, server name, version or time is in `name`, and the suite has no `timestamp`; `time` is set
 on the cases of `check`, which times its checks. A case takes the worst state of its findings:
 
 | State | In JUnit | What `plune run import` reads | What Plune shows with the default status map |
 |-------|----------|-------------------------------|---------------------------------------------|
-| `passed` | `<testcase>` with nothing inside | `pass` | `passed` |
+| `passed` | `<testcase>` with nothing inside but its `<properties>` | `pass` | `passed` |
 | `failed` | `<failure message type>` | `failure` | `failed` |
 | `could-not-run` | `<error type="could-not-run" message>` | `error` | `broken` |
 | `not-applicable` | `<skipped type="not-applicable" message="not-applicable: …">` | `skipped` | `skipped` |
