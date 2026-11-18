@@ -1,6 +1,6 @@
 // The code snapshot of an automated case: the text of the one `test()` / `it()` call a result points
 // at, as it is written in the file, so that Plune can show it on the case and draft a description from
-// it (plune-ai/plune#2936). Read here, on the machine that ran the tests, because the platform never
+// it. Read here, on the machine that ran the tests, because the platform never
 // sees the repository.
 //
 // No parser: the call is found on the line the runner named and cut at its own closing parenthesis by

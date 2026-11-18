@@ -133,7 +133,7 @@ export interface PendingResult {
   /**
    * Where the test is declared on this machine: its file (absolute, or from the working directory) and
    * the line of its `test()` call. Never sent as it is: the core reads the call's text from it and, for a
-   * matched automated case, sends that as the case's code snapshot (plune-ai/plune#2936).
+   * matched automated case, sends that as the case's code snapshot.
    */
   codeAt?: { file: string; line: number; column?: number };
   execution?: Execution;

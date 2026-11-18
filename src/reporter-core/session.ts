@@ -32,7 +32,7 @@ const BATCH_MAX = 500;
  * because it is a different endpoint's promise and they are free to diverge. */
 const DISCOVER_MAX = 500;
 const BATCH_DEFAULT = 500;
-/** Code snapshots one run updates at most; the rest wait for the next run (plune-ai/plune#2936). */
+/** Code snapshots one run updates at most; the rest wait for the next run. */
 const SNAPSHOT_UPDATES_MAX = 100;
 /** Result batches of one run in flight at once. */
 const SEND_CONCURRENCY = 4;
@@ -1264,7 +1264,7 @@ export async function startRun(
 
   /**
    * Give each matched automated case the text of the test that just ran, where it has none or another
-   * (plune-ai/plune#2936): what «Draft from code» reads. The case list says which cases are automated and
+   *: what «Draft from code» reads. The case list says which cases are automated and
    * the hash of the snapshot each holds, so a case whose text is the same gets no write. A refusal (a
    * reader's token, an older platform) is said once and costs the run nothing.
    */
