@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { CATALOG, type CatalogEntry } from '../catalog.js';
 import { IMPLEMENTATIONS } from '../checks/index.js';
 import type { Verdict } from '../outcome.js';
-import { manifestDigest, PROFILE, type Profile } from '../profile.js';
+import { manifestDigest, PROFILE, PROFILES, profileOf, type Profile } from '../profile.js';
 import { BUCKETS, exitCodeOf, floorScore, summarize, summaryLine } from '../score.js';
 
 /** The digest each profile version was frozen with. A new list is a new version, and a new line here. */
@@ -16,6 +16,8 @@ const FROZEN: Record<string, string> = {
   '2026-11.1': '466f528105d991a6734e4d9b03572d3f4882e393a0623f06831be3acd7c2e200',
   // The same ids: base-jsonrpc-parse-error moved to HTTP only, which changes the score of a stdio server.
   '2026-11.2': '466f528105d991a6734e4d9b03572d3f4882e393a0623f06831be3acd7c2e200',
+  // The MUST checks of Streamable HTTP and of a local server's protection join the list.
+  '2026-11.3': 'fd68f7f5dc2e52b28269749103d40787d243738e137a746acfc11452f1c59c02',
 };
 
 /**
@@ -23,9 +25,10 @@ const FROZEN: Record<string, string> = {
  * or era leaves or joins the denominator, so it re-scores a server and needs a new version as a new list does.
  */
 const RULES: Record<string, string> = {
-  // Kept as history, not re-checked: only the current version is compared with today's catalog.
+  // Kept as history, not re-checked: only the versions --profile offers are compared with today's catalog.
   '2026-11.1': 'a00f6a2d31a8e9c381bc38d97f709927401b9ae789aba425c5a8f34c0d4655df',
   '2026-11.2': '95caebf216f085d053c2615d55152b6c9318094ae3e9544bba5a67bf865696be',
+  '2026-11.3': '11f34877d0d73b303e5ea8278c577c26059a2ec5175e2d5e15ba49222eedf2d2',
 };
 const rulesDigest = (ids: readonly string[]) => {
   const byId = new Map(CATALOG.map((e) => [e.id, e]));
@@ -97,13 +100,28 @@ describe('CLI · mcp conformance · catalog and registry', () => {
 });
 
 describe('CLI · mcp conformance · frozen profile', () => {
-  it('the digest is the one its version was frozen with', () => {
-    expect(manifestDigest(PROFILE.checks)).toBe(FROZEN[PROFILE.version]);
-    expect(PROFILE.version).toMatch(/^\d{4}-\d{2}\.\d+$/);
+  it('the digest of each version --profile offers is the one it was frozen with', () => {
+    expect(PROFILES.map((p) => p.version)).toEqual(['2026-11.2', '2026-11.3']);
+    for (const p of PROFILES) {
+      expect(manifestDigest(p.checks), p.version).toBe(FROZEN[p.version]);
+      expect(p.version).toMatch(/^\d{4}-\d{2}\.\d+$/);
+      expect(p.id).toBe(PROFILE.id);
+    }
+    expect(PROFILE.version).toBe('2026-11.3');
+    expect(profileOf('2026-11.1')).toBeUndefined();
   });
 
   it('where each id of the profile applies is what its version was frozen with: a change of transport or era is a new version', () => {
-    expect(rulesDigest(PROFILE.checks)).toBe(RULES[PROFILE.version]);
+    for (const p of PROFILES) expect(rulesDigest(p.checks), p.version).toBe(RULES[p.version]);
+  });
+
+  it('2026-11.3 is 2026-11.2 and the MUST checks of http-, each over HTTP only', () => {
+    const old = profileOf('2026-11.2')!;
+    const added = PROFILE.checks.filter((id) => !old.checks.includes(id));
+    expect(old.checks.filter((id) => !PROFILE.checks.includes(id))).toEqual([]);
+    const http = CATALOG.filter((e) => e.id.startsWith('http-') && e.kind === 'check' && e.level === 'MUST').map((e) => e.id);
+    expect(added).toEqual(http);
+    for (const id of added) expect(CATALOG.find((e) => e.id === id)?.transports, id).toEqual(['http']);
   });
 
   it('a saved 2026-11.1 stdio result with base-jsonrpc-parse-error failed still scores as it recorded: failed', () => {
@@ -120,16 +138,17 @@ describe('CLI · mcp conformance · frozen profile', () => {
 
   it('the list is written as literals, never taken from the catalog', () => {
     const source = readFileSync(PROFILE_SOURCE, 'utf8');
-    const list = /checks: \[\r?\n([\s\S]*?)\r?\n\s*\],/.exec(source);
-    expect(list, 'a `checks: [ ... ],` block of its own lines').not.toBeNull();
-    for (const line of (list?.[1] ?? '').split(/\r?\n/))
-      expect(line, 'one quoted id per line').toMatch(/^\s*'[a-z0-9-]+',$/);
+    const lists = [...source.matchAll(/checks: \[\r?\n([\s\S]*?)\r?\n\s*\],/g)];
+    expect(lists.length, 'a `checks: [ ... ],` block of its own lines for each version').toBe(PROFILES.length);
+    for (const list of lists)
+      for (const line of (list[1] ?? '').split(/\r?\n/))
+        expect(line, 'one quoted id per line').toMatch(/^\s*'[a-z0-9-]+',$/);
     expect(source).not.toMatch(/from '\.\/catalog\.js'/);
   });
 
   it('every id of the profile is a MUST check of the catalog', () => {
     const byId = new Map(CATALOG.map((e) => [e.id, e]));
-    for (const id of PROFILE.checks) {
+    for (const id of PROFILES.flatMap((p) => p.checks)) {
       expect(byId.get(id)?.kind, id).toBe('check');
       expect(byId.get(id)?.level, id).toBe('MUST');
     }
@@ -245,8 +264,14 @@ describe('CLI · mcp conformance · a saved result keeps its score', () => {
     exitCode: number;
   };
 
-  it('scored again with today\'s catalog and profile, it gives the score and exit code it recorded', () => {
-    expect(saved.manifestDigest).toBe(manifestDigest(PROFILE.checks));
+  // Its ids are those of 2026-11.2; the HTTP checks of 2026-11.3 are not in it, and over stdio they never apply.
+  it('scored again with today\'s catalog and either profile, it gives the score and exit code it recorded', () => {
+    expect(saved.manifestDigest).toBe(manifestDigest(profileOf('2026-11.2')!.checks));
+    for (const p of PROFILES) {
+      const s = summarize(saved.checks, CATALOG, p);
+      expect({ score: s.score, applicable: s.applicable, verdict: s.verdict }, p.version).toEqual(saved.summary);
+      expect(exitCodeOf(s.verdict), p.version).toBe(saved.exitCode);
+    }
     const s = summarize(saved.checks);
     expect({ score: s.score, applicable: s.applicable, verdict: s.verdict }).toEqual(saved.summary);
     expect(exitCodeOf(s.verdict)).toBe(saved.exitCode);

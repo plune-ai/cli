@@ -75,6 +75,19 @@ describe('CLI · mcp conformance · checks against a server that keeps and one t
     expect(code).toBe(0);
   }, 15_000);
 
+  it('a stdio server has the same score under 2026-11.3 as under 2026-11.2: every http- check is not-applicable (transport)', async () => {
+    for (const [m, calls] of [['good', [{ tool: 'echo', arguments: { text: 'hi' } }]], ['bad', [{ tool: 'dup' }]]] as const) {
+      const now = (await run({ fixture: fixtureFile(calls) }, mode(m))).report!;
+      const old = (await run({ fixture: fixtureFile(calls), profile: '2026-11.2' }, mode(m))).report!;
+      expect([now.profileVersion, old.profileVersion], m).toEqual(['2026-11.3', '2026-11.2']);
+      for (const c of now.checks.filter((c) => c.id.startsWith('http-')))
+        expect(`${c.state} (${c.reason})`, c.id).toBe('not-applicable (transport)');
+      const { score, applicable, verdict } = old.summary;
+      expect(now.summary, m).toMatchObject({ score, applicable, verdict });
+      expect(now.exitCode, m).toBe(old.exitCode);
+    }
+  }, 60_000);
+
   it('a server that breaks each requirement fails each check, with what it got and how to fix it', async () => {
     const { code, report } = await run({ fixture: fixtureFile([{ tool: 'dup' }]) }, mode('bad'));
     const expected = Object.fromEntries(PROTOCOL.map((e) => [e.id, legacyStdio(e) ?? 'failed']));
