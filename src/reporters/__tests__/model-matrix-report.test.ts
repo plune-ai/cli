@@ -9,7 +9,7 @@ const row = (ok: boolean, cost: number, latency: number, extra: Partial<RowResul
   vars: { q: 'a' },
   output: ok ? 'yes' : 'no',
   cached: false,
-  usage: { input_tokens: 1, output_tokens: 1, cost_usd: cost },
+  usage: { input_tokens: 1, output_tokens: 1, cost_usd: cost, priced: true },
   latency_ms: latency,
   assertions: [{ type: 'exact-match', passed: ok }],
   ...extra,
@@ -142,6 +142,15 @@ describe('CLI · report · model matrix · console and markdown', () => {
     const md = renderMarkdown(result([errored, skipped]));
     expect(md).toContain('ERROR');
     expect(md).toContain('NOT MEASURED');
+  });
+
+  it('a cell with no known price says "not measured" for its cost, as the cost gate does; a priced $0 stays $0.0000', () => {
+    const unpriced = { input_tokens: 1, output_tokens: 1, cost_usd: 0 };
+    const mock = cell('x', 'mock-a', [row(true, 0, 0, { usage: unpriced }), row(true, 0, 0, { usage: { ...unpriced, priced: false } })], true, 'mock');
+    const free = cell('x', 'free-b', [row(true, 0, 5)], true, 'openai');
+    const r = result([mock, free]);
+    expect(renderMarkdown(r)).toContain('| x | PASS 2/2 · cost not measured · 0ms | PASS 1/1 · $0.0000 · 5ms |');
+    expect(renderConsole(r)).toMatch(/x\s+PASS 2\/2 · cost not measured · 0ms\s+PASS 1\/1 · \$0\.0000 · 5ms/);
   });
 
   it('a dry run names the number of models and prices every cell', () => {

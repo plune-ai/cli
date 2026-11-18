@@ -57,7 +57,7 @@ describe('CLI · run · model matrix · mock provider through handleRun', () => 
   it('two models and two evals give four cells, a table in both reports, and a stable diff against itself', async () => {
     const result = await handleRun({ dryRun: false, configPath: write(TWO), noCache: true });
     expect(result.evals.map((e) => e.id)).toEqual(['greet@m-a', 'greet@m-b', 'strict@m-a', 'strict@m-b']);
-    expect(renderConsole(result)).toMatch(/greet\s+PASS 3\/3 · \$[\d.]+/);
+    expect(renderConsole(result)).toMatch(/greet\s+PASS 3\/3 · cost not measured/);
     expect(renderMarkdown(result)).toContain('| Eval | m-a | m-b |');
     const d = diffRuns(result, result);
     expect(d.summary).toMatchObject({ stablePasses: 2, preExistingFails: 2, regressions: 0 });

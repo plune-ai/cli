@@ -11,6 +11,9 @@ import { MIN_ATTEMPTS } from '../diff/stats.js';
 import type { DiffAdvice } from '../diff/advice.js';
 import { noCommands, noCommandsJson } from '../mcp-testing/report/human.js';
 
+/** How a gate, or a cell of the model matrix, says a value could not be measured. */
+export const NOT_MEASURED = 'not measured';
+
 export const STICKY_MARKER = '<!-- plune-eval-diff -->';
 export type DiffFormat = 'console' | 'json' | 'markdown';
 
@@ -29,7 +32,7 @@ const BADGE: Record<EvalDiffStatus, string> = {
 const GATE_STATE: Record<GateState, { mark: string; text: string }> = {
   passed: { mark: '✅', text: 'passed' },
   failed: { mark: '❌', text: 'failed' },
-  unmeasured: { mark: '⚠️', text: 'not measured' },
+  unmeasured: { mark: '⚠️', text: NOT_MEASURED },
   waived: { mark: '🟡', text: 'waived' },
 };
 
