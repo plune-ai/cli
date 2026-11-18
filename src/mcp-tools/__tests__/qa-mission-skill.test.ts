@@ -379,8 +379,11 @@ describe('the qa-mission skill', () => {
       expect(parsed.error?.issues).toBeUndefined();
       const evals = parsed.data!.evals;
       const kinds = new Set(evals.flatMap((e) => e.assertions.map((a) => a.type)));
-      for (const kind of ['llm-judge', 'faithfulness', 'answer-relevance'])
+      for (const kind of ['llm-judge', 'faithfulness'])
         expect(kinds.has(kind as never), kind).toBe(true);
+      // eval-action installs the CLI without the optional local embeddings: these would error on every pull request.
+      for (const kind of ['answer-relevance', 'semantic-similarity'])
+        expect(kinds.has(kind as never), kind).toBe(false);
       const registry = createDefaultRegistry();
       for (const kind of kinds) expect(registry.has(kind), kind).toBe(true);
       // pass^k: every eval repeats, and a threshold below 1 needs at least 5 runs.

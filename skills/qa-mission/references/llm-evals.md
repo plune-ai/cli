@@ -27,7 +27,11 @@ assertions the CLI has for model answers:
 |---|---|---|
 | An answer breaks a stated rule (tone, a refusal, a format) | `llm-judge` | `criteria`: the rule, in words a person can check |
 | An answer invents facts its context does not hold (a chatbot over documents) | `faithfulness` | `context`: the text the answer must rest on |
-| An answer does not address the question | `answer-relevance` | `question`: the question asked |
+| An answer does not address the question | `llm-judge` | `criteria`: what an answer to this question must say |
+
+Do not use `answer-relevance` or `semantic-similarity` here: they need local embeddings
+(`@huggingface/transformers`), an optional package that eval-action does not install, so on the pull
+request every row with one of them errors instead of being measured.
 
 - `prompt_file` points at the feature's own prompt in the repository, when there is one, so the eval
   tests what the product sends. Otherwise write `prompt` from what the sources say, as an
@@ -64,9 +68,9 @@ evals:
       - type: faithfulness
         context: "{{vars.context}}"
         threshold: 0.8
-      - type: answer-relevance
-        question: "{{vars.question}}"
-        threshold: 0.7
+      - type: llm-judge
+        criteria: "The answer tells the customer how to reset the password."
+        pass_threshold: 0.7
   - id: support-refuses-medical-advice
     description: "Refuses medical advice (source: docs/support.md#limits)"
     tags: [llm]
