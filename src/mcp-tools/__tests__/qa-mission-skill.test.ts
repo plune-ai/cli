@@ -352,6 +352,24 @@ describe('the qa-mission skill', () => {
       expect(pluneTool('plune_question_list').input.shape).toHaveProperty('missionId');
     });
 
+    it('does not ask again a question an earlier mission still waits on: the item rests on its id', () => {
+      const t = flatten(stage(1));
+      expect(t).toMatch(
+        /A question an earlier mission asked that still waits for an answer is not asked again: rest what depends on it on `waitingOn` with that question's id/,
+      );
+      expect(pluneTool('plune_question_list').input.shape).toHaveProperty('state');
+    });
+
+    it('reads the code when there are no documents, and cites file and line as the source', () => {
+      const t = flatten(stage(1));
+      expect(t).toMatch(
+        /No documents and no running product to walk: read the code instead \(the commands, routes and screens it defines\), and cite the file and line as the source/,
+      );
+      // A cited code line is a `requirement` source for a strategy item and a case.
+      const refs = flatten(texts.get('references/tool-calls.md')!);
+      expect(refs).toMatch(/A fact read in the code is a `requirement` source whose `ref` \(or `value`\) is the file and line/);
+    });
+
     it('does not run the tests itself', () => {
       const execution = skill
         .slice(at('## Stage 4: Execution'), at('## Stage 5: Completion'))
