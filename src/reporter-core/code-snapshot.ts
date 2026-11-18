@@ -166,15 +166,21 @@ const PLACES: RegExp[] = [
     String.raw`(?<lead>\([^()\n]*?(?<role>${CREDENTIAL})[^()\n]*\)\s*\.${TYPING}\(\s*)${LITERAL}`,
     'gi',
   ),
+  // `{ name: 'session', value: '…' }`: a cookie (or any name/value pair) named for a credential
+  new RegExp(
+    String.raw`(?<lead>\bname\s*:\s*['"][^'"\n]*?(?<role>${CREDENTIAL})[^'"\n]*['"]\s*,\s*value\s*:\s*)${LITERAL}`,
+    'gi',
+  ),
 ];
 
 /**
  * A header written out as a line (a raw request in a template, a log pasted into a test):
  * `Authorization: …`, `Cookie: …`, `x-session-id: …`. The name stays, the value goes, to the end of
- * the line or of the string. A quoted value is the literal rules' to take.
+ * the line or of the string. A quoted value is the literal rules' to take, and a value that is code —
+ * a variable or a call followed by `,` `;` `)` `}` `]` (`sessionId: sid,`) — names no secret and stays.
  */
 const HEADER_LINE =
-  /((?:^|\\[nr]|\x60)[ \t>*<+-]*['"]?)((?:proxy-)?authorization|(?:set-)?cookie|[\w-]*session[\w-]*)(['"]?[ \t]*:[ \t]*)[^\s'"\x60\\][^\r\n'"\x60\\]*/gim;
+  /((?:^|\\[nr]|\x60)[ \t>*<+-]*['"]?)((?:proxy-)?authorization|(?:set-)?cookie|[\w-]*session[\w-]*)(['"]?[ \t]*:[ \t]*)(?![\w$.]+(?:\([^()\n]*\))?[ \t]*[,;)}\]])[^\s'"\x60\\][^\r\n'"\x60\\]*/gim;
 
 /** A URL parameter whose name says credential: its value goes. */
 const QUERY_PARAM =
@@ -196,12 +202,19 @@ export function maskCredentials(text: string): string {
       return `${groups.lead}${groups.q}‹${groups.role.toLowerCase().replace(/^[^a-z]+/, '')}›${groups.q}`;
     });
   }
-  return out
-    .replace(HEADER_LINE, '$1$2$3‹header›')
-    .replace(/\b(Bearer|Basic|Token)([ \t]+)(?!‹)[\w.~+/=-]{8,}/g, '$1$2‹credential›')
-    .replace(/\b(PLUNE_[A-Z0-9_]*=)(?!‹)[^\s'"\x60;,)]+/g, '$1‹env-secret›')
-    .replace(QUERY_PARAM, '$1‹credential›')
-    .replace(/\b([a-z][\w+.-]*:\/\/)[^\s/@'"\x60]+@/gi, '$1‹credential›@');
+  return (
+    out
+      .replace(HEADER_LINE, '$1$2$3‹header›')
+      .replace(/\b(Bearer)([ \t]+)(?!‹)[\w.~+/=-]{8,}/g, '$1$2‹credential›')
+      // `Basic` and `Token` are words too (`Basic checkout works`): only a value with a digit, `=`, `+`, `/` or a capital after a small letter (base64) is one.
+      .replace(
+        /\b(Basic|Token)([ \t]+)(?!‹)(?=[\w.~+/=-]*[\d=+/]|[\w.~+/=-]*[a-z][\w.~+/=-]*[A-Z])[\w.~+/=-]{8,}/g,
+        '$1$2‹credential›',
+      )
+      .replace(/\b(PLUNE_[A-Z0-9_]*=)(?!‹)[^\s'"\x60;,)]+/g, '$1‹env-secret›')
+      .replace(QUERY_PARAM, '$1‹credential›')
+      .replace(/\b([a-z][\w+.-]*:\/\/)[^\s/@'"\x60]+@/gi, '$1‹credential›@')
+  );
 }
 
 /** Where a test is declared: its file (absolute, or from the working directory) and line, from 1. */

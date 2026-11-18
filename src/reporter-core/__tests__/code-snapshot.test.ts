@@ -149,6 +149,29 @@ describe('maskCredentials — more places and forms (review of plune-ai/cli#307)
   });
 });
 
+describe('maskCredentials — second review of plune-ai/cli#307', () => {
+  it('masks the value of a cookie object whose name says credential', () => {
+    const code =
+      "await ctx.addCookies([{ name: 'session', value: 's3cr3tv4lue', domain: 'x.test' }]);";
+    expect(maskCredentials(code)).toBe(
+      "await ctx.addCookies([{ name: 'session', value: '‹session›', domain: 'x.test' }]);",
+    );
+  });
+
+  it('leaves Basic and Token alone before an ordinary word', () => {
+    const code = "test('Basic checkout works', async () => { expect(x).toBe('Token expired'); });";
+    expect(maskCredentials(code)).toBe(code);
+    expect(maskCredentials("const h = 'Token abcdef123456';")).toBe(
+      "const h = 'Token ‹credential›';",
+    );
+  });
+
+  it('does not touch a variable given to a session-like key, nor the comma after it', () => {
+    const code = 'const opts = {\n  sessionId: sid,\n  cookie: jar.get(),\n};';
+    expect(maskCredentials(code)).toBe(code);
+  });
+});
+
 // --- the run sends the snapshot of each automated case it matched --------------------------------
 
 let dir: string;
