@@ -233,7 +233,9 @@ export async function serve(o: Opts = {}): Promise<Served> {
           return;
         }
         res.write(`data: ${frame}\n\n`);
-        const timer = setInterval(() => res.write('data: x\n\n'), 1);
+        // A burst per tick: a timer of 1 ms may fire far less often on a busy machine, and one event a tick
+        // could then stay under the event limit for the whole linger after the response.
+        const timer = setInterval(() => res.write('data: x\n\n'.repeat(50)), 1);
         res.on('close', () => {
           clearInterval(timer);
           closedStreams++;
