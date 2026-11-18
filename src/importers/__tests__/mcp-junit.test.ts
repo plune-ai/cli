@@ -109,4 +109,14 @@ describe('CLI · run import · JUnit · the tools a case of plune mcp is about',
     const capped = `<testsuite><testcase classname="c" name="n"><properties>${many}</properties></testcase></testsuite>`;
     expect(readReport(capped, 'r.xml').results[0]?.targets).toHaveLength(50);
   });
+
+  it('a value with a control character is no target: NUL by reference, BEL, NEL (C1)', () => {
+    const xml = `<testsuite><testcase classname="c" name="n"><properties>
+      <property name="plune.mcp.tool" value="a&#0;b"/>
+      <property name="plune.mcp.tool" value="bell&#7;"/>
+      <property name="plune.mcp.tool" value="next&#133;line"/>
+      <property name="plune.mcp.tool" value="ok"/>
+    </properties></testcase></testsuite>`;
+    expect(readReport(xml, 'r.xml').results[0]?.targets).toEqual(['ok']);
+  });
 });

@@ -559,6 +559,22 @@ describe('CLI · mcp report · junit-xml', () => {
       'mcp.lint#q',
     ]);
     expect(statuses(xml)).toEqual({ 'mcp.lint#r': 'failure', 'mcp.lint#q': 'pass' });
+
+    // A name the platform would not keep (over 200 characters, or blank) is left out before the cap: it pushes out no
+    // valid name, though it sorts first.
+    const long = render(
+      runOf([
+        make({ id: 'r', state: 'failed', tool: `a${'x'.repeat(200)}` }),
+        make({ id: 'r', state: 'failed', tool: '   ' }),
+        ...Array.from({ length: 50 }, (_, i) =>
+          make({ id: 'r', state: 'failed', tool: `t${String(i).padStart(2, '0')}` }),
+        ),
+      ]),
+      'junit-xml',
+    );
+    expect(
+      [...long.matchAll(/<property name="plune\.mcp\.tool" value="([^"]*)"\/>/g)].map((m) => m[1]),
+    ).toEqual(Array.from({ length: 50 }, (_, i) => `t${String(i).padStart(2, '0')}`));
   });
 
   it('CLI · mcp report · the fixtures are what the commands write today: generating again gives the same bytes (AC-10)', async () => {

@@ -203,10 +203,12 @@ interface Case {
  * says nothing of the rest: the list is a hint for a reader, and its text already names every tool it found.
  */
 const MAX_TOOLS = 50;
+/** The longest target the platform keeps, after trimming. A longer name is left out before the cap, not counted in it. */
+const MAX_TOOL_LENGTH = 200;
+const keptTool = (t: string | undefined): t is string =>
+  t !== undefined && t.trim() !== '' && t.trim().length <= MAX_TOOL_LENGTH;
 const toolsOf = (checks: ReportCheck[]): string[] =>
-  [...new Set(checks.flatMap((c) => (c.tool === undefined || c.tool === '' ? [] : [c.tool])))]
-    .sort()
-    .slice(0, MAX_TOOLS);
+  [...new Set(checks.map((c) => c.tool).filter(keptTool))].sort().slice(0, MAX_TOOLS);
 
 /** The fixed cases with their outcomes; nothing measured is one `run` case that could not run, never an empty list. */
 function casesOf(run: McpRun): Case[] {

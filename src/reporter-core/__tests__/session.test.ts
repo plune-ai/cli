@@ -56,7 +56,7 @@ interface PlatformOptions {
   /** The platform's CHECK on a run's configuration: a start that carries one is answered 413. */
   refuseConfiguration?: boolean;
   /** Force a reply on `…/results`: a status + error message, or a thrown network failure. */
-  resultsFailure?: { status: number; error: string } | 'network';
+  resultsFailure?: { status: number; error: string; quota?: Record<string, unknown> } | 'network';
   /** Only this call to `…/results` (from 0) meets `resultsFailure`; absent means every call does. */
   failCall?: number;
   /**
@@ -224,7 +224,8 @@ function platform(opts: PlatformOptions = {}) {
       const fails = opts.failCall === undefined || opts.failCall === call;
       if (fails && opts.resultsFailure === 'network') throw new TypeError('fetch failed');
       if (fails && opts.resultsFailure !== undefined) {
-        return json({ error: opts.resultsFailure.error }, opts.resultsFailure.status);
+        const { error, quota, status } = opts.resultsFailure;
+        return json({ error, ...(quota !== undefined ? { quota } : {}) }, status);
       }
       const list = body['results'] as Record<string, unknown>[];
       if (opts.refuseTargets === true && list.some((r) => 'targets' in r)) {
@@ -462,6 +463,24 @@ describe('targets on a result', () => {
 
     expect(seen.resultCalls).toHaveLength(1);
     expect(logOf(cfg).join('\n')).not.toMatch(/targets/);
+  });
+
+  it('a quota refusal (429) of a batch with targets is not a refusal of the field: no resend, and the next batch keeps them', async () => {
+    const { seen, fetchImpl } = platform({
+      known: { a: 'tc-a', b: 'tc-b' },
+      resultsFailure: { status: 429, error: 'results quota reached', quota: { kind: 'results', used: 10, limit: 10 } },
+      failCall: 0,
+    });
+    const cfg = config(fetchImpl, { batchSize: 1 });
+    const run = await startRun(cfg);
+    await run.add(result('a', { targets: ['notes_get'] }));
+    await run.add(result('b', { targets: ['read_ok'] }));
+    await run.flush();
+
+    // The refused batch once, then the next one, still with its targets.
+    expect(seen.resultCalls).toHaveLength(2);
+    expect(sent(seen).map((r) => [r['resultKey'], r['targets']])).toEqual([['b#0', ['read_ok']]]);
+    expect(logOf(cfg).join('\n')).not.toMatch(/does not take targets/);
   });
 
   it('a result kept in the fallback file carries none: a replay does not know what the platform takes', async () => {

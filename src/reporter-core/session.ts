@@ -195,11 +195,6 @@ function textRefusal(bytes: Buffer): keyof typeof SKIPPED | undefined {
   return undefined;
 }
 
-/**
- * A result as the fallback file keeps it: its files by their paths, as it always has, and no body. JSON
- * writes a Buffer as one number for every byte, which a replay could not tell from the text it was — and
- * a text attached from memory is uploaded once its result is stored or not at all, like every file.
- */
 /** A result as a platform older than `targets` takes it. */
 function withoutTargets<T extends DeferredResult>(result: T): T {
   if (result.targets === undefined) return result;
@@ -207,6 +202,11 @@ function withoutTargets<T extends DeferredResult>(result: T): T {
   return rest as T;
 }
 
+/**
+ * A result as the fallback file keeps it: its files by their paths, as it always has, and no body. JSON
+ * writes a Buffer as one number for every byte, which a replay could not tell from the text it was — and
+ * a text attached from memory is uploaded once its result is stored or not at all, like every file.
+ */
 function onDisk(deferred: DeferredResult): DeferredResult {
   // ponytail: a replayed line has no way to learn what the platform takes, so it carries no targets; keep them once
   // every platform a fallback file can reach accepts the field.
@@ -1432,8 +1432,9 @@ export async function startRun(
       let out = await post(part);
       // `targets` is newer than some platforms, and their schema refuses a key it does not know (400). The batch goes
       // again without them, once, and no later one carries them: the results land, only what they are about is lost.
-      // Any other 400 is refused again and said below as before.
-      if (!out.ok && out.kind === 'invalid' && part.some((r) => r.targets !== undefined)) {
+      // Only a 400: `invalid` also covers a quota's 429, which says nothing about the field. Any other 400 is refused
+      // again and said below as before.
+      if (!out.ok && out.kind === 'invalid' && out.status === 400 && part.some((r) => r.targets !== undefined)) {
         if (!targetsRefused) log('plune: the platform does not take targets on a result yet — the results are sent without them.');
         targetsRefused = true;
         part = part.map(withoutTargets);

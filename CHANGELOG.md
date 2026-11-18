@@ -13,7 +13,7 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ### Added
 
-- **The JUnit reports of `plune mcp lint`, `check` and `diff` name the tools each case is about, and `plune run import` sends them as the result's targets.** Each case lists its tools as `<property name="plune.mcp.tool">` (sorted, distinct, at most 50): the tool of each lint finding, the tools `--smoke` called, the tools a diff changed; conformance names none. The cases and their names are unchanged. A platform that does not take targets yet refuses the batch, and the CLI sends it again without them, so every result still lands.
+- **The JUnit reports of `plune mcp lint`, `check` and `diff` name the tools each case is about, and `plune run import` sends them as the result's targets.** Each case lists its tools as `<property name="plune.mcp.tool">` (sorted, distinct, at most 50): the tool of each lint finding, the tools `--smoke` called, the tools a diff changed; conformance names none. The cases and their names are unchanged. A platform that does not take targets yet refuses the batch, and the CLI sends it again without them, so every result still lands, or goes to the fallback file as before.
 
 ### Fixed
 

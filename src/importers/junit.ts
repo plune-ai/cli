@@ -36,9 +36,13 @@ const TARGET_PROPERTY = 'plune.mcp.tool';
 /** What the platform keeps of a result's targets: at most 50, each 1–200 characters after trimming. */
 const TARGETS = { max: 50, length: 200 } as const;
 
+/** C0 and C1 controls, NUL among them (`&#0;` decodes to it): the platform refuses a target that holds one. */
+const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
+
 /**
  * The `plune.mcp.tool` properties of a case, as the result's `targets`: trimmed, distinct, in the file's order. A value
- * the platform would refuse is left out rather than costing the whole batch; any other property is not a target.
+ * the platform would refuse is left out rather than costing the whole batch (a refused batch is sent again without
+ * any targets, and none is sent for the rest of the run); any other property is not a target.
  */
 function targetsOf(test: XmlElement): string[] {
   const values = test.children
@@ -46,7 +50,7 @@ function targetsOf(test: XmlElement): string[] {
     .flatMap((p) => p.children)
     .filter((p) => p.name === 'property' && p.attrs['name'] === TARGET_PROPERTY)
     .map((p) => (p.attrs['value'] ?? '').trim())
-    .filter((v) => v !== '' && v.length <= TARGETS.length);
+    .filter((v) => v !== '' && v.length <= TARGETS.length && !CONTROL.test(v));
   return [...new Set(values)].slice(0, TARGETS.max);
 }
 
