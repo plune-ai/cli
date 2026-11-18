@@ -9,6 +9,7 @@ import { defaultRunTitle, readEnv, UPLOAD_CONCURRENCY, UPLOAD_RETRIES } from './
 import { mediaTypeOf, printable, TEXT_TYPES } from './failure-detail.js';
 import { BATCH_PIPELINES, BUCKET_CODES, DIRECT_BATCH_BYTES, FILES_BATCH_MAX, sha256Bytes, sha256File, type BatchVerdict } from './files-batch.js';
 import { appendBatch, DEFAULT_FALLBACK_PATH, type DeferredResult } from './fallback.js';
+import { snapshotAt } from './code-snapshot.js';
 import type {
   DiscoveredTest,
   DiscoveryOutcome,
@@ -31,6 +32,8 @@ const BATCH_MAX = 500;
  * because it is a different endpoint's promise and they are free to diverge. */
 const DISCOVER_MAX = 500;
 const BATCH_DEFAULT = 500;
+/** Code snapshots one run updates at most; the rest wait for the next run. */
+const SNAPSHOT_UPDATES_MAX = 100;
 /** Result batches of one run in flight at once. */
 const SEND_CONCURRENCY = 4;
 /** What `configuration.expected` may hold before the contract refuses the whole start. */
@@ -996,6 +999,11 @@ export async function startRun(
   let done = false;
   /** Names shortened to fit a key or a title, by original value — said once, counted once. */
   const shortened = new Set<string>();
+  /** The spec files read for code snapshots, each once; `null` is one that could not be read. */
+  const specFiles = new Map<string, string | null>();
+  /** The code snapshot each added result's test has, by result key; then by the case it matched. */
+  const snapshotByKey = new Map<string, string>();
+  const snapshots = new Map<string, string>();
 
   function bound(keys: readonly KeyRef[]): KeyRef[] {
     return keys.map((key) => {
@@ -1241,6 +1249,8 @@ export async function startRun(
         const { keys: _keys, files, ...rest } = pending;
         submissions.push({ ...rest, testCaseId: r.id! });
         if (files !== undefined) filesByKey.set(pending.resultKey, files);
+        const text = snapshotByKey.get(pending.resultKey);
+        if (text !== undefined) snapshots.set(r.id!, text);
       }
       if (submissions.length > 0) {
         const before = stats.deferred;
@@ -1251,6 +1261,63 @@ export async function startRun(
     }
   }
 
+
+  /**
+   * Give each matched automated case the text of the test that just ran, where it has none or another
+   *: what «Draft from code» reads. The case list says which cases are automated and
+   * the hash of the snapshot each holds, so a case whose text is the same gets no write. A refusal (a
+   * reader's token, an older platform) is said once and costs the run nothing.
+   */
+  // ponytail: reads the automated cases page by page until every matched one is seen — a project of many thousands
+  // pays a few more GETs per run; and the PATCHes go one by one under the platform's write limit, which the client waits out.
+  type CaseList = { testCases?: { id?: string; codeSnapshotHash?: string }[]; nextCursor?: string | null };
+  async function syncSnapshots(): Promise<void> {
+    if (snapshots.size === 0 || offline) return;
+    const stored = new Map<string, string | null>();
+    let cursor: string | null = null;
+    do {
+      const query: string = `type=automated&stability=0&limit=200${cursor === null ? '' : `&cursor=${encodeURIComponent(cursor)}`}`;
+      const out: ClientOutcome<CaseList> = await client.get<CaseList>(`/v1/test-cases?${query}`);
+      if (!out.ok || !Array.isArray(out.body?.testCases)) {
+        log(`plune: could not update the code snapshots (${out.ok ? 'the case list had no cases' : out.detail || out.kind}).`);
+        return;
+      }
+      for (const row of out.body.testCases) {
+        if (typeof row?.id === 'string' && snapshots.has(row.id)) stored.set(row.id, row.codeSnapshotHash ?? null);
+      }
+      cursor = typeof out.body.nextCursor === 'string' ? out.body.nextCursor : null;
+    } while (cursor !== null && stored.size < snapshots.size);
+
+    const sha = (text: string): string => createHash('sha256').update(text).digest('hex');
+    // In an order of this run's own, so that a project with more stale cases than one run updates reaches
+    // different ones on the next run rather than the same first hundred every time.
+    const due = [...snapshots]
+      .filter(([id, text]) => stored.has(id) && stored.get(id) !== sha(text))
+      .sort(([a], [b]) => sha(`${runId}:${a}`).localeCompare(sha(`${runId}:${b}`)));
+    let updated = 0;
+    let refused = 0;
+    let tried = 0;
+    for (const [id, text] of due.slice(0, SNAPSHOT_UPDATES_MAX)) {
+      tried += 1;
+      const out = await client.patch(`/v1/test-cases/${encodeURIComponent(id)}`, { codeSnapshot: text });
+      if (out.ok) {
+        updated += 1;
+        continue;
+      }
+      // A refused token, a limit the retries could not wait out, or no platform: every next one would meet the same.
+      if (out.kind === 'auth' || out.kind === 'unavailable' || out.status === 429) {
+        log(`plune: could not update the code snapshot of test case ${id} (${out.detail || out.kind}); the rest are left as they are.`);
+        break;
+      }
+      // This one case's answer (gone, changed meanwhile, refused): the others are not affected.
+      refused += 1;
+    }
+    const left = due.length - tried;
+    const parts = [`${updated} code snapshot(s) updated`];
+    if (refused > 0) parts.push(`${refused} not updated`);
+    if (left > 0 && tried === Math.min(due.length, SNAPSHOT_UPDATES_MAX)) parts.push(`${left} left for the next run`);
+    if (updated + refused > 0) log(`plune: ${parts.join(', ')}`);
+  }
 
   /**
    * The result batches being sent. Up to `SEND_CONCURRENCY` at once, but only ONE until a batch has been
@@ -1312,6 +1379,8 @@ export async function startRun(
       if (match.kind === 'found') {
         const { keys: _keys, files, ...rest } = result;
         submissions.push({ ...rest, testCaseId: match.testCaseId });
+        const text = snapshotByKey.get(result.resultKey);
+        if (text !== undefined) snapshots.set(match.testCaseId, text);
         if (files !== undefined) filesByKey.set(result.resultKey, files);
       } else if (match.kind === 'unmatched') {
         stats.unresolved += 1;
@@ -1454,7 +1523,11 @@ export async function startRun(
       return stats;
     },
     async add(result) {
-      buffer.push({ ...result, keys: bound(result.keys) });
+      // The location names this machine: read here, and never sent or kept.
+      const { codeAt, ...rest } = result;
+      const text = codeAt === undefined ? undefined : snapshotAt(codeAt, specFiles);
+      if (text !== undefined) snapshotByKey.set(result.resultKey, text);
+      buffer.push({ ...rest, keys: bound(result.keys) });
       if (buffer.length >= batchSize) await flushBuffer();
     },
     flush,
@@ -1465,6 +1538,7 @@ export async function startRun(
       // Before the close, not after: the entries name the run that found them, and a closed run is
       // still the right answer to "where did this come from".
       await offer();
+      await syncSnapshots();
       let frozen: FrozenSummary | undefined;
       if (runId !== null && !offline) {
         const out = await client.post<{ detached?: number; summary?: FrozenSummary }>(`/v1/runs/${runId}/events`, {
@@ -1495,6 +1569,7 @@ export async function startRun(
       // repeats come back `duplicate` — whereas offering only from the closing process would mean
       // a sharded run never offers anything, since no process closes it.
       await offer();
+      await syncSnapshots();
       let frozen: FrozenSummary | undefined;
       const after: string[] = [];
       const shard = env.shard;

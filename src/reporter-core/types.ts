@@ -130,6 +130,12 @@ export interface PendingResult {
    */
   title?: string;
   specRef?: string;
+  /**
+   * Where the test is declared on this machine: its file (absolute, or from the working directory) and
+   * the line of its `test()` call. Never sent as it is: the core reads the call's text from it and, for a
+   * matched automated case, sends that as the case's code snapshot.
+   */
+  codeAt?: { file: string; line: number; column?: number };
   execution?: Execution;
   errorContext?: string;
   /** What failed and where, for a failed attempt; a pass carries none. Built by `failureOf`. */
@@ -211,7 +217,10 @@ export interface FailedAttempt {
 }
 
 /** What a run submission looks like once a key has resolved. Built by the core, never by a caller. */
-export interface ResultSubmission extends Omit<PendingResult, 'keys' | 'testCaseId' | 'files'> {
+export interface ResultSubmission extends Omit<
+  PendingResult,
+  'keys' | 'testCaseId' | 'files' | 'codeAt'
+> {
   testCaseId: string;
 }
 

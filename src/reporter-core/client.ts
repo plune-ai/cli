@@ -158,6 +158,8 @@ export interface PlatformClient {
   del<T>(path: string): Promise<ClientOutcome<T>>;
   /** A GET, through the same retries, classification and token scrubbing. */
   get<T>(path: string): Promise<ClientOutcome<T>>;
+  /** A PATCH with a JSON body, the same way as a POST. */
+  patch<T>(path: string, body: unknown): Promise<ClientOutcome<T>>;
   /**
    * The bytes to a short-lived link of the customer's bucket: exactly the headers the
    * link came with, no token of ours. Network failures and 5xx wait and try again, up to three times; a 403
@@ -300,7 +302,7 @@ export function createClient(opts: ClientOptions): PlatformClient {
     opts.token === '' ? text : text.split(opts.token).join('***');
 
   async function send<T>(
-    method: 'GET' | 'POST' | 'DELETE',
+    method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
     path: string,
     payload?: { body: string | Buffer; type: string },
     retries: number = DEFAULT_RETRIES,
@@ -378,6 +380,7 @@ export function createClient(opts: ClientOptions): PlatformClient {
       send<T>('POST', path, { body: bytes, type: contentType }, uploadRetries ?? DEFAULT_RETRIES),
     del: <T>(path: string) => send<T>('DELETE', path),
     get: <T>(path: string) => send<T>('GET', path),
+    patch: <T>(path: string, body: unknown) => send<T>('PATCH', path, { body: JSON.stringify(body), type: 'application/json' }),
     async put(url, headers, source) {
       const putRetries = uploadRetries ?? 3;
       let last: PutOutcome = { ok: false, status: null, code: 'network' };
