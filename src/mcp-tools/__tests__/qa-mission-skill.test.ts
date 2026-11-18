@@ -336,6 +336,10 @@ describe('the qa-mission skill', () => {
         /run no command of another package \(no `cairn \.\.\.`\) and send no file to the platform/,
       );
       expect(t).toMatch(/Write in the stage log what you skipped and why/);
+      // A live headless run once skipped the questions and the strategy, reading "no person to answer" as "ask nothing".
+      expect(t).toMatch(
+        /a headless run still asks its questions with `plune_question_ask` and still proposes the strategy: a person answers and decides in Plune later/i,
+      );
     });
 
     it('orders the surfaces: API, UI, LLM, docs, security, accessibility, performance', () => {
@@ -350,6 +354,30 @@ describe('the qa-mission skill', () => {
       expect(analysis).toContain('plune_question_list()');
       expect(analysis.replace(/\s+/g, ' ')).toMatch(/answered before|already answered/i);
       expect(pluneTool('plune_question_list').input.shape).toHaveProperty('missionId');
+    });
+
+    it('does not ask again a question an earlier mission still waits on: an assumption names its id', () => {
+      const t = flatten(stage(1));
+      expect(t).toMatch(
+        /A question an earlier mission asked that still waits for an answer is not asked again: rest what depends on it on an assumption that names that question's id in its text/,
+      );
+      // A live second mission was refused `question-unknown` for `waitingOn` on the first mission's question.
+      expect(t).toMatch(/`waitingOn` takes only a question of this mission; the platform refuses another mission's \(`question-unknown`\)/);
+      expect(pluneTool('plune_question_list').input.shape).toHaveProperty('state');
+    });
+
+    it('reads the code when there are no documents, and cites file and line as the source', () => {
+      const t = flatten(stage(1));
+      expect(t).toMatch(
+        /No documents and no running product to walk: read the code instead \(the commands, routes and screens it defines\), and cite the file and line/,
+      );
+      // A live run was refused `requirement-unknown` for `src/cli/index.ts:171` as a strategy source: the platform checks a
+      // strategy `requirement` against the project's requirements. A code fact rests on the repository attached as a source.
+      expect(t).toContain('`plune_source_add(missionId, kind, ref)` with `kind` `repo`');
+      expect(t).toMatch(/A strategy item read in the code rests on that source \(`mission-source` with the source's id\)/);
+      const refs = flatten(texts.get('references/tool-calls.md')!);
+      expect(refs).toMatch(/A fact read in the code: in the strategy, the item rests on the repository attached as a mission source/);
+      expect(refs).not.toMatch(/"kind": "requirement", "ref"/);
     });
 
     it('does not run the tests itself', () => {

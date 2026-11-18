@@ -15,6 +15,10 @@ that is wrong, so a `dry_run` call first is the cheap way to find a mistake.
   `endpoint`, `requirement`, `url`.
 - Where a case was read (`source.kind`): `url`, `openapi-operation`, `requirement`, `pasted-text`.
 - A case's `execution`: `auto` (it can be automated) or `manual` (the default).
+- A fact read in the code: in the strategy, the item rests on the repository attached as a
+  mission source, `{ "kind": "mission-source", "ref": "<the source id>" }`, and names the file and
+  line in its `text`; the platform refuses a `requirement` that is not one of the project's
+  (`requirement-unknown`). In a case, the source is `{ "kind": "requirement", "value": "src/cli.ts:42" }`.
 
 ## A source
 
