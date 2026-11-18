@@ -197,7 +197,7 @@ the surfaces in the order above. Prefer a technique the profile names, and write
 
 The LLM surface is switched on only when the product has an AI feature (a chatbot, an answer a model
 writes, an agent), read in a source. Its cases are not steps for a person: they are evals in a
-`plune.yaml` eval set, on the assertions `llm-judge`, `faithfulness` and `answer-relevance`, each row
+`plune.yaml` eval set, on the assertions `llm-judge` and `faithfulness`, each row
 run several times (`runs` and `pass_threshold`) because a model does not answer the same way twice.
 The review queue takes cases with steps only, so the eval set goes to a person in a pull request
 instead, where eval-action runs it and comments the diff; ask the user before you push or open it.
