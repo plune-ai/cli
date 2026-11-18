@@ -1,12 +1,14 @@
 // CLI · mcp scan · corpus: the accuracy corpus of the description rules (MCP-G7, first part) and its regression control.
 // Fixtures hold text that reads like injections, so a failure here names rules, fixtures and pointers, never their text.
 
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { DESC_RULES, scanDescriptions, visible, type DescRuleId } from '../descriptions.js';
 import {
+  GATE_MAX_FALSE_RATE,
   GATE_MIN_UNITS,
   baselineOf,
   compareToBaseline,
@@ -75,10 +77,19 @@ describe('CLI · mcp scan · corpus · coverage of the catalog', () => {
     expect(bad).toEqual([]);
   });
 
-  it('the ordinary side has synthetic sets in the scripts and shapes the task names, and no real set yet', () => {
+  it('the ordinary side has synthetic sets in the scripts and shapes the task names, and real sets from at least three projects', () => {
     const text = JSON.stringify(corpus.benign.map((b) => b.snapshot));
     expect(corpus.benign.some((b) => b.origin === 'synthetic')).toBe(true);
-    expect(corpus.benign.filter((b) => b.origin === 'real')).toEqual([]);
+    const projectOf = (id: string) =>
+      (
+        JSON.parse(readFileSync(join(DIR, 'benign', `${id}.meta.json`), 'utf8')) as {
+          project: string;
+        }
+      ).project;
+    const projects = new Set(
+      corpus.benign.filter((b) => b.origin === 'real').map((b) => projectOf(b.id)),
+    );
+    expect(projects.size).toBeGreaterThanOrEqual(3);
     for (const [name, re] of [
       ['Ukrainian', /[Ѐ-ӿ]/],
       ['Persian or Arabic', /[؀-ۿ]/],
@@ -111,6 +122,24 @@ describe('CLI · mcp scan · corpus · coverage of the catalog', () => {
         .map((f) => `${String(s['id'])}: ${f}`),
     );
     expect(gaps).toEqual([]);
+    const real = corpus.benign.filter((b) => b.origin === 'real').map((b) => b.id);
+    expect(sources.real.map((s) => s['id']).sort()).toEqual(real);
+    const sha = (f: string) =>
+      createHash('sha256')
+        .update(readFileSync(join(ROOT, f), 'utf8').replace(/\r\n/g, '\n'))
+        .digest('hex');
+    expect(
+      sources.real.filter((s) => s['sha256'] !== sha(String(s['committed']))).map((s) => s['id']),
+    ).toEqual([]);
+    expect(
+      sources.real
+        .filter((s) => !['MIT', 'Apache-2.0'].includes(String(s['license'])))
+        .map((s) => s['id']),
+    ).toEqual([]);
+    const notices = readFileSync(join(ROOT, 'THIRD_PARTY_NOTICES'), 'utf8');
+    expect(
+      sources.real.filter((s) => !notices.includes(String(s['committed']))).map((s) => s['id']),
+    ).toEqual([]);
   });
 });
 
@@ -165,16 +194,11 @@ describe('CLI · mcp scan · corpus · the measure', () => {
     expect(wilsonUpper95(3, 10)).toBeGreaterThan(0.3);
   });
 
-  it('lets no rule through to the gate on the units there are: none is real, so none has the 385 the gate needs', () => {
-    expect(RULES.filter((r) => report[r].gateEligible)).toEqual([]);
-    for (const r of RULES)
-      expect(report[r].gateReason).toContain(`not enough real units (0 of ${GATE_MIN_UNITS})`);
-  });
-
-  it('counts each origin apart', () => {
+  it('counts each origin apart, and every rule has the 385 real description fields the gate needs', () => {
     for (const r of RULES) {
-      expect(report[r].benign.real.units).toBe(0);
+      expect(report[r].benign.real.descriptionUnits, r).toBeGreaterThanOrEqual(GATE_MIN_UNITS);
       expect(report[r].benign.synthetic.units).toBeGreaterThan(0);
+      expect(report[r].gateReason, r).not.toContain('not enough real units');
     }
   });
 });
@@ -364,5 +388,78 @@ describe('CLI · mcp scan · corpus · the denominator says what a unit is', () 
   });
   it('is in report.json for every rule', () => {
     for (const r of RULES) expect(report[r].benign.synthetic.descriptionUnits).toBeGreaterThan(0);
+  });
+});
+
+describe('CLI · mcp scan · corpus · the gate is read on real description fields', () => {
+  const RULE: DescRuleId = 'scan/desc/html-comment';
+  const base = JSON.parse(readFileSync(join(DIR, 'benign', 'short.snapshot.json'), 'utf8'));
+  // One tool with `params` string parameters: params + 1 description fields.
+  const set = (params: number) => ({
+    id: 'r',
+    origin: 'real' as const,
+    snapshot: {
+      ...base,
+      tools: [
+        {
+          name: 'tool',
+          description: 'Lists the entries of a folder.',
+          inputSchema: {
+            type: 'object',
+            properties: Object.fromEntries(
+              Array.from({ length: params }, (_, i) => [
+                `p${i}`,
+                { type: 'string', description: 'Folder to list.' },
+              ]),
+            ),
+          },
+        },
+      ],
+    },
+  });
+  const fixtures = corpus.malicious.filter((f) => f.expected.some((e) => e.rule === RULE));
+  const finding = scanOf(fixtures[0]!.snapshot).find((x) => x.rule === RULE)!;
+  // The real scan, plus `k` false findings of the rule on the real set.
+  const withFalse =
+    (k: number): Scan =>
+    (s) =>
+      scanOf(s).concat(
+        s.tools?.[0]?.name === 'tool'
+          ? Array.from({ length: k }, (_, i) => ({
+              ...finding,
+              pointer: `/tools/0/inputSchema/properties/p${i}/description`,
+            }))
+          : [],
+      );
+  const gate = (descriptions: number, k = 0) =>
+    measure({ malicious: fixtures, benign: [set(descriptions - 1)] }, withFalse(k))[RULE];
+
+  it('lets a rule through with 385 real description fields and no false finding', () => {
+    const r = gate(GATE_MIN_UNITS);
+    expect(r.benign.real.descriptionUnits).toBe(GATE_MIN_UNITS);
+    expect(r.benign.real.wilsonUpper95!).toBeLessThanOrEqual(GATE_MAX_FALSE_RATE);
+    expect(r.gateReason).toBe('');
+    expect(r.gateEligible).toBe(true);
+  });
+
+  it('keeps it out with 384, though it has more than 385 texts of all kinds', () => {
+    const r = gate(GATE_MIN_UNITS - 1);
+    expect(r.benign.real.units).toBeGreaterThan(GATE_MIN_UNITS);
+    expect(r.gateEligible).toBe(false);
+    expect(r.gateReason).toContain(`not enough real units (384 of ${GATE_MIN_UNITS})`);
+  });
+
+  it('keeps it out when the Wilson upper bound of its false findings is over 1 %, and lets one false finding in 1000 through', () => {
+    const noisy = gate(1000, 5);
+    expect(noisy.benign.real.wilsonUpper95!).toBeGreaterThan(GATE_MAX_FALSE_RATE);
+    expect(noisy.gateEligible).toBe(false);
+    expect(noisy.gateReason).toContain('too many false findings on real units');
+    const quiet = gate(1000, 1);
+    expect(quiet.benign.real.wilsonUpper95!).toBeLessThanOrEqual(GATE_MAX_FALSE_RATE);
+    expect(quiet.gateEligible).toBe(true);
+  });
+
+  it('reads more false findings than description fields as a rate of 1, not as a pass', () => {
+    expect(wilsonUpper95(5, 2)).toBe(1);
   });
 });

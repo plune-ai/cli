@@ -1,0 +1,211 @@
+{
+  "kind": "plune-mcp-snapshot",
+  "schemaVersion": 2,
+  "transport": "stdio",
+  "server": {
+    "name": "redshift-mcp-server",
+    "version": "a6147efeef51412806528b937e6e5b885945a133"
+  },
+  "instructions": null,
+  "capabilities": {
+    "tools": {}
+  },
+  "tools": [
+    {
+      "name": "execute_query",
+      "description": "Execute one SQL statement against a Redshift cluster or serverless workgroup.\n\nReturns columns (names), rows, row_count and query_id. Values are typed as the Data API\nreturns them: SMALLINT, INTEGER and BIGINT as integers, REAL and DOUBLE PRECISION as floats,\nbooleans as booleans, NULL as null, VARBYTE, GEOMETRY and GEOGRAPHY as base64 text, and\neverything else as a string, including VARCHAR, DECIMAL, dates, times, timestamps and SUPER.\n\nA result set is read to its end however many pages the service splits it into, so `row_count`\nis the whole result and there is no second call that continues one. A result of more than\nMAX_RESULT_ROWS rows, listed under Current Settings in the instructions, is refused rather\nthan cut short, so add a LIMIT or an aggregate to a query that may match more.\n\n## Execution Mode\n\nFixed at server startup by the ACCESS_MODE environment variable, not per call. This\nserver's resolved settings are listed under Current Settings in its instructions.\n\n- Read-only (default): the statement runs inside `BEGIN READ ONLY ... ROLLBACK`, so\n  nothing is persisted, and statement types the transaction cannot neutralize\n  (`UNLOAD`, `GRANT`, `REVOKE`, `TRUNCATE`, `VACUUM`, `ANALYZE`, `COMMENT`, `CALL`,\n  `CANCEL`, `SET`, `RESET`, `PREPARE`, `EXECUTE`, `DECLARE`, `FETCH`, and calls to\n  `set_config`, `pg_cancel_backend`, `pg_terminate_backend`, `change_query_priority`,\n  `change_session_priority` and `change_user_priority`) are rejected before execution.\n- Read-write (`ACCESS_MODE=read-write`): the statement runs directly with autocommit\n  and can create, modify and delete data and objects. Outside a transaction there is\n  no rollback and nothing to undo.\n\nTransaction control is refused in both modes: `BEGIN`, `START`, `COMMIT`, `END`,\n`ROLLBACK` and `ABORT` belong to the transaction parameters below, not to `sql`. A\nstatement that moved a boundary itself would leave this server and the engine\ndisagreeing about what is open. `TRUNCATE` and `CALL` are refused inside a named\ntransaction for the same reason, since each can commit and cannot then be rolled back;\noutside one, both run normally in read-write mode.\n\nIn read-write mode a statement that may write is confirmed by the caller before it runs,\nwhile a recognized read runs unconfirmed. Confirmation is skipped entirely when the\noperator set `UNSAFE_SKIP_WRITE_CONFIRMATION=true`. A client that cannot prompt is\nrefused rather than executed unconfirmed. Closing a transaction is not itself a write,\nso `commit_transaction` or `rollback_transaction` alone asks nothing.\n\nBoth modes accept a single statement only; multi-statement submissions are rejected.\n\n## Transactions\n\nSession state needs one: in read-write mode, a temporary table or a `SET` made outside a\ntransaction is gone by the next call, though the statement that made it reports success.\nRead-only mode refuses `SET` in or out of a transaction.\n\nName a transaction to keep it open across calls:\n\n    begin_transaction='load' with the first statement, or on its own\n    in_transaction='load' for each statement after that\n    commit_transaction='load' or rollback_transaction='load' to end it\n\nAt most one of the four per call. `sql` is required standalone and with `in_transaction`,\nand optional with the other three.\n\nBoth modes support this. A read-only transaction gives several statements one consistent\nsnapshot and ends in ROLLBACK, commit_transaction included; a read-write one makes them succeed\nor fail together. Writes inside it are still confirmed one at a time, and a declined write\nleaves it open.\n\nA transaction is bound to this server process and to the cluster and database it was\nopened against, so the same name against a different pair is a different transaction and\neach call has to carry the pair its own transaction was opened on. A statement that fails\ninside one aborts it: it is rolled back and its name dropped, so the next call reports it as\nunknown rather than letting you commit nothing and call it done. A statement refused before\nit is sent - by the SQL guard, the confirmation step, a malformed call, or a cluster that does\nnot resolve - leaves the transaction as it was. One sent with in_transaction that ran and\nwhose result could not be read leaves it open and yours to commit or roll back, and the error\nsays so. A commit_transaction that fails once sent always ends the transaction. In read-write\nmode its error says whether the COMMIT stands, may have applied, or was discarded; in\nread-only mode the transaction is discarded, however the call failed. Redshift ends one left\nidle for SESSION_KEEPALIVE seconds, and MAX_OPEN_TRANSACTIONS_PER_TARGET caps how many may be\nopen at once against one cluster and database.\n\nOpen and close a transaction in the same stretch of work, because while open it holds a\nRedshift connection and can block other writers on the tables it touched. Decide the\nstatements it groups first, then run them with nothing in between: no waiting on the\nuser, no waiting on another system, no exploring, no working out what to do next. If the\nuser asks for one to be held open across any of that, tell them first that it stays open\nuntil they close it and may block other writers, then get their agreement.\n\n## Security\n\nAvoid building SQL from untrusted input. The database user's privileges are the real\nboundary, so grant only what the workload needs.\n\nRequires redshift-data:BatchExecuteStatement, redshift-data:DescribeStatement and\nredshift-data:GetStatementResult, plus the discovery actions list_clusters names: the\ncluster identifier is resolved through the same discovery, so a policy with only the\nredshift-data actions fails this call before it reaches the cluster.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "confirmation": {},
+          "cluster_identifier": {
+            "type": "string",
+            "description": "The cluster identifier to execute the query on. Must be a valid cluster identifier from the list_clusters tool."
+          },
+          "cluster_type": {
+            "description": "The type list_clusters reports for the cluster."
+          },
+          "database_name": {
+            "type": "string",
+            "description": "The database name to execute the query against. Must be a valid database name from the list_databases tool."
+          },
+          "sql": {
+            "type": "string",
+            "description": "The SQL statement to execute. Must be a single SQL statement. Whether writes are permitted is fixed by the server configuration, not by this call. Required on its own and with in_transaction; optional with the other three."
+          },
+          "begin_transaction": {
+            "type": "string",
+            "description": "Open a transaction under this name and run sql inside it, if given. The name is yours to choose and to reuse on later calls. Fails if it is already open."
+          },
+          "in_transaction": {
+            "type": "string",
+            "description": "Run sql inside the transaction already open under this name."
+          },
+          "commit_transaction": {
+            "type": "string",
+            "description": "Run sql, if given, then commit the transaction open under this name."
+          },
+          "rollback_transaction": {
+            "type": "string",
+            "description": "Run sql, if given, then roll back the transaction open under this name."
+          }
+        },
+        "required": [
+          "confirmation",
+          "cluster_identifier",
+          "cluster_type",
+          "database_name"
+        ]
+      }
+    },
+    {
+      "name": "list_clusters",
+      "description": "List Redshift clusters and serverless workgroups.\n\nReturns one entry per cluster: identifier, type (provisioned or serverless), status,\ndatabase_name, endpoint, port, vpc_id, node_type, number_of_nodes, creation_time,\nmaster_username, publicly_accessible, encrypted and tags.\n\nOnly a cluster whose status is 'available' can be queried, and its identifier and type are\nwhat every tool that runs SQL takes as its first two arguments.\n\nRequires redshift:DescribeClusters and redshift-serverless:ListWorkgroups. Whichever of\nprovisioned or serverless discovery is denied is skipped, so a partial list is normal; both\ndenied is an error, and so is one denied with nothing found of the other type, since an empty\nlist would otherwise read as an account with no clusters at all.\n\nA serverless workgroup's tags additionally need redshift-serverless:ListTagsForResource, which\nis optional: without it a workgroup is reported untagged.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_columns",
+      "description": "List the columns in a table.\n\nReturns database_name, schema_name, table_name, column_name, ordinal_position,\ncolumn_default, is_nullable, data_type, character_maximum_length, numeric_precision,\nnumeric_scale and remarks.\n\nAn unknown table returns an empty list rather than an error.\n\nRequires redshift-data:BatchExecuteStatement, redshift-data:DescribeStatement and\nredshift-data:GetStatementResult, plus the discovery actions list_clusters names: the\ncluster identifier is resolved through the same discovery, so a policy with only the\nredshift-data actions fails this call before it reaches the cluster.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cluster_identifier": {
+            "type": "string",
+            "description": "The cluster identifier to query for columns. Must be a valid cluster identifier from the list_clusters tool."
+          },
+          "cluster_type": {
+            "description": "The type list_clusters reports for the cluster."
+          },
+          "column_database_name": {
+            "type": "string",
+            "description": "The database name to list columns for. Also the database connected to. Must be a valid database name from the list_databases tool."
+          },
+          "column_schema_name": {
+            "type": "string",
+            "description": "The schema name to list columns for. Must be a valid schema name from the list_schemas tool."
+          },
+          "column_table_name": {
+            "type": "string",
+            "description": "The table name to list columns for. Must be a valid table name from the list_tables tool."
+          }
+        },
+        "required": [
+          "cluster_identifier",
+          "cluster_type",
+          "column_database_name",
+          "column_schema_name",
+          "column_table_name"
+        ]
+      }
+    },
+    {
+      "name": "list_databases",
+      "description": "List the databases in a cluster.\n\nReturns database_name, database_owner, database_type, database_acl, parameters and\ndatabase_isolation_level.\n\ndatabase_type is 'local' for a database on the cluster itself, 'shared' for one from a\ndatashare, or 'auto mounted catalog' for one Redshift mounted from an external catalog such\nas AWS Glue. An auto-mounted catalog is listed here but cannot be explored further, since\nRedshift refuses to connect to it.\n\nA 'shared' database comes from a datashare, and appears only if the connecting\nprincipal has been granted access to the consumer database (GRANT USAGE ON DATABASE\n<db> TO <principal>) — so a datashare can exist without being listed here.\n\nRequires redshift-data:BatchExecuteStatement, redshift-data:DescribeStatement and\nredshift-data:GetStatementResult, plus the discovery actions list_clusters names: the\ncluster identifier is resolved through the same discovery, so a policy with only the\nredshift-data actions fails this call before it reaches the cluster.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cluster_identifier": {
+            "type": "string",
+            "description": "The cluster identifier to query for databases. Must be a valid cluster identifier from the list_clusters tool."
+          },
+          "cluster_type": {
+            "description": "The type list_clusters reports for the cluster."
+          },
+          "database_name": {
+            "type": "string",
+            "description": "The database to connect to for metadata discovery. Defaults to \"dev\"."
+          }
+        },
+        "required": [
+          "cluster_identifier",
+          "cluster_type"
+        ]
+      }
+    },
+    {
+      "name": "list_schemas",
+      "description": "List the schemas in a database.\n\nReturns database_name, schema_name, schema_owner, schema_type (local, external or\nshared), schema_acl, source_database and schema_option.\n\nAn 'external' schema points at S3 or another database. A 'shared' schema comes from a\ndatashare and appears only if the principal has been granted access to the consumer\ndatabase. A database auto-mounted from a Glue Data Catalog cannot be explored: Redshift\nrefuses to connect to it, so this tool fails on one even though list_databases lists it.\n\nRequires redshift-data:BatchExecuteStatement, redshift-data:DescribeStatement and\nredshift-data:GetStatementResult, plus the discovery actions list_clusters names: the\ncluster identifier is resolved through the same discovery, so a policy with only the\nredshift-data actions fails this call before it reaches the cluster.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cluster_identifier": {
+            "type": "string",
+            "description": "The cluster identifier to query for schemas. Must be a valid cluster identifier from the list_clusters tool."
+          },
+          "cluster_type": {
+            "description": "The type list_clusters reports for the cluster."
+          },
+          "schema_database_name": {
+            "type": "string",
+            "description": "The database name to list schemas for. Also the database connected to. Must be a valid database name from the list_databases tool."
+          }
+        },
+        "required": [
+          "cluster_identifier",
+          "cluster_type",
+          "schema_database_name"
+        ]
+      }
+    },
+    {
+      "name": "list_tables",
+      "description": "List the tables in a schema.\n\nReturns database_name, schema_name, table_name, table_acl, table_type and remarks,\nwhere table_type is TABLE, VIEW, EXTERNAL TABLE or SHARED TABLE.\n\nAn unknown schema returns an empty list rather than an error.\n\nRequires redshift-data:BatchExecuteStatement, redshift-data:DescribeStatement and\nredshift-data:GetStatementResult, plus the discovery actions list_clusters names: the\ncluster identifier is resolved through the same discovery, so a policy with only the\nredshift-data actions fails this call before it reaches the cluster.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cluster_identifier": {
+            "type": "string",
+            "description": "The cluster identifier to query for tables. Must be a valid cluster identifier from the list_clusters tool."
+          },
+          "cluster_type": {
+            "description": "The type list_clusters reports for the cluster."
+          },
+          "table_database_name": {
+            "type": "string",
+            "description": "The database name to list tables for. Also the database connected to. Must be a valid database name from the list_databases tool."
+          },
+          "table_schema_name": {
+            "type": "string",
+            "description": "The schema name to list tables for. Must be a valid schema name from the list_schemas tool."
+          }
+        },
+        "required": [
+          "cluster_identifier",
+          "cluster_type",
+          "table_database_name",
+          "table_schema_name"
+        ]
+      }
+    },
+    {
+      "name": "review_cluster",
+      "description": "Run a diagnostic review of a Redshift cluster or serverless workgroup.\n\nEvaluates diagnostic signals against system views and returns the findings that\ntriggered, with a recommendation for each. Provisioned-only diagnostics are skipped\nautomatically for a serverless workgroup.\n\nCan take minutes: the diagnostics run one at a time.\n\n## Reading the result\n\n- signals_evaluated: how many distinct signals ran, of which findings is the subset that\n  triggered.\n- findings: one entry per triggered signal, carrying signal_name, section,\n  affected_row_count, unit, and recommendation_ids.\n- recommendations: deduplicated, each with id, text (markdown, including\n  documentation links) and triggered_by_signals. Their order carries no meaning: it is\n  the order their signals first triggered, not effort and not impact.\n- queries_executed: names of the diagnostic queries that ran. One query carries several\n  signals, so this is shorter than signals_evaluated.\n\nCount findings as len(findings), never from affected_row_count: that field counts\naffected objects in its own `unit` (7 tables, 3 nodes), so two findings each reporting 7\ntables is \"2 findings, each affecting 7 tables\", not 14, and not 7 either - only counts\ncome back, not identities, so how many distinct tables the two cover is unknown. Each\nsignal is an independent count(*) and one object can match several, so affected_row_count\nis NOT additive across findings or recommendations, and values in different units are NOT\ncomparable.\n\nZero findings means the cluster is healthy across every signal evaluated. Follow the\ndocumentation links in each recommendation. When there are findings, offer to act on\nthem, starting with the lowest-effort, highest-impact items.\n\n## Access\n\nThe connected database user must be able to read Redshift system views, which requires\nsuperuser or the sys:monitor role:\n\n    GRANT ROLE sys:monitor TO \"<database_user>\";\n\n<database_user> is the output of SELECT current_user, quoted because an IAM identity\ncontains a colon (IAM:<user> or IAMR:<role>). Without that access the review fails\nfast rather than returning partial results.\n\nRequires redshift-data:BatchExecuteStatement, redshift-data:DescribeStatement and\nredshift-data:GetStatementResult, plus the discovery actions list_clusters names: the\ncluster identifier is resolved through the same discovery, so a policy with only the\nredshift-data actions fails this call before it reaches the cluster.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cluster_identifier": {
+            "type": "string",
+            "description": "The cluster identifier to run the review on. Must be a valid cluster identifier from the list_clusters tool."
+          },
+          "cluster_type": {
+            "description": "The type list_clusters reports for the cluster."
+          },
+          "database_name": {
+            "type": "string",
+            "description": "The database to connect to for querying system views. Defaults to \"dev\"."
+          }
+        },
+        "required": [
+          "cluster_identifier",
+          "cluster_type"
+        ]
+      }
+    }
+  ],
+  "resources": null,
+  "resourceTemplates": null,
+  "prompts": null
+}

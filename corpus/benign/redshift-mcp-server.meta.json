@@ -1,0 +1,11 @@
+{
+  "origin": "real",
+  "description": "As for iam-mcp-server. retrieve_skill_file is left out: its description is assembled at run time from files the server reads, so it cannot be read from the source.",
+  "project": "awslabs/mcp",
+  "address": "https://github.com/awslabs/mcp/blob/a6147efeef51412806528b937e6e5b885945a133/src/redshift-mcp-server/awslabs/redshift_mcp_server/server.py",
+  "commit": "a6147efeef51412806528b937e6e5b885945a133",
+  "license": "Apache-2.0",
+  "copyright": "Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.",
+  "method": "static reading of source code",
+  "capturedAt": "2026-11-18"
+}

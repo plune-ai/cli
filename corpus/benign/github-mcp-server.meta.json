@@ -1,0 +1,11 @@
+{
+  "origin": "real",
+  "description": "The tool snapshots the project commits in pkg/github/__toolsnaps__/: name, description, inputSchema and annotations of every tool, as committed. outputSchema is left out.",
+  "project": "github/github-mcp-server",
+  "address": "https://github.com/github/github-mcp-server/tree/df32d7ec5786e0e71932767fce9982409cbaec40/pkg/github/__toolsnaps__",
+  "commit": "df32d7ec5786e0e71932767fce9982409cbaec40",
+  "license": "MIT",
+  "copyright": "Copyright (c) 2025 GitHub",
+  "method": "static reading of source code",
+  "capturedAt": "2026-11-18"
+}
