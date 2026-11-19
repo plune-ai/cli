@@ -229,8 +229,13 @@ jobs:
             exit 1
           fi
           FAILED=""
-          for repo in eval-action plune web-site; do
-            gh workflow run cli-bump.yml --repo "plune-ai/$repo" -f version="$VERSION" || FAILED="$FAILED $repo"
+          # The ref is named, not looked up: without --ref, gh first reads the default branch
+          # (GraphQL defaultBranchRef), which needs read access to the repository, and a token
+          # with only Actions:write is refused on the private ones. The dispatch itself needs
+          # only Actions:write.
+          for target in eval-action:main plune:master web-site:main; do
+            repo=${target%%:*} ref=${target#*:}
+            gh workflow run cli-bump.yml --repo "plune-ai/$repo" --ref "$ref" -f version="$VERSION" || FAILED="$FAILED $repo"
           done
           if [ -n "$FAILED" ]; then
             echo "::warning::Could not start cli-bump.yml in:$FAILED. Run it there by hand with version $VERSION."
