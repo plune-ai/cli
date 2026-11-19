@@ -1,0 +1,19 @@
+{
+  "expected": [
+    {
+      "rule": "scan/desc/conceal-from-user",
+      "pointer": "/prompts/0/arguments/0/description"
+    }
+  ],
+  "provenance": {
+    "catalogClass": "tool-poisoning",
+    "mechanism": "A request to keep something from the person, placed in the description of a prompt argument a person does not read.",
+    "concealment": "hidden",
+    "source": "not verified",
+    "catalogRefs": [
+      "INV"
+    ],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-20"
+  }
+}

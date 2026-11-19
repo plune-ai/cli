@@ -1,0 +1,19 @@
+{
+  "expected": [
+    {
+      "rule": "scan/desc/sensitive-path",
+      "pointer": "/tools/0/description"
+    }
+  ],
+  "provenance": {
+    "catalogClass": "tool-poisoning",
+    "mechanism": "A request to read a credential file, placed after forty blank lines, below what a client shows of a description.",
+    "concealment": "hidden",
+    "source": "not verified",
+    "catalogRefs": [
+      "INV"
+    ],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-20"
+  }
+}

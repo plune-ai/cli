@@ -1,0 +1,19 @@
+{
+  "expected": [
+    {
+      "rule": "scan/desc/encoded-blob",
+      "pointer": "/tools/0/description"
+    }
+  ],
+  "provenance": {
+    "catalogClass": "tool-poisoning",
+    "mechanism": "A base64 text that the description openly asks the model to decode and follow.",
+    "concealment": "explicit",
+    "source": "not verified",
+    "catalogRefs": [
+      "OWASP-03"
+    ],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-20"
+  }
+}

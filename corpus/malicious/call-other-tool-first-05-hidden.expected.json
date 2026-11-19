@@ -1,0 +1,20 @@
+{
+  "expected": [
+    {
+      "rule": "scan/desc/call-other-tool-first",
+      "pointer": "/resourceTemplates/0/description"
+    }
+  ],
+  "provenance": {
+    "catalogClass": "tool-poisoning",
+    "mechanism": "A call to another tool made a precondition, placed in a resource template description a person does not read.",
+    "concealment": "hidden",
+    "source": "not verified",
+    "catalogRefs": [
+      "INV",
+      "TOB-LJ"
+    ],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-20"
+  }
+}

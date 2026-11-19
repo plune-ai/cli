@@ -1,0 +1,19 @@
+{
+  "expected": [
+    {
+      "rule": "scan/desc/ansi-escape",
+      "pointer": "/tools/0/description"
+    }
+  ],
+  "provenance": {
+    "catalogClass": "tool-poisoning",
+    "mechanism": "A terminal escape that clears the screen: nothing is hidden, but a terminal that prints the description runs it.",
+    "concealment": "explicit",
+    "source": "not verified",
+    "catalogRefs": [
+      "OWASP-03"
+    ],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-20"
+  }
+}

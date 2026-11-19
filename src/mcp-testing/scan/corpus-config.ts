@@ -431,3 +431,23 @@ export function leaksToken(text: string, token: string): boolean {
   for (let i = 0; i + 8 <= token.length; i++) if (text.includes(token.slice(i, i + 8))) return true;
   return false;
 }
+
+/** The measured table, as `corpus/config/README.md` holds it between its two markers. */
+export function cfgTable(report: CfgReport): string {
+  const rows = [
+    '| rule | fixture recall (found / fixtures) | false findings, real (server entries) | false findings, synthetic (server entries) | gate |',
+    '| --- | --- | --- | --- | --- |',
+  ];
+  for (const [id, r] of Object.entries(report.rules)) {
+    const { real, synthetic } = r.benign;
+    rows.push(
+      `| ${id} | ${r.detected} / ${r.fixtures} | ${real.falsePositives.length} (${real.servers}) | ${synthetic.falsePositives.length} (${synthetic.servers}) | ${r.gateEligible ? 'eligible' : `not eligible: ${r.gateReason}`} |`,
+    );
+  }
+  const n = report.notChecked;
+  rows.push(
+    '',
+    `What the scanner must say it did not check: reported ${n.detected} of ${n.expected}.`,
+  );
+  return rows.join('\n');
+}
