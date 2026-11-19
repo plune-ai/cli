@@ -338,6 +338,10 @@ export interface SarifRule {
   fix: string;
 }
 
+/** The docs page of the rules; each rule has an anchor there made of its id, `/` written as `-`. */
+const RULE_DOCS = 'https://docs.plune.ai/cli/guides/mcp-security/';
+const ruleHelpUri = (id: string): string => `${RULE_DOCS}#${id.replace(/\//g, '-')}`;
+
 function sarif(r: ScanReport, rules: readonly SarifRule[], version: string): string {
   const ids = [...new Set([...rules.map((x) => x.id), ...r.findings.map((f) => f.rule)])].sort();
   const byId = new Map(rules.map((x) => [x.id, x]));
@@ -408,6 +412,7 @@ function sarif(r: ScanReport, rules: readonly SarifRule[], version: string): str
                 id,
                 name: id,
                 shortDescription: { text: def === undefined ? id : `${id}: ${def.fix}` },
+                helpUri: ruleHelpUri(id),
                 defaultConfiguration: {
                   level: def === undefined ? 'note' : SARIF_LEVEL[def.severity],
                 },

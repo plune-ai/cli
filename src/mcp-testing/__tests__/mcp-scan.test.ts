@@ -646,6 +646,23 @@ describe('CLI · mcp scan · reports', () => {
     expect(run.invocations[0]).toMatchObject({ executionSuccessful: true, exitCode: 1 });
   });
 
+  it('SARIF: every rule has a helpUri on its own anchor of the docs page, and the live page has that anchor', async () => {
+    const anchors = new Set(
+      readFileSync(new URL('./fixtures/mcp-security-anchors.txt', import.meta.url), 'utf8')
+        .split(/\r?\n/)
+        .filter((l) => l !== '' && !l.startsWith('#')),
+    );
+    expect(anchors.size).toBeGreaterThan(30);
+    const doc = (await scan(hiddenDir(), { snapshot: ['hidden.json'], format: 'sarif' })).json();
+    const rules = doc.runs[0].tool.driver.rules as { id: string; helpUri?: string }[];
+    expect(rules.map((r) => r.id).sort()).toEqual(ALL_RULES.map((r) => r.id).sort());
+    for (const r of rules) {
+      const anchor = r.id.replace(/\//g, '-');
+      expect(r.helpUri, r.id).toBe(`https://docs.plune.ai/cli/guides/mcp-security/#${anchor}`);
+      expect(anchors.has(anchor), `${r.id}: no anchor #${anchor} on the page`).toBe(true);
+    }
+  });
+
   it('SARIF: a finding with no place in a file is not lost: it is in omittedResults and in a notification', () => {
     const input: ScanInput = {
       snapshots: [
