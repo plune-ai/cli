@@ -392,6 +392,27 @@ describe('CLI · mcp scan · groups', () => {
 
 // ---- exceptions ----------------------------------------------------------------------------------------------------------
 
+describe('CLI · mcp scan · exit codes · a rule without its list', () => {
+  it('config: without --allow-host and --allow-package their rules stay "not evaluated" and the run is 0, not 3', async () => {
+    const dir = tmp();
+    put(
+      dir,
+      '.mcp.json',
+      JSON.stringify({ mcpServers: { api: { url: 'https://mcp.example.net/v1' } } }, null, 2),
+    );
+    const r = await scan(dir, asJson({ config: ['.mcp.json'] }));
+    expect(r.json()['findings']).toEqual([]);
+    expect(
+      r.json()['notEvaluated'].map((n: { rule: string; kind: string }) => [n.rule, n.kind]),
+    ).toEqual([
+      ['scan/cfg/foreign-host', 'missing-input'],
+      ['scan/cfg/package-not-allowed', 'missing-input'],
+    ]);
+    expect(r.code).toBe(0);
+    expect(r.json()['result']).toBe('no-findings');
+  });
+});
+
 describe('CLI · mcp scan · exceptions', () => {
   const setup = (yaml: string) => {
     const dir = tmp();

@@ -46,8 +46,12 @@ export interface NotEvaluatedRow {
   rule?: string;
   target: string;
   reason: string;
-  /** `missing-input`: a rule that needs a list or a second snapshot the caller did not give. `could-not-run`: it was asked for and did not run. */
-  kind: 'missing-input' | 'could-not-run';
+  /**
+   * `missing-input`: a rule that needs a list or a second snapshot the caller did not give. `not-applicable`: a probe
+   * that does not apply to this transport (an authentication probe on stdio). Neither changes the exit code.
+   * `could-not-run`: it was asked for and did not run.
+   */
+  kind: 'missing-input' | 'not-applicable' | 'could-not-run';
   file?: string;
   path?: string;
   line?: number;
@@ -178,7 +182,7 @@ function human(r: ScanReport): string {
     out.push('', 'Not evaluated (this is not "no finding"):');
     for (const n of r.notEvaluated)
       out.push(
-        `  ${n.group}${n.rule === undefined ? '' : ` ${n.rule}`}${n.target === '' ? '' : ` ${n.target}`}${n.path === undefined ? '' : ` ${n.path}`}: ${n.reason}${n.kind === 'could-not-run' ? '' : ' [an input was not given]'}`,
+        `  ${n.group}${n.rule === undefined ? '' : ` ${n.rule}`}${n.target === '' ? '' : ` ${n.target}`}${n.path === undefined ? '' : ` ${n.path}`}: ${n.reason}${n.kind === 'missing-input' ? ' [an input was not given]' : ''}`,
       );
   }
   if (r.probes.rows.length > 0) {
