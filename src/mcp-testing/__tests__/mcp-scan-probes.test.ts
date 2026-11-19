@@ -2120,12 +2120,48 @@ describe(
           (x) => x.rule === 'scan/probe/error-detail-leak',
         );
         expect(found, mode).toHaveLength(hits);
-        expect(r.code, mode).toBe(3);
+        // "not applicable" does not make the run incomplete, and error-detail-leak is advice: exit 0 both ways.
+        expect(r.code, mode).toBe(0);
         expect(s.calls(), mode).toEqual(['tools/call:export']);
         const all = r.out + r.err + readFileSync(join(dir, 'j.jsonl'), 'utf8');
         expect(all).not.toContain('STDERRMARK-9');
         expect(all).not.toContain('/srv/app');
       }
+    });
+
+    it('an authentication probe that is "not applicable (stdio)" is listed but does not make the run a 3; a probe that did not run for another reason still does', async () => {
+      const s = stdioServer('strict');
+      const { dir, file } = probeFile([
+        entry('p-none', 'none', { expect: 'refuse' }),
+        entry('p-b', 'account-b', { expect: 'refuse' }),
+        ...leaky,
+      ]);
+      const r = await scan(dir, { active: true, yes: true, probes: file }, {}, undefined, [
+        process.execPath,
+        ...s.args,
+      ]);
+      expect(r.code).toBe(0);
+      const na = (r.json()['notEvaluated'] as { kind: string; target: string }[]).filter(
+        (n) => n.kind === 'not-applicable',
+      );
+      expect(na.map((n) => n.target).sort()).toEqual(['p-b', 'p-none']);
+      expect(r.json()['result']).not.toBe('not-measured');
+
+      const s2 = stdioServer('strict');
+      const two = probeFile([
+        entry('p-none', 'none', { expect: 'refuse' }),
+        ...leaky,
+        { id: 'm2', tool: 'export', arguments: {}, as: 'account-a', malformed: true },
+      ]);
+      const cut = await scan(
+        two.dir,
+        { active: true, yes: true, probes: two.file, maxCalls: '1' },
+        {},
+        undefined,
+        [process.execPath, ...s2.args],
+      );
+      expect(byId(cut, 'm2').reason).toBe('budget');
+      expect(cut.code).toBe(3);
     });
 
     it('every frame goes through the wrapper: the budget, the declared call and the destructive hint hold on stdio', async () => {
