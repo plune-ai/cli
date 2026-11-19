@@ -196,7 +196,7 @@ jobs:
           gh workflow run deploy.yml --repo plune-ai/web-site --ref main
           echo "Dispatched plune-ai/web-site deploy.yml - the site will pick up ${{ steps.meta.outputs.version }} on that build."
 
-      # --- Phase 4: open the version bump pull requests (plune-ai/plune#2947) ---
+      # --- Phase 4: open the version bump pull requests ---
       # eval-action, plune and web-site pin this CLI on purpose, so a release does not change their
       # builds by itself. Moving the pins is a pull request in each, and this step only starts them:
       # each repository's cli-bump.yml edits its own files and opens its own pull request (so a
