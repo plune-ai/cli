@@ -626,7 +626,7 @@ function runScanUncached(input: ScanInput, opts: ScanOptions): ScanReport {
       couldNot('active', '', 'the journal (--journal) could not be written: it is incomplete');
     for (const row of section.rows)
       if (row.outcome === 'not-run')
-        // An authentication probe on stdio is listed, but it does not make the run incomplete (plune-ai/plune#2469).
+        // An authentication probe on stdio is listed, but it does not make the run incomplete.
         couldNot('active', safeText(row.id), PROBE_REASONS[row.reason!], {
           ...(row.reason === 'stdio' ? { kind: 'not-applicable' as const } : {}),
         });
