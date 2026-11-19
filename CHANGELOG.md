@@ -11,6 +11,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.39.4] - 2026-11-19
+
 ### Added
 
 - **The JUnit reports of `plune mcp lint`, `check` and `diff` name the tools each case is about, and `plune run import` sends them as the result's targets.** Each case lists its tools as `<property name="plune.mcp.tool">` (sorted, distinct, at most 50): the tool of each lint finding, the tools `--smoke` called, the tools a diff changed; conformance names none. The cases and their names are unchanged. A platform that does not take targets yet refuses the batch, and the CLI sends it again without them, so every result still lands, or goes to the fallback file as before.
@@ -22,6 +24,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 ### Changed
 
 - **`plune mcp conformance` scores the checks of the 2026-07-28 revision that a real server passed: profile `2026-11.4`.** 15 `MUST` checks of `mod-*` (discovery, the removed methods, statelessness, resources, caching hints, the acknowledgment of a subscription and the whole run read back) now count in the score of a modern run, so a modern server that breaks them gets a lower score, and can get exit 1 where it got exit 0 or 3. Each passed on `plune mcp serve` or `@modelcontextprotocol/server-everything` 2.3.1 and failed on neither. `mod-meta-required-fields` stays outside the score: servers built on the official SDK answer `-32601` to a server/discover without a protocol version. So do the `mod-*` checks a real server has not been measured on yet (`mod-undeclared-capability`, `mod-cache-scope-stable-pages`, `mod-sub-filter-and-tag` and the request-header checks over HTTP). A legacy server scores the same as before. `--profile 2026-11.3` gives the score as it was.
+
+- **`@plune-ai/playwright` 0.7.3** carries the reporter core change above: a batch that carries `targets` and gets a 400 is sent again without them, and the fallback file keeps no `targets`. The Playwright reporter itself sends no `targets`, so its results reach the platform as before; nothing else in the adapter changed.
 
 ## [0.39.3] - 2026-11-18
 
