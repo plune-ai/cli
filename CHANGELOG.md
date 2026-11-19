@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **The `plune-mcp-evals` skill, in the Agent Skills format, under `skills/plune-mcp-evals` and in the npm package.** A coding agent reads an MCP server's tool list with `plune mcp snapshot`, asks the person for the 3 to 5 tasks that matter, writes agent scenarios into `plune.yaml` (one per task, one for each pair of similar tools, and at least two negative ones), prices them with `plune run --dry-run` and runs them only after the person agrees to the cost. It names only tools from the list, reads `failed` as the model's behaviour and `errored` as not measured, and fixes a failing scenario by its prompt or limits, never by weakening the check. A unit test keeps the skill's commands and flags in step with the CLI, runs its example through `plune run --dry-run`, checks every tool the example names against a fixture server's list, and counts its negative scenarios.
+
 ### Changed
 
 - **`plune mcp scan --active` on a stdio server no longer exits `3` because of the authentication probes.** They have no token to test on stdio, so they stay listed under "Not evaluated" as not applicable (JSON `kind: "not-applicable"`), and the run exits `0` when nothing else fails. One probe file can now serve an HTTP and a stdio run. A probe that did not run for any other reason (no consent, a spent budget, an answer that decides nothing) is still exit `3`. A rule left without `--allow-host` or `--allow-package` stays "not evaluated" without changing the exit code, as before.

@@ -730,6 +730,14 @@ exceptions file, snapshots in a pull request, and the run in Plune through JUnit
 - [Snapshot and diff an MCP server](https://docs.plune.ai/cli/guides/mcp-snapshot-diff/): what a change costs a client, and the security signal;
 - [MCP server checks in CI](https://docs.plune.ai/eval-action/recipes/mcp-in-ci/): `plune-ai/eval-action/mcp@v1` for a stdio or an HTTP server.
 
+To have your coding agent write the [agent scenarios](docs/guide/assertions.md) for a server, give it the
+`plune-mcp-evals` skill (it ships in the package under `skills/plune-mcp-evals`; copy the folder where your agent
+reads skills, as in [the `qa-mission` install table](docs/guide/qa-mission.md#install)). The agent reads the tool
+list with `plune mcp snapshot`, asks you for the 3 to 5 tasks that matter, writes the scenarios into `plune.yaml`
+with at least two negative ones, prices them with `plune run --dry-run`, and runs them only after you agree to the
+cost. It names only tools the server lists, and fixes a failing scenario by its prompt or its limits, never by
+weakening the check.
+
 ### Is the server alive: `plune mcp check`
 
 `plune mcp check` answers the question before any other: does the server start, finish the
