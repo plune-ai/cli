@@ -11,6 +11,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.39.5] - 2026-11-20
+
 ### Added
 
 - **The `plune-mcp-evals` skill, in the Agent Skills format, under `skills/plune-mcp-evals` and in the npm package.** A coding agent reads an MCP server's tool list with `plune mcp snapshot`, asks the person for the 3 to 5 tasks that matter, writes agent scenarios into `plune.yaml` (one per task, one for each pair of similar tools, and at least two negative ones), prices them with `plune run --dry-run` and runs them only after the person agrees to the cost. It names only tools from the list, reads `failed` as the model's behaviour and `errored` as not measured, and fixes a failing scenario by its prompt or limits, never by weakening the check. A unit test keeps the skill's commands and flags in step with the CLI, runs its example through `plune run --dry-run`, checks every tool the example names against a fixture server's list, and counts its negative scenarios.
