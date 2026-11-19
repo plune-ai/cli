@@ -195,3 +195,45 @@ jobs:
           fi
           gh workflow run deploy.yml --repo plune-ai/web-site --ref main
           echo "Dispatched plune-ai/web-site deploy.yml - the site will pick up ${{ steps.meta.outputs.version }} on that build."
+
+      # --- Phase 4: open the version bump pull requests (plune-ai/plune#2947) ---
+      # eval-action, plune and web-site pin this CLI on purpose, so a release does not change their
+      # builds by itself. Moving the pins is a pull request in each, and this step only starts them:
+      # each repository's cli-bump.yml edits its own files and opens its own pull request (so a
+      # private repository's diff never shows up in this public log).
+      #
+      # It waits for the tarball first. `npm view` can answer before the registry serves the file,
+      # and eval-action's smoke test installs the file: a pull request opened earlier goes red on a
+      # version that is not there yet.
+      #
+      # Never fails the release, for the same reason as the step above, and says out loud what is
+      # missing. A run that did not happen can be started by hand: Actions -> "CLI version bump".
+      - name: Open the version bump pull requests
+        if: steps.dist.outputs.tag == 'latest'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.COURIER_DISPATCH_TOKEN }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::warning::No COURIER_DISPATCH_TOKEN: open the $VERSION bump pull requests in eval-action, plune and web-site by hand. To arm this, add a fine-grained PAT with Actions:write on those three repositories as this repo's COURIER_DISPATCH_TOKEN."
+            exit 0
+          fi
+          TGZ="https://registry.npmjs.org/@plune-ai/cli/-/cli-$VERSION.tgz"
+          for _ in $(seq 1 20); do
+            if curl -fsSI -o /dev/null "$TGZ"; then SERVED=1; break; fi
+            sleep 30
+          done
+          if [ -z "${SERVED:-}" ]; then
+            echo "::warning::$TGZ did not answer 200 within 10 minutes: no bump pull requests opened. Run cli-bump.yml by hand once it does."
+            exit 1
+          fi
+          FAILED=""
+          for repo in eval-action plune web-site; do
+            gh workflow run cli-bump.yml --repo "plune-ai/$repo" -f version="$VERSION" || FAILED="$FAILED $repo"
+          done
+          if [ -n "$FAILED" ]; then
+            echo "::warning::Could not start cli-bump.yml in:$FAILED. Run it there by hand with version $VERSION."
+            exit 1
+          fi
+          echo "Started cli-bump.yml for $VERSION in eval-action, plune and web-site."
