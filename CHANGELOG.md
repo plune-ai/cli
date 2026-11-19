@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **Every rule in the SARIF of `plune mcp scan` has a `helpUri`: its own entry on https://docs.plune.ai/cli/guides/mcp-security/.** The anchor is the rule id with `/` written as `-` (`scan/desc/bidi-control` is `#scan-desc-bidi-control`), so GitHub code scanning links each alert to what the rule finds and how to fix it. A test holds every rule against the anchors of the live page, and another holds the `plune mcp scan` section of `docs/guide/cli.md` against the command: its flags and its exit codes.
+
 ## [0.39.5] - 2026-11-20
 
 ### Added
