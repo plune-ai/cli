@@ -10,6 +10,7 @@ import { corpusUpdateRequested } from '../corpus.js';
 import {
   CFG_RULES,
   cfgBaselineOf,
+  cfgTable,
   compareCfgToBaseline,
   configCorpusHash,
   fakeToken,
@@ -26,12 +27,17 @@ const ROOT = join(__dirname, '..', '..', '..', '..');
 const DIR = join(ROOT, 'corpus');
 const REPORT = join(DIR, 'config', 'report.json');
 const BASELINE = join(DIR, 'config', 'baseline.json');
+const README = join(DIR, 'config', 'README.md');
+const START = '<!-- cfg-table:start -->';
+const END = '<!-- cfg-table:end -->';
 
 const corpus = loadConfigCorpus(DIR);
 const report = measureConfig(corpus);
 const json = (v: unknown) => `${JSON.stringify(v, null, 2)}\n`;
 const clip = (lines: string[]) => lines.map((l) => visible(l, 160));
 const real: CfgScan = (file, options) => scanClientConfig([file], options);
+const withTable = (readme: string, table: string) =>
+  `${readme.slice(0, readme.indexOf(START) + START.length)}\n${table}\n${readme.slice(readme.indexOf(END))}`;
 
 // `PLUNE_CORPUS_UPDATE=1 CORPUS_COMMIT=<sha> CORPUS_DATE=<date>` rewrites the two generated files: the deliberate update.
 if (corpusUpdateRequested(process.env)) {
@@ -43,6 +49,7 @@ if (corpusUpdateRequested(process.env)) {
   if (!meta.measuredAt || !meta.commit) throw new Error('set CORPUS_COMMIT and CORPUS_DATE');
   writeFileSync(REPORT, json(report));
   writeFileSync(BASELINE, json(cfgBaselineOf(report, meta)));
+  writeFileSync(README, withTable(readFileSync(README, 'utf8'), cfgTable(report)));
 }
 const baseline = JSON.parse(readFileSync(BASELINE, 'utf8')) as CfgBaseline;
 
@@ -140,6 +147,14 @@ describe('CLI · mcp scan · corpus · client config · the measure', () => {
     expect(report.rules['scan/cfg/foreign-host']!.benign.synthetic.servers).toBeGreaterThan(0);
     expect(report.rules['scan/cfg/package-not-allowed']!.benign.synthetic.servers).toBeGreaterThan(
       0,
+    );
+  });
+
+  it('the README holds the measured table', () => {
+    const readme = readFileSync(README, 'utf8');
+    expect(readme).toContain(START);
+    expect(readme.slice(readme.indexOf(START) + START.length, readme.indexOf(END)).trim()).toBe(
+      cfgTable(report),
     );
   });
 

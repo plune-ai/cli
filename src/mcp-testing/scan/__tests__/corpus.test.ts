@@ -14,6 +14,7 @@ import {
   compareToBaseline,
   corpusHash,
   corpusUpdateRequested,
+  descTable,
   loadCorpus,
   measure,
   wilsonUpper95,
@@ -21,11 +22,17 @@ import {
   type Corpus,
   type Scan,
 } from '../corpus.js';
+import type { CfgReport } from '../corpus-config.js';
+import type { CrossReport } from '../corpus-cross.js';
+import { ALL_RULES, GATING_RULES } from '../run.js';
 
 const ROOT = join(__dirname, '..', '..', '..', '..');
 const DIR = join(ROOT, 'corpus');
 const REPORT = join(DIR, 'report.json');
 const BASELINE = join(DIR, 'baseline.json');
+const README = join(DIR, 'README.md');
+const START = '<!-- desc-table:start -->';
+const END = '<!-- desc-table:end -->';
 const RULES = Object.keys(DESC_RULES) as DescRuleId[];
 
 const corpus = loadCorpus(DIR);
@@ -33,6 +40,8 @@ const report = measure(corpus);
 const json = (v: unknown) => `${JSON.stringify(v, null, 2)}\n`;
 const scanOf: Scan = (s) => scanDescriptions(s).findings;
 const clip = (lines: string[]) => lines.map((l) => visible(l, 160));
+const withTable = (readme: string, table: string) =>
+  `${readme.slice(0, readme.indexOf(START) + START.length)}\n${table}\n${readme.slice(readme.indexOf(END))}`;
 
 // `PLUNE_CORPUS_UPDATE=1 CORPUS_COMMIT=<sha> CORPUS_DATE=<date>` rewrites the two generated files: the deliberate update.
 if (corpusUpdateRequested(process.env)) {
@@ -44,6 +53,7 @@ if (corpusUpdateRequested(process.env)) {
   if (!meta.measuredAt || !meta.commit) throw new Error('set CORPUS_COMMIT and CORPUS_DATE');
   writeFileSync(REPORT, json(report));
   writeFileSync(BASELINE, json(baselineOf(report, meta)));
+  writeFileSync(README, withTable(readFileSync(README, 'utf8'), descTable(report)));
 }
 const baseline = JSON.parse(readFileSync(BASELINE, 'utf8')) as Baseline;
 
@@ -140,6 +150,134 @@ describe('CLI · mcp scan · corpus · coverage of the catalog', () => {
     expect(
       sources.real.filter((s) => !notices.includes(String(s['committed']))).map((s) => s['id']),
     ).toEqual([]);
+  });
+});
+
+/**
+ * The description rules that have no explicit form, and why. Every other description rule needs a fixture that hides
+ * what it does (`concealment: hidden`) and one that says it in plain view (`concealment: explicit`).
+ */
+const NO_EXPLICIT_FORM: Partial<Record<DescRuleId, string>> = {
+  'scan/desc/tag-character': 'a tag character never prints, so it cannot be in plain view',
+  'scan/desc/zero-width': 'a zero-width character has no width, so it cannot be in plain view',
+  'scan/desc/joiner-or-direction-mark':
+    'a joiner or a direction mark does not print, so it cannot be in plain view',
+  'scan/desc/control-character':
+    'a control character does not print as text, so it cannot be in plain view',
+};
+
+describe('CLI · mcp scan · corpus · hidden and explicit variants', () => {
+  const concealments = (rule: DescRuleId) =>
+    new Set(
+      corpus.malicious
+        .filter((f) => f.expected.some((e) => e.rule === rule))
+        .map((f) => f.provenance.concealment),
+    );
+
+  it('every description rule has a hidden and an explicit fixture, but for the rules listed with the reason they have no explicit form', () => {
+    const gaps = RULES.flatMap((r) => [
+      ...(concealments(r).has('hidden') ? [] : [`${r}: no hidden fixture`]),
+      ...(concealments(r).has('explicit') || NO_EXPLICIT_FORM[r]
+        ? []
+        : [`${r}: no explicit fixture`]),
+    ]);
+    expect(gaps).toEqual([]);
+  });
+
+  it('lists no rule as without an explicit form that has one, and gives each a reason', () => {
+    for (const [rule, reason] of Object.entries(NO_EXPLICIT_FORM)) {
+      expect(reason, rule).toMatch(/\w{3}/);
+      expect(concealments(rule as DescRuleId).has('explicit'), rule).toBe(false);
+    }
+  });
+});
+
+/**
+ * The rules that had `gating: yes` before the corpus held the real units to measure them, and why each still gates.
+ * They stay so until the corpus is collected; any other rule gates only when its measure lets it (`gateEligible`).
+ */
+const GATING_BEFORE_MEASURE: Record<string, string> = {
+  'scan/desc/tag-character': 'kept gating until the corpus is collected (decision of 18.11.2026)',
+  'scan/desc/bidi-control': 'kept gating until the corpus is collected (decision of 18.11.2026)',
+  'scan/desc/ansi-escape': 'kept gating until the corpus is collected (decision of 18.11.2026)',
+  'scan/cfg/secret-known-format':
+    'gating from the first day in the catalog; no real client files in the corpus yet',
+  'scan/cfg/secret-in-url':
+    'gating from the first day in the catalog; no real client files in the corpus yet',
+  'scan/cfg/http-plaintext':
+    'gating from the first day in the catalog; no real client files in the corpus yet',
+  'scan/pin/tool-changed': 'compares with a pin file a person approved; no corpus of pins yet',
+  'scan/pin/tool-added': 'compares with a pin file a person approved; no corpus of pins yet',
+  'scan/pin/tool-removed': 'compares with a pin file a person approved; no corpus of pins yet',
+  'scan/pin/server-not-pinned': 'compares with a pin file a person approved; no corpus of pins yet',
+  'scan/probe/unauthenticated-call':
+    'the server answers a call the person declared with expect: refuse; no corpus of probes yet',
+  'scan/probe/garbage-token-accepted':
+    'the server answers a call the person declared with expect: refuse; no corpus of probes yet',
+  'scan/probe/cross-account-access':
+    'the server answers a call the person declared with expect: refuse; no corpus of probes yet',
+};
+
+describe('CLI · mcp scan · corpus · a rule gates only with a measure that lets it', () => {
+  const read = <T>(path: string) => JSON.parse(readFileSync(join(DIR, path), 'utf8')) as T;
+  const eligible = new Map<string, boolean>([
+    ...RULES.map((r) => [r, report[r].gateEligible] as const),
+    ...Object.entries(read<CfgReport>('config/report.json').rules).map(
+      ([r, x]) => [r, x.gateEligible] as const,
+    ),
+    ...Object.entries(read<CrossReport>('cross/report.json')).map(
+      ([r, x]) => [r, x.gateEligible] as const,
+    ),
+  ]);
+  type Rule = { id: string; class: string; gating: string };
+  const gatingUnmeasured = (rules: Rule[]) =>
+    rules
+      .filter((r) => r.gating === 'yes' && eligible.get(r.id) !== true)
+      .filter((r) => !(r.id in GATING_BEFORE_MEASURE))
+      .map((r) => r.id);
+
+  it('no rule has gating: yes while its measure says gateEligible: false, but the rules that gated before the corpus', () => {
+    expect(gatingUnmeasured(ALL_RULES)).toEqual([]);
+  });
+
+  it('the rules kept from before the corpus all still gate, and each says why', () => {
+    expect(Object.keys(GATING_BEFORE_MEASURE).filter((r) => !GATING_RULES.includes(r))).toEqual([]);
+    for (const [rule, reason] of Object.entries(GATING_BEFORE_MEASURE))
+      expect(reason, rule).toMatch(/\w{3}/);
+  });
+
+  it('goes red when a heuristic is set to gate', () => {
+    const heuristics = ALL_RULES.filter((r) => r.class === 'heuristic');
+    expect(heuristics.length).toBeGreaterThan(0);
+    for (const h of heuristics) {
+      const mutated = ALL_RULES.map((r) => (r.id === h.id ? { ...r, gating: 'yes' } : r));
+      expect(gatingUnmeasured(mutated), h.id).toEqual([h.id]);
+    }
+  });
+
+  it('goes red when a new rule with no measure is set to gate', () => {
+    const added = { id: 'scan/desc/new-rule', class: 'deterministic', gating: 'yes' };
+    expect(gatingUnmeasured([...ALL_RULES, added])).toEqual([added.id]);
+  });
+});
+
+describe('CLI · mcp scan · corpus · the measured numbers in the docs', () => {
+  it('the README holds the measured table', () => {
+    const readme = readFileSync(README, 'utf8');
+    expect(readme).toContain(START);
+    expect(readme.slice(readme.indexOf(START) + START.length, readme.indexOf(END)).trim()).toBe(
+      descTable(report),
+    );
+  });
+
+  it('the corpus READMEs call the found share fixture recall, not a detection rate or a share of attacks', () => {
+    for (const f of ['README.md', 'config/README.md', 'cross/README.md']) {
+      const text = readFileSync(join(DIR, f), 'utf8');
+      expect(text, f).toContain('fixture recall');
+      expect(text, f).not.toMatch(
+        /точність виявлення|частка атак|detection rate|detection accuracy/i,
+      );
+    }
   });
 });
 

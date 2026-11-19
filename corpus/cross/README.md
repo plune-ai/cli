@@ -8,7 +8,7 @@ configuration together. Same honesty rules as the other two corpora.
 - `malicious/` holds groups where a rule should fire (`<id>.expected.json`: origin, provenance, and the findings
   expected as rule, server label and pointer). `benign/` holds ordinary groups (`<id>.meta.json`), some of which
   legitimately share or resemble names.
-- This measures **recall on fixtures written here**, and the false findings on ordinary groups written here. It is not
+- This measures **fixture recall** (recall on fixtures written here), and the false findings on ordinary groups written here. It is not
   the share of real attacks the rules find, and not the false-alarm rate on real configurations.
 - In "found / expected", "expected" counts the designed misses too, so a rule that finds every fixture that is not a
   designed miss still reads below `n / n`.

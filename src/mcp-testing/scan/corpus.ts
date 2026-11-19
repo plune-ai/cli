@@ -330,3 +330,18 @@ export function compareToBaseline(
   }
   return problems;
 }
+
+/** The measured table, as `corpus/README.md` holds it between its two markers. */
+export function descTable(report: Report): string {
+  const rows = [
+    '| rule | fixture recall (found / fixtures) | false findings, real (description fields) | Wilson upper 95 %, real | false findings, synthetic (description fields) | gate |',
+    '| --- | --- | --- | --- | --- | --- |',
+  ];
+  for (const [id, r] of Object.entries(report)) {
+    const { real, synthetic } = r.benign;
+    rows.push(
+      `| ${id} | ${r.detected} / ${r.fixtures} | ${real.falsePositives.length} (${real.descriptionUnits}) | ${real.wilsonUpper95 ?? 'none'} | ${synthetic.falsePositives.length} (${synthetic.descriptionUnits}) | ${r.gateEligible ? 'eligible' : `not eligible: ${r.gateReason}`} |`,
+    );
+  }
+  return rows.join('\n');
+}
