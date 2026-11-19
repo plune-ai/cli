@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Changed
+
+- **`plune mcp scan --active` on a stdio server no longer exits `3` because of the authentication probes.** They have no token to test on stdio, so they stay listed under "Not evaluated" as not applicable (JSON `kind: "not-applicable"`), and the run exits `0` when nothing else fails. One probe file can now serve an HTTP and a stdio run. A probe that did not run for any other reason (no consent, a spent budget, an answer that decides nothing) is still exit `3`. A rule left without `--allow-host` or `--allow-package` stays "not evaluated" without changing the exit code, as before.
+
 ## [0.39.4] - 2026-11-19
 
 ### Added
