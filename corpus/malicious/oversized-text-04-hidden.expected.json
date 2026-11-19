@@ -1,0 +1,19 @@
+{
+  "expected": [
+    {
+      "rule": "scan/desc/oversized-text",
+      "pointer": "/tools/0/description"
+    }
+  ],
+  "provenance": {
+    "catalogClass": "tool-poisoning",
+    "mechanism": "A description of over a megabyte of spaces: a person sees an empty description, the scan stops at the limit.",
+    "concealment": "hidden",
+    "source": "not verified",
+    "catalogRefs": [
+      "OWASP-03"
+    ],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-20"
+  }
+}

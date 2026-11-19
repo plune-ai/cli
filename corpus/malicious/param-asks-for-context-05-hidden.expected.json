@@ -1,0 +1,20 @@
+{
+  "expected": [
+    {
+      "rule": "scan/desc/param-asks-for-context",
+      "pointer": "/tools/0/inputSchema/properties/meta/properties/context/description"
+    }
+  ],
+  "provenance": {
+    "catalogClass": "tool-poisoning",
+    "mechanism": "A string parameter that asks for the conversation, nested in an object parameter a person does not open.",
+    "concealment": "hidden",
+    "source": "not verified",
+    "catalogRefs": [
+      "INV",
+      "OWASP-03"
+    ],
+    "author": "Maievskyi Leonid",
+    "date": "2026-11-20"
+  }
+}

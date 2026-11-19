@@ -1,8 +1,8 @@
 {
   "scan/desc/ansi-escape": {
     "status": "measured",
-    "fixtures": 4,
-    "detected": 4,
+    "fixtures": 5,
+    "detected": 5,
     "missed": [],
     "benign": {
       "real": {
@@ -45,8 +45,8 @@
   },
   "scan/desc/call-other-tool-first": {
     "status": "measured",
-    "fixtures": 4,
-    "detected": 3,
+    "fixtures": 5,
+    "detected": 4,
     "missed": [
       {
         "fixture": "call-other-tool-first-04-reworded",
@@ -77,8 +77,8 @@
   },
   "scan/desc/conceal-from-user": {
     "status": "measured",
-    "fixtures": 4,
-    "detected": 3,
+    "fixtures": 5,
+    "detected": 4,
     "missed": [
       {
         "fixture": "conceal-from-user-04-other-language",
@@ -126,8 +126,8 @@
   },
   "scan/desc/encoded-blob": {
     "status": "measured",
-    "fixtures": 3,
-    "detected": 3,
+    "fixtures": 4,
+    "detected": 4,
     "missed": [],
     "benign": {
       "real": {
@@ -153,8 +153,8 @@
   },
   "scan/desc/html-comment": {
     "status": "measured",
-    "fixtures": 4,
-    "detected": 4,
+    "fixtures": 5,
+    "detected": 5,
     "missed": [],
     "benign": {
       "real": {
@@ -207,8 +207,8 @@
   },
   "scan/desc/override-instruction": {
     "status": "measured",
-    "fixtures": 5,
-    "detected": 3,
+    "fixtures": 6,
+    "detected": 4,
     "missed": [
       {
         "fixture": "override-instruction-04-reworded",
@@ -238,8 +238,8 @@
   },
   "scan/desc/oversized-text": {
     "status": "measured",
-    "fixtures": 3,
-    "detected": 3,
+    "fixtures": 4,
+    "detected": 4,
     "missed": [],
     "benign": {
       "real": {
@@ -260,8 +260,8 @@
   },
   "scan/desc/param-asks-for-context": {
     "status": "measured",
-    "fixtures": 4,
-    "detected": 3,
+    "fixtures": 5,
+    "detected": 4,
     "missed": [
       {
         "fixture": "param-asks-for-context-04-reworded",
@@ -297,8 +297,8 @@
   },
   "scan/desc/sensitive-path": {
     "status": "measured",
-    "fixtures": 4,
-    "detected": 3,
+    "fixtures": 5,
+    "detected": 4,
     "missed": [
       {
         "fixture": "sensitive-path-04-reworded",

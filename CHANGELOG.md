@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **The description corpus of `plune mcp scan` now has a hidden and an explicit fixture for every rule that can have both, and the measured numbers are in the corpus READMEs.** Nine new fixtures in `corpus/malicious/`; a test fails when a `scan/desc/*` rule lacks either, except for the four whose characters never print (`tag-character`, `zero-width`, `joiner-or-direction-mark`, `control-character`), each listed with its reason. `corpus/README.md` and `corpus/config/README.md` hold the tables generated from `report.json` (fixture recall, false findings on real and synthetic units, gate), checked like the one in `corpus/cross/README.md`. Another test fails when a rule has `gating: yes` while its measure says `gateEligible: false`, except for the rules that gated before the corpus was collected, each listed with its reason. No rule changed.
+
 ### Changed
 
 - **`plune mcp scan --active` on a stdio server no longer exits `3` because of the authentication probes.** They have no token to test on stdio, so they stay listed under "Not evaluated" as not applicable (JSON `kind: "not-applicable"`), and the run exits `0` when nothing else fails. One probe file can now serve an HTTP and a stdio run. A probe that did not run for any other reason (no consent, a spent budget, an answer that decides nothing) is still exit `3`. A rule left without `--allow-host` or `--allow-package` stays "not evaluated" without changing the exit code, as before.
