@@ -537,7 +537,7 @@
         "readOnlyHint": true,
         "title": "Find test cases"
       },
-      "description": "Find test cases of the project by filter — free text in q, suite, state, tag, priority and the other filters of the case list — one page at a time, with the total and how many match.",
+      "description": "Find test cases of the project by filter — free text in q, suite, state, tag, priority and the other filters of the case list — one page at a time, with the total and how many match. Measured answer: ~7678 tokens (characters / 4) for a project of 48 cases.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1228,7 +1228,7 @@
         "readOnlyHint": true,
         "title": "Read a mission"
       },
-      "description": "Read a testing mission with everything it holds — its brief, state, documentation answer and every source attached to it — before planning or continuing the work on it.",
+      "description": "Read a testing mission with everything it holds — its brief, state, documentation answer and every source attached to it — before planning or continuing the work on it. Measured answer: ~455 tokens (characters / 4) for a mission with 5 sources.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1395,7 +1395,7 @@
         "readOnlyHint": true,
         "title": "Project context"
       },
-      "description": "Start here: learn the project you are working in with one call — its projects, the suite tree, how many test cases it has, its testing missions, how much waits in the review queue, and the rules of its memory: what a person accepted for this project, to follow without asking again.",
+      "description": "Start here: learn the project you are working in with one call — its projects, the suite tree, how many test cases it has, its testing missions, how much waits in the review queue, and the rules of its memory: what a person accepted for this project, to follow without asking again. Measured answer: ~387 tokens (characters / 4) for 3 projects and 3 suites.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {},
@@ -2056,7 +2056,7 @@
         "readOnlyHint": true,
         "title": "Read the review queue"
       },
-      "description": "See what waits for a decision in the review queue — proposed cases, discovered tests, endpoints, strategies, reports — narrowed by state, kind and mission, newest first, one page at a time. The mission filter needs a platform that supports it; an older one returns the whole queue.",
+      "description": "See what waits for a decision in the review queue — proposed cases, discovered tests, endpoints, strategies, reports — narrowed by state, kind and mission, newest first, one page at a time. The mission filter needs a platform that supports it; an older one returns the whole queue. Measured answer: ~695 tokens (characters / 4) for 7 pending entries.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
