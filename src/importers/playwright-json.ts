@@ -78,8 +78,30 @@ interface JsonReport {
   config?: {
     rootDir?: string;
     metadata?: { ci?: { buildHref?: string; commitHash?: string; branch?: string } };
+    /** As configured: `[name, options]` pairs. */
+    reporter?: unknown;
   };
   suites: JsonSuite[];
+  /** Counted over the tests the report kept, so a failures-only report never has `expected` or `skipped`. */
+  stats?: { expected?: number; skipped?: number };
+  errors?: unknown[];
+}
+
+/**
+ * plune-ai/plune#3005: a report written with `onlyFailures` (Playwright 1.65) keeps only the tests that failed,
+ * were flaky or were interrupted. It is not the list of what ran, so it can never back a full-run claim. Said by
+ * the config when the option is set there, and by the stats either way (`PLAYWRIGHT_JSON_ONLY_FAILURES` leaves
+ * the config as it was): none expected and none skipped. A report of one red run reads the same and loses
+ * nothing by it. An empty report says so only without errors — Playwright's «No tests found» is one.
+ */
+function isFailuresOnly(report: JsonReport, results: number): boolean {
+  const reporters = Array.isArray(report.config?.reporter) ? (report.config.reporter as unknown[]) : [];
+  const declared = reporters.some(
+    (r) => Array.isArray(r) && r[0] === 'json' && (r[1] as { onlyFailures?: unknown } | undefined)?.onlyFailures === true,
+  );
+  const stats = report.stats;
+  const counted = stats !== undefined && stats.expected === 0 && stats.skipped === 0;
+  return (declared || counted) && (results > 0 || (report.errors ?? []).length === 0);
 }
 
 /** What every attempt of one report shares. */
@@ -226,7 +248,7 @@ function walk(suite: JsonSuite, describes: string[], depth: number, ctx: ReportC
 export function readPlaywrightJson(
   source: string,
   file: string,
-): { results: PendingResult[]; ciUrl?: string; ci?: unknown } {
+): { results: PendingResult[]; ciUrl?: string; ci?: unknown; failuresOnly?: true } {
   let parsed: unknown;
   try {
     parsed = JSON.parse(source);
@@ -237,7 +259,8 @@ export function readPlaywrightJson(
     throw new JsonReportError(file, 'no "suites" array — is this a Playwright JSON report?');
   }
 
-  const { config, suites } = parsed as JsonReport;
+  const report = parsed as JsonReport;
+  const { config, suites } = report;
   const rootDir = typeof config?.rootDir === 'string' ? config.rootDir : undefined;
   const buildHref = config?.metadata?.ci?.buildHref;
   // Looked up once per report. A root dir this machine does not have is another machine's run.
@@ -255,6 +278,7 @@ export function readPlaywrightJson(
     results: out,
     ...(ciUrl !== undefined ? { ciUrl } : {}),
     ...(ci !== undefined ? { ci } : {}),
+    ...(isFailuresOnly(report, out.length) ? { failuresOnly: true as const } : {}),
   };
 }
 

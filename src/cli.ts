@@ -512,6 +512,11 @@ export function createProgram(): Command {
       },
     )
     .option('--fail-on-failures', FAIL_ON_FAILURES, false)
+    // plune-ai/plune#3005: the one report shape that changes what the import does, said where people look first.
+    .addHelpText(
+      'after',
+      '\nA failures-only Playwright JSON report (onlyFailures, or PLAYWRIGHT_JSON_ONLY_FAILURES=1) holds only the tests that failed or were flaky: it is imported as usual, PLUNE_FULL_RUN is ignored for it (no case is detached), and an empty one means nothing failed - the import says so and exits 0 without a run.',
+    )
     .action(
       async (
         file: string,

@@ -606,6 +606,15 @@ it back by itself. Set the variable only on the job that runs everything: a run 
 lost a shard (`notRun` is not empty) never detaches anything. `plune run start` has no list of
 tests to compare against, so the flag means nothing there.
 
+A failures-only Playwright JSON report (`onlyFailures: true` on the `json` reporter, or
+`PLAYWRIGHT_JSON_ONLY_FAILURES=1`) holds only the tests that failed or were flaky, so it is not the
+list of what ran: the import sends its results as usual and ignores `PLUNE_FULL_RUN` for it, saying
+so in one line. The import knows such a report by the reporter's options in it, or by its stats
+counting no test that passed or was skipped. When nothing failed, the report is empty: the import
+says there is nothing to import and exits 0 without opening a run. To detach deleted tests, run
+the full suite with a report that keeps every test. A JUnit report written with `onlyFailures`
+carries no such sign, so do not set `PLUNE_FULL_RUN` on its import.
+
 ### What the run is called
 
 A run nobody named is called after the directory, the minute it started and where it ran —
