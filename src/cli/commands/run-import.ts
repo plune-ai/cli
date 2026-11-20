@@ -110,6 +110,16 @@ async function timeoutMessage(limit: number, runId: string | null, ours: boolean
     : `${head}; run ${runId} could not be terminated from here - run "plune run finish ${runId} --terminate" (the platform also closes a silent run after 30 minutes), then import again.`;
 }
 
+/** The answer for a report with nothing to send: no run, nothing counted. */
+function emptyImport(format: ImportFormat): ImportResult {
+  const none = { uploaded: 0, skipped: 0, failed: 0 };
+  return {
+    runId: null, format, parsed: 0, accepted: 0, duplicate: 0, conflict: 0, rejected: 0, unresolved: 0, offered: 0, created: 0,
+    unoffered: 0, deferred: 0, screenshots: none, textFiles: { ...none }, unlocatable: 0, missingAttachments: [], filesUploaded: 0,
+    filesNotSent: 0, announced: false, offering: false,
+  };
+}
+
 /**
  * Read the file, drive a run, report what happened.
  *
@@ -122,7 +132,7 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
   const write = options.write ?? ((line: string) => void process.stdout.write(`${line}\n`));
 
   // A folder is an allure-results report or JUnit files; anything else is a file.
-  let read: { format: ImportFormat; results: PendingResult[]; missing: MissingAttachment[]; notes: string[]; ciUrl?: string; ci?: unknown };
+  let read: { format: ImportFormat; results: PendingResult[]; missing: MissingAttachment[]; notes: string[]; ciUrl?: string; ci?: unknown; failuresOnly?: true };
   if (isFolder(options.file)) {
     read = readFolder(options.file, options.format, {
       ...(options.minScores !== undefined ? { minScores: options.minScores } : {}),
@@ -138,8 +148,13 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
       ...(options.minScores !== undefined ? { minScores: options.minScores } : {}),
     });
   }
-  const { format, results, missing, notes, ciUrl, ci } = read;
+  const { format, results, missing, notes, ciUrl, ci, failuresOnly } = read;
   if (results.length === 0) {
+    // A failures-only report of a green run is empty, and that is its answer, not a broken file.
+    if (failuresOnly === true) {
+      write(`plune: ${printable(options.file)} is a failures-only report and nothing failed — nothing to import.`);
+      return emptyImport(format);
+    }
     throw new RunCommandError(`No test cases in ${options.file} — it parsed, but there is nothing in it.`);
   }
 
@@ -155,6 +170,10 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
   const announced = (format === 'junit' || format === 'allure') && (missing.length > 0 || results.some((r) => (r.files?.length ?? 0) > 0));
 
   const env = readEnv();
+  // The passing tests are not in a failures-only report, and a full run would detach them all.
+  if (failuresOnly === true && env.config.full === true) {
+    write('plune: a failures-only report is not the list of what ran — PLUNE_FULL_RUN is ignored for it, so no case is detached.');
+  }
   const apiUrl = resolveApiUrl(options.apiUrl ?? env.config.apiUrl);
   const token = options.token ?? env.config.token ?? loadToken() ?? '';
   if (token === '') throw new NoTokenError();
@@ -169,6 +188,7 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
       ...(options.key !== undefined ? { externalKey: options.key } : {}),
       ...(options.name !== undefined ? { title: options.name } : {}),
       ...(options.create === true ? { offerDiscovered: true } : {}),
+      ...(failuresOnly === true ? { full: false } : {}),
       ...(options.uploadConcurrency !== undefined ? { uploadConcurrency: options.uploadConcurrency } : {}),
       kind: 'automated',
       // The CI run the report names, never this machine's: whoever imports may be another job.

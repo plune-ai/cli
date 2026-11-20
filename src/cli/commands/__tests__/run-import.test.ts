@@ -1197,3 +1197,44 @@ describe('CLI · run import · JUnit folder · Maven Surefire', () => {
     expect(lines.some((l) => l.startsWith('Imported 5 results · '))).toBe(true);
   });
 });
+
+/**
+ * The shape Playwright 1.65.1's JSON reporter writes with `onlyFailures` (read from its
+ * `lib/runner/index.js`: the kept tests are the unexpected, flaky and interrupted ones, and `stats` counts only
+ * them): a flaky test, whose last attempt passed — the platform's «one pass» guard cannot see through that.
+ */
+describe('a failures-only Playwright report', () => {
+  const failuresOnly = (tests: unknown[], flaky: number) =>
+    JSON.stringify({
+      config: { rootDir: '/nowhere/here', reporter: [['json', { outputFile: 'report.json', onlyFailures: true }]] },
+      suites:
+        tests.length === 0
+          ? []
+          : [{ title: 'a.spec.ts', file: 'a.spec.ts', column: 0, line: 0, specs: [{ title: 'flaky', file: 'a.spec.ts', line: 3, column: 5, tests }] }],
+      errors: [],
+      stats: { startTime: '2026-11-20T08:00:00.000Z', duration: 1200, expected: 0, skipped: 0, unexpected: 0, flaky },
+    });
+
+  it('does not claim a full run under PLUNE_FULL_RUN=1, and says why', async () => {
+    vi.stubEnv('PLUNE_FULL_RUN', '1');
+    const { seen, fetchImpl } = platform();
+    const flaky = { id: 'id-1', expectedStatus: 'passed', results: [{ status: 'failed', retry: 0 }, { status: 'passed', retry: 1 }] };
+
+    await handleRunImport({ ...deps(fetchImpl), file: write('report.json', failuresOnly([flaky], 1)) });
+
+    const configuration = seen.find((s) => s.path === '/v1/runs')?.body['configuration'] as Record<string, unknown> | undefined;
+    expect(configuration?.['expected']).not.toHaveLength(0);
+    expect(configuration).not.toHaveProperty('full');
+    expect(lines.join('\n')).toContain('PLUNE_FULL_RUN is ignored for it');
+  });
+
+  it('with nothing failed is an empty answer, not a broken import', async () => {
+    const { seen, fetchImpl } = platform();
+
+    const out = await handleRunImport({ ...deps(fetchImpl), file: write('report.json', failuresOnly([], 0)) });
+
+    expect(out).toMatchObject({ runId: null, parsed: 0 });
+    expect(seen).toEqual([]);
+    expect(lines.join('\n')).toContain('is a failures-only report and nothing failed — nothing to import.');
+  });
+});

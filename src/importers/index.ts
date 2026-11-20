@@ -148,7 +148,7 @@ export function readReport(
   file: string,
   format?: ImportFormat,
   options: ReadOptions = {},
-): { format: ImportFormat; results: PendingResult[]; missing: MissingAttachment[]; notes: string[]; ciUrl?: string; ci?: unknown } {
+): { format: ImportFormat; results: PendingResult[]; missing: MissingAttachment[]; notes: string[]; ciUrl?: string; ci?: unknown; failuresOnly?: true } {
   const chosen = format ?? detectFormat(source, file);
   const missing: MissingAttachment[] = [];
   if (chosen === 'allure') throw new UnknownFormatError(file, 'allure-results is a folder, and this is a file.');
