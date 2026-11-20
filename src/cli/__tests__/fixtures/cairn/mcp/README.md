@@ -30,3 +30,13 @@ cairn mcp-test --out runs/f6 --timeout 2 --allow-tools echo,hang -- node ./my-se
 run stopped; the other 6 `could-not-run` cases were never sent.
 
 `--timeout 2` bounds only the handshake and list requests, so those 3 calls waited the default 30 s `--call-timeout`; the command that bounds the calls is `--call-timeout 2`. The fixture was not re-captured.
+
+## `scenarios/`: agent scenarios proposed for the review queue
+
+The `scenarios/report.json` of a `cairn mcp-test --propose-scenarios` run, written by Cairn's own command test
+(`tests/unit/mcp-test-propose.test.ts`, a scripted model and the same fixture server, no network and no paid call)
+on the branch that writes `mode: "mcp"` for it. Only `url` was changed by hand: it held the
+absolute path of the test machine's `node`, and is now `node`.
+
+2 cases under `testCases` (one positive, one negative), each a single step `Ask the agent: …`, none with a verdict;
+there is no `cases` list.
