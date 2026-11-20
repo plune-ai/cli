@@ -96,6 +96,11 @@ export interface EnvSettings {
   configurationError?: string;
   /** `PLUNE_IMPORT_TIMEOUT` in seconds, when set and usable. */
   importTimeout?: number;
+  /**
+   * Whether the error text and the text attachments of a result are checked for something that looks like a
+   * secret before they are sent: on unless `PLUNE_SECRET_CHECK` is `0`, `false`, `no` or `off`. The check only warns.
+   */
+  secretCheck: boolean;
   /** Variables that were set and have nowhere to land. The caller says so once. */
   ignored: string[];
   /** Variables that were set to something unusable and fell back to their default. The caller says so once. */
@@ -213,6 +218,7 @@ export function readEnv(env: NodeJS.ProcessEnv = process.env): EnvSettings {
     ...(shardError !== undefined ? { shardError } : {}),
     ...(configurationError !== undefined ? { configurationError } : {}),
     ...(importTimeout !== undefined ? { importTimeout } : {}),
+    secretCheck: !['0', 'false', 'no', 'off'].includes(value(env, 'PLUNE_SECRET_CHECK')?.toLowerCase() ?? ''),
     ignored: UNSUPPORTED_VARS.filter((name) => value(env, name) !== undefined),
     warnings,
   };

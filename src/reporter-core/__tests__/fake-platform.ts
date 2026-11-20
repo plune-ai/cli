@@ -21,6 +21,8 @@ export async function fakePlatform(opts: FakeOptions = {}) {
   let maxInflight = 0;
   let fileRequests = 0;
   let stored = 0;
+  /** Every result the runs were sent, as they came. */
+  const results: Record<string, unknown>[] = [];
 
   const send = (res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}): void => {
     res.writeHead(status, { 'content-type': 'application/json', ...headers });
@@ -67,6 +69,7 @@ export async function fakePlatform(opts: FakeOptions = {}) {
         if (path.endsWith('/v1/runs')) return send(res, 201, { run: { id: 'r-1' }, joined: false });
         if (/\/v1\/runs\/[^/]+\/results$/.test(path)) {
           const list = body['results'] as { resultKey: string }[];
+          results.push(...(list as unknown as Record<string, unknown>[]));
           const items = list.map((r, index) => ({ index, resultKey: r.resultKey, status: 'accepted', id: `id-${r.resultKey}` }));
           return send(res, 200, { items, counts: { accepted: list.length, duplicate: 0, conflict: 0, rejected: 0 } });
         }
@@ -79,6 +82,7 @@ export async function fakePlatform(opts: FakeOptions = {}) {
   return {
     url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
     arrivals,
+    results,
     get maxInflight() {
       return maxInflight;
     },

@@ -2140,8 +2140,9 @@ describe('text files go to the result they belong to', () => {
       const { run } = await report([result('a', { files: [jsonAt('huge', Buffer.alloc(KIB512 + 1, 'a')), jsonAt('fine')] })]);
 
       expect(run.stats.textFiles).toEqual({ uploaded: 1, skipped: 1, failed: 0 });
-      // Only the small one was read, from the disk; the other one was measured and left where it was.
-      expect(read.mock.calls.map(([file]) => path.basename(String(file)))).toEqual([`fine-${SHA1}.json`]);
+      // Only the small one was read, from the disk (by the secret check, then for the upload); the other one was
+      // measured and left where it was.
+      expect(new Set(read.mock.calls.map(([file]) => path.basename(String(file))))).toEqual(new Set([`fine-${SHA1}.json`]));
     } finally {
       read.mockRestore();
     }
