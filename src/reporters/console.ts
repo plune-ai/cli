@@ -5,7 +5,7 @@
 import type { RunResult } from '../types/results.js';
 import { adviceOf, rowStatus } from '../types/results.js';
 import { createStyler } from './style.js';
-import { repeatsText, safeLine, truncate } from './helpers.js';
+import { NOT_MEASURED_STABILITY, noRepeats, repeatsText, safeLine, truncate } from './helpers.js';
 import { buildMatrix, matrixConsole } from './matrix.js';
 
 const DEFAULT_MAX_OUTPUT = 500;
@@ -58,6 +58,7 @@ export function renderConsole(result: RunResult, opts: ConsoleOptions = {}): str
   lines.push(
     `${passedTxt} · ${failedTxt} · ${erroredTxt}${blockedTxt}${skippedTxt} · ${summary.total} total · $${summary.cost_usd.toFixed(4)} · ${summary.duration_ms}ms`,
   );
+  if (noRepeats(result)) lines.push(s.dim(NOT_MEASURED_STABILITY));
   const c = summary.cache;
   if (c !== undefined && c.from_cache + c.from_model + c.missed > 0) {
     const missedTxt = c.missed > 0 ? ` · ${s.yellow(`${c.missed} missed`)}` : '';
