@@ -17,7 +17,7 @@
 | Поле | Що означає |
 |---|---|
 | id | `scan/<група>/<назва>`, малі літери. Id ніколи не перейменовується після злиття коду: його читають винятки, SARIF і доки. Правило, чия вимога змінилась, отримує новий id. |
-| Поверхня | Звідки правило бере дані: `snapshot` (знятий список інструментів, ресурсів, промптів і поле `instructions`, формат `plune mcp snapshot`), `config` (файл конфігурації MCP-клієнта), `pin` (список інструментів у часі: файл закріплення проти живого сервера), `live` (живий сервер, лише з `--active`). |
+| Поверхня | Звідки правило бере дані: `snapshot` (знятий список інструментів, ресурсів, промптів і поле `instructions`, формат `plune mcp snapshot`), `config` (файл конфігурації MCP-клієнта), `pin` (список інструментів у часі: файл закріплення проти живого сервера), `pin-check` (те саме, але правило видає лише `plune mcp pin --check`, не `plune mcp scan`), `live` (живий сервер, лише з `--active`), `exceptions` (файл винятків самого сканера). |
 | Клас | Рівно один із трьох, див. «Класи». |
 | Доводить | Що саме означає знахідка. Ні слова більше. |
 | Не доводить | Що з знахідки (або з її відсутності) не випливає. |
@@ -25,7 +25,7 @@
 | Гейт | Чи може знахідка змінити код виходу. `так` — детерміноване правило, хибне спрацювання неможливе за побудовою, гейтує з першого дня. `після виміру` — гейтує лише коли MCP-G7 виміряв хибні спрацювання на корпусі й вони не вище домовленої межі. `ні` — ніколи за замовчуванням. |
 | Джерело | Первинне джерело механізму або вимоги (розділ «Джерела»). Посилання на специфікацію називає ревізію й розділ. |
 | Фраза у звіті | Приклад рядка знахідки (англійською, як друкує CLI). Сирий текст сервера в рядок не вставляється: невидимі символи показано кодовими точками, фрагмент обрізано до 80 символів. |
-| Задача | Яка з MCP-G2...MCP-G5 пише це правило. |
+| Задача | Яка з MCP-G2...MCP-G6 пише це правило. |
 
 ## Класи
 
@@ -42,7 +42,7 @@
 | Анотації: `annotations-missing` (немає анотацій), `hint-readonly-writes` (назва каже «пише», а `readOnlyHint: true`), `hint-destructive-understated` (назва каже «перезаписує», а `destructiveHint: false`) | `plune mcp lint`, `src/mcp-testing/lint/rules.ts` | Не повторює. Нове правило `scan/hint/destructive-missing` дивиться лише на те, чого лінт не бачить: анотації є, а `destructiveHint` немає. |
 | Зміна опису, інструкцій, підказки до запису або нового інструмента без `readOnlyHint: true` позначається `signal: security`, але код виходу не змінює | `plune mcp diff`, `src/mcp-testing/snapshot/diff.ts` | Закріплення (MCP-G3) додає погодження людиною й гейт; класифікацію змін «ламаюча / неламаюча» бере з `diff`, не рахує заново. |
 | Вибір інструментів для виклику: лише `readOnlyHint: true`, без `destructiveHint: true`, без обов'язкових параметрів | `plune mcp check --smoke`, `src/mcp-testing/connect/safe-tools.ts` | Активні проби (MCP-G5) викликають лише те, що людина вписала у файл проб; підказка сервера може лише заборонити виклик, а не дозволити. |
-| Маскування значень, переданих для підключення (заголовки, `--env`, секрети в URL, аргументи команди від 8 символів), у журналі, помилках і хвості stderr | `src/mcp-testing/connect/redact.ts` | `scan/probe/secret-echoed` використовує той самий перелік значень, щоб повідомити, **що** сервер повторив секрет; значення в звіт не йде. Відома межа маскування (секрет у base64 чи шматками проходить) стосується й цього правила. |
+| Маскування значень, переданих для підключення (заголовки, `--env`, секрети в URL, аргументи команди від 8 символів), у журналі, помилках і хвості stderr | `src/mcp-testing/connect/redact.ts` | `scan/probe/secret-echoed` (ще не реалізоване, див. його розділ) мав би використати той самий перелік значень, щоб повідомити, **що** сервер повторив секрет; значення в звіт не йде. Відома межа маскування (секрет у base64 чи шматками проходить) стосується й цього правила. |
 | Origin і DNS rebinding: `http-origin-invalid-403`, контролі `http-origin-localhost-accepted` і `http-origin-absent-accepted`, `http-bind-loopback`, порада `http-host-rebinding-advice` | `plune mcp conformance`, група `security` (MCP-C3, plune-ai/cli#238; на 2026-11-13 PR відкритий) | Не повторює. Сканер приймає звіт `conformance` і показує ці рядки у своєму зведенні з позначкою джерела (MCP-G5, `--import-conformance`). |
 | OAuth сервера: зокрема недійсний токен дає 401 і токен з чужою аудиторією відхилено | `plune mcp conformance --suite oauth` (MCP-C5, ще не написано) | Токен з чужою аудиторією сканер бере лише з імпорту цього звіту (`oauth-neg-wrong-audience`), власного правила не має. `scan/probe/garbage-token-accepted` лишається в сканері для серверів зі статичним ключем без OAuth. |
 
@@ -193,21 +193,21 @@
 - Фраза: `server "docs": no entry in the pin file; nothing was compared`.
 
 #### `scan/pin/list-unstable`
-- Поверхня `pin`; клас детермінований; рівень `warn`; гейт так; задача MCP-G3.
+- Поверхня `pin-check`: правило видає лише `plune mcp pin --check`, а не `plune mcp scan`, тому в SARIF сканера його немає; клас детермінований; рівень `warn`; гейт так; задача MCP-G3.
 - Доводить: у межах однієї сесії кілька відповідей на `tools/list` мали різні хеші, а сповіщення про зміну не було.
 - Не доводить: наміру; сервер може вставляти час чи лічильник в опис.
 - Джерело: [INV]; [SPEC-TOOLS] («List Changed Notification»).
 - Фраза: `tools/list answered 2 different lists in 3 requests without list_changed`.
 
 #### `scan/pin/differs-between-sessions`
-- Поверхня `pin`; клас детермінований; рівень `warn`; гейт так; задача MCP-G3.
+- Поверхня `pin-check`: правило видає лише `plune mcp pin --check`, а не `plune mcp scan`, тому в SARIF сканера його немає; клас детермінований; рівень `warn`; гейт так; задача MCP-G3.
 - Доводить: нова сесія отримала інший список, ніж перша.
 - Не доводить: що сервер розрізняє клієнтів; різниця може залежати від часу чи облікового запису.
 - Джерело: [INV].
 - Фраза: `a new session got a different tool list (3 tools differ)`.
 
 #### `scan/pin/list-changed-announced`
-- Поверхня `pin`; клас детермінований; рівень `info`; гейт ні; задача MCP-G3.
+- Поверхня `pin-check`: правило видає лише `plune mcp pin --check`, а не `plune mcp scan`, тому в SARIF сканера його немає; клас детермінований; рівень `info`; гейт ні; задача MCP-G3.
 - Доводить: сервер заявив `listChanged` і надіслав сповіщення у вікні очікування.
 - Не доводить: проблеми; це законна поведінка за специфікацією (так робить і `plune mcp serve` після `plune_discover_tools` у ері 2025).
 - Джерело: [SPEC-TOOLS] («List Changed Notification»).
@@ -251,6 +251,7 @@
 - Фраза: `fetch_page: returned the probe marker verbatim with no boundary; treat its output as untrusted (advice)`.
 
 #### `scan/probe/hidden-text-in-result`
+- **Не реалізовано.** Коду цього правила в CLI немає: `plune mcp scan` його не видає, у SARIF і в таблиці «Каталог як дані» його немає. Опис нижче лишається як задум.
 - Поверхня `live`; клас детермінований; рівень `warn`; гейт після виміру; задача MCP-G5.
 - Доводить: текст результату проби або прочитаного ресурсу містить символи правил `tag-character`, `bidi-control`, `ansi-escape` чи `zero-width` (ті самі діапазони, що в групі `desc`).
 - Не доводить: що сервер їх вставив: вони могли прийти з зовнішніх даних. Перевіряється лише результат викликів із файлу проб.
@@ -292,6 +293,7 @@
 - Фраза: `mcpServers.db.env.DB_PASSWORD (line 9, col 20): literal value under a credential name (advice)`.
 
 #### `scan/probe/secret-echoed`
+- **Не реалізовано.** Коду цього правила в CLI немає: `plune mcp scan` його не видає, у SARIF і в таблиці «Каталог як дані» його немає. Опис нижче лишається як задум.
 - Поверхня `live`; клас детермінований; рівень `warn`; гейт після виміру; задача MCP-G5.
 - Доводить: сервер повторив у помилці JSON-RPC, у stderr або в результаті значення, яке сканер сам передав для підключення (заголовок, `--env`, секрет в URL), у тому написанні, яке знаходить маскування `redact.ts`.
 - Не доводить: що інших секретів сервер не друкує; що секрет не пішов у base64 чи шматками (межа маскування).
@@ -323,6 +325,7 @@
 - Фраза: `mcpServers.files.args[2] (line 15, col 9): the home directory as the root (advice)`.
 
 #### `scan/probe/broad-scope`
+- **Не реалізовано.** Коду цього правила в CLI немає: `plune mcp scan` його не видає, у SARIF і в таблиці «Каталог як дані» його немає. Опис нижче лишається як задум.
 - Поверхня `live` (лише метадані захищеного ресурсу, без токена); клас евристика; рівень `advice`; гейт ні; задача MCP-G5.
 - Доводить: `scopes_supported` містить скоуп зі списку широких (`*`, `all`, `full-access`, `admin`).
 - Не доводить: що токен має ці права; назви скоупів визначає сервер авторизації, тому це евристика.
@@ -446,6 +449,22 @@
 - Джерело: [DOC-LSS] («Verify the exact package name»).
 - Фраза: `mcpServers.files: package "server-filesytem" is not in --allow-package`.
 
+### 10. Файл винятків
+
+Не загроза сервера, а стан самого сканера: виняток, що вже нічого не приховує або більше нічого не знаходить, має бути видно.
+
+#### `scan/exception/expired`
+- Поверхня `exceptions`; клас детермінований; рівень `warn`; гейт ні; задача MCP-G6.
+- Доводить: дата `expires` винятку минула, і виняток більше не приховує знахідку.
+- Не доводить: нічого про сервер; знахідка, яку він приховував, з'являється у звіті сама.
+- Фраза: `The exception is past its expires date and no longer hides the finding: renew it with a new reason, or fix the cause.`
+
+#### `scan/exception/unused`
+- Поверхня `exceptions`; клас детермінований; рівень `info`; гейт ні; задача MCP-G6.
+- Доводить: виняток не збігся з жодною знахідкою цього запуску.
+- Не доводить: що виняток зайвий назавжди; інший запуск (інша ціль, `--active`) може його використати.
+- Фраза: `The exception matched no finding of this run: remove it, or correct its rule and scope.`
+
 ## Межі
 
 - **Чистий результат не означає, що сервер без загроз.** Сканер повідомляє лише про те, що знаходять правила цього каталогу. Посібник MCP пише прямо: «no check proves what a server will do» ([DOC-LSS], «Threats This Guide Addresses»).
@@ -480,7 +499,7 @@
 
 ## Каталог як дані
 
-Таблицю нижче читає код: тест MCP-G7 звіряє, що кожне правило коду є тут і навпаки. Назви стовпців і значення фіксовані: `class` — `deterministic` | `measured` | `heuristic`; `severity` — `error` | `warn` | `info` | `advice`; `gating` — `yes` | `after-measure` | `no`; `surface` — `snapshot` | `config` | `pin` | `live` (кілька через `+`); `task` — `MCP-G2` | `MCP-G3` | `MCP-G4` | `MCP-G5`. Рядок між маркерами — один рядок одного правила.
+Таблицю нижче читає код: тест `src/mcp-testing/__tests__/mcp-scan.test.ts` звіряє, що рядки без поверхні `pin-check` — це рівно правила `plune mcp scan` (ті, що SARIF подає в `tool.driver.rules`), з тими самими класом, рівнем і гейтом, а рядки з `pin-check` — рівно правила, які видає лише `plune mcp pin --check`. Назви стовпців і значення фіксовані: `class` — `deterministic` | `measured` | `heuristic`; `severity` — `error` | `warn` | `info` | `advice`; `gating` — `yes` | `after-measure` | `no`; `surface` — `snapshot` | `config` | `pin` | `pin-check` | `live` | `exceptions` (кілька через `+`); `task` — `MCP-G2` | `MCP-G3` | `MCP-G4` | `MCP-G5` | `MCP-G6`. Рядок між маркерами — один рядок одного правила.
 
 <!-- rule-catalog:start -->
 | id | class | severity | gating | surface | task |
@@ -503,9 +522,9 @@
 | scan/pin/tool-added | deterministic | error | yes | pin | MCP-G3 |
 | scan/pin/tool-removed | deterministic | warn | yes | pin | MCP-G3 |
 | scan/pin/server-not-pinned | deterministic | warn | yes | pin | MCP-G3 |
-| scan/pin/list-unstable | deterministic | warn | yes | pin | MCP-G3 |
-| scan/pin/differs-between-sessions | deterministic | warn | yes | pin | MCP-G3 |
-| scan/pin/list-changed-announced | deterministic | info | no | pin | MCP-G3 |
+| scan/pin/list-unstable | deterministic | warn | yes | pin-check | MCP-G3 |
+| scan/pin/differs-between-sessions | deterministic | warn | yes | pin-check | MCP-G3 |
+| scan/pin/list-changed-announced | deterministic | info | no | pin-check | MCP-G3 |
 | scan/cross/duplicate-tool-name | deterministic | warn | after-measure | config+snapshot | MCP-G4 |
 | scan/cross/foreign-tool-reference | deterministic | warn | after-measure | config+snapshot | MCP-G4 |
 | scan/cfg/secret-known-format | deterministic | error | yes | config | MCP-G4 |
@@ -521,16 +540,17 @@
 | scan/cfg/unpinned-package | deterministic | warn | after-measure | config | MCP-G4 |
 | scan/cfg/auto-confirm | deterministic | warn | no | config | MCP-G4 |
 | scan/cfg/package-not-allowed | deterministic | warn | after-measure | config | MCP-G4 |
+| scan/exception/expired | deterministic | warn | no | exceptions | MCP-G6 |
+| scan/exception/unused | deterministic | info | no | exceptions | MCP-G6 |
 | scan/hint/destructive-missing | deterministic | info | no | snapshot | MCP-G5 |
 | scan/probe/untrusted-content-verbatim | heuristic | advice | no | live | MCP-G5 |
-| scan/probe/hidden-text-in-result | deterministic | warn | after-measure | live | MCP-G5 |
-| scan/probe/secret-echoed | deterministic | warn | after-measure | live | MCP-G5 |
 | scan/probe/error-detail-leak | heuristic | advice | no | live | MCP-G5 |
-| scan/probe/broad-scope | heuristic | advice | no | live | MCP-G5 |
 | scan/probe/unauthenticated-call | deterministic | error | yes | live | MCP-G5 |
 | scan/probe/garbage-token-accepted | deterministic | error | yes | live | MCP-G5 |
 | scan/probe/cross-account-access | deterministic | error | yes | live | MCP-G5 |
 <!-- rule-catalog:end -->
+
+Три правила проб з розділів вище не реалізовані й тому в таблиці відсутні: `scan/probe/hidden-text-in-result`, `scan/probe/secret-echoed`, `scan/probe/broad-scope`. Коли код правила з'явиться, його рядок додається сюди в тому ж PR, інакше тест вище стане червоним.
 
 Для `unauthenticated-call` і `garbage-token-accepted` `severity` і `gating` у таблиці діють, лише коли у файлі проб для цього виклику стоїть `expect: refuse`; без очікування знахідка `info` і не гейтує.
 
