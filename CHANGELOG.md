@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **`plune run import` and the Playwright reporter warn about what looks like a secret in a result's error text or text attachments before they send it.** The rules are the ones that mask the code snapshot, one detector for both. The warning names the test, the text (`the error text`, or `the attachment "response.txt"`), the line and the value's length, never the value; the result is still sent as it is. Text attachments are `text/plain` and `application/json`; traces and pictures are not read. On by default; `PLUNE_SECRET_CHECK=0` turns it off.
+
 ### Changed
 
 - **Four `plune mcp serve` tools now say in their description what their answer costs, as measured.** `plune_project_context` (~387 tokens for 3 projects and 3 suites), `plune_cases_search` (~7678 for a project of 48 cases), `plune_review_list` (~695 for 7 pending entries) and `plune_mission_get` (~455 for a mission with 5 sources), in estimated tokens (characters / 4), from live answers of a demo project. The number comes from the same constant the context-budget test measures against, so the line and the measure cannot drift apart; the other 18 tools get a line once they are measured. The tool list grows by ~74 estimated tokens (22 tools: 11329 to 11403, limit 11926; read scope: 2222 to 2296, limit 2445).

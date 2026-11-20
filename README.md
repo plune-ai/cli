@@ -589,6 +589,20 @@ none of them is sent again. Against a platform older than the bulk routes (it an
 sends one request per file, as before; it decides by that answer, not by a version. A value outside the range is
 ignored with a warning, and the default is used. The Playwright reporter reads the same variables.
 
+### A secret in an error or a text attachment
+
+Before a result goes out, its error text and its text attachments (`text/plain` and `application/json`, not
+traces or pictures) are checked with the same rules that mask the code snapshot. Something that looks like a secret
+gets a warning that names the test, the text, the line and the value's length, never the value; the result is sent as
+it is:
+
+```text
+plune: the error text of "signs in" holds what looks like a secret on line 4 (40 characters) — sent as it is; mask it in the test, or set PLUNE_SECRET_CHECK=0 to turn this check off.
+```
+
+The check is on by default, in `plune run import` and in the Playwright reporter. `PLUNE_SECRET_CHECK=0` (or `false`,
+`no`, `off`) turns it off.
+
 ### When a test is deleted
 
 A test that vanishes from the code stays in Plune as an active case until something says otherwise.
