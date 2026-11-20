@@ -37,6 +37,11 @@ export interface PluneToolExecutorOptions {
    * input schemas, and a hidden tool is called by its name. MCP 2026-07-28 asks this of tools/list.
    */
   fixedToolList?: boolean | undefined;
+  /**
+   * This executor answers one request and is gone (a server over HTTP builds one per request), so nothing it keeps can be
+   * read by the next call: a deletion preview gives its reason at once and mints no `confirm` nobody could redeem.
+   */
+  oneRequest?: boolean | undefined;
 }
 
 export interface PluneToolExecutor {
@@ -137,7 +142,6 @@ export function createPluneToolExecutor(opts: PluneToolExecutorOptions): PluneTo
   let scope: TokenScope | undefined = opts.scope;
   const revealed = new Set<PluneToolName>();
   const confirms = new Map<string, { fingerprint: string; expires: number }>();
-  let proposals = 0;
 
   const visibleTools = (): PluneToolName[] => {
     const core = defaultVisibleTools(scope);
@@ -276,13 +280,12 @@ export function createPluneToolExecutor(opts: PluneToolExecutorOptions): PluneTo
         const stableId = createHash('sha256').update([c['title'], ...steps, c['expected']].join('\n')).digest('hex').slice(0, 32);
         return withoutUndefined({ stableId, execution: 'manual', ...c });
       });
-      proposals += 1;
       const req: ApiRequest = {
         method: 'POST',
         path: '/v1/ingest/cairn',
         body: {
           schemaVersion: 1,
-          run: withoutUndefined({ runId: `mcp-${sessionId}-${proposals}`, mode: 'design', target: str(i['target']), missionId: i['missionId'] as string | undefined }),
+          run: withoutUndefined({ runId: `mcp-${sessionId}-${randomUUID().slice(0, 8)}`, mode: 'design', target: str(i['target']), missionId: i['missionId'] as string | undefined }),
           cases,
         },
       };
@@ -440,6 +443,8 @@ export function createPluneToolExecutor(opts: PluneToolExecutorOptions): PluneTo
       if (isDeletion(req)) {
         const t = now();
         for (const [k, v] of confirms) if (v.expires <= t) confirms.delete(k);
+        if (confirm === undefined && opts.oneRequest === true)
+          return fail('agent_cannot_delete', 'Nothing was sent, and it will not be: the platform refuses an agent any deletion. A person deletes in the app.');
         if (confirm === undefined) {
           const value = randomBytes(24).toString('base64url');
           confirms.set(value, { fingerprint: fingerprint(req), expires: t + CONFIRM_TTL_MS });

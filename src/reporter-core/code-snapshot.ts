@@ -217,6 +217,39 @@ export function maskCredentials(text: string): string {
   );
 }
 
+/**
+ * Where `maskCredentials` would mask something in `text`: the line (from 1) each masked value starts on, and the
+ * value's length in characters — never the value. The same rules, read back from the masked text, so a rule
+ * added there is found here too. Markers with nothing between them count as one value.
+ */
+export function credentialsIn(text: string): { line: number; length: number }[] {
+  const masked = maskCredentials(text);
+  if (masked === text) return [];
+  const found: { line: number; length: number }[] = [];
+  let from = 0; // in `text`
+  let at = 0; // in `masked`
+  for (let open = masked.indexOf('‹', at); open >= 0; open = masked.indexOf('‹', at)) {
+    const start = from + (open - at);
+    let close = masked.indexOf('›', open);
+    while (close >= 0 && masked[close + 1] === '‹') close = masked.indexOf('›', close + 1);
+    if (close < 0) break;
+    const next = masked.indexOf('‹', close + 1);
+    const tail = masked.slice(close + 1, next < 0 ? undefined : next);
+    // ponytail: the text after a marker is found again by its first occurrence; a value that holds that same text
+    // reads shorter, which only bends the length in the warning, never whether there is one.
+    const end = next < 0 ? text.length - tail.length : text.indexOf(tail, start);
+    if (end < start) break;
+    const marker = masked.slice(open, close + 1);
+    // A marker the text already held (a masked log pasted into a test) is not a value.
+    if (!(end - start === marker.length && text.startsWith(marker, start))) {
+      found.push({ line: text.slice(0, start).split('\n').length, length: end - start });
+    }
+    from = end + tail.length;
+    at = close + 1 + tail.length;
+  }
+  return found;
+}
+
 /** Where a test is declared: its file (absolute, or from the working directory) and line, from 1. */
 export interface CodeLocation {
   file: string;

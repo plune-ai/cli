@@ -4,7 +4,15 @@
 
 import type { RunResult, RowResult } from '../types/results.js';
 import { adviceOf, rowStatus } from '../types/results.js';
-import { mdCell, repeatsText, safeLine, truncate } from './helpers.js';
+import {
+  flakyText,
+  mdCell,
+  NOT_MEASURED_STABILITY,
+  noRepeats,
+  repeatsText,
+  safeLine,
+  truncate,
+} from './helpers.js';
 import { buildMatrix, matrixMarkdown } from './matrix.js';
 
 const DEFAULT_MAX_OUTPUT = 500;
@@ -67,6 +75,7 @@ export function renderMarkdown(result: RunResult, opts: MarkdownOptions = {}): s
   out.push(`| Cost (USD) | ${summary.cost_usd.toFixed(4)} |`);
   out.push(`| Duration (ms) | ${summary.duration_ms} |`);
   out.push('');
+  if (noRepeats(result)) out.push(NOT_MEASURED_STABILITY, '');
 
   // Only for a run of several models; a run of one reads as it always has.
   const matrix = buildMatrix(result);
@@ -85,8 +94,12 @@ export function renderMarkdown(result: RunResult, opts: MarkdownOptions = {}): s
     out.push('| --- | --- | --- | --- | --- |');
     for (const { id, row, a } of repeated) {
       const vars = JSON.stringify(row.vars).replace(/\|/g, '\\|');
-      const passed = a.results.length === 0 ? `dry run × ${a.runs}` : `${a.passed}/${a.runs}`;
-      out.push(`| ${mdCell(id)} | ${vars} | ${passed} | ${a.pass_threshold} | ${rowStatus(row)} |`);
+      const dry = a.results.length === 0;
+      const passed = dry ? `dry run × ${a.runs}` : `${a.passed}/${a.runs}`;
+      const flaky = dry ? '' : flakyText(a);
+      out.push(
+        `| ${mdCell(id)} | ${vars} | ${passed} | ${a.pass_threshold} | ${rowStatus(row)}${flaky} |`,
+      );
     }
     out.push('');
   }
