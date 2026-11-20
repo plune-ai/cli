@@ -15,14 +15,19 @@ export function buildJudge(
 ): Judge {
   return {
     async ask(prompt: string): Promise<string> {
+      const maxTokens = cfg.max_tokens ?? DEFAULT_MAX_TOKENS;
       const res = await provider.complete({
         provider: cfg.type,
         model: cfg.model,
         ...(cfg.temperature !== undefined ? { temperature: cfg.temperature } : {}),
-        max_tokens: cfg.max_tokens ?? DEFAULT_MAX_TOKENS,
+        max_tokens: maxTokens,
         prompt_resolved: prompt,
       });
       onUsage(res.usage);
+      // Thinking counts toward max_tokens, so a reasoning judge can spend it all before the verdict.
+      // A cut-off reply is not a verdict, even when what is left happens to parse.
+      if (res.finish_reason === 'length')
+        throw new Error(`judge reply was cut off at max_tokens (${maxTokens}); raise max_tokens for the judge model`);
       return res.output;
     },
   };

@@ -95,6 +95,18 @@ describe('withRetry (ADR-PRV03)', () => {
     expect(fn).toHaveBeenCalledTimes(1);
     expect(sleep).not.toHaveBeenCalled();
   });
+
+  // plune-ai/plune#2989: PLUNE_MAX_RETRIES=Infinity passes the env override (it is a number), and a
+  // 5xx then retried forever. A count that is not finite is a misconfiguration, read like a negative.
+  it('treats a non-finite max_retries as no retry — a 5xx never loops forever', async () => {
+    // Gives up after 50 calls so that the failing case ends instead of hanging the run.
+    let calls = 0;
+    const fn = vi.fn(() => (++calls > 50 ? Promise.resolve('looped') : Promise.reject({ status: 503 })));
+    const sleep = vi.fn().mockResolvedValue(undefined);
+
+    await expect(withRetry(fn, { max_retries: Infinity, sleep })).rejects.toBeInstanceOf(ProviderError);
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('withRetry — Retry-After header parsing branches', () => {

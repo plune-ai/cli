@@ -11,6 +11,11 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Fixed
+
+- **A judge reply cut off by `max_tokens` is an error that names the limit, not a verdict or "no parseable JSON".** Thinking counts toward `max_tokens`, so a reasoning judge could spend the default 1 024 before its answer; the row is now `errored` with `judge reply was cut off at max_tokens (N)`. The default limit is unchanged (plune-ai/plune#2989).
+- **`PLUNE_MAX_RETRIES=Infinity` no longer retries a 5xx forever.** A retry count that is not a finite number is read like a negative one: one attempt, no retry (plune-ai/plune#2989).
+
 ## [0.39.6] - 2026-11-20
 
 ### Added
