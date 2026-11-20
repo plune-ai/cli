@@ -1199,7 +1199,7 @@ describe('CLI · run import · JUnit folder · Maven Surefire', () => {
 });
 
 /**
- * plune-ai/plune#3005. The shape Playwright 1.65.1's JSON reporter writes with `onlyFailures` (read from its
+ * The shape Playwright 1.65.1's JSON reporter writes with `onlyFailures` (read from its
  * `lib/runner/index.js`: the kept tests are the unexpected, flaky and interrupted ones, and `stats` counts only
  * them): a flaky test, whose last attempt passed — the platform's «one pass» guard cannot see through that.
  */

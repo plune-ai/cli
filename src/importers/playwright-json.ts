@@ -88,7 +88,7 @@ interface JsonReport {
 }
 
 /**
- * plune-ai/plune#3005: a report written with `onlyFailures` (Playwright 1.65) keeps only the tests that failed,
+ * A report written with `onlyFailures` (Playwright 1.65) keeps only the tests that failed,
  * were flaky or were interrupted. It is not the list of what ran, so it can never back a full-run claim. Said by
  * the config when the option is set there, and by the stats either way (`PLAYWRIGHT_JSON_ONLY_FAILURES` leaves
  * the config as it was): none expected and none skipped. A report of one red run reads the same and loses

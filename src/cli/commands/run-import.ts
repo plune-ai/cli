@@ -150,7 +150,7 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
   }
   const { format, results, missing, notes, ciUrl, ci, failuresOnly } = read;
   if (results.length === 0) {
-    // plune-ai/plune#3005: a failures-only report of a green run is empty, and that is its answer, not a broken file.
+    // A failures-only report of a green run is empty, and that is its answer, not a broken file.
     if (failuresOnly === true) {
       write(`plune: ${printable(options.file)} is a failures-only report and nothing failed — nothing to import.`);
       return emptyImport(format);
@@ -170,7 +170,7 @@ export async function handleRunImport(options: ImportOptions): Promise<ImportRes
   const announced = (format === 'junit' || format === 'allure') && (missing.length > 0 || results.some((r) => (r.files?.length ?? 0) > 0));
 
   const env = readEnv();
-  // plune-ai/plune#3005: the passing tests are not in a failures-only report, and a full run would detach them all.
+  // The passing tests are not in a failures-only report, and a full run would detach them all.
   if (failuresOnly === true && env.config.full === true) {
     write('plune: a failures-only report is not the list of what ran — PLUNE_FULL_RUN is ignored for it, so no case is detached.');
   }
