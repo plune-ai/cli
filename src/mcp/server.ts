@@ -89,6 +89,7 @@ export function createPluneMcpServer(opts: PluneMcpServerOptions, era: ProtocolE
     ...executorOptions,
     userAgent: executorOptions.userAgent ?? `plune-cli/${version} mcp`,
     fixedToolList: fixed,
+    oneRequest: !listChanged,
   });
   const server = new McpServer({ name: 'plune', version }, { capabilities: { tools: { listChanged } } });
   const registered = new Map<string, RegisteredTool>();
