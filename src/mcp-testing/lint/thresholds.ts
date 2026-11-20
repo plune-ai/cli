@@ -4,20 +4,36 @@
  * `headroom`, rounded up. A limit is also held from below: a measure under `tooLooseShare` of its limit fails too, so
  * the headroom cannot grow unnoticed. A change that moves a measure sets its limit again by the same rule.
  */
+
+/**
+ * The live answer measures behind `PLUNE_BUDGET.answers` (estimated tokens of the text content, unindented), with what
+ * each answer held. One source: the limits below are derived from them, and the descriptions of these four tools in
+ * src/mcp-tools/contract.ts state them, so a new measure moves both. A tool without a live measure gets no cost line.
+ */
+export const PLUNE_ANSWER_MEASURES = {
+  plune_project_context: { tokens: 387, of: '3 projects and 3 suites' },
+  plune_cases_search: { tokens: 7678, of: 'a project of 48 cases' },
+  plune_review_list: { tokens: 695, of: '7 pending entries' },
+  plune_mission_get: { tokens: 455, of: 'a mission with 5 sources' },
+} as const;
+
+const HEADROOM = 0.1;
+const limitOf = (measure: number) => Math.ceil(measure * (1 + HEADROOM));
+
 const PLUNE_BUDGET = {
   /** A limit is the measure times (1 + headroom), rounded up. */
-  headroom: 0.1,
+  headroom: HEADROOM,
   /** A measure below this share of its limit means the limit is too loose: with 10% headroom a list may shrink ~12%. */
   tooLooseShare: 0.8,
   /** Whole tool lists, outputSchema and annotations included. */
   lists: {
-    /** 2025 era, write scope, as listed first: 17 tools, measured 8429 (8327 before the memory rules of plune_project_context). */
+    /** 2025 era, write scope, as listed first: 17 tools, measured 8927 on 2026-11-20 (8853 before the measured-answer lines of #2988). */
     writeFirst: 9272,
-    /** 2025 era, write scope, after plune_discover_tools: 22 tools, measured 10841 (10739 before the memory rules). */
+    /** 2025 era, write scope, after plune_discover_tools: 22 tools, measured 11403 on 2026-11-20 (11329 before the measured-answer lines). */
     writeAll: 11926,
-    /** Read scope, either era: 7 tools, measured 2222 (2482 with plune_discover_tools, which a read token is not offered). */
+    /** Read scope, either era: 7 tools, measured 2296 on 2026-11-20 (2222 before the measured-answer lines; a read token is not offered plune_discover_tools). */
     read: 2445,
-    /** 2026-07-28 era, write scope: 17 tools, the list does not change after discover; measured 8429 (8327 before the memory rules). */
+    /** 2026-07-28 era, write scope: 17 tools, the list does not change after discover; measured 8927 on 2026-11-20 (8853 before the measured-answer lines). */
     modernWrite: 9272,
   },
   /** The biggest single tool, plune_strategy_propose, measured 2177. */
@@ -30,7 +46,12 @@ const PLUNE_BUDGET = {
    * has no missions, so plune_mission_get reads a mission with 5 sources captured live on a beta test project on
    * 2026-11-14: 455 (585; the synthetic mission it replaced measured 476 indented, under its limit of 524).
    */
-  answers: { plune_project_context: 426, plune_cases_search: 8446, plune_review_list: 765, plune_mission_get: 501 },
+  answers: {
+    plune_project_context: limitOf(PLUNE_ANSWER_MEASURES.plune_project_context.tokens),
+    plune_cases_search: limitOf(PLUNE_ANSWER_MEASURES.plune_cases_search.tokens),
+    plune_review_list: limitOf(PLUNE_ANSWER_MEASURES.plune_review_list.tokens),
+    plune_mission_get: limitOf(PLUNE_ANSWER_MEASURES.plune_mission_get.tokens),
+  },
 } as const;
 
 /**
