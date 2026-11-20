@@ -15,6 +15,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 - **`plune mcp serve` tells a refusal by a plan limit from a refusal by permission.** A 429 whose body carries a `quota` object comes back with the code `quota_exceeded` and the reason "a plan limit is reached, not a missing permission"; a 403 says "the token or its user lacks the permission, not a plan limit". Before, a quota 429 read `http_429` and a 403 gave the platform's sentence alone, so an agent could not tell whether to ask for a larger plan or for another right. A refusal that names its own code (a throttle's `member_limit`) keeps it.
 
+### Fixed
+
+- **`plune run import` of a failures-only Playwright JSON report no longer claims a full run, and an empty one is not an error.** Playwright 1.65 writes such a report with `onlyFailures: true` on the `json` reporter or `PLAYWRIGHT_JSON_ONLY_FAILURES=1`: it keeps only the tests that failed, were flaky or were interrupted. With `PLUNE_FULL_RUN=1` its tests became the whole expected list, and the platform detached every case that passed. The import now knows the report by the reporter's options written into it, or by its stats counting no test expected or skipped: it does not send `full` and says `PLUNE_FULL_RUN` is ignored for it. When nothing failed, the report is empty: the import says there is nothing to import and exits 0 without a run, where it used to stop with "No test cases". A report that is empty because Playwright found no tests still fails. A JUnit report written with `onlyFailures` carries no such sign, so `PLUNE_FULL_RUN` should not be set on its import. `plune run import --help` and the README say so.
+
 ## [0.39.6] - 2026-11-20
 
 ### Added
