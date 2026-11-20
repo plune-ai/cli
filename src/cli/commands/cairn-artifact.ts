@@ -537,7 +537,14 @@ export async function readCairnRun(
     }
     cases = casesFromApi(report, verdicts);
   } else if (mode === 'mcp') {
-    cases = await casesFromMcp(dir, report);
+    // ponytail: the shape decides, not a new mode. `cairn mcp-test --propose-scenarios` writes agent scenarios
+    // as an mcp run of designed cases (`testCases`, no tool calls in `cases`); the platform files them as
+    // MCP server test proposals. A run with `cases` is read as tool calls, as before; one with neither is
+    // refused by casesFromMcp, as before.
+    cases =
+      own(report, 'cases') === undefined && Array.isArray(own(report, 'testCases'))
+        ? casesFromDesign(report)
+        : await casesFromMcp(dir, report);
   } else {
     cases = casesFromDesign(report);
   }

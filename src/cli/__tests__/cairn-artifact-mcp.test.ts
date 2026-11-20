@@ -386,3 +386,45 @@ describe('CLI · ingest · mcp run · refuses rather than guesses', () => {
     expect(Object.getPrototypeOf({})).toBe(Object.prototype);
   });
 });
+
+/**
+ * `cairn mcp-test --propose-scenarios` writes agent scenarios as an `mcp` run whose cases are designed ones, under
+ * `testCases` with no `cases` (fixtures/cairn/mcp/scenarios, see the README there). They go to the review queue as
+ * proposals of an MCP server test, without a verdict.
+ */
+describe('CLI · ingest · mcp run · agent scenarios proposed by cairn', () => {
+  it('reads the proposals as designed cases and keeps the run an mcp run', async () => {
+    const report = await readJson<{ testCases: { stableId: string; title: string }[] }>(
+      path.join(fixture('scenarios'), 'report.json'),
+    );
+    const payload = await readCairnRun(fixture('scenarios'));
+    expect(payload.run).toEqual({ runId: 'run-scenarios', mode: 'mcp', target: 'node' });
+    expect(payload.cases.map((c) => c.stableId)).toEqual(report.testCases.map((c) => c.stableId));
+    expect(payload.cases.map((c) => c.title)).toEqual(report.testCases.map((c) => c.title));
+    for (const c of payload.cases) {
+      expect(c.steps).toHaveLength(1);
+      expect(c.steps[0]).toMatch(/^Ask the agent: /);
+      expect(c.technique).toBe('agent-scenario');
+      expect(c.verdict).toBeUndefined();
+    }
+    expect(payload.cases[1]!.expected).toBe('The agent calls no tool of this server.');
+  });
+
+  it('reads the tool calls of a run that has cases, even when it also has testCases', async () => {
+    const c = await copyOf('judged');
+    c.report['testCases'] = [{ stableId: 'x', title: 'never read', steps: ['Ask the agent: hi'] }];
+    const payload = await readCairnRun(await save(c));
+    const cases = c.report['cases'] as ReportCase[];
+    expect(payload.run.mode).toBe('mcp');
+    expect(payload.cases.map((x) => x.stableId)).toEqual(cases.map((x) => x.stableId));
+  });
+
+  it('refuses an mcp run with neither cases nor testCases, as before', async () => {
+    const c = await copyOf('judged');
+    delete c.report['cases'];
+    const err = await rejection(readCairnRun(await save(c)));
+    expect(err).toBeInstanceOf(CairnArtifactShapeError);
+    expect(err.message).toContain('report.json');
+    expect(err.message).toContain('cases');
+  });
+});

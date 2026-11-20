@@ -13,6 +13,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ### Added
 
+- **`plune ingest` reads the agent scenarios that `cairn mcp-test --propose-scenarios` writes as an `mcp` run, and sends them as proposals of an MCP server test.** Such a `report.json` says `mode: "mcp"` and lists designed cases under `testCases` (one step `Ask the agent: …` each, no verdict) instead of tool calls under `cases`; the cases are read like a `design` run's and the run stays `mcp`. A run with `cases` is read as before, and one with neither is still refused.
+
 - **Every rule in the SARIF of `plune mcp scan` has a `helpUri`: its own entry on https://docs.plune.ai/cli/guides/mcp-security/.** The anchor is the rule id with `/` written as `-` (`scan/desc/bidi-control` is `#scan-desc-bidi-control`), so GitHub code scanning links each alert to what the rule finds and how to fix it. A test holds every rule against the anchors of the live page, and another holds the `plune mcp scan` section of `docs/guide/cli.md` against the command: its flags and its exit codes.
 
 ## [0.39.5] - 2026-11-20

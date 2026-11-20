@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "runId": "run-scenarios",
+  "url": "node",
+  "mode": "mcp",
+  "testCases": [
+    {
+      "stableId": "eb4a3efc8184",
+      "id": "echo-hello",
+      "title": "Echoing a word.",
+      "type": "Positive",
+      "technique": "agent-scenario",
+      "execution": "auto",
+      "steps": [
+        "Ask the agent: Repeat the word hello back to me."
+      ],
+      "expected": "The agent calls echo with {\"q\":\"hello\"}, and the call ends without an error."
+    },
+    {
+      "stableId": "7e09bb1ccfc8",
+      "id": "weather",
+      "title": "Outside the domain.",
+      "type": "Negative",
+      "technique": "agent-scenario",
+      "execution": "auto",
+      "steps": [
+        "Ask the agent: What will the weather be tomorrow?"
+      ],
+      "expected": "The agent calls no tool of this server."
+    }
+  ],
+  "cost": {
+    "perRole": [],
+    "totalTokens": 1234,
+    "totalCostUsd": 0.0123
+  }
+}
