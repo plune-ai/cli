@@ -11,6 +11,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.39.6] - 2026-11-20
+
 ### Added
 
 - **`plune ingest` reads the agent scenarios that `cairn mcp-test --propose-scenarios` writes as an `mcp` run, and sends them as proposals of an MCP server test.** Such a `report.json` says `mode: "mcp"` and lists designed cases under `testCases` (one step `Ask the agent: …` each, no verdict) instead of tool calls under `cases`; the cases are read like a `design` run's and the run stays `mcp`. A run with `cases` is read as before, and one with neither is still refused.
