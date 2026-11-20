@@ -85,8 +85,12 @@ function errorOf(err: unknown): ToolError {
       return { status: 401, code: 'token_rejected', message: `Plune rejected the token (401): ${err.message}. Run \`plune login\` or set PLUNE_TOKEN to a live token.` };
     if (err.status === 403 && err.message === READ_ONLY_REFUSAL)
       return { status: 403, code: 'read_only_token', message: `Plune refused (403): ${readScopeMessage('it cannot write')}` };
-    const code = err.code ?? `http_${err.status}`;
-    return { status: err.status, code, message: `Plune refused (${err.status} ${code}): ${err.message}${detailLines(err.body)}`, details: err.body };
+    // #2988: a quota 429 carries a `quota` object and no code; a 403 is a missing right. The agent is told which, in words:
+    // waiting or another token does not lift a plan limit, and a larger plan does not grant a permission.
+    const quota = err.status === 429 && asRecord(err.body)['quota'] !== undefined;
+    const code = err.code ?? (quota ? 'quota_exceeded' : `http_${err.status}`);
+    const why = quota ? 'a plan limit is reached, not a missing permission — ' : err.status === 403 ? 'the token or its user lacks the permission, not a plan limit — ' : '';
+    return { status: err.status, code, message: `Plune refused (${err.status} ${code}): ${why}${err.message}${detailLines(err.body)}`, details: err.body };
   }
   if (err instanceof PluneNetworkError) return { code: 'network', message: `${err.message}. Check PLUNE_API_URL and the network.` };
   throw err;

@@ -431,6 +431,22 @@ describe('plune_cases_generate — cases from pasted text', () => {
     expect(out.error.message).toContain(body.error);
   });
 
+  it('tells a refusal by the plan limit from a refusal by permission (#2988)', async () => {
+    const quota = { error: 'Test cases limit reached — at most 500 per project.', quota: { kind: 'cases', limit: 500, used: 500, remaining: 0, resetsAt: null } };
+    const forbidden = { error: 'only an owner can do this', code: 'forbidden' };
+    const refusal = async (status: number, body: unknown) => {
+      const out = await executor(() => ({ status, body })).exec.execute('plune_cases_generate', { input: { kind: 'pasted-text', text } });
+      if (out.ok) throw new Error('expected a refusal');
+      return out.error;
+    };
+    const byLimit = await refusal(429, quota);
+    const byRight = await refusal(403, forbidden);
+    expect(byLimit).toMatchObject({ status: 429, code: 'quota_exceeded', details: quota });
+    expect(byLimit.message).toBe(`Plune refused (429 quota_exceeded): a plan limit is reached, not a missing permission — ${quota.error}`);
+    expect(byRight).toMatchObject({ status: 403, code: 'forbidden' });
+    expect(byRight.message).toBe(`Plune refused (403 forbidden): the token or its user lacks the permission, not a plan limit — ${forbidden.error}`);
+  });
+
   it('reads where a run stands, with its counters and cost', async () => {
     const done = { ...RUN, state: 'done', produced: 6, skipped: 1, cost: { inputTokens: 900, outputTokens: 1200, costUsd: 0.004 } };
     const { exec, seen } = executor(() => ({ status: 200, body: done }), { scope: 'read' });
