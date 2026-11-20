@@ -309,6 +309,28 @@ describe('plune_cases_search', () => {
   });
 });
 
+describe('executors that live for one request', () => {
+  it('CLI · mcp tools · two executors of one session give two run ids', async () => {
+    const one = { title: 'Cart keeps items', steps: ['Add an item', 'Reload'], expected: 'The item is still there' };
+    const ids: string[] = [];
+    for (let n = 0; n < 2; n++) {
+      const platform = fakePlatform(() => ({ status: 201, body: { runId: 'run-x', linked: 0, proposed: 1, skipped: 0 } }));
+      const exec = createPluneToolExecutor({ token: 'plt_test', apiUrl: 'https://api.test', projectId: 'proj-1', fetchImpl: platform.fetchImpl, sessionId: 'same-session' });
+      await exec.execute('plune_case_propose', { target: 'https://shop.example', cases: [one] });
+      ids.push((platform.seen[0]?.body as { run: { runId: string } }).run.runId);
+    }
+    expect(ids[0]).toContain('same-session');
+    expect(ids[1]).not.toBe(ids[0]);
+  });
+
+  it('CLI · mcp tools · the stdio executor still previews a deletion with a confirm', async () => {
+    const { exec, seen } = executor();
+    const r = await exec.execute('plune_api_request', { method: 'DELETE', path: '/v1/test-cases/tc-1' });
+    expect(JSON.stringify(r)).toContain('"confirm"');
+    expect(seen).toHaveLength(0);
+  });
+});
+
 describe('plune_case_propose', () => {
   const one ={ title: 'Cart keeps items', steps: ['Add an item', 'Reload'], expected: 'The item is still there' };
 

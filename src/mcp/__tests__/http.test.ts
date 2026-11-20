@@ -167,6 +167,18 @@ describe.each(['legacy', 'modern'] as const)('plune mcp over http, %s era', (era
   });
 });
 
+describe.each(['legacy', 'modern'] as const)('plune mcp over http keeps nothing between two requests, %s era', (era) => {
+  it('CLI · mcp http · a deletion asked of plune_api_request returns the reason and no confirm; nothing reaches the API', async () => {
+    const c = client(era);
+    const r = (await c.request('tools/call', { name: 'plune_api_request', arguments: { method: 'DELETE', path: '/v1/test-cases/tc-1' } })) as ToolResult;
+    const text = JSON.stringify(r);
+    expect(r.isError).toBe(true);
+    expect(text).toContain('A person deletes in the app');
+    expect(text).not.toContain('"confirm"');
+    expect(c.platform.calls).toHaveLength(0);
+  });
+});
+
 describe('@plune-ai/cli/mcp-http', () => {
   it('CLI · mcp http · the entry is in package.json exports and is a library entry of the build', () => {
     const pkg = JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8')) as { exports: Record<string, unknown> };
