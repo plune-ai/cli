@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Changed
+
+- **`plune mcp serve` tells a refusal by a plan limit from a refusal by permission.** A 429 whose body carries a `quota` object comes back with the code `quota_exceeded` and the reason "a plan limit is reached, not a missing permission"; a 403 says "the token or its user lacks the permission, not a plan limit". Before, a quota 429 read `http_429` and a 403 gave the platform's sentence alone, so an agent could not tell whether to ask for a larger plan or for another right. A refusal that names its own code (a throttle's `member_limit`) keeps it (plune-ai/plune#2988).
+
 ## [0.39.6] - 2026-11-20
 
 ### Added
