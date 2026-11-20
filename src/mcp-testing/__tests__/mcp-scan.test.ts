@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { CONFIG_RULES } from '../scan/config/config.js';
 import { handleMcpScan, type McpScanFlags } from '../../cli/commands/mcp-scan.js';
-import { emptyLock, pinServer, serializeLock } from '../pin/pin.js';
+import { emptyLock, PIN_RULES, pinServer, serializeLock } from '../pin/pin.js';
 import { DISCLAIMER } from '../scan/report.js';
 import { ALL_RULES, GATING_RULES, runScan, failsAt, type ScanInput } from '../scan/run.js';
 import { buildSnapshot, serializeSnapshot, type McpSnapshot } from '../snapshot/index.js';
@@ -189,6 +189,27 @@ describe('CLI · mcp scan · exit codes · what was found, its level, whether it
       .map((c) => c[1]!)
       .sort();
     expect(GATING_RULES).toEqual(yes);
+  });
+
+  it('the catalog table is the rules of the code: those of scan, and apart those only pin --check reports', () => {
+    const doc = readFileSync(join(ROOT, 'docs', 'features', 'mcp-scan', 'threat-catalog.md'), 'utf8');
+    const rows = doc
+      .slice(doc.indexOf('<!-- rule-catalog:start -->'), doc.indexOf('<!-- rule-catalog:end -->'))
+      .split('\n')
+      .filter((l) => l.startsWith('| scan/'))
+      .map((l) => l.split('|').map((c) => c.trim()));
+    const row = (c: string[]) => `${c[1]} ${c[2]} ${c[3]} ${c[4]}`;
+    const pinCheck = (c: string[]) => c[5] === 'pin-check';
+    expect(rows.filter((c) => !pinCheck(c)).map(row).sort()).toEqual(
+      ALL_RULES.map((r) => `${r.id} ${r.class} ${r.severity} ${r.gating}`).sort(),
+    );
+    const inScan = new Set(ALL_RULES.map((r) => r.id));
+    expect(rows.filter(pinCheck).map(row).sort()).toEqual(
+      Object.entries(PIN_RULES)
+        .filter(([id]) => !inScan.has(id))
+        .map(([id, d]) => `${id} ${d.class} ${d.level} ${d.gating}`)
+        .sort(),
+    );
   });
 
   it('a heuristic never gates unless --gate-heuristics, whatever its level; a rule that waits for the measure never gates', () => {
