@@ -20,6 +20,7 @@ import {
   strategyOutput,
   writeOutput,
 } from './schemas.js';
+import { PLUNE_ANSWER_MEASURES } from '../mcp-testing/lint/thresholds.js';
 
 /**
  * The tool contract of Plune's agent surface (plune-ai/cli#146): names, task descriptions, input and
@@ -49,6 +50,10 @@ export const MAX_VISIBLE_TOOLS = 20;
 
 const define = <T extends PluneToolDefinition>(tool: T): T => tool;
 
+/** The cost line of a tool with a live answer measure (#2988), from the same number the budget test holds. */
+const measuredCost = (tool: keyof typeof PLUNE_ANSWER_MEASURES): string =>
+  ` Measured answer: ~${PLUNE_ANSWER_MEASURES[tool].tokens} tokens (characters / 4) for ${PLUNE_ANSWER_MEASURES[tool].of}.`;
+
 const listPage = {
   limit: z.number().int().min(1).max(BATCH_MAX).optional(),
   cursor: z.string().min(1).optional().describe('nextCursor of the previous page'),
@@ -62,7 +67,7 @@ export const PLUNE_TOOLS = [
     name: 'plune_project_context',
     title: 'Project context',
     description:
-      'Start here: learn the project you are working in with one call — its projects, the suite tree, how many test cases it has, its testing missions, how much waits in the review queue, and the rules of its memory: what a person accepted for this project, to follow without asking again.',
+      'Start here: learn the project you are working in with one call — its projects, the suite tree, how many test cases it has, its testing missions, how much waits in the review queue, and the rules of its memory: what a person accepted for this project, to follow without asking again.' + measuredCost('plune_project_context'),
     input: z.strictObject({}),
     output: z.object({
       projectId: z.string().nullable(),
@@ -94,7 +99,7 @@ export const PLUNE_TOOLS = [
     name: 'plune_cases_search',
     title: 'Find test cases',
     description:
-      'Find test cases of the project by filter — free text in q, suite, state, tag, priority and the other filters of the case list — one page at a time, with the total and how many match.',
+      'Find test cases of the project by filter — free text in q, suite, state, tag, priority and the other filters of the case list — one page at a time, with the total and how many match.' + measuredCost('plune_cases_search'),
     input: z.strictObject({
       filters: z
         .record(z.string(), z.union([z.string(), z.array(z.string())]))
@@ -116,7 +121,7 @@ export const PLUNE_TOOLS = [
     name: 'plune_review_list',
     title: 'Read the review queue',
     description:
-      'See what waits for a decision in the review queue — proposed cases, discovered tests, endpoints, strategies, reports — narrowed by state, kind and mission, newest first, one page at a time. The mission filter needs a platform that supports it; an older one returns the whole queue.',
+      'See what waits for a decision in the review queue — proposed cases, discovered tests, endpoints, strategies, reports — narrowed by state, kind and mission, newest first, one page at a time. The mission filter needs a platform that supports it; an older one returns the whole queue.' + measuredCost('plune_review_list'),
     input: z.strictObject({
       state: z.enum(REVIEW_STATES).optional(),
       kinds: z.array(z.enum(REVIEW_KINDS)).min(1).optional().describe('Questions are read with the question tool'),
@@ -207,7 +212,7 @@ export const PLUNE_TOOLS = [
     name: 'plune_mission_get',
     title: 'Read a mission',
     description:
-      'Read a testing mission with everything it holds — its brief, state, documentation answer and every source attached to it — before planning or continuing the work on it.',
+      'Read a testing mission with everything it holds — its brief, state, documentation answer and every source attached to it — before planning or continuing the work on it.' + measuredCost('plune_mission_get'),
     input: z.strictObject({ missionId }),
     output: z.object({ mission: entity }),
     write: false,

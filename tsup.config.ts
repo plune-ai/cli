@@ -30,11 +30,13 @@ export default defineConfig([
     // would pull the CLI's dependency graph into a project that only wanted to report results
     // (feature ADR C1/0001). Nothing in `src/index.ts` re-exports it, so the two never merge.
     // `mcp-tools` is separate for the same reason: the platform's built-in agent imports the tool contract and the
-    // executor, never the MCP transport or the CLI.
+    // executor, never the MCP transport or the CLI. `mcp-http` is the fetch-shaped handler for a host that serves the
+    // tools over streamable HTTP: it carries the server, so the host uses this package's copy of the MCP SDK.
     entry: {
       index: 'src/index.ts',
       'reporter-core': 'src/reporter-core/index.ts',
       'mcp-tools': 'src/mcp-tools/index.ts',
+      'mcp-http': 'src/mcp/http.ts',
     },
     format: ['esm', 'cjs'],
     target: 'node20',

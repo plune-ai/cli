@@ -38,6 +38,11 @@
       "types": "./dist/mcp-tools.d.ts",
       "import": "./dist/mcp-tools.js",
       "require": "./dist/mcp-tools.cjs"
+    },
+    "./mcp-http": {
+      "types": "./dist/mcp-http.d.ts",
+      "import": "./dist/mcp-http.js",
+      "require": "./dist/mcp-http.cjs"
     }
   },
   "files": [
