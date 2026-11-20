@@ -163,6 +163,10 @@ evals:
   the same as `1`. For a threshold below `1`, use at least `runs: 5`.
 - Every run is played to the end, even once the verdict is settled: the count of passing runs is the
   measure of how flaky the case is.
+- The console and Markdown reports mark a row that passed some of its runs but not all with the share
+  that passed: `3/5 passed (pass_threshold 0.6): passed · flaky 0.6`. A row that passed all of its runs,
+  or none, has no mark. A run with no repeats at all prints one line under its summary instead,
+  `stability: not measured (runs: 1)`: one run cannot tell a flaky case from a stable one.
 - **The cache keeps every run apart.** Run 1 has the cache key a row always had, and each further run
   has one of its own, so `runs: 10` calls the model ten times. The next run of the same config
   replays the same ten answers from the cache. To measure flakiness afresh, pass `--no-cache`.
