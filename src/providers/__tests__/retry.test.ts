@@ -96,7 +96,7 @@ describe('withRetry (ADR-PRV03)', () => {
     expect(sleep).not.toHaveBeenCalled();
   });
 
-  // plune-ai/plune#2989: PLUNE_MAX_RETRIES=Infinity passes the env override (it is a number), and a
+  // PLUNE_MAX_RETRIES=Infinity passes the env override (it is a number), and a
   // 5xx then retried forever. A count that is not finite is a misconfiguration, read like a negative.
   it('treats a non-finite max_retries as no retry — a 5xx never loops forever', async () => {
     // Gives up after 50 calls so that the failing case ends instead of hanging the run.

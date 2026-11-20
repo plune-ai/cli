@@ -45,7 +45,7 @@ describe('buildJudge (ADR-OR02)', () => {
     expect(complete).toHaveBeenCalledWith(expect.objectContaining({ max_tokens: 1024 }));
   });
 
-  // plune-ai/plune#2989: thinking counts toward max_tokens, so a reasoning judge can spend the
+  // Thinking counts toward max_tokens, so a reasoning judge can spend the
   // whole budget before its answer. A cut-off reply must say so, not "no parseable JSON".
   it('fails loud, naming max_tokens, when the reply was cut off by the limit', async () => {
     const complete = vi.fn(async (): Promise<CompletionResponse> => ({
