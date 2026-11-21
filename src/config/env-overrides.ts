@@ -28,7 +28,9 @@ export function applyEnvOverrides(config: Config, env: NodeJS.ProcessEnv): Confi
 
   if (env['PLUNE_MAX_RETRIES'] !== undefined) {
     const n = Number(env['PLUNE_MAX_RETRIES']);
-    if (!isNaN(n)) for (const p of all) p.max_retries = n;
+    // A non-finite count means no retry, as in withRetry. Store it as 0: the config is hashed, and the hash
+    // takes no Infinity.
+    if (!isNaN(n)) for (const p of all) p.max_retries = Number.isFinite(n) ? n : 0;
   }
 
   return result;
