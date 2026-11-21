@@ -1,0 +1,16 @@
+{
+  "name": "plune",
+  "description": "Plune for coding agents: the Plune MCP server and skills.",
+  "owner": {
+    "name": "Plune",
+    "url": "https://plune.ai"
+  },
+  "plugins": [
+    {
+      "name": "plune",
+      "source": "./",
+      "description": "The Plune MCP server (plune mcp serve) and the Plune skills: QA missions and MCP server scenarios.",
+      "category": "testing"
+    }
+  ]
+}

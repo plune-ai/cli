@@ -1,0 +1,41 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.plune-ai/cli",
+  "title": "Plune",
+  "description": "Plune test management for agents: review queue, test cases, missions, strategy and reports.",
+  "repository": {
+    "url": "https://github.com/plune-ai/cli",
+    "source": "github"
+  },
+  "websiteUrl": "https://docs.plune.ai/cli/guides/mcp/",
+  "version": "0.39.6",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "@plune-ai/cli",
+      "version": "0.39.6",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        { "type": "positional", "value": "mcp" },
+        { "type": "positional", "value": "serve" }
+      ],
+      "environmentVariables": [
+        {
+          "name": "PLUNE_TOKEN",
+          "description": "Plune API token. Without it, the login saved by `plune login` is used. A read token offers only the read tools.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "PLUNE_PROJECT",
+          "description": "Project the tools work in. Without it, the token's own project.",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}

@@ -13,6 +13,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ### Added
 
+- **`plune mcp serve` has a descriptor for the official MCP Registry, and the repository is a Claude Code plugin marketplace.** `server.json` describes the server as `io.github.plune-ai/cli`: the npm package `@plune-ai/cli`, started with `mcp serve` over stdio, with `PLUNE_TOKEN` and `PLUNE_PROJECT` as optional variables; `package.json` names it in `mcpName`, which the registry checks against the package. `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` make the repository a plugin: `claude plugin marketplace add plune-ai/cli`, then `claude plugin install plune@plune`, adds the server, pinned to the plugin's CLI version, and the skills `plune`, `qa-mission` and `plune-mcp-evals`. The new `plune` skill says how to work with the tools (start with `plune_project_context`, a write is a proposal, `dry_run` first) and does not repeat their descriptions. A test fails when the version of `package.json` and that of `server.json` or the plugin differ. Nothing is published to the registry yet.
+
 - **`plune run import` and the Playwright reporter warn about what looks like a secret in a result's error text or text attachments before they send it.** The rules are the ones that mask the code snapshot, one detector for both. The warning names the test, the text (`the error text`, or `the attachment "response.txt"`), the line and the value's length, never the value; the result is still sent as it is. Text attachments are `text/plain` and `application/json`; traces and pictures are not read. On by default; `PLUNE_SECRET_CHECK=0` turns it off.
 
 ### Changed

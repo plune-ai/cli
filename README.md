@@ -686,6 +686,14 @@ Claude Code:
 claude mcp add plune -- npx -y @plune-ai/cli mcp serve
 ```
 
+Or as a Claude Code plugin, which adds the server and the skills (`plune`, `qa-mission`,
+`plune-mcp-evals`) in one install, and pins the server to the CLI version of the plugin:
+
+```bash
+claude plugin marketplace add plune-ai/cli
+claude plugin install plune@plune
+```
+
 Codex (`~/.codex/config.toml`):
 
 ```toml
