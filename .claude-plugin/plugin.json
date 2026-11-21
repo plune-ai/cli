@@ -1,0 +1,20 @@
+{
+  "name": "plune",
+  "displayName": "Plune",
+  "version": "0.39.6",
+  "description": "The Plune MCP server (plune mcp serve) and the Plune skills: QA missions and MCP server scenarios.",
+  "author": {
+    "name": "Plune",
+    "url": "https://plune.ai"
+  },
+  "homepage": "https://docs.plune.ai/cli/guides/mcp/",
+  "repository": "https://github.com/plune-ai/cli",
+  "license": "MIT",
+  "keywords": ["testing", "qa", "test-management", "mcp", "evals"],
+  "mcpServers": {
+    "plune": {
+      "command": "npx",
+      "args": ["-y", "@plune-ai/cli@0.39.6", "mcp", "serve"]
+    }
+  }
+}
