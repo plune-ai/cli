@@ -446,3 +446,48 @@ describe('CLI · sync · job reporting, held to the platform contract (cli#139)'
     await expect(handleSync(deps(fn))).resolves.toMatchObject({ id: 'run_1', jobProblem: 'HTTP 404 — not found' });
   });
 });
+
+describe('handleSync · the trace link of an eval', () => {
+  const evalOf = (id: string, extra: Record<string, unknown> = {}) => ({ id, tags: [], rows: [], passed: true, ...extra });
+  const TRACE = 'https://cloud.langfuse.com/project/shop/traces/4bf92f3577b34da6a3ce929d0e0e4736';
+
+  async function syncEvals(evals: unknown[]): Promise<{ sent: Record<string, unknown>[]; warnings: string[] }> {
+    writeRun(tmp, runResult({ evals } as unknown as Partial<ParsedRunResult>));
+    const { fn, calls } = stubFetch(201, { id: 'run_1' });
+    const warnings: string[] = [];
+    await handleSync({ cwd: tmp, apiUrl: 'https://api.test', loadToken: () => TOKEN, fetchImpl: fn, warn: (l) => warnings.push(l) });
+    return { sent: (JSON.parse(String(calls[0]?.init.body)) as { evals: Record<string, unknown>[] }).evals, warnings };
+  }
+
+  it('sends an eval’s https trace link, trimmed, and an eval without one sends no field', async () => {
+    const { sent, warnings } = await syncEvals([evalOf('a', { traceUrl: `  ${TRACE} ` }), evalOf('b')]);
+    expect(sent[0]?.['traceUrl']).toBe(TRACE);
+    expect(sent[1]).not.toHaveProperty('traceUrl');
+    expect(warnings).toEqual([]);
+  });
+
+  it('drops a link the platform would refuse, says which eval and why, and still uploads the rest', async () => {
+    const { sent, warnings } = await syncEvals([
+      evalOf('http', { traceUrl: 'http://langfuse.example/trace/1' }),
+      evalOf('creds', { traceUrl: 'https://user:pass@langfuse.example/trace/1' }),
+      evalOf('long', { traceUrl: `https://langfuse.example/${'a'.repeat(2048)}` }),
+      evalOf('space', { traceUrl: 'https://langfuse.example/a b' }),
+      evalOf('number', { traceUrl: 42 }),
+      evalOf('ok', { traceUrl: TRACE }),
+    ]);
+    expect(sent.map((e) => e['traceUrl'])).toEqual([undefined, undefined, undefined, undefined, undefined, TRACE]);
+    expect(warnings).toEqual([
+      'plune: eval "http": trace link not sent (must be an https address) — the eval is synced without it.\n',
+      'plune: eval "creds": trace link not sent (must carry no user name or password) — the eval is synced without it.\n',
+      'plune: eval "long": trace link not sent (longer than 2048 characters) — the eval is synced without it.\n',
+      'plune: eval "space": trace link not sent (must not contain spaces or control characters) — the eval is synced without it.\n',
+      'plune: eval "number": trace link not sent (not a string) — the eval is synced without it.\n',
+    ]);
+  });
+
+  it('a link at the 2048-character cap is sent', async () => {
+    const url = `https://langfuse.example/${'a'.repeat(2048 - 'https://langfuse.example/'.length)}`;
+    const { sent } = await syncEvals([evalOf('cap', { traceUrl: url })]);
+    expect(sent[0]?.['traceUrl']).toBe(url);
+  });
+});
