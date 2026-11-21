@@ -32,6 +32,7 @@ import {
   frictionAdvice,
   redactAnswer,
   redactIds,
+  redactReason,
   redactUuids,
   scanIds,
   type FrictionCall,
@@ -418,9 +419,15 @@ export async function runAgentRow(p: AgentRowParams): Promise<RowResult> {
   /**
    * Swaps the identifier values out of the stored transcript: in `args`, and in `result.text`, which is cut again from
    * the cleaned whole answer to at most the bytes the first excerpt kept (`bytes` stays the size of the real answer).
-   * Run once every check has read the transcript. Returns where an answer could not be fully cleaned.
+   * Run once every check has read the transcript. The reasons of the checks (`said`) quote arguments, so they go by
+   * the same rule; the checks themselves compared the real values. Returns where an answer could not be fully cleaned.
    */
-  const storeWithoutIds = (): AgentAdvice[] => {
+  const storeWithoutIds = (
+    said: { reason?: string }[] = [],
+    err?: { message: string },
+  ): AgentAdvice[] => {
+    for (const r of said) if (r.reason !== undefined) r.reason = redactReason(r.reason);
+    if (err !== undefined) err.message = redactReason(err.message);
     const unread = new Map<string, { steps: Set<number>; count: number; why: string }>();
     transcript.steps.forEach((s, si) =>
       s.calls.forEach((c, ci) => {
@@ -486,7 +493,11 @@ export async function runAgentRow(p: AgentRowParams): Promise<RowResult> {
         covered.some((c) => c.tool === undefined || c.tool === f.tool)
       ),
   );
-  const findings = [...advice, ...signals, ...storeWithoutIds()];
+  const findings = [
+    ...advice,
+    ...signals,
+    ...storeWithoutIds([...records, ...advice], assertionError),
+  ];
   if (findings.length > 0) (agent as AgentRecord).advice = findings;
   const usage = sumUsage(usages);
   return {
