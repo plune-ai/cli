@@ -46,6 +46,8 @@ interface Seen {
 interface PlatformOptions {
   /** A platform older than `targets`: its strict schema answers 400 to a batch where any result carries them. */
   refuseTargets?: boolean;
+  /** A platform older than `traceUrl`, refusing it the same way. */
+  refuseTraceUrl?: boolean;
   /**
    * Which keys the platform knows: by `value` in any kind, or by `kind:value` in that kind only — as the platform keeps a key,
    * where two kinds can hold one string (cli#156). Anything else resolves to null.
@@ -230,6 +232,9 @@ function platform(opts: PlatformOptions = {}) {
       const list = body['results'] as Record<string, unknown>[];
       if (opts.refuseTargets === true && list.some((r) => 'targets' in r)) {
         return json({ error: "Unrecognized key(s) in object: 'targets'" }, 400);
+      }
+      if (opts.refuseTraceUrl === true && list.some((r) => 'traceUrl' in r)) {
+        return json({ error: "Unrecognized key(s) in object: 'traceUrl'" }, 400);
       }
       seen.results.push({ runId: results[1] as string, results: list });
       seen.order.push('results');
@@ -493,6 +498,36 @@ describe('targets on a result', () => {
     const line = fs.readFileSync(cfg.fallbackPath as string, 'utf8');
     expect(line).toContain('a#0');
     expect(line).not.toContain('targets');
+  });
+});
+
+describe('a trace link on a result', () => {
+  const sent = (seen: Seen) => seen.results.flatMap((r) => r.results);
+  const TRACE = 'https://langfuse.example.com/traces/1';
+
+  it('is sent to a platform that takes it', async () => {
+    const { seen, fetchImpl } = platform({ known: { a: 'tc-a', b: 'tc-b' } });
+    const run = await startRun(config(fetchImpl));
+    await run.add(result('a', { traceUrl: TRACE }));
+    await run.add(result('b'));
+    await run.flush();
+
+    expect(sent(seen).map((r) => r['traceUrl'])).toEqual([TRACE, undefined]);
+    expect(sent(seen)[1]).not.toHaveProperty('traceUrl');
+  });
+
+  it('a platform without the field refuses the batch: it is sent again without the link, every result lands, and no later batch carries one', async () => {
+    const { seen, fetchImpl } = platform({ known: { a: 'tc-a', b: 'tc-b' }, refuseTraceUrl: true });
+    const cfg = config(fetchImpl, { batchSize: 1 });
+    const run = await startRun(cfg);
+    await run.add(result('a', { traceUrl: TRACE }));
+    await run.add(result('b', { traceUrl: TRACE }));
+    await run.flush();
+
+    expect(seen.resultCalls).toHaveLength(3);
+    expect(sent(seen).map((r) => r['resultKey'])).toEqual(['a#0', 'b#0']);
+    for (const r of sent(seen)) expect(r).not.toHaveProperty('traceUrl');
+    expect(logOf(cfg).filter((l) => /does not take/.test(l))).toHaveLength(1);
   });
 });
 

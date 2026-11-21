@@ -343,6 +343,37 @@ elsewhere, a link that points outside) is refused with the same line, and the fi
 Console output kept per suite rather than per test (`jest-junit`) names no test, so nothing is read from it.
 For Jest, use Allure below.
 
+### A trace link per result
+
+A result can carry the link to its trace in your own observability (a Langfuse or OTel trace): Plune keeps
+the link with the result, never the trace itself. A JUnit report gives it as a property of
+the test case, and a Playwright JSON report as a `PluneTrace` annotation, named as `PluneId` is:
+
+```xml
+<testcase classname="shop.Checkout" name="pays by card">
+  <properties>
+    <property name="plune.trace.url" value="https://langfuse.example.com/project/shop/traces/7f3c2a"/>
+  </properties>
+</testcase>
+```
+
+```ts
+test('pays by card', async () => {
+  // a static link can also go in the test's details: { annotation: { type: 'PluneTrace', description: url } }
+  test.info().annotations.push({ type: 'PluneTrace', description: traceUrl });
+});
+```
+
+In Playwright JSON each attempt's own annotation wins, so a retry keeps its own trace. Playwright's
+`junit` reporter writes an annotation as a property of the same name, so a suite imported through
+JUnit annotates with `plune.trace.url` instead. The link is trimmed; one the platform would refuse
+(not `https://`, no host, a user name or password, a space or control character, over 2048
+characters) is not sent, the result is sent without it, and the import says so:
+
+```text
+plune: "checkout › refuses an expired card": trace link not sent (must be an https address) — the result is imported without it.
+```
+
 ### An `allure-results` folder
 
 Every Allure adapter (pytest, JUnit 5, TestNG, Playwright, Cypress, Jest, Vitest, WebdriverIO, .NET) writes

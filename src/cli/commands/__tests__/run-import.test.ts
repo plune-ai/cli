@@ -1199,6 +1199,73 @@ describe('CLI · run import · JUnit folder · Maven Surefire', () => {
 });
 
 /**
+ * A trace link per result: `<property name="plune.trace.url">` in JUnit, a `PluneTrace` annotation in Playwright JSON. Both
+ * fixtures are what Playwright 1.63.0 wrote for one spec: a link in the annotation, an `http://` one, one pushed at run time
+ * with spaces around it, and a test with none (its JUnit reporter writes each annotation as a property of that name).
+ */
+describe('CLI · run import · trace link of a result', () => {
+  const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'importers', '__tests__', 'fixtures');
+  const TRACE = 'https://langfuse.example.com/project/demo/traces/7f3c2a';
+  const RUNTIME = 'https://langfuse.example.com/project/demo/traces/runtime-9b1d';
+
+  const sentTraces = (seen: Seen[]) =>
+    Object.fromEntries(
+      seen
+        .filter((s) => s.path === '/v1/runs/r-9/results')
+        .flatMap((s) => s.body['results'] as Record<string, unknown>[])
+        .map((r) => [r['resultKey'], 'traceUrl' in r ? r['traceUrl'] : 'absent']),
+    );
+
+  it.each([
+    ['JUnit plune.trace.url property', 'playwright-1.63.0-trace-url.xml', 'junit'],
+    ['Playwright PluneTrace annotation', 'playwright-1.63.0-trace.json', 'playwright-json'],
+  ])('%s: a good link is sent trimmed, a refused one is dropped with a warning and its result still lands, none sends no field', async (_, name, format) => {
+    const { seen, fetchImpl } = platform();
+    const out = await handleRunImport({ ...deps(fetchImpl), file: path.join(FIXTURES, name) });
+
+    expect(out).toMatchObject({ format, parsed: 4, accepted: 4 });
+    const traces = Object.values(sentTraces(seen));
+    expect(traces.sort()).toEqual([RUNTIME, TRACE, 'absent', 'absent'].sort());
+    const warnings = lines.filter((l) => l.includes('trace link not sent'));
+    expect(warnings).toEqual([
+      expect.stringMatching(/^plune: ".*refuses an expired card": trace link not sent \(must be an https address\) — the result is imported without it\.$/),
+    ]);
+  });
+
+  it('Playwright: each attempt carries its own link, and the test-level one stands in when the attempt has none (older reports)', async () => {
+    const report = JSON.stringify({
+      suites: [
+        {
+          title: 'a.spec.ts',
+          file: 'a.spec.ts',
+          specs: [
+            {
+              title: 'flaky',
+              file: 'a.spec.ts',
+              line: 1,
+              tests: [
+                {
+                  id: 'x',
+                  annotations: [{ type: 'PluneTrace', description: 'https://t.example/last' }],
+                  results: [
+                    { status: 'failed', retry: 0, annotations: [{ type: 'PluneTrace', description: 'https://t.example/first' }] },
+                    { status: 'passed', retry: 1 },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    const { seen, fetchImpl } = platform();
+    await handleRunImport({ ...deps(fetchImpl), file: write('report.json', report) });
+
+    expect(sentTraces(seen)).toEqual({ 'x#0': 'https://t.example/first', 'x#1': 'https://t.example/last' });
+  });
+});
+
+/**
  * The shape Playwright 1.65.1's JSON reporter writes with `onlyFailures` (read from its
  * `lib/runner/index.js`: the kept tests are the unexpected, flaky and interrupted ones, and `stats` counts only
  * them): a flaky test, whose last attempt passed — the platform's «one pass» guard cannot see through that.

@@ -166,5 +166,5 @@ export function readReport(
     return { format: chosen, results: readLighthouse(source, file, options.minScores), missing, notes };
   }
   // A Playwright JSON report names its files itself; nothing in it can be announced and then absent.
-  return { format: chosen, ...readPlaywrightJson(source, file), missing, notes };
+  return { format: chosen, ...readPlaywrightJson(source, file, notes), missing, notes };
 }

@@ -1,0 +1,292 @@
+{
+  "config": {
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\ci\\shop\\node_modules\\@playwright\\test\\cli.js",
+      "test",
+      "-c",
+      "playwright.config.js"
+    ],
+    "configFile": "C:\\ci\\shop\\playwright.config.js",
+    "rootDir": "C:/ci/shop/tests",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 2
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "C:/ci/shop/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 2
+        },
+        "id": "",
+        "name": "",
+        "testDir": "C:/ci/shop/tests",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "json",
+        {
+          "outputFile": "report.json"
+        }
+      ],
+      [
+        "junit",
+        {
+          "outputFile": "report.xml"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.63.0",
+    "workers": 16,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "plain.spec.js",
+      "file": "plain.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "has no trace",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 26,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-21T12:15:18.718Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "40180fdc16c719deebe3-ba0fb8b487c92783a9ed",
+          "file": "plain.spec.js",
+          "line": 2,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "trace.spec.js",
+      "file": "trace.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "checkout",
+          "file": "trace.spec.js",
+          "line": 2,
+          "column": 6,
+          "specs": [
+            {
+              "title": "pays by card",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [
+                    {
+                      "type": "PluneTrace",
+                      "description": "https://langfuse.example.com/project/demo/traces/7f3c2a",
+                      "location": {
+                        "file": "C:\\ci\\shop\\tests\\trace.spec.js",
+                        "line": 3,
+                        "column": 3
+                      }
+                    }
+                  ],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "passed",
+                      "duration": 26,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-21T12:15:18.703Z",
+                      "annotations": [
+                        {
+                          "type": "PluneTrace",
+                          "description": "https://langfuse.example.com/project/demo/traces/7f3c2a",
+                          "location": {
+                            "file": "C:\\ci\\shop\\tests\\trace.spec.js",
+                            "line": 3,
+                            "column": 3
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "95b7e03e13e361a13ec3-7c77886fcc41d12cc4f8",
+              "file": "trace.spec.js",
+              "line": 3,
+              "column": 3
+            },
+            {
+              "title": "refuses an expired card",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [
+                    {
+                      "type": "PluneTrace",
+                      "description": "http://langfuse.example.com/traces/insecure",
+                      "location": {
+                        "file": "C:\\ci\\shop\\tests\\trace.spec.js",
+                        "line": 6,
+                        "column": 3
+                      }
+                    }
+                  ],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "passed",
+                      "duration": 5,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-21T12:15:18.824Z",
+                      "annotations": [
+                        {
+                          "type": "PluneTrace",
+                          "description": "http://langfuse.example.com/traces/insecure",
+                          "location": {
+                            "file": "C:\\ci\\shop\\tests\\trace.spec.js",
+                            "line": 6,
+                            "column": 3
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "95b7e03e13e361a13ec3-94604844cd337d6645bf",
+              "file": "trace.spec.js",
+              "line": 6,
+              "column": 3
+            },
+            {
+              "title": "applies a gift card",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [
+                    {
+                      "type": "PluneTrace",
+                      "description": " https://langfuse.example.com/project/demo/traces/runtime-9b1d "
+                    }
+                  ],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "passed",
+                      "duration": 5,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-21T12:15:18.866Z",
+                      "annotations": [
+                        {
+                          "type": "PluneTrace",
+                          "description": " https://langfuse.example.com/project/demo/traces/runtime-9b1d "
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "95b7e03e13e361a13ec3-a16cdbf9fd8471b8750b",
+              "file": "trace.spec.js",
+              "line": 9,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-11-21T12:15:17.553Z",
+    "duration": 1414.7589999999998,
+    "expected": 4,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}
