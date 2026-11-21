@@ -63,6 +63,7 @@ evals:                           # required — one or more evals
 | `temperature` | no | `0` | Sampling temperature. Keep at `0` for reproducible runs. |
 | `max_tokens` | no | `1024` | Max output tokens per call. |
 | `concurrency` | no | `4` | Rows run in parallel (per eval). Override per-run with `--concurrency`. |
+| `timeout` | no | the SDK's default | Time for one model call, in ms: a whole number from `1` to `2147483647` (the longest a timer can wait); another value is refused (exit `2`). `PLUNE_TIMEOUT` overrides it and is checked the same way. |
 | `reasoning_effort` | no | unset (not sent) | `none`, `minimal`, `low`, `medium`, `high` or `xhigh`, sent as is by `openai` on every call. `anthropic` does not send it and says so once per model on stderr; `openrouter` does not send it. It is not part of the cache key: run with `--no-cache` after changing it. |
 
 The **API key is never in this file** — it comes from an environment variable

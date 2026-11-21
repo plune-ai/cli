@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { ConfigValidationError } from '../errors.js';
 import { applyEnvOverrides } from '../env-overrides.js';
 import type { Config } from '../../types/config.js';
 import { configHash } from '../../util/hash.js';
@@ -56,9 +57,11 @@ describe('applyEnvOverrides', () => {
     },
   );
 
-  it('keeps PLUNE_TIMEOUT=0 and a negative one as written', () => {
-    expect(applyEnvOverrides(baseConfig, { PLUNE_TIMEOUT: '0' }).provider.timeout).toBe(0);
-    expect(applyEnvOverrides(baseConfig, { PLUNE_TIMEOUT: '-5' }).provider.timeout).toBe(-5);
+  // The SDK timer fires at once for 0, a negative value or one above 2147483647 ms: refused, as in plune.yaml.
+  it.each(['0', '-5', '2147483648', '3000000000'])('refuses PLUNE_TIMEOUT=%s', (v) => {
+    expect(() => applyEnvOverrides(baseConfig, { PLUNE_TIMEOUT: v })).toThrow(
+      ConfigValidationError,
+    );
   });
 
   it('ignores PLUNE_MAX_RETRIES when value is NaN', () => {
