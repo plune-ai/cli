@@ -23,6 +23,7 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 ### Fixed
 
 - **A tool answer stored whole is no longer marked as cut because an identifier was replaced.** Since 0.39.7 the stored transcript replaces identifier values with `"<id>"` and cut the cleaned answer again to the bytes its first excerpt kept. A mark longer than the value it replaces (`1` becomes `"<id>"`) made a short answer the model saw whole come out cut, with `truncated: true` and the row's `collection: "partial"`: a 52-byte `get_note` answer ended in `"status":"o`. Now `truncated` and `collection` say what the first excerpt said about the real answer: an answer stored whole stays whole (it can be a few bytes per identifier over the excerpt size), and only an answer that was already cut is cut again. `bytes` is still the size of the real answer.
+- **`PLUNE_MAX_RETRIES=Infinity` no longer crashes `plune run` after the first call.** Since 0.39.7 such a count means one attempt and no retry, but the raw `Infinity` stayed in the config, and hashing the config for the run stopped it with `canonicalJson: non-finite number rejected: Infinity` and exit 1. `Infinity` and `-Infinity` are now stored as `0`, so the run ends with its report and the config hash is the one `PLUNE_MAX_RETRIES=0` gives. A value that is not a number (`abc`, `NaN`) is still ignored, and a negative one still means no retry.
 
 ## [0.39.7] - 2026-11-21
 

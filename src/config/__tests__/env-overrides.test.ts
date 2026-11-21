@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyEnvOverrides } from '../env-overrides.js';
 import type { Config } from '../../types/config.js';
+import { configHash } from '../../util/hash.js';
 
 const baseConfig: Config = {
   version: 1,
@@ -40,6 +41,38 @@ describe('applyEnvOverrides', () => {
   it('ignores PLUNE_MAX_RETRIES when value is NaN', () => {
     const result = applyEnvOverrides(baseConfig, { PLUNE_MAX_RETRIES: 'not-a-number' });
     expect(result.provider.max_retries).toBeUndefined();
+  });
+
+  // A non-finite count means "no retry" (one attempt). It must reach the config as that finite 0:
+  // the config is hashed for the run, and the hash rejects Infinity, so a raw Infinity crashed `plune run`.
+  it.each(['Infinity', '-Infinity'])(
+    'stores PLUNE_MAX_RETRIES=%s as 0, a finite "no retry" the config hash takes',
+    (v) => {
+      const config: Config = {
+        ...baseConfig,
+        providers: [
+          { type: 'anthropic', model: 'a' },
+          { type: 'openai', model: 'b' },
+        ],
+      };
+      const result = applyEnvOverrides(config, { PLUNE_MAX_RETRIES: v });
+      expect(result.providers?.map((p) => p.max_retries)).toEqual([0, 0]);
+      expect(configHash(result)).toBe(
+        configHash(applyEnvOverrides(config, { PLUNE_MAX_RETRIES: '0' })),
+      );
+    },
+  );
+
+  it('keeps a negative PLUNE_MAX_RETRIES as written: the retry loop reads it as no retry', () => {
+    expect(applyEnvOverrides(baseConfig, { PLUNE_MAX_RETRIES: '-1' }).provider.max_retries).toBe(
+      -1,
+    );
+  });
+
+  it('ignores PLUNE_MAX_RETRIES=NaN like any other non-number', () => {
+    expect(
+      applyEnvOverrides(baseConfig, { PLUNE_MAX_RETRIES: 'NaN' }).provider.max_retries,
+    ).toBeUndefined();
   });
 
   it('leaves config unchanged when no known env vars are set', () => {
