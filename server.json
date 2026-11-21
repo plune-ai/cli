@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.plune-ai/cli",
+  "name": "ai.plune/cli",
   "title": "Plune",
   "description": "Plune test management for agents: review queue, test cases, missions, strategy and reports.",
   "repository": {
