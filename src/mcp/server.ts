@@ -39,7 +39,8 @@ export interface PluneMcpServerOptions extends PluneToolExecutorOptions {
 const annotationsOf = (tool: PluneToolDefinition) => ({
   title: tool.title,
   readOnlyHint: !tool.write,
-  destructiveHint: tool.name === 'plune_api_request',
+  // plune_mission_update overwrites fields and can remove the address; the other writers only add.
+  destructiveHint: tool.name === 'plune_api_request' || tool.name === 'plune_mission_update',
   openWorldHint: false,
 });
 

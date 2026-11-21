@@ -129,6 +129,8 @@ describe('CLI · mcp lint · Plune tools contract', () => {
     );
 
     expect(failing.map((f) => `${f.id} on ${where(f)}: ${f.message} Fix: ${f.fix}`)).toEqual([]);
+    // plune_mission_update overwrites fields and removes the address, so it says destructiveHint: true.
+    expect(advice.filter((f) => f.id === 'hint-destructive-understated' && f.target.tool === 'plune_mission_update').map(where)).toEqual([]);
   });
 
   // Lists and lints every view itself, so it holds when run alone (-t) as well as after the views above.
