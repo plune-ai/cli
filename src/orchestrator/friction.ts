@@ -116,6 +116,84 @@ export function scanIds(result: unknown): IdScan {
   };
 }
 
+/** What the stored transcript shows in place of an identifier value. */
+export const ID_MARK = '<id>';
+const UUID_IN_TEXT = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+
+/** A text with every UUID-shaped run replaced: all that can be done for an answer that is not JSON. */
+export const redactUuids = (text: string): string => text.replace(UUID_IN_TEXT, ID_MARK);
+
+interface Strip {
+  /** False when the walk's bounds (`SCAN_DEPTH`, `SCAN_ITEMS`) left part of the value unread. */
+  whole: boolean;
+}
+
+function strip(value: unknown, depth: number, st: Strip): unknown {
+  if (typeof value === 'string') return redactUuids(value);
+  if (depth > SCAN_DEPTH) {
+    if (typeof value === 'object' && value !== null) st.whole = false;
+    return value;
+  }
+  if (Array.isArray(value)) {
+    if (value.length > SCAN_ITEMS) st.whole = false;
+    return value.map((v, i) => (i < SCAN_ITEMS ? strip(v, depth + 1, st) : v));
+  }
+  if (!isRecord(value)) return value;
+  const out: Record<string, unknown> = {};
+  for (const [key, v] of Object.entries(value)) {
+    // A key that is itself an identifier (a map by UUID) is replaced too; a second one gets a number to stay apart.
+    let name = redactUuids(key);
+    for (let n = 2; name !== key && Object.hasOwn(out, name); n++) name = `${ID_MARK}#${n}`;
+    out[name] =
+      isIdKey(key) && (isScalar(v) || (Array.isArray(v) && v.length > 0 && v.every(isScalar)))
+        ? Array.isArray(v)
+          ? v.map(() => ID_MARK)
+          : ID_MARK
+        : strip(v, depth + 1, st);
+  }
+  return out;
+}
+
+/**
+ * A copy with identifier values replaced by `ID_MARK`, by the rule `scanIds` reads them with (the same keys, a UUID
+ * anywhere in a string) and within the same bounds; keys and structure stay. `whole` is false when the bounds left
+ * part of the value unread.
+ */
+export function redactIds(value: unknown): { value: unknown; whole: boolean } {
+  const st: Strip = { whole: true };
+  return { value: strip(value, 0, st), whole: st.whole };
+}
+
+/**
+ * A tools/call result with its identifiers replaced: structured content and each text block that is JSON are walked;
+ * a text block that is not JSON has only its UUID-shaped runs replaced, and `unread` says why it was not walked.
+ */
+export function redactAnswer(result: unknown): { result: unknown; unread?: string } {
+  let unread: string | undefined;
+  const ids = (v: unknown): unknown => {
+    const r = redactIds(v);
+    if (!r.whole)
+      unread ??= `the answer is deeper than ${SCAN_DEPTH} levels or has more than ${SCAN_ITEMS} items in a list`;
+    return r.value;
+  };
+  if (!isRecord(result))
+    return { result: ids(result), ...(unread !== undefined ? { unread } : {}) };
+  const out: Record<string, unknown> = { ...result };
+  if (result.structuredContent !== undefined) out.structuredContent = ids(result.structuredContent);
+  if (Array.isArray(result.content))
+    out.content = (result.content as unknown[]).map((block) => {
+      if (!isRecord(block) || block.type !== 'text' || typeof block.text !== 'string')
+        return ids(block);
+      try {
+        return { ...block, text: JSON.stringify(ids(JSON.parse(block.text) as unknown)) };
+      } catch {
+        unread ??= 'the answer is not JSON';
+        return { ...block, text: redactUuids(block.text) };
+      }
+    });
+  return { result: out, ...(unread !== undefined ? { unread } : {}) };
+}
+
 export interface FrictionCall {
   /** From 1, as in the transcript. Calls of one step ran from one model turn, so none could read another's answer. */
   step: number;

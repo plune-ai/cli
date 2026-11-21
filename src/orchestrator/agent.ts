@@ -28,7 +28,15 @@ import {
   type RowParams,
 } from './run.js';
 import { wireNames } from './tool-names.js';
-import { frictionAdvice, scanIds, type FrictionCall, type IdScan } from './friction.js';
+import {
+  frictionAdvice,
+  redactAnswer,
+  redactIds,
+  redactUuids,
+  scanIds,
+  type FrictionCall,
+  type IdScan,
+} from './friction.js';
 import { sha256 } from '../util/hash.js';
 
 /** The most of one result's or step's text kept in the transcript, in UTF-8 bytes. */
@@ -97,6 +105,10 @@ export function resultText(result: unknown): string {
     .join('\n');
 }
 
+/** The first `keep` bytes of a text in UTF-8. A cut inside a character leaves a replacement mark at the end; it is not part of the text. */
+const firstBytes = (whole: Buffer, keep: number): string =>
+  whole.subarray(0, keep).toString('utf8').replace(/�$/, '');
+
 /** Cuts texts to their excerpts: `bytes` is measured on the whole text, before any cut. */
 function excerpts(): {
   cut(text: string): { text: string; bytes: number; truncated: boolean };
@@ -111,8 +123,7 @@ function excerpts(): {
       left -= keep;
       const truncated = keep < whole.length;
       if (truncated) state.any = true;
-      // A cut inside a character leaves a replacement mark at the end; it is not part of the text.
-      const kept = truncated ? whole.subarray(0, keep).toString('utf8').replace(/�$/, '') : text;
+      const kept = truncated ? firstBytes(whole, keep) : text;
       return { text: kept, bytes: whole.length, truncated };
     },
   };
@@ -176,6 +187,11 @@ export async function runAgentRow(p: AgentRowParams): Promise<RowResult> {
   let session: AgentServer | undefined;
   /** What each executed call's answer held in identifiers, read while the whole answer is at hand. */
   const scanned = new Map<AgentCall, IdScan>();
+  /**
+   * Each answered call's whole answer with its identifiers replaced, for the stored transcript. The checks and the
+   * friction signals read the transcript before it is swapped in, so they see the values.
+   */
+  const cleaned = new Map<AgentCall, { text: string; unread?: string }>();
   const overrides = p.toolDescriptions ?? {};
   /** The tools whose description the model was shown in place of the server's. */
   const replaced = new Set<string>();
@@ -338,6 +354,17 @@ export async function runAgentRow(p: AgentRowParams): Promise<RowResult> {
         succeeded ||= !rec.is_error;
         if (got.kind === 'result' && !rec.is_error) scanned.set(rec, scanIds(got.result));
         rec.result = kept.cut(text);
+        if (got.kind === 'result') {
+          const r = redactAnswer(got.result);
+          cleaned.set(rec, {
+            text: resultText(r.result),
+            ...(r.unread !== undefined ? { unread: r.unread } : {}),
+          });
+        } else
+          cleaned.set(rec, {
+            text: redactUuids(text),
+            unread: 'the answer is an error message, not JSON',
+          });
         // The model gets the whole answer; only the transcript keeps an excerpt.
         answer(rec, c, text);
       }
@@ -388,8 +415,50 @@ export async function runAgentRow(p: AgentRowParams): Promise<RowResult> {
       tool,
       sha256: sha256(overrides[tool]!),
     }));
+  /**
+   * Swaps the identifier values out of the stored transcript: in `args`, and in `result.text`, which is cut again from
+   * the cleaned whole answer to at most the bytes the first excerpt kept (`bytes` stays the size of the real answer).
+   * Run once every check has read the transcript. Returns where an answer could not be fully cleaned.
+   */
+  const storeWithoutIds = (): AgentAdvice[] => {
+    const unread = new Map<string, { steps: Set<number>; count: number; why: string }>();
+    transcript.steps.forEach((s, si) =>
+      s.calls.forEach((c, ci) => {
+        const out = agent.steps[si]!.calls[ci]!;
+        out.args = redactIds(out.args).value;
+        const clean = cleaned.get(c);
+        if (out.result === undefined || clean === undefined) return;
+        const whole = Buffer.from(mask?.text(clean.text) ?? clean.text, 'utf8');
+        const keep = Math.min(Buffer.byteLength(out.result.text, 'utf8'), whole.length);
+        out.result = {
+          ...out.result,
+          text: keep < whole.length ? firstBytes(whole, keep) : whole.toString('utf8'),
+          truncated: out.result.truncated || keep < whole.length,
+        };
+        // A mark longer than the value it replaced can push the excerpt past what was kept.
+        if (out.result.truncated) agent.collection = 'partial';
+        if (clean.unread === undefined) return;
+        const u = unread.get(c.name) ?? { steps: new Set(), count: 0, why: clean.unread };
+        u.steps.add(s.index);
+        u.count++;
+        unread.set(c.name, u);
+      }),
+    );
+    return [...unread].map(([tool, u]) => {
+      const steps = [...u.steps].sort((x, y) => x - y);
+      return {
+        type: 'ids-not-redacted',
+        tool,
+        steps,
+        count: u.count,
+        reason: `${tool}: ${u.why}, so only UUID-shaped values were replaced in its stored answer; other identifiers may remain (steps ${steps.join(', ')})`,
+      };
+    });
+  };
   const spent = usages.length > 0 ? { usage: sumUsage(usages) } : {};
   if (error !== undefined) {
+    const notes = storeWithoutIds();
+    if (notes.length > 0) (agent as AgentRecord).advice = notes;
     return {
       vars: p.row.vars,
       output: null,
@@ -417,7 +486,7 @@ export async function runAgentRow(p: AgentRowParams): Promise<RowResult> {
         covered.some((c) => c.tool === undefined || c.tool === f.tool)
       ),
   );
-  const findings = [...advice, ...signals];
+  const findings = [...advice, ...signals, ...storeWithoutIds()];
   if (findings.length > 0) (agent as AgentRecord).advice = findings;
   const usage = sumUsage(usages);
   return {

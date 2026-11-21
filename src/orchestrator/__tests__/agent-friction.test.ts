@@ -100,10 +100,17 @@ function deps(provider: Provider, s: AgentServer): RunDeps {
   };
 }
 
-async function run(steps: Step[], reply: Parameters<typeof server>[0], options = {}) {
+async function run(
+  steps: Step[],
+  reply: Parameters<typeof server>[0],
+  options = {},
+  assertions: Config['evals'][number]['assertions'] = [],
+) {
   const s = server(reply);
   const m = model(steps);
-  const result = await runOrchestration(config(), options, deps(m, s));
+  const cfg = config();
+  cfg.evals[0]!.assertions = assertions;
+  const result = await runOrchestration(cfg, options, deps(m, s));
   return { s, m, result, row: result.evals[0]!.rows[0]! as RowResult };
 }
 
@@ -140,7 +147,10 @@ describe('CLI · run · friction · in the loop', () => {
       [[{ name: 'search', args: { q: 'a' } }], [{ name: 'search', args: { q: 'b' } }]],
       () => `plain text with ${SECRET_ID}`,
     );
-    expect(advice(row)).toMatchObject([{ type: 'friction-unmeasured', tool: 'search' }]);
+    expect(advice(row)).toMatchObject([
+      { type: 'friction-unmeasured', tool: 'search' },
+      { type: 'ids-not-redacted', tool: 'search', steps: [1, 2], count: 2 },
+    ]);
     expect(JSON.stringify(advice(row))).not.toContain(SECRET_ID);
   });
 
@@ -155,6 +165,69 @@ describe('CLI · run · friction · in the loop', () => {
       () => ({ items: [{ id: SECRET_ID }] }),
     );
     expect(advice(row)).toEqual([]);
+  });
+});
+
+describe('CLI · run · transcript · identifier values are not stored', () => {
+  const UUID = '0f8fad5b-d9cb-469f-a165-70867728950e';
+  const ISSUE = 'ISS-480021';
+  const record = { items: [{ id: ISSUE, uuid: UUID, title: 'Login page times out' }] };
+  const fixtureSteps: Step[] = [
+    [{ name: 'search', args: { q: 'login timeout' } }],
+    [{ name: 'list', args: { issue_id: ISSUE, ref: UUID } }],
+    [{ name: 'search', args: { q: 'login page' } }],
+  ];
+  const fixtureChecks: Config['evals'][number]['assertions'] = [
+    // Passes only on the real values: proves the checks read the transcript before the swap.
+    { type: 'tool-args', tool: 'list', args: { issue_id: ISSUE, ref: UUID }, match: 'exact' },
+  ];
+
+  it('CLI · run · transcript · an identifier in args and in result.text is replaced, and checks and friction read the real values first', async () => {
+    // The fixture really carries the identifiers, so "not found" below is not trivial.
+    expect(JSON.stringify(record)).toContain(ISSUE);
+    expect(JSON.stringify(record)).toContain(UUID);
+    const { s, row, result } = await run(fixtureSteps, () => record, {}, fixtureChecks);
+    expect(s.calls).toEqual(['search', 'list', 'search']);
+
+    // The whole RunResult, as last-run.json and --format json write it, holds neither value.
+    const stored = JSON.stringify(result, null, 2);
+    expect(stored).not.toContain(ISSUE);
+    expect(stored).not.toContain(UUID);
+
+    const calls = row.agent!.steps.flatMap((st) => st.calls);
+    // Keys and structure stay; only the values are marked.
+    expect(calls[1]!.args).toEqual({ issue_id: '<id>', ref: '<id>' });
+    expect(calls[0]!.args).toEqual({ q: 'login timeout' });
+    expect(JSON.parse(calls[0]!.result!.text)).toEqual({
+      items: [{ id: '<id>', uuid: '<id>', title: 'Login page times out' }],
+    });
+    // `bytes` is still the size of the real answer.
+    expect(calls[0]!.result!.bytes).toBe(Buffer.byteLength(JSON.stringify(record)));
+
+    // The check passed on the real values, and the friction signal found the shared record.
+    expect(row.assertions.map((a) => a.passed)).toEqual([true]);
+    expect(advice(row).find((a) => a.type === 'search-after-id')).toMatchObject({
+      tool: 'search',
+      steps: [1, 3],
+    });
+    expect(advice(row).some((a) => a.type === 'ids-not-redacted')).toBe(false);
+    expect(row.error).toBeUndefined();
+    expect(parseRunResult(result).evals[0]!.rows[0]!.agent!.steps).toHaveLength(4);
+  });
+
+  it('CLI · run · transcript · a text answer that is not JSON has its UUIDs replaced and is marked as not fully cleaned', async () => {
+    const { row, result } = await run(
+      [[{ name: 'search', args: { q: 'a' } }]],
+      () => `Found ${ISSUE} (${UUID})`,
+    );
+    const call = row.agent!.steps[0]!.calls[0]!;
+    expect(call.result!.text).toBe(`Found ${ISSUE} (<id>)`);
+    expect(JSON.stringify(result)).not.toContain(UUID);
+    expect(advice(row)).toMatchObject([
+      { type: 'ids-not-redacted', tool: 'search', steps: [1], count: 1 },
+    ]);
+    expect(advice(row)[0]!.reason).toContain('the answer is not JSON');
+    expect(row.error).toBeUndefined();
   });
 });
 
