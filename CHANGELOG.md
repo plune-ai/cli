@@ -34,6 +34,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 ### Fixed
 
 - **`plune run import` of a failures-only Playwright JSON report no longer claims a full run, and an empty one is not an error.** Playwright 1.65 writes such a report with `onlyFailures: true` on the `json` reporter or `PLAYWRIGHT_JSON_ONLY_FAILURES=1`: it keeps only the tests that failed, were flaky or were interrupted. With `PLUNE_FULL_RUN=1` its tests became the whole expected list, and the platform detached every case that passed. The import now knows the report by the reporter's options written into it, or by its stats counting no test expected or skipped: it does not send `full` and says `PLUNE_FULL_RUN` is ignored for it. When nothing failed, the report is empty: the import says there is nothing to import and exits 0 without a run, where it used to stop with "No test cases". A report that is empty because Playwright found no tests still fails. A JUnit report written with `onlyFailures` carries no such sign, so `PLUNE_FULL_RUN` should not be set on its import. `plune run import --help` and the README say so.
+- **A judge reply cut off by `max_tokens` is an error that names the limit, not a verdict or "no parseable JSON".** Thinking counts toward `max_tokens`, so a reasoning judge could spend the default 1 024 before its answer; the row is now `errored` with `judge reply was cut off at max_tokens (N)`. The default limit is unchanged.
+- **`PLUNE_MAX_RETRIES=Infinity` no longer retries a 5xx forever.** A retry count that is not a finite number is read like a negative one: one attempt, no retry.
 
 ## [0.39.6] - 2026-11-20
 

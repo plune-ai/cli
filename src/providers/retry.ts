@@ -51,9 +51,9 @@ function readHeader(headers: unknown, name: string): string | number | undefined
  */
 export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions): Promise<T> {
   const { base_delay_ms = 500, sleep = defaultSleep, random = Math.random } = options;
-  // Clamp so a misconfigured negative max_retries (e.g. from PLUNE_MAX_RETRIES) means "no retry",
-  // never "give up before the first attempt".
-  const maxRetries = Math.max(0, Math.floor(options.max_retries));
+  // Clamp so a misconfigured negative or non-finite max_retries (e.g. PLUNE_MAX_RETRIES=Infinity)
+  // means "no retry": never "give up before the first attempt", never a 5xx retried forever.
+  const maxRetries = Number.isFinite(options.max_retries) ? Math.max(0, Math.floor(options.max_retries)) : 0;
   let attempt = 0;
 
   for (;;) {

@@ -44,4 +44,22 @@ describe('buildJudge (ADR-OR02)', () => {
     await buildJudge(provider, cfg, () => {}).ask('p');
     expect(complete).toHaveBeenCalledWith(expect.objectContaining({ max_tokens: 1024 }));
   });
+
+  // Thinking counts toward max_tokens, so a reasoning judge can spend the
+  // whole budget before its answer. A cut-off reply must say so, not "no parseable JSON".
+  it('fails loud, naming max_tokens, when the reply was cut off by the limit', async () => {
+    const complete = vi.fn(async (): Promise<CompletionResponse> => ({
+      output: '{"score": 0.9, "reason": "the answer',
+      usage: { input_tokens: 5, output_tokens: 256 },
+      finish_reason: 'length',
+    }));
+    const usages: unknown[] = [];
+    const provider: Provider = { complete, estimateCost: () => ({ cost_usd: 0 }) };
+    const cfg: ProviderConfig = { type: 'anthropic', model: 'm', max_tokens: 256 };
+    await expect(buildJudge(provider, cfg, (u) => usages.push(u)).ask('p')).rejects.toThrow(
+      /cut off at max_tokens \(256\)/,
+    );
+    // The tokens were spent: the cost still lands on the row.
+    expect(usages).toHaveLength(1);
+  });
 });
