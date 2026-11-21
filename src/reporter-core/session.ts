@@ -195,10 +195,10 @@ function textRefusal(bytes: Buffer): keyof typeof SKIPPED | undefined {
   return undefined;
 }
 
-/** A result as a platform older than `targets` takes it. */
+/** A result as a platform older than `targets` and `traceUrl` takes it. */
 function withoutTargets<T extends DeferredResult>(result: T): T {
-  if (result.targets === undefined) return result;
-  const { targets: _targets, ...rest } = result;
+  if (result.targets === undefined && result.traceUrl === undefined) return result;
+  const { targets: _targets, traceUrl: _traceUrl, ...rest } = result;
   return rest as T;
 }
 
@@ -1006,7 +1006,7 @@ export async function startRun(
   let joined = false;
   /** Set once the platform has told us it will not accept anything more from this process. */
   let offline = token === '';
-  /** The platform refused a batch that carried `targets`: none is sent again by this process. */
+  /** The platform refused a batch that carried `targets` or `traceUrl`: neither is sent again by this process. */
   let targetsRefused = false;
   let done = false;
   /** Names shortened to fit a key or a title, by original value — said once, counted once. */
@@ -1430,12 +1430,12 @@ export async function startRun(
           { results, ...(configuration !== undefined ? { configuration } : {}) },
         );
       let out = await post(part);
-      // `targets` is newer than some platforms, and their schema refuses a key it does not know (400). The batch goes
+      // `targets` and `traceUrl` are newer than some platforms, and their schema refuses a key it does not know (400). The batch goes
       // again without them, once, and no later one carries them: the results land, only what they are about is lost.
       // Only a 400: `invalid` also covers a quota's 429, which says nothing about the field. Any other 400 is refused
       // again and said below as before.
-      if (!out.ok && out.kind === 'invalid' && out.status === 400 && part.some((r) => r.targets !== undefined)) {
-        if (!targetsRefused) log('plune: the platform does not take targets on a result yet — the results are sent without them.');
+      if (!out.ok && out.kind === 'invalid' && out.status === 400 && part.some((r) => r.targets !== undefined || r.traceUrl !== undefined)) {
+        if (!targetsRefused) log('plune: the platform does not take targets or a trace link on a result yet — the results are sent without them.');
         targetsRefused = true;
         part = part.map(withoutTargets);
         out = await post(part);

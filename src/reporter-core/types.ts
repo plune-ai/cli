@@ -156,6 +156,11 @@ export interface PendingResult {
    * again without them (see `send`).
    */
   targets?: string[];
+  /**
+   * The link to this attempt's trace in the team's own observability (Langfuse, OTel): https, already checked by
+   * `traceUrlProblem`. Absent rather than empty; a platform older than the field is handled as for `targets`.
+   */
+  traceUrl?: string;
 }
 
 /**

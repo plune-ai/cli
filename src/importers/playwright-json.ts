@@ -24,6 +24,7 @@ import {
 } from '../reporter-core/failure-detail.js';
 import { resultKey } from '../reporter-core/result-key.js';
 import type { DeclaredStep, FailedAttempt, KeyRef, PendingResult, ResultStatus } from '../reporter-core/types.js';
+import { traceUrlOf } from './trace-url.js';
 
 const SOURCE = 'playwright';
 
@@ -49,6 +50,8 @@ interface JsonResult {
   steps?: JsonStep[];
   /** `body` is base64, as Playwright's JSON reporter writes the bytes of an attachment that has no file. */
   attachments?: { name?: string; contentType?: string; path?: string; body?: unknown }[];
+  /** This attempt's annotations, those pushed while it ran among them; absent from reports older than Playwright 1.52. */
+  annotations?: { type?: string; description?: unknown }[];
 }
 interface JsonStep {
   title?: string;
@@ -111,6 +114,8 @@ interface ReportContext {
   /** Found only when `rootDir` is on this machine: a report from elsewhere names no place. */
   repoRoot?: string;
   buildHref?: string;
+  /** Where a trace link the platform would refuse is said. */
+  notes: string[];
 }
 
 /** A report we could not read. Same contract as the XML side: name the file, never «invalid input». */
@@ -172,6 +177,10 @@ function pendingFrom(
   // — it is what the platform would have matched on anyway.
   const seed = test.id ?? pathTitle;
   const stated = statedIdOf(test, spec.title ?? '');
+  // `PluneTrace`, named as `PluneId` is. The attempt's own annotations first (a retry has its own trace); a report
+  // older than per-attempt annotations has only the test's.
+  const traced = (result.annotations ?? test.annotations)?.find((a) => a.type === 'PluneTrace')?.description;
+  const traceUrl = traceUrlOf(traced, titles.join(' › '), ctx.notes);
   const expected = test.expectedStatus;
   const attempt = attemptOf(result, file, ctx);
   const errorContext = errorContextFields(attempt);
@@ -215,6 +224,7 @@ function pendingFrom(
     ...errorContext,
     ...(failure !== undefined ? { failure } : {}),
     ...(files.length > 0 ? { files } : {}),
+    ...(traceUrl !== undefined ? { traceUrl } : {}),
   };
 }
 
@@ -248,6 +258,7 @@ function walk(suite: JsonSuite, describes: string[], depth: number, ctx: ReportC
 export function readPlaywrightJson(
   source: string,
   file: string,
+  notes: string[] = [],
 ): { results: PendingResult[]; ciUrl?: string; ci?: unknown; failuresOnly?: true } {
   let parsed: unknown;
   try {
@@ -266,6 +277,7 @@ export function readPlaywrightJson(
   // Looked up once per report. A root dir this machine does not have is another machine's run.
   const repoRoot = rootDir !== undefined && existsSync(rootDir) ? repoRootOf(rootDir) : undefined;
   const ctx: ReportContext = {
+    notes,
     ...(rootDir !== undefined ? { rootDir } : {}),
     ...(repoRoot !== undefined ? { repoRoot } : {}),
     ...(typeof buildHref === 'string' ? { buildHref } : {}),

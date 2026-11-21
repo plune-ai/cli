@@ -15,6 +15,7 @@
 import { resultKey } from '../reporter-core/result-key.js';
 import type { KeyRef, PendingResult } from '../reporter-core/types.js';
 import { filesOfTest, reportFolders, type MissingAttachment } from './attachments.js';
+import { traceUrlOf } from './trace-url.js';
 import { parseXml, type XmlElement } from './xml.js';
 
 /** The key into the project's status map. */
@@ -32,6 +33,17 @@ const SPEC_FILE = /\.(?:spec|test)\.[cm]?[jt]sx?$/;
 
 /** The one testcase property that names what a case is about: `plune mcp` writes a tool per property. */
 const TARGET_PROPERTY = 'plune.mcp.tool';
+
+/** The testcase property that links the result to its trace in the team's own observability (Langfuse, OTel). */
+const TRACE_PROPERTY = 'plune.trace.url';
+
+/** The value of a case's first `name` property, or `undefined` when it has none. */
+function propertyOf(test: XmlElement, name: string): string | undefined {
+  return test.children
+    .filter((c) => c.name === 'properties')
+    .flatMap((p) => p.children)
+    .find((p) => p.name === 'property' && p.attrs['name'] === name)?.attrs['value'];
+}
 
 /** What the platform keeps of a result's targets: at most 50, each 1–200 characters after trimming. */
 const TARGETS = { max: 50, length: 200 } as const;
@@ -236,6 +248,7 @@ export function readJUnit(
     const rkey = resultKey(key.value, 0);
     const files = filesOfTest(test, folder, title, missing, { lexical, resultKey: rkey, notes });
     const targets = targetsOf(test);
+    const traceUrl = traceUrlOf(propertyOf(test, TRACE_PROPERTY), title, notes);
 
     return {
       resultKey: rkey,
@@ -249,6 +262,7 @@ export function readJUnit(
       ...(errorContext !== '' ? { errorContext } : {}),
       ...(files.length > 0 ? { files } : {}),
       ...(targets.length > 0 ? { targets } : {}),
+      ...(traceUrl !== undefined ? { traceUrl } : {}),
     };
   });
 }

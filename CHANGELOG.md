@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **`plune run import` sends a result's trace link from JUnit XML and Playwright JSON.** A JUnit test case gives it as `<property name="plune.trace.url" value="https://…"/>`, a Playwright test as a `PluneTrace` annotation (named as `PluneId` is); in Playwright JSON each attempt's own annotation comes first, then the test's. The link goes up as the result's `traceUrl`, trimmed. One the platform would refuse (the same rules as for `plune sync`) is not sent: the result is imported without it, and the import prints `plune: "<test>": trace link not sent (<reason>)`. A platform that does not take the field yet refuses the batch once; it is sent again without trace links and targets, as for targets. Allure, k6 and Lighthouse reports still send none. Before, `plune run import` sent no trace link from any format.
+
 ### Changed
 
 - **The MCP Registry name of `plune mcp serve` is `ai.plune/cli`.** `server.json` `name` and `package.json` `mcpName` move from `io.github.plune-ai/cli` to `ai.plune/cli`, a name proven by the plune.ai domain (the registry's HTTP authentication reads `https://plune.ai/.well-known/mcp-registry-auth`) rather than by the GitHub organization. A new workflow, `.github/workflows/mcp-registry.yml`, logs in with `mcp-publisher login http --domain plune.ai` and runs `mcp-publisher publish`; it starts only by hand (`workflow_dispatch`), never from a tag. The registry checks `mcpName` in the published npm package, so the first release that carries this change is the first one that can be published under the new name. Nothing is published to the registry yet.
