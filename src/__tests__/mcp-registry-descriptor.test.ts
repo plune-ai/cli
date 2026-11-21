@@ -19,7 +19,8 @@ const marketplace = json('.claude-plugin/marketplace.json');
 
 describe('server.json (MCP Registry)', () => {
   it('is named as package.json mcpName says, which the registry checks against npm', () => {
-    expect(pkg['mcpName']).toMatch(/^io\.github\.plune-ai\/[a-zA-Z0-9._-]+$/);
+    // Domain-based name: plune.ai proves it with /.well-known/mcp-registry-auth.
+    expect(pkg['mcpName']).toBe('ai.plune/cli');
     expect(server['name']).toBe(pkg['mcpName']);
   });
 

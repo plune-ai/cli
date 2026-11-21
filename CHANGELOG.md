@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Changed
+
+- **The MCP Registry name of `plune mcp serve` is `ai.plune/cli`.** `server.json` `name` and `package.json` `mcpName` move from `io.github.plune-ai/cli` to `ai.plune/cli`, a name proven by the plune.ai domain (the registry's HTTP authentication reads `https://plune.ai/.well-known/mcp-registry-auth`) rather than by the GitHub organization. A new workflow, `.github/workflows/mcp-registry.yml`, logs in with `mcp-publisher login http --domain plune.ai` and runs `mcp-publisher publish`; it starts only by hand (`workflow_dispatch`), never from a tag. The registry checks `mcpName` in the published npm package, so the first release that carries this change is the first one that can be published under the new name. Nothing is published to the registry yet.
+
 ## [0.39.7] - 2026-11-21
 
 ### Added

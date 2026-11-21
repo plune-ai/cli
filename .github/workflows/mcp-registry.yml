@@ -1,0 +1,57 @@
+name: Publish to MCP Registry
+
+# Publishes server.json as ai.plune/cli to the official MCP Registry. Manual only: no tag or push
+# trigger, so a release never publishes to the registry by itself. Domain proof is HTTP
+# authentication: the registry reads https://plune.ai/.well-known/mcp-registry-auth and checks the
+# signature made with the private key in the MCP_REGISTRY_PRIVATE_KEY secret.
+# Steps follow https://modelcontextprotocol.io/registry/github-actions and
+# https://modelcontextprotocol.io/registry/authentication (HTTP Authentication).
+# The npm package named in server.json must already be published with mcpName ai.plune/cli.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mcp-registry
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # GitHub-hosted on purpose: the registry docs advise against self-hosted runners for the
+    # publish job on a public repository.
+    runs-on: ubuntu-latest
+    env:
+      MCP_PUBLISHER_VERSION: v1.8.1
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Download and verify mcp-publisher
+        run: |
+          set -euo pipefail
+          os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+          arch="$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
+          archive="mcp-publisher_${os}_${arch}.tar.gz"
+          base_url="https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}"
+
+          curl --fail --location --silent --show-error --output "$archive" "$base_url/$archive"
+          curl --fail --location --silent --show-error --output "$archive.sigstore.json" "$base_url/$archive.sigstore.json"
+          cosign verify-blob \
+            --bundle "$archive.sigstore.json" \
+            --certificate-identity "https://github.com/modelcontextprotocol/registry/.github/workflows/release.yml@refs/tags/${MCP_PUBLISHER_VERSION}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$archive"
+          tar xzf "$archive" mcp-publisher
+          rm -f "$archive" "$archive.sigstore.json"
+
+      - name: Authenticate to MCP Registry
+        env:
+          MCP_REGISTRY_PRIVATE_KEY: ${{ secrets.MCP_REGISTRY_PRIVATE_KEY }}
+        run: ./mcp-publisher login http --domain plune.ai --private-key "$MCP_REGISTRY_PRIVATE_KEY"
+
+      - name: Publish server to MCP Registry
+        run: ./mcp-publisher publish
