@@ -123,6 +123,27 @@ const UUID_IN_TEXT = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 /** A text with every UUID-shaped run replaced: all that can be done for an answer that is not JSON. */
 export const redactUuids = (text: string): string => text.replace(UUID_IN_TEXT, ID_MARK);
 
+// A `"key":value` pair of JSON quoted in a text, as `describeArgs` writes it: a string (cut short before ` (cut)`), a
+// number, or a list of them.
+const STR = String.raw`"(?:[^"\\]|\\.)*?(?:"|(?= \(cut\)))`;
+const NUM = String.raw`-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?`;
+const VAL = `(?:${STR}|${NUM})`;
+const PAIR = new RegExp(
+  String.raw`"((?:[^"\\]|\\.)*)":(${VAL}|\[(?:${VAL}(?:,${VAL})*)?(?:\]|(?= \(cut\))))`,
+  'g',
+);
+
+/**
+ * A check's reason with the identifier values it quotes replaced, by the rule of `redactIds`: the value of an
+ * identifier key in quoted JSON (the expected arguments as well as the actual ones), and a UUID anywhere.
+ */
+export const redactReason = (text: string): string =>
+  redactUuids(
+    text.replace(PAIR, (whole, key: string) =>
+      isIdKey(key) ? `"${key}":${JSON.stringify(ID_MARK)}` : whole,
+    ),
+  );
+
 interface Strip {
   /** False when the walk's bounds (`SCAN_DEPTH`, `SCAN_ITEMS`) left part of the value unread. */
   whole: boolean;

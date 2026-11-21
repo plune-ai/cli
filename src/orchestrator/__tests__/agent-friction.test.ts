@@ -215,6 +215,31 @@ describe('CLI · run · transcript · identifier values are not stored', () => {
     expect(parseRunResult(result).evals[0]!.rows[0]!.agent!.steps).toHaveLength(4);
   });
 
+  it('CLI · run · transcript · the reason of a failed tool-args check quotes no identifier value, and the check still fails on the real values', async () => {
+    // Expected and actual args both hold the identifiers; `state` makes the exact match fail.
+    const checks: Config['evals'][number]['assertions'] = [
+      {
+        type: 'tool-args',
+        tool: 'list',
+        // In this order the reason cuts the expected args inside the UUID: a part of it must not stay either.
+        args: { state: 'open', issue_id: ISSUE, ref: UUID },
+        match: 'exact',
+      },
+    ];
+    const { row, result } = await run(fixtureSteps, () => record, {}, checks);
+    expect(row.assertions).toHaveLength(1);
+    const [check] = row.assertions;
+    expect(check!.passed).toBe(false);
+    expect(check!.reason).toContain('"list"');
+    expect(check!.reason).toContain('"issue_id":"<id>"');
+    expect(check!.reason).toContain('"state":"open"');
+
+    const stored = JSON.stringify(result, null, 2);
+    expect(stored).not.toContain(ISSUE);
+    expect(stored).not.toContain(UUID);
+    expect(stored).not.toContain(UUID.slice(0, 8));
+  });
+
   it('CLI · run · transcript · a text answer that is not JSON has its UUIDs replaced and is marked as not fully cleaned', async () => {
     const { row, result } = await run(
       [[{ name: 'search', args: { q: 'a' } }]],
