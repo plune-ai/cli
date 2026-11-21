@@ -23,7 +23,9 @@ export function applyEnvOverrides(config: Config, env: NodeJS.ProcessEnv): Confi
 
   if (env['PLUNE_TIMEOUT'] !== undefined) {
     const n = Number(env['PLUNE_TIMEOUT']);
-    if (!isNaN(n)) for (const p of all) p.timeout = n;
+    // Infinity is no time the SDK timer can wait (it fires at once), and the hashed config takes no Infinity:
+    // ignore it like a non-number, so the config's own timeout stays.
+    if (Number.isFinite(n)) for (const p of all) p.timeout = n;
   }
 
   if (env['PLUNE_MAX_RETRIES'] !== undefined) {

@@ -38,6 +38,29 @@ describe('applyEnvOverrides', () => {
     expect(result.provider.timeout).toBeUndefined();
   });
 
+  // A non-finite timeout is not a time the SDK can wait (its timer fires at once), and the config is
+  // hashed for the run, and the hash takes no Infinity: the override is ignored, the config value stays.
+  it.each(['Infinity', '-Infinity'])(
+    'ignores PLUNE_TIMEOUT=%s and keeps the config timeout, which the config hash takes',
+    (v) => {
+      const config: Config = {
+        ...baseConfig,
+        providers: [
+          { type: 'anthropic', model: 'a', timeout: 30000 },
+          { type: 'openai', model: 'b' },
+        ],
+      };
+      const result = applyEnvOverrides(config, { PLUNE_TIMEOUT: v });
+      expect(result.providers?.map((p) => p.timeout)).toEqual([30000, undefined]);
+      expect(configHash(result)).toBe(configHash(config));
+    },
+  );
+
+  it('keeps PLUNE_TIMEOUT=0 and a negative one as written', () => {
+    expect(applyEnvOverrides(baseConfig, { PLUNE_TIMEOUT: '0' }).provider.timeout).toBe(0);
+    expect(applyEnvOverrides(baseConfig, { PLUNE_TIMEOUT: '-5' }).provider.timeout).toBe(-5);
+  });
+
   it('ignores PLUNE_MAX_RETRIES when value is NaN', () => {
     const result = applyEnvOverrides(baseConfig, { PLUNE_MAX_RETRIES: 'not-a-number' });
     expect(result.provider.max_retries).toBeUndefined();
