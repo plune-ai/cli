@@ -19,6 +19,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 - **The MCP Registry name of `plune mcp serve` is `ai.plune/cli`.** `server.json` `name` and `package.json` `mcpName` move from `io.github.plune-ai/cli` to `ai.plune/cli`, a name proven by the plune.ai domain (the registry's HTTP authentication reads `https://plune.ai/.well-known/mcp-registry-auth`) rather than by the GitHub organization. A new workflow, `.github/workflows/mcp-registry.yml`, logs in with `mcp-publisher login http --domain plune.ai` and runs `mcp-publisher publish`; it starts only by hand (`workflow_dispatch`), never from a tag. The registry checks `mcpName` in the published npm package, so the first release that carries this change is the first one that can be published under the new name. Nothing is published to the registry yet.
 
+### Fixed
+
+- **A tool answer stored whole is no longer marked as cut because an identifier was replaced.** Since 0.39.7 the stored transcript replaces identifier values with `"<id>"` and cut the cleaned answer again to the bytes its first excerpt kept. A mark longer than the value it replaces (`1` becomes `"<id>"`) made a short answer the model saw whole come out cut, with `truncated: true` and the row's `collection: "partial"`: a 52-byte `get_note` answer ended in `"status":"o`. Now `truncated` and `collection` say what the first excerpt said about the real answer: an answer stored whole stays whole (it can be a few bytes per identifier over the excerpt size), and only an answer that was already cut is cut again. `bytes` is still the size of the real answer.
+
 ## [0.39.7] - 2026-11-21
 
 ### Added
