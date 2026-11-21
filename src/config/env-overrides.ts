@@ -1,4 +1,5 @@
 import { ConfigValidationError } from './errors.js';
+import { providerTimeoutSchema } from './schema.js';
 import type { Config } from '../types/config.js';
 
 export function applyEnvOverrides(config: Config, env: NodeJS.ProcessEnv): Config {
@@ -24,8 +25,17 @@ export function applyEnvOverrides(config: Config, env: NodeJS.ProcessEnv): Confi
   if (env['PLUNE_TIMEOUT'] !== undefined) {
     const n = Number(env['PLUNE_TIMEOUT']);
     // Infinity is no time the SDK timer can wait (it fires at once), and the hashed config takes no Infinity:
-    // ignore it like a non-number, so the config's own timeout stays.
-    if (Number.isFinite(n)) for (const p of all) p.timeout = n;
+    // ignore it like a non-number, so the config's own timeout stays. A finite value is checked by the schema
+    // that checks `timeout` in plune.yaml: 0, a negative or a fraction, or above the timer's limit, is refused.
+    if (Number.isFinite(n)) {
+      const r = providerTimeoutSchema.safeParse(n);
+      if (!r.success)
+        throw new ConfigValidationError(
+          'Config validation failed',
+          r.error.issues.map((issue) => `PLUNE_TIMEOUT=${env['PLUNE_TIMEOUT']}: ${issue.message}`),
+        );
+      for (const p of all) p.timeout = n;
+    }
   }
 
   if (env['PLUNE_MAX_RETRIES'] !== undefined) {

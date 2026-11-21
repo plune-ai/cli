@@ -123,4 +123,63 @@ evals:
     expect(result.provider.timeout).toBe(5000);
     expect(result.provider.type).toBe('anthropic'); // unchanged
   });
+
+  // A Node timer cannot wait longer than 2147483647 ms: past it, the SDK's timeout fires after about 1 ms and
+  // every model call times out at once. Both sources of the timeout are refused with the field named.
+  const withTimeout = (t: string): string =>
+    VALID_YAML.replace('  model: claude-3-opus\n', `  model: claude-3-opus\n  timeout: ${t}\n`);
+  const issuesOf = async (p: Promise<unknown>): Promise<string[]> => {
+    const err = await p.then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(ConfigValidationError);
+    return (err as ConfigValidationError).issues;
+  };
+  const reason = (issue: string | undefined): string =>
+    (issue ?? '').slice((issue ?? '').indexOf(': ') + 2);
+
+  it('refuses a provider timeout above 2147483647 ms in plune.yaml, naming the field', async () => {
+    const configPath = path.join(tmpDir, 'plune.yaml');
+    fs.writeFileSync(configPath, withTimeout('3000000000'));
+    const issues = await issuesOf(loadConfig({ configPath, env: {} }));
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatch(/^provider\.timeout: .*2147483647 ms/);
+  });
+
+  it('refuses an eval provider timeout above 2147483647 ms', async () => {
+    const configPath = path.join(tmpDir, 'plune.yaml');
+    fs.writeFileSync(
+      configPath,
+      VALID_YAML.replace(
+        '    prompt: "Hello"\n',
+        '    prompt: "Hello"\n    provider:\n      timeout: 2147483648\n',
+      ),
+    );
+    const issues = await issuesOf(loadConfig({ configPath, env: {} }));
+    expect(issues[0]).toMatch(/^evals\.0\.provider\.timeout: .*2147483647 ms/);
+  });
+
+  it('accepts a timeout of exactly 2147483647 ms from plune.yaml and from PLUNE_TIMEOUT', async () => {
+    const configPath = path.join(tmpDir, 'plune.yaml');
+    fs.writeFileSync(configPath, withTimeout('2147483647'));
+    expect((await loadConfig({ configPath, env: {} })).provider.timeout).toBe(2147483647);
+    fs.writeFileSync(configPath, VALID_YAML);
+    const fromEnv = await loadConfig({ configPath, env: { PLUNE_TIMEOUT: '2147483647' } });
+    expect(fromEnv.provider.timeout).toBe(2147483647);
+  });
+
+  it.each(['3000000000', '0', '-5', '1.5'])(
+    'refuses PLUNE_TIMEOUT=%s with the variable named, for the reason the same value in plune.yaml is refused',
+    async (v) => {
+      const configPath = path.join(tmpDir, 'plune.yaml');
+      fs.writeFileSync(configPath, VALID_YAML);
+      const issues = await issuesOf(loadConfig({ configPath, env: { PLUNE_TIMEOUT: v } }));
+      expect(issues).toHaveLength(1);
+      expect(issues[0]?.startsWith(`PLUNE_TIMEOUT=${v}: `)).toBe(true);
+      fs.writeFileSync(configPath, withTimeout(v));
+      const yamlIssues = await issuesOf(loadConfig({ configPath, env: {} }));
+      expect(reason(issues[0])).toBe(reason(yamlIssues[0]));
+    },
+  );
 });

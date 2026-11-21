@@ -1,6 +1,18 @@
 import { z } from 'zod';
+import { MAX_TIMER_MS } from '../util/duration.js';
 
 // --- Provider ---
+
+// The provider SDK waits for a call with a Node timer; past MAX_TIMER_MS the timer fires after about 1 ms and
+// every call times out at once. PLUNE_TIMEOUT is checked against this same schema (env-overrides.ts).
+export const providerTimeoutSchema = z
+  .number()
+  .int()
+  .positive()
+  .max(
+    MAX_TIMER_MS,
+    `must be at most ${MAX_TIMER_MS} ms (about 24.8 days), the longest a timer can wait: a longer timeout ends every model call at once`,
+  );
 
 const providerConfigSchema = z.object({
   type: z.enum(['anthropic', 'openai', 'openrouter']),
@@ -8,7 +20,7 @@ const providerConfigSchema = z.object({
   temperature: z.number().min(0).max(2).optional(),
   max_tokens: z.number().int().positive().optional(),
   concurrency: z.number().int().positive().optional(),
-  timeout: z.number().int().positive().optional(),
+  timeout: providerTimeoutSchema.optional(),
   max_retries: z.number().int().min(0).optional(),
   // The values the OpenAI SDK's Chat Completions `reasoning_effort` accepts; only `openai` sends it.
   reasoning_effort: z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
@@ -205,8 +217,7 @@ const evalRepeatsShape = {
 
 // --- MCP: the server an agentic eval talks to, and the limits that end its loop ---
 
-// The longest a timer can wait; the connection core caps its durations at the same value.
-const MAX_TIMER_MS = 2_147_483_647;
+// The longest a timer can wait (MAX_TIMER_MS); the connection core caps its durations at the same value.
 const limit = z.number().int().positive();
 
 const mcpLimitsSchema = z
