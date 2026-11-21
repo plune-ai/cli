@@ -1232,6 +1232,19 @@ describe('CLI · run import · trace link of a result', () => {
     ]);
   });
 
+  it('JUnit PluneTrace property (what Playwright 1.63.0 writes for the annotation): sent, a refused one dropped with a warning, plune.trace.url wins when both are there', async () => {
+    const { seen, fetchImpl } = platform();
+    const out = await handleRunImport({ ...deps(fetchImpl), file: path.join(FIXTURES, 'playwright-1.63.0-plunetrace.xml') });
+
+    expect(out).toMatchObject({ format: 'junit', parsed: 3, accepted: 3 });
+    expect(Object.values(sentTraces(seen)).sort()).toEqual(
+      [TRACE, 'https://langfuse.example.com/project/demo/traces/from-property', 'absent'].sort(),
+    );
+    expect(lines.filter((l) => l.includes('trace link not sent'))).toEqual([
+      expect.stringMatching(/^plune: ".*refuses an expired card": trace link not sent \(must be an https address\) — the result is imported without it\.$/),
+    ]);
+  });
+
   it('Playwright: each attempt carries its own link, and the test-level one stands in when the attempt has none (older reports)', async () => {
     const report = JSON.stringify({
       suites: [

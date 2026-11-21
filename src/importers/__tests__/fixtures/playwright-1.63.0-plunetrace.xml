@@ -1,0 +1,24 @@
+<testsuites id="" name="" tests="3" failures="0" skipped="0" errors="0" time="0.37930299999999995">
+<testsuite name="trace.spec.js" timestamp="2026-11-21T18:31:02.585Z" hostname="" tests="3" failures="0" skipped="0" time="0.003" errors="0">
+<testcase name="checkout › pays by card" classname="trace.spec.js" time="0.003">
+<properties>
+<property name="PluneTrace" value="https://langfuse.example.com/project/demo/traces/7f3c2a">
+</property>
+</properties>
+</testcase>
+<testcase name="checkout › refuses an expired card" classname="trace.spec.js" time="0">
+<properties>
+<property name="PluneTrace" value="http://langfuse.example.com/traces/insecure">
+</property>
+</properties>
+</testcase>
+<testcase name="checkout › applies a gift card" classname="trace.spec.js" time="0">
+<properties>
+<property name="PluneTrace" value="https://langfuse.example.com/project/demo/traces/from-annotation">
+</property>
+<property name="plune.trace.url" value="https://langfuse.example.com/project/demo/traces/from-property">
+</property>
+</properties>
+</testcase>
+</testsuite>
+</testsuites>
