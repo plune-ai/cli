@@ -1270,7 +1270,7 @@
     },
     {
       "annotations": {
-        "destructiveHint": false,
+        "destructiveHint": true,
         "openWorldHint": false,
         "readOnlyHint": false,
         "title": "Update a mission"
