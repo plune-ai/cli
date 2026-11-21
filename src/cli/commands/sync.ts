@@ -12,7 +12,7 @@
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { parseRunResult, type ParsedRunResult } from '../../types/run-result-schema.js';
+import { parseRunResult, traceUrlProblem, type ParsedRunResult } from '../../types/run-result-schema.js';
 import { resolveApiUrl } from '../api-url.js';
 import { loadToken } from '../credentials.js';
 import { gateExit, type Verdict } from '../gate.js';
@@ -82,6 +82,8 @@ export interface SyncDeps {
   fetchImpl?: typeof fetch;
   /** `--fail-on-failures`: read the run's summary back once after the upload and judge it. */
   failOnFailures?: boolean;
+  /** Where a warning line goes (a trace link not sent). Defaults to stderr. */
+  warn?: (line: string) => void;
 }
 
 export interface SyncResult {
@@ -96,7 +98,7 @@ export interface SyncResult {
 }
 
 /** Read + validate the run to upload, failing locally (with a clear message) before any network call. */
-function readRun(cwd: string, file: string | undefined): ParsedRunResult {
+function readRun(cwd: string, file: string | undefined, warn: (line: string) => void): ParsedRunResult {
   const target =
     file !== undefined ? path.resolve(cwd, file) : path.join(cwd, '.plune', 'last-run.json');
   let raw: string;
@@ -115,11 +117,29 @@ function readRun(cwd: string, file: string | undefined): ParsedRunResult {
   } catch {
     throw new SyncFileError(`Run file is not valid JSON: ${target}`);
   }
+  dropBadTraceLinks(json, warn);
   try {
     // Same zod contract the server enforces — a bad file fails here, not as an opaque 400 mid-upload.
     return parseRunResult(json);
   } catch {
     throw new SyncFileError(`Run file does not match the RunResult schema: ${target}`);
+  }
+}
+
+/** A trace link the platform would refuse costs only that link, never the upload: it is dropped with a warning; a good one is trimmed. */
+function dropBadTraceLinks(json: unknown, warn: (line: string) => void): void {
+  const evals = (json as { evals?: unknown } | null)?.evals;
+  if (!Array.isArray(evals)) return; // the schema says what is wrong with it
+  for (const e of evals as unknown[]) {
+    if (typeof e !== 'object' || e === null || !('traceUrl' in e)) continue;
+    const entry = e as { id?: unknown; traceUrl?: unknown };
+    const problem = traceUrlProblem(entry.traceUrl);
+    if (problem === undefined) {
+      entry.traceUrl = (entry.traceUrl as string).trim();
+      continue;
+    }
+    delete entry.traceUrl;
+    warn(`plune: eval "${String(entry.id)}": trace link not sent (${problem}) — the eval is synced without it.\n`);
   }
 }
 
@@ -145,7 +165,7 @@ export async function handleSync(deps: SyncDeps = {}): Promise<SyncResult> {
   const token = (deps.loadToken ?? loadToken)();
   if (token === null) throw new NotLoggedInError();
 
-  const run = readRun(cwd, deps.file);
+  const run = readRun(cwd, deps.file, deps.warn ?? ((line) => process.stderr.write(line)));
   const doFetch = deps.fetchImpl ?? fetch;
   const endpoint = `${apiUrl}/v1/runs`;
 

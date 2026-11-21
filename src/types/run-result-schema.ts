@@ -193,7 +193,33 @@ const evalResultSchema = z.object({
     .optional(),
   /** The type and model of a cell of a multi-model run. Optional and additive. */
   provider: z.object({ type: z.string(), model: z.string() }).optional(),
+  /** The link to the eval's trace in your own observability (Langfuse, OTel). Optional and additive; `plune sync` drops one `traceUrlProblem` refuses. */
+  traceUrl: z.string().optional(),
 });
+
+/** The longest trace link the platform keeps. */
+export const TRACE_URL_MAX = 2048;
+
+/**
+ * Why the platform would refuse this trace link, or `undefined` when it takes it (after trimming): https only, a host, no user
+ * name or password, no space or control character, at most `TRACE_URL_MAX` characters. The same rules as the platform's, so a
+ * bad link is dropped here with a warning instead of failing the whole upload with a 400.
+ */
+export function traceUrlProblem(value: unknown): string | undefined {
+  if (typeof value !== 'string') return 'not a string';
+  const url = value.trim();
+  if (url.length > TRACE_URL_MAX) return `longer than ${TRACE_URL_MAX} characters`;
+  if (!/^[^\s\p{Cc}\p{Cf}]+$/u.test(url)) return 'must not contain spaces or control characters';
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return 'must be an https address';
+  }
+  if (parsed.protocol !== 'https:' || parsed.hostname === '') return 'must be an https address';
+  if (parsed.username !== '' || parsed.password !== '') return 'must carry no user name or password';
+  return undefined;
+}
 
 export const runResultSchema = z.object({
   schemaVersion: z.literal(RUN_RESULT_SCHEMA_VERSION),
