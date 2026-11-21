@@ -6,6 +6,8 @@
 import { describe, expect, it } from 'vitest';
 import { connectPluneServer, type PluneConnection, type ProtocolEra } from '../plune-snapshot.js';
 import { estimateTokens, LINT_THRESHOLDS, toolListSize, type ListedTool } from '../lint/index.js';
+import { PLUNE_ANSWER_MEASURES } from '../lint/thresholds.js';
+import { PLUNE_TOOLS } from '../../mcp-tools/index.js';
 import {
   FIXTURE_CASES,
   FIXTURE_MISSION_ID,
@@ -103,6 +105,8 @@ describe('CLI · mcp budget · Plune tools list', () => {
     const compact = estimateTokens(JSON.stringify(result['structuredContent']));
     console.info(`mcp budget · ${a.tool} answer: ~${tokens} tokens (limit ${B.answers[a.tool]}), ~${compact} as JSON without indentation`);
     expect(overrun(`${a.tool} answer`, tokens, B.answers[a.tool])).toEqual([]);
+    // The description of the tool states this measure (#2988): a changed answer changes the measure, and so the line.
+    expect(tokens).toBe(PLUNE_ANSWER_MEASURES[a.tool].tokens);
   });
 
   it.each([
@@ -114,6 +118,17 @@ describe('CLI · mcp budget · Plune tools list', () => {
     expect(text).not.toMatch(/Bearer|plt_\w|plune_[\w-]{20,}/);
     const users = new Set([...text.matchAll(/"(?:createdBy|updatedBy|addedBy|userId|ownerId|authorId)":"([^"]*)"/g)].map((m) => m[1]));
     expect([...users]).toEqual([user]);
+  });
+
+  it('a cost line only in the descriptions of the tools with a live answer measure, stating that measure (#2988)', () => {
+    const measures: Record<string, { tokens: number; of: string }> = PLUNE_ANSWER_MEASURES;
+    const lined = PLUNE_TOOLS.filter((t) => /Measured answer/.test(t.description)).map((t) => t.name);
+    expect(lined.sort()).toEqual(Object.keys(measures).sort());
+    for (const name of lined) {
+      const m = measures[name];
+      expect(PLUNE_TOOLS.find((t) => t.name === name)?.description).toContain(`~${m?.tokens} tokens (characters / 4) for ${m?.of}.`);
+      expect(B.answers[name as keyof typeof B.answers]).toBe(Math.ceil((m?.tokens ?? 0) * (1 + B.headroom)));
+    }
   });
 
   it('the over and too-loose checks fire', () => {

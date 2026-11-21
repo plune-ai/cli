@@ -6,10 +6,10 @@ import { resolveApiUrl } from '../cli/api-url.js';
 import { loadToken } from '../cli/credentials.js';
 import { createClient, type ClientOutcome, type PlatformClient } from './client.js';
 import { defaultRunTitle, readEnv, UPLOAD_CONCURRENCY, UPLOAD_RETRIES } from './env.js';
-import { mediaTypeOf, printable, TEXT_TYPES } from './failure-detail.js';
+import { isTextType, mediaTypeOf, printable, TEXT_TYPES } from './failure-detail.js';
 import { BATCH_PIPELINES, BUCKET_CODES, DIRECT_BATCH_BYTES, FILES_BATCH_MAX, sha256Bytes, sha256File, type BatchVerdict } from './files-batch.js';
 import { appendBatch, DEFAULT_FALLBACK_PATH, type DeferredResult } from './fallback.js';
-import { snapshotAt } from './code-snapshot.js';
+import { credentialsIn, snapshotAt } from './code-snapshot.js';
 import type {
   DiscoveredTest,
   DiscoveryOutcome,
@@ -1536,6 +1536,34 @@ export async function startRun(
     }
   }
 
+  /**
+   * A line for each value in the result's error text or text attachments that looks like a secret: the test, the
+   * text, the line and the value's length — never the value. A warning only; the result is sent as it is.
+   */
+  async function warnOfSecrets(result: PendingResult): Promise<void> {
+    const of = printable(result.title ?? result.resultKey);
+    const say = (what: string, text: string): void => {
+      for (const { line, length } of credentialsIn(text)) {
+        log(
+          `plune: ${what} of "${of}" holds what looks like a secret on line ${line} (${length} characters) — sent as it is; ` +
+            'mask it in the test, or set PLUNE_SECRET_CHECK=0 to turn this check off.',
+        );
+      }
+    };
+    const error = result.errorContext ?? result.failure?.headline;
+    if (error !== undefined) say('the error text', error);
+    for (const file of result.files ?? []) {
+      if (!isTextType(file.contentType)) continue;
+      let bytes = file.body;
+      if (bytes === undefined && file.path !== undefined) {
+        const size = await disk.stat(file.path).then((s) => s.size, () => Infinity);
+        // A text over the platform's ceiling is not sent at all, so there is nothing to warn about.
+        if (size <= TEXT_BYTES) bytes = await disk.readFile(file.path).catch(() => undefined);
+      }
+      if (bytes !== undefined && bytes.length <= TEXT_BYTES) say(`the attachment "${printable(file.name)}"`, bytes.toString('utf8'));
+    }
+  }
+
   const shardLines: string[] = [];
   return {
     get runId() {
@@ -1550,6 +1578,7 @@ export async function startRun(
     async add(result) {
       // The location names this machine: read here, and never sent or kept.
       const { codeAt, ...rest } = result;
+      if (env.secretCheck) await warnOfSecrets(result);
       const text = codeAt === undefined ? undefined : snapshotAt(codeAt, specFiles);
       if (text !== undefined) snapshotByKey.set(result.resultKey, text);
       buffer.push({ ...rest, keys: bound(result.keys) });

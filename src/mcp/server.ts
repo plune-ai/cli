@@ -73,15 +73,25 @@ function toResult(outcome: ToolOutcome): CallToolResult {
   };
 }
 
-export function createPluneMcpServer(opts: PluneMcpServerOptions, era: ProtocolEra): McpServer {
+export interface PluneMcpTransportTraits {
+  /**
+   * `false` for a transport that builds a server per request, where nothing can change the list between two requests:
+   * the capability is then not announced, and the list is fixed in the 2025 era too. Defaults to `true`, the stdio server.
+   */
+  listChanged?: boolean;
+}
+
+export function createPluneMcpServer(opts: PluneMcpServerOptions, era: ProtocolEra, traits: PluneMcpTransportTraits = {}): McpServer {
   const { version, ...executorOptions } = opts;
-  const fixed = era === 'modern';
+  const listChanged = traits.listChanged ?? true;
+  const fixed = era === 'modern' || !listChanged;
   const executor = createPluneToolExecutor({
     ...executorOptions,
     userAgent: executorOptions.userAgent ?? `plune-cli/${version} mcp`,
     fixedToolList: fixed,
+    oneRequest: !listChanged,
   });
-  const server = new McpServer({ name: 'plune', version }, { capabilities: { tools: { listChanged: true } } });
+  const server = new McpServer({ name: 'plune', version }, { capabilities: { tools: { listChanged } } });
   const registered = new Map<string, RegisteredTool>();
 
   const sync = () => {
