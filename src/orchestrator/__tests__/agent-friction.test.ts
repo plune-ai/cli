@@ -240,6 +240,21 @@ describe('CLI · run · transcript · identifier values are not stored', () => {
     expect(stored).not.toContain(UUID.slice(0, 8));
   });
 
+  it('CLI · run · transcript · a short answer the model saw whole stays whole and not truncated when its id is shorter than the mark', async () => {
+    // `1` is shorter than `"<id>"`: the cleaned answer is longer than the bytes the excerpt kept.
+    const note = { id: 1, title: 'Release checklist', status: 'open' };
+    const { row, result } = await run([[{ name: 'search', args: { id: 1 } }]], () => note);
+    const call = row.agent!.steps[0]!.calls[0]!;
+    expect(call.result).toEqual({
+      text: JSON.stringify({ ...note, id: '<id>' }),
+      bytes: Buffer.byteLength(JSON.stringify(note)),
+      truncated: false,
+    });
+    expect(call.args).toEqual({ id: '<id>' });
+    expect(row.agent!.collection).toBe('complete');
+    expect(JSON.stringify(result)).not.toMatch(/"id":1\b/);
+  });
+
   it('CLI · run · transcript · a text answer that is not JSON has its UUIDs replaced and is marked as not fully cleaned', async () => {
     const { row, result } = await run(
       [[{ name: 'search', args: { q: 'a' } }]],

@@ -417,8 +417,9 @@ export async function runAgentRow(p: AgentRowParams): Promise<RowResult> {
       sha256: sha256(overrides[tool]!),
     }));
   /**
-   * Swaps the identifier values out of the stored transcript: in `args`, and in `result.text`, which is cut again from
-   * the cleaned whole answer to at most the bytes the first excerpt kept (`bytes` stays the size of the real answer).
+   * Swaps the identifier values out of the stored transcript: in `args`, and in `result.text`, which, if the first excerpt
+   * was cut, is cut again from the cleaned whole answer to the bytes that excerpt kept (`bytes` stays the size of the
+   * real answer, `truncated` what the first excerpt said).
    * Run once every check has read the transcript. The reasons of the checks (`said`) quote arguments, so they go by
    * the same rule; the checks themselves compared the real values. Returns where an answer could not be fully cleaned.
    */
@@ -436,14 +437,17 @@ export async function runAgentRow(p: AgentRowParams): Promise<RowResult> {
         const clean = cleaned.get(c);
         if (out.result === undefined || clean === undefined) return;
         const whole = Buffer.from(mask?.text(clean.text) ?? clean.text, 'utf8');
-        const keep = Math.min(Buffer.byteLength(out.result.text, 'utf8'), whole.length);
+        // ponytail: `truncated` (and `collection`) keep what the first excerpt said about the real answer. An answer
+        // stored whole stays whole even when a mark is longer than its value (`1` → `"<id>"`): it can exceed the
+        // excerpt budget by a few bytes per identifier. Only an answer that was already cut is cut again.
+        const keep = Buffer.byteLength(out.result.text, 'utf8');
         out.result = {
           ...out.result,
-          text: keep < whole.length ? firstBytes(whole, keep) : whole.toString('utf8'),
-          truncated: out.result.truncated || keep < whole.length,
+          text:
+            out.result.truncated && keep < whole.length
+              ? firstBytes(whole, keep)
+              : whole.toString('utf8'),
         };
-        // A mark longer than the value it replaced can push the excerpt past what was kept.
-        if (out.result.truncated) agent.collection = 'partial';
         if (clean.unread === undefined) return;
         const u = unread.get(c.name) ?? { steps: new Set(), count: 0, why: clean.unread };
         u.steps.add(s.index);
