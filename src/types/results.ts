@@ -198,7 +198,10 @@ export interface AgentCall {
    */
   error_kind?: 'content' | 'protocol' | 'timeout' | 'not-offered' | 'bad-arguments';
   duration_ms?: number;
-  /** The answer as text: `bytes` is its size before `text` was cut to the stored excerpt. */
+  /**
+   * The answer as text: `bytes` is its size before `text` was cut to the stored excerpt. Identifier values in `text`
+   * and in `args` are stored as `"<id>"` (the checks read them first); see `ids-not-redacted` for a text answer.
+   */
   result?: { text: string; bytes: number; truncated: boolean };
 }
 

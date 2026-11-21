@@ -137,6 +137,7 @@ it did not need. It never changes a row's state, the summary or the exit code, a
 | `pagination-continuation` | A call that differs from the one before it only in pagination arguments (`cursor`, `page`, `offset`, `limit`, `after`, `before`, `start`, `pageToken`, `nextCursor`, and the snake_case forms `page_token`, `next_cursor`). Not a repeat. |
 | `search-after-id` | The same tool called again in a **later step** and its answer holds a record that an earlier answer of that tool already held (the same identifier value): the model looked for something it had. Values are compared in memory by hash and never stored. Calls of one step run from one model turn, so none could read another's answer: inside a step this signal is never given. A call that only repeats the arguments, or turns a page, is the other two signals. |
 | `friction-unmeasured` | An answer to compare could not be read as JSON, so the check was not made. This is not the same as finding none. One entry per tool in the row, however many calls it covers. |
+| `ids-not-redacted` | An answer of this tool was not JSON (or was an error message, or went past the walk's bounds), so only UUID-shaped values were replaced in its stored excerpt; other identifiers may remain there. One entry per tool. |
 
 An identifier is a value under a key named `id`, `ids`, `key`, `uuid`, `slug`, `number`, `ref` or `identifier` (the whole
 name, after an underscore as in `user_id`, or after a capital as in `userId`), or a string in the form of a UUID anywhere.
@@ -148,6 +149,22 @@ looks like data (a UUID, an address, digits, over 40 characters, or anything but
 `*`, and a path is at most 120 characters. When the eval has `no-repeated-call`, a repeat of the tools it covers is told
 by that check and not again as `identical-retry`. The signals are computed while the full answers of
 the tools are in memory; the stored transcript keeps only excerpts of them.
+
+The stored transcript (`agent` in `last-run.json` and in `--format json`) keeps no identifier values. By the same rule
+and within the same bounds, each value is replaced with `"<id>"` in the arguments of every call and in the excerpt of
+every answer (`result.text`); keys and structure stay, and `result.bytes` is still the size of the real answer (here
+`{"id":"ISS-0001","title":"Login page times out"}`):
+
+```json
+{ "name": "get_issue", "args": { "issue_id": "<id>" },
+  "result": { "text": "{\"id\":\"<id>\",\"title\":\"Login page times out\"}", "bytes": 48, "truncated": false } }
+```
+
+A JSON answer is written back compact, and its excerpt is cut again to at most the bytes the first one kept. An answer
+that is not JSON has only its UUID-shaped values replaced, and the row says so with `ids-not-redacted`. Every check and
+every friction signal reads the transcript before the swap, so their results and the exit code are the same as with the
+values. The model's own text of a step, the row's `output`, and the reason of a failed check (which may quote the
+arguments) are not changed.
 
 ## Providers
 
