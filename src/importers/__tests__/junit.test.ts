@@ -365,3 +365,26 @@ describe('CLI · run import · JUnit · what a missing file and a bad tag carry'
     }
   });
 });
+
+/**
+ * Playwright's own `junit` reporter writes a `{ type: 'PluneTrace', description: url }` annotation as
+ * `<property name="PluneTrace" value="…"/>`. The fixture is what Playwright 1.63.0 wrote for such a spec: a good link,
+ * an `http://` one, and a test that carries both names.
+ */
+describe('CLI · run import · JUnit · a trace link under the name Playwright writes', () => {
+  const report = readFileSync(new URL('./fixtures/playwright-1.63.0-plunetrace.xml', import.meta.url), 'utf8');
+
+  it('sends a PluneTrace property as the trace link, drops a refused one with a warning, and prefers plune.trace.url when both are there', () => {
+    const notes: string[] = [];
+    const results = readJUnit(report, 'reports/junit.xml', [], notes);
+
+    expect(results.map((r) => [r.title, r.traceUrl])).toEqual([
+      ['trace.spec.js › checkout › pays by card', 'https://langfuse.example.com/project/demo/traces/7f3c2a'],
+      ['trace.spec.js › checkout › refuses an expired card', undefined],
+      ['trace.spec.js › checkout › applies a gift card', 'https://langfuse.example.com/project/demo/traces/from-property'],
+    ]);
+    expect(notes).toEqual([
+      'plune: "trace.spec.js › checkout › refuses an expired card": trace link not sent (must be an https address) — the result is imported without it.',
+    ]);
+  });
+});

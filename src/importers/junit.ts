@@ -34,8 +34,12 @@ const SPEC_FILE = /\.(?:spec|test)\.[cm]?[jt]sx?$/;
 /** The one testcase property that names what a case is about: `plune mcp` writes a tool per property. */
 const TARGET_PROPERTY = 'plune.mcp.tool';
 
-/** The testcase property that links the result to its trace in the team's own observability (Langfuse, OTel). */
+/**
+ * The testcase properties that link the result to its trace in the team's own observability (Langfuse, OTel), first
+ * found wins: `plune.trace.url`, then `PluneTrace`, the name Playwright's `junit` reporter writes the annotation under.
+ */
 const TRACE_PROPERTY = 'plune.trace.url';
+const PLAYWRIGHT_TRACE_PROPERTY = 'PluneTrace';
 
 /** The value of a case's first `name` property, or `undefined` when it has none. */
 function propertyOf(test: XmlElement, name: string): string | undefined {
@@ -248,7 +252,7 @@ export function readJUnit(
     const rkey = resultKey(key.value, 0);
     const files = filesOfTest(test, folder, title, missing, { lexical, resultKey: rkey, notes });
     const targets = targetsOf(test);
-    const traceUrl = traceUrlOf(propertyOf(test, TRACE_PROPERTY), title, notes);
+    const traceUrl = traceUrlOf(propertyOf(test, TRACE_PROPERTY) ?? propertyOf(test, PLAYWRIGHT_TRACE_PROPERTY), title, notes);
 
     return {
       resultKey: rkey,

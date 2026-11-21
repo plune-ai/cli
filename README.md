@@ -365,8 +365,9 @@ test('pays by card', async () => {
 ```
 
 In Playwright JSON each attempt's own annotation wins, so a retry keeps its own trace. Playwright's
-`junit` reporter writes an annotation as a property of the same name, so a suite imported through
-JUnit annotates with `plune.trace.url` instead. The link is trimmed; one the platform would refuse
+`junit` reporter writes an annotation as a property of the same name, `<property name="PluneTrace" …/>`,
+and a JUnit import reads that too, so the same `PluneTrace` annotation works through either reporter.
+A test case that carries both properties sends `plune.trace.url`. The link is trimmed; one the platform would refuse
 (not `https://`, no host, a user name or password, a space or control character, over 2048
 characters) is not sent, the result is sent without it, and the import says so:
 
