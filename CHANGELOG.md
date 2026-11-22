@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Changed
+
+- **`@plune-ai/playwright` 0.8.0** is the first version that carries the `@plune-ai/playwright/fixture` entry and the reporter's `findings` described under 0.39.10: that release left the adapter at 0.7.5, which was already published, so the adapter was not published with it. A minor version, as the adapter gains a new entry; nothing else in it changed.
+
 ## [0.39.10] - 2026-11-22
 
 ### Added
