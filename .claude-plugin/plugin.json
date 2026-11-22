@@ -10,6 +10,7 @@
   "homepage": "https://docs.plune.ai/cli/guides/mcp/",
   "repository": "https://github.com/plune-ai/cli",
   "license": "MIT",
+  "icon": "./icon.png",
   "keywords": ["testing", "qa", "test-management", "mcp", "evals"],
   "mcpServers": {
     "plune": {
