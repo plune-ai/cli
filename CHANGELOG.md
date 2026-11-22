@@ -19,6 +19,7 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 ### Fixed
 
 - **`plune ingest` says when a run was already ingested.** When the platform already holds a run for the report's run id, it answers with the first ingest's counters and records nothing new. The CLI printed those counters as a new result («30 case(s) proposed»), and the reader went looking for proposals nobody queued. It now prints `This Cairn run was already ingested → <run id>` and that nothing new was proposed or attached; the session-file lines stay, and the exit code is 0. A run with a new run id is ingested as new.
+- **`plune mcp serve` and the HTTP server: a read-only connection that calls a write tool by its name is told why.** Writers stay out of `tools/list` for the `read` scope, as before, but a call to one by its name was answered by the SDK with protocol error `-32602` «Tool <name> not found», as if the tool did not exist. It is now a tool error (`isError`, code `read_only_token`): `This connection has read-only access: <tool> writes. Ask the person to reconnect with read and write access.` Nothing reaches the platform; a name that is no tool at all is still `-32602`.
 
 ## [0.39.9] - 2026-11-22
 

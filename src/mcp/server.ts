@@ -75,6 +75,14 @@ function toResult(outcome: ToolOutcome): CallToolResult {
   };
 }
 
+const readOnlyRefusal = (name: string): ToolOutcome => ({
+  ok: false,
+  error: {
+    code: 'read_only_token',
+    message: `This connection has read-only access: ${name} writes. Ask the person to reconnect with read and write access.`,
+  },
+});
+
 export interface PluneMcpTransportTraits {
   /**
    * `false` for a transport that builds a server per request, where nothing can change the list between two requests:
@@ -104,9 +112,19 @@ export function createPluneMcpServer(opts: PluneMcpServerOptions, era: ProtocolE
     }
   };
 
+  let refusesWriters = false;
   for (const tool of PLUNE_TOOLS) {
     // A known `read` token never sees a writer, nor discovery of writers (a forbidden tool is not listed rather than failing).
-    if (!offeredTo(tool, opts.scope)) continue;
+    if (!offeredTo(tool, opts.scope)) {
+      // A writer called by its name anyway gets the reason as a tool error; unregistered, the SDK would answer -32602
+      // «Tool <name> not found», which reads as a tool that does not exist. No input schema, so input that does not fit
+      // gets the same answer. It stays out of `registered` (sync never switches it) and out of every list below.
+      if (tool.write) {
+        server.registerTool(tool.name, { description: tool.description }, () => toResult(readOnlyRefusal(tool.name)));
+        refusesWriters = true;
+      }
+      continue;
+    }
     const handle = server.registerTool(
       tool.name,
       {
@@ -128,7 +146,14 @@ export function createPluneMcpServer(opts: PluneMcpServerOptions, era: ProtocolE
     // Every registered tool stays enabled, so tools/call reaches it with the SDK's own checks; only the list is ours.
     const tools = PLUNE_TOOLS.filter((t) => defaultVisibleTools(opts.scope).includes(t.name)).map(listed);
     server.server.setRequestHandler('tools/list', () => ({ tools }));
-  } else sync();
+  } else {
+    sync();
+    // McpServer lists every enabled tool, the refusing writers too; the list is then the enabled tools of `registered`.
+    if (refusesWriters)
+      server.server.setRequestHandler('tools/list', () => ({
+        tools: PLUNE_TOOLS.filter((t) => registered.get(t.name)?.enabled === true).map(listed),
+      }));
+  }
   return server;
 }
 
