@@ -88,6 +88,8 @@ export interface IngestResult {
   jobProblem?: string;
   /** What became of the run's recordings (videos, traces): a count, then a line per reason a file stayed behind. */
   files?: string[];
+  /** The platform already held a run for this report's run id (answered 200): the counters are the first ingest's, nothing new was written. */
+  repeat?: true;
 }
 
 /** What the ingest wrote for one case: the proposal it queued, or the result it attached. A skipped case has none. */
@@ -301,6 +303,7 @@ export async function handleIngest(deps: IngestDeps): Promise<IngestResult> {
       () => ['session files not uploaded (an unexpected error) — the run is recorded'],
     );
     if (files.length > 0) result.files = files;
+    if (sent.repeat) result.repeat = true;
     await job.finish({ ok: true });
     if (job.problem !== undefined) result.jobProblem = job.problem;
     return result;
@@ -369,12 +372,21 @@ export function reportIngestFailure(err: unknown, write: (s: string) => void): n
 
 /** One line per counter, in the order a reader cares about: what landed, what needs them, what did not. */
 export function formatIngestResult(r: IngestResult): string {
+  const files = (r.files ?? []).map((line, i) => (i === 0 ? `  ${line}` : `    ${line}`));
+  // The counters of a repeat are the first ingest's: printed as they are, they send the reader to the queue for proposals nobody made.
+  if (r.repeat === true) {
+    return `${[
+      `This Cairn run was already ingested → ${r.runId}`,
+      '  nothing new was proposed or attached; a run with a new run id is ingested as new',
+      ...files,
+    ].join('\n')}\n`;
+  }
   const lines = [
     `Ingested Cairn run → ${r.runId}`,
     `  ${r.linked} result(s) attached to existing cases`,
     `  ${r.proposed} case(s) proposed — review them in Plune to accept`,
     `  ${r.skipped} skipped (already queued, already rejected, repeated, or never executed)`,
-    ...(r.files ?? []).map((line, i) => (i === 0 ? `  ${line}` : `    ${line}`)),
+    ...files,
   ];
   return `${lines.join('\n')}\n`;
 }
