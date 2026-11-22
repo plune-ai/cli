@@ -121,20 +121,70 @@ function withoutQuery(token: string): string {
   return out;
 }
 
+/** What stands where the value of a named environment variable stood: the marker the shape masking writes for one. */
+const SECRET_MARK = '‹env-secret›';
+/**
+ * ponytail: a value under four characters is not masked. Replacing every `123` or `dev` of a text would
+ * shred it and hide nothing: so short a value is found by trying. Give such a secret a longer value.
+ */
+const SECRET_MIN = 4;
+
+/**
+ * The values to mask, from the NAMES of environment variables: each value as it is, and as an address carries
+ * it (`encodeURIComponent`, and `encodeURI`, which is how a path keeps `/` and `@` and encodes a space).
+ * Longest first, so a value that holds another is masked whole. A name that is not set, or set to nothing, is skipped.
+ *
+ * ponytail: a value the page transformed in any other way (base64, a hash, lower-case percent escapes,
+ * split over two lines) is another string, and is not recognised.
+ */
+export function secretValues(
+  names: readonly string[],
+  env: Record<string, string | undefined> = process.env,
+): string[] {
+  const forms = new Set<string>();
+  for (const name of Array.isArray(names) ? (names as unknown[]) : []) {
+    const value = typeof name === 'string' ? env[name] : undefined;
+    if (value === undefined || value.length < SECRET_MIN) continue;
+    forms.add(value);
+    for (const encode of [encodeURIComponent, encodeURI]) {
+      try {
+        forms.add(encode(value));
+      } catch {
+        // half of a character pair has no encoded form
+      }
+    }
+  }
+  return [...forms].sort((a, b) => b.length - a.length);
+}
+
+/** Every occurrence of every value, as written: no pattern is made of a value. */
+function withoutSecrets(text: string, secrets: readonly string[]): string {
+  let out = text;
+  for (const secret of secrets) out = out.split(secret).join(SECRET_MARK);
+  return out;
+}
+
 /**
  * A text as it may leave the worker. The order is the point; each step would lose something to an earlier one:
- * 1. the head of the raw text only (`WORK_MAX`), without the word the cut went through — half a credential is
+ * 0. the values of the named environment variables, on the raw text: before any cut can leave the head of one
+ *    behind, and before a shape rule can take a part of one. Read a value's length past the working length,
+ *    so one that the cut would go through is still seen whole;
+ * 1. the head of the text only (`WORK_MAX`), without the word the cut went through — half a credential is
  *    not a credential the masking knows;
  * 2. credentials masked while the line breaks are still there: a header line (`Cookie: …`) is known by its line;
  * 3. addresses cut;
  * 4. control characters and line breaks to single spaces;
  * 5. the clip to 300.
  */
-function cleaned(raw: string): string {
-  let head = clip(raw, WORK_MAX);
+function cleaned(raw: string, secrets: readonly string[]): string {
+  const window = raw.slice(0, WORK_MAX + (secrets[0]?.length ?? 0));
+  const text = withoutSecrets(window, secrets);
+  let head = clip(text, WORK_MAX);
+  // The character after the cut, in the masked text or, when that was all of it, in what was never read.
+  const next = text.length > head.length ? text[head.length] : raw[window.length];
   // A cut that falls on a separator went through no word. With no separator before it the whole text is
   // the cut word: nothing is left, and the caller drops and counts it.
-  if (raw.length > WORK_MAX && !SEPARATOR.test(raw[head.length]!)) {
+  if (next !== undefined && !SEPARATOR.test(next)) {
     let end = head.length;
     while (end > 0 && !SEPARATOR.test(head[end - 1]!)) end -= 1;
     head = head.slice(0, end);
@@ -144,7 +194,8 @@ function cleaned(raw: string): string {
   return clip(flat.trim());
 }
 
-export function createCollector(slowMs: number): Collector {
+/** `secrets` are values, from `secretValues`: masked in every text and every path before it is kept. */
+export function createCollector(slowMs: number, secrets: readonly string[] = []): Collector {
   let items: CollectedFinding[] = [];
   let omitted = 0;
 
@@ -161,7 +212,7 @@ export function createCollector(slowMs: number): Collector {
     }
   };
   const text = (kind: 'console' | 'page_error', raw: string, at: number): void => {
-    const clean = cleaned(String(raw));
+    const clean = cleaned(String(raw), secrets);
     if (clean === '') drop();
     else keep({ kind, text: clean, at });
   };
@@ -178,7 +229,8 @@ export function createCollector(slowMs: number): Collector {
     }
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
     const method = String(rawMethod).toUpperCase();
-    const path = maskCredentials(parsed.pathname);
+    // A path made invalid or too long by a marker is dropped and counted below, like any other.
+    const path = maskCredentials(withoutSecrets(parsed.pathname, secrets));
     return METHOD.test(method) && PATH.test(path) && path.length <= TEXT_MAX
       ? { method, path }
       : undefined;
@@ -317,8 +369,12 @@ interface SeenResponse {
  * Listen to a browser context and collect what it reports. Nothing here may fail a test: every listener
  * swallows its own errors, and a context that cannot be listened to collects nothing.
  */
-export function watch(context: Watched, slowMs: number): Collector {
-  const collector = createCollector(slowMs);
+export function watch(
+  context: Watched,
+  slowMs: number,
+  secrets: readonly string[] = [],
+): Collector {
+  const collector = createCollector(slowMs, secrets);
   /** When each request started by this process's clock: a request that never answers has an empty `timing()`. */
   const started = new WeakMap<SeenRequest, number>();
   /** A response whose body breaks off is announced twice, as a response and as a failed request. */

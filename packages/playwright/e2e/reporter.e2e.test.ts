@@ -711,6 +711,8 @@ describe('what the browser reported reaches the failed result', () => {
   const PAGE = `<!doctype html><title>shop</title><link rel="icon" href="data:,">
 <script>console.error('widget broke at /api/widget?token=secret');</script>
 <script>throw new Error('boom from the page');</script>`;
+  /** No shape the masking knows: only its name in `pluneSecretEnv` can mask it. */
+  const SHOP_KEY = 'tangerine dream/4471';
   let shop: Server;
   let live: FixtureRun;
 
@@ -718,6 +720,7 @@ describe('what the browser reported reaches the failed result', () => {
     shop = createServer((req, res) => {
       const url = req.url ?? '';
       if (url === '/') return void res.writeHead(200, { 'content-type': 'text/html' }).end(PAGE);
+      if (url.startsWith('/api/keys/')) return void res.writeHead(403).end('no');
       if (url.startsWith('/api/fail')) return void res.writeHead(500).end('no');
       if (url === '/api/slow') return void setTimeout(() => res.writeHead(200).end('late'), 600);
       if (url === '/api/drop') return void req.socket.destroy();
@@ -728,7 +731,11 @@ describe('what the browser reported reaches the failed result', () => {
     await new Promise<void>((resolve) => shop.listen(0, '127.0.0.1', resolve));
     const address = shop.address();
     const site = `http://127.0.0.1:${typeof address === 'object' && address !== null ? address.port : 0}`;
-    live = await runFixture(false, [], { PLUNE_TEST_DIR: './findings', PLUNE_FINDINGS_SITE: site });
+    live = await runFixture(false, [], {
+      PLUNE_TEST_DIR: './findings',
+      PLUNE_FINDINGS_SITE: site,
+      SHOP_KEY_FOR_E2E: SHOP_KEY,
+    });
   }, 240_000);
 
   afterAll(() => {
@@ -774,7 +781,8 @@ describe('what the browser reported reaches the failed result', () => {
   it('and nothing the reporter posted holds the query string, the browser echo or the time of a finding', () => {
     const posted = JSON.stringify(live.received.map((r) => r.body));
     expect(posted).toContain('/api/fail');
-    expect(posted).not.toContain('secret');
+    // The marker of a masked value holds the word itself; it is the only place that may.
+    expect(posted.replaceAll('‹env-secret›', '')).not.toContain('secret');
     expect(posted).not.toContain('Failed to load resource');
     expect(posted).not.toContain('"at"');
   });
@@ -782,6 +790,18 @@ describe('what the browser reported reaches the failed result', () => {
   it('the attachment itself is not a file of the result and not an artifact of the failure', () => {
     expect(live.received.filter((r) => r.path.includes('plune-findings'))).toEqual([]);
     expect(JSON.stringify(sent())).not.toContain('plune-findings');
+  });
+
+  it('without the value of an environment variable the test named, as written or percent-encoded', () => {
+    const result = resultOf('a page that prints its key');
+    const items = (result.findings?.items ?? []).map(({ durationMs: _ms, ...rest }) => rest);
+    expect(items).toContainEqual({ kind: 'console', text: 'the shop refused the key ‹env-secret›' });
+    expect(items).toContainEqual({ kind: 'request_failed', method: 'GET', path: '/api/keys/‹env-secret›', status: 403 });
+
+    const posted = JSON.stringify(live.received.map((r) => r.body));
+    expect(posted).not.toContain(SHOP_KEY);
+    expect(posted).not.toContain(encodeURIComponent(SHOP_KEY));
+    expect(posted).not.toContain('tangerine');
   });
 
   it('a failed test that opened no browser sends no findings', () => {

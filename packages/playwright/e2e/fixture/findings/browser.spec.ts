@@ -27,6 +27,23 @@ test.describe('with a page', () => {
   });
 });
 
+// The titles here go to the platform as they are, so they do not hold the word the e2e looks for.
+test.describe('with a named variable', () => {
+  test.use({ pluneSecretEnv: ['SHOP_KEY_FOR_E2E'] });
+
+  test('a page that prints its key', async ({ page }) => {
+    await page.goto(`${site}/`);
+    await page.evaluate(async (key) => {
+      console.error(`the shop refused the key ${key}`);
+      // Read to the end: an answer still arriving when the test ends is not reported.
+      await fetch(`/api/keys/${encodeURIComponent(key)}`)
+        .then((r) => r.text())
+        .catch(() => undefined);
+    }, process.env['SHOP_KEY_FOR_E2E'] ?? '');
+    expect(await page.title()).toBe('not the shop');
+  });
+});
+
 test('a test that opens no browser', () => {
   expect(1 + 1).toBe(3);
 });

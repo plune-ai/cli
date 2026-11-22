@@ -5,6 +5,7 @@ import {
   FINDINGS_TYPE,
   OMITTED_MAX,
   createCollector,
+  secretValues,
   toWire,
   watch,
 } from '../findings.js';
@@ -574,5 +575,103 @@ describe('the name of a query parameter', () => {
     expect(c.result().items.map((f) => (f as { text: string }).text)).toEqual(
       Array.from({ length: 4 }, () => 'GET api.x/y failed'),
     );
+  });
+});
+
+describe('the values of named environment variables never leave the worker', () => {
+  const ENV = {
+    SHOP_KEY: 'tangerine dream/4471',
+    SHOP_KEY_LONG: 'tangerine dream/4471-and-more',
+    PIN: '123',
+    EMPTY: '',
+  };
+  const MARK = '‹env-secret›';
+  const collect = (names: string[]) => createCollector(3000, secretValues(names, ENV));
+  const texts = (c: ReturnType<typeof createCollector>) =>
+    c.result().items.map((f) => ('text' in f ? f.text : f.path));
+
+  it('in a console text and in a page error', () => {
+    const c = collect(['SHOP_KEY']);
+    c.console('login with tangerine dream/4471 failed', T0);
+    c.pageError('bad key: tangerine dream/4471', T0 + 1);
+    expect(texts(c)).toEqual([`login with ${MARK} failed`, `bad key: ${MARK}`]);
+  });
+
+  it('in the path of a request, written as it is or percent-encoded', () => {
+    const c = collect(['SHOP_KEY']);
+    c.response({
+      url: 'http://h/keys/tangerine dream/4471/x',
+      method: 'GET',
+      status: 500,
+      at: T0,
+      durationMs: 1,
+    });
+    c.response({
+      url: `http://h/keys/${encodeURIComponent(ENV.SHOP_KEY)}/x`,
+      method: 'GET',
+      status: 500,
+      at: T0 + 1,
+      durationMs: 1,
+    });
+    c.console(`GET /keys/${encodeURIComponent(ENV.SHOP_KEY)} failed`, T0 + 2);
+    expect(texts(c)).toEqual([`/keys/${MARK}/x`, `/keys/${MARK}/x`, `GET /keys/${MARK} failed`]);
+  });
+
+  it('the longer of two values first, so a value that holds another is masked whole', () => {
+    const c = collect(['SHOP_KEY', 'SHOP_KEY_LONG']);
+    c.console('a tangerine dream/4471-and-more b tangerine dream/4471 c', T0);
+    expect(texts(c)).toEqual([`a ${MARK} b ${MARK} c`]);
+  });
+
+  it('leaves alone a value under four characters, an empty one and a name that is not set', () => {
+    expect(secretValues(['PIN', 'EMPTY', 'NOT_SET'], ENV)).toEqual([]);
+    const c = collect(['PIN', 'EMPTY', 'NOT_SET']);
+    c.console('order 123 of 1234', T0);
+    expect(texts(c)).toEqual(['order 123 of 1234']);
+  });
+
+  it('takes a value as written, whatever a pattern would make of it', () => {
+    const c = createCollector(3000, secretValues(['K'], { K: 'a.c$1(x)+[y]' }));
+    c.console('key a.c$1(x)+[y] and abc$1(x)+[y]', T0);
+    expect(texts(c)).toEqual([`key ${MARK} and abc$1(x)+[y]`]);
+  });
+
+  it('masks a value the cut to 300 goes through: its head is not left behind', () => {
+    const c = collect(['SHOP_KEY_LONG']);
+    c.console(`${'x'.repeat(290)} ${ENV.SHOP_KEY_LONG} tail`, T0);
+    const [text] = texts(c);
+    expect(text).toHaveLength(300);
+    expect(text).not.toContain('tangerine');
+  });
+
+  it('masks a value the working length goes through as well', () => {
+    const c = collect(['SHOP_KEY_LONG']);
+    // The query is cut away, so the end of the working text moves into the 300 that are kept.
+    c.console(`/a?x=${'y'.repeat(3975)} ${ENV.SHOP_KEY_LONG} tail`, T0);
+    expect(texts(c).join(' ')).not.toMatch(/tangerine|dream/);
+  });
+
+  it('masks a value before a shape rule can take a part of it', () => {
+    const value = `shop password = "${'q'.repeat(12)}" end`;
+    const c = createCollector(3000, secretValues(['K'], { K: value }));
+    c.console(`sent ${value} twice`, T0);
+    expect(texts(c)).toEqual([`sent ${MARK} twice`]);
+  });
+
+  it('drops and counts a path the masking made too long', () => {
+    const c = createCollector(3000, secretValues(['K'], { K: 'abcd' }));
+    c.response({
+      url: `http://h/${'abcd/'.repeat(59)}`,
+      method: 'GET',
+      status: 500,
+      at: T0,
+      durationMs: 1,
+    });
+    expect(c.result()).toEqual({ items: [], omitted: 1 });
+  });
+
+  it('reads nothing from a list that is not one of names', () => {
+    expect(secretValues(undefined as unknown as string[], ENV)).toEqual([]);
+    expect(secretValues([7, null, 'SHOP_KEY'] as unknown as string[], ENV)).toContain(ENV.SHOP_KEY);
   });
 });
