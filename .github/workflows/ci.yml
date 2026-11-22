@@ -108,6 +108,12 @@ jobs:
       # After Build: the adapter typechecks against the root's emitted .d.ts and bundles the
       # reporter core out of the root's dist. Its own `test` script builds it first, which is
       # what lets the packaging guard assert against a real artifact instead of an intention.
+      # The e2e below opens one real browser, for the fixture that collects what a page reported. Chromium's headless shell
+      # only (the e2e runs headless and names no channel), with the system libraries it needs, by the adapter's own
+      # Playwright. Not cached: Playwright's CI guide advises against caching browser binaries.
+      - name: Adapter — Chromium for the browser e2e
+        run: pnpm --filter @plune-ai/playwright exec playwright install --with-deps --only-shell chromium
+
       - name: Adapter — typecheck, build, test
         run: |
           pnpm typecheck:playwright

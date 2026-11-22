@@ -81,6 +81,9 @@ jobs:
         run: pnpm build
       # The adapter typechecks against the root's emitted .d.ts and bundles the reporter core out
       # of the root's dist, so it can only run after Build. Mirrors ci.yml — never publish a red build.
+      # The adapter's e2e opens one real browser; as in ci.yml.
+      - name: Adapter - Chromium for the browser e2e
+        run: pnpm --filter @plune-ai/playwright exec playwright install --with-deps --only-shell chromium
       - name: Adapter - typecheck, build, test
         run: |
           pnpm typecheck:playwright

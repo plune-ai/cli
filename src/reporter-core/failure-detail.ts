@@ -22,7 +22,7 @@ export function failureOf(attempt: FailedAttempt, home: string = homedir()): Fai
   const location = error === undefined ? undefined : fromRoot(placeOf(error, attempt.testFile), attempt.repoRoot);
   // An empty type is no type: the platform refuses one, and the whole batch with it.
   const artifacts = attempt.attachments
-    .filter((a) => a.path !== undefined && !a.name.startsWith('_') && a.contentType !== METADATA_TYPE)
+    .filter((a) => a.path !== undefined && !a.name.startsWith('_') && !READ_NOT_KEPT.has(a.contentType ?? ''))
     .map(({ name, contentType }) => ({ name: fileNameOf(name), ...(contentType ? { contentType } : {}) }))
     .filter((a) => a.name !== '');
   const ciUrl = webLink(attempt.buildHref);
@@ -222,8 +222,8 @@ function cut(text: string): { text: string; omitted: number } {
 
 const omitted = (lines: number): string => `…[omitted ${lines} lines]…`;
 
-/** The content type a test hands the reporter its metadata in — not an artifact. */
-const METADATA_TYPE = 'application/plune.metadata+json';
+/** The content types a test hands the reporter its metadata and its browser findings in — read, not artifacts. */
+const READ_NOT_KEPT = new Set(['application/plune.metadata+json', 'application/plune.findings+json']);
 
 /** What the platform takes as a file from the repository root; anything else would refuse the batch. */
 const REPO_RELATIVE = /^(?![A-Za-z][A-Za-z0-9+.-]*:)(?![\\/~])(?!(?:.*[\\/])?\.\.(?:[\\/]|$)).+$/;

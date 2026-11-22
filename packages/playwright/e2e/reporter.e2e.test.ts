@@ -701,3 +701,98 @@ describe('the lines of one reporter run replay as one run (cli#45)', () => {
     expect(replay?.stdout).toContain('Every result was sent');
   });
 });
+
+/**
+ * The one run of this file that opens a browser (`playwright install chromium`): that a real browser context
+ * emits what the fixture listens for, that the attachment crosses to the reporter, and that what the reporter
+ * posts is already reduced. The shop is a server of this test's own.
+ */
+describe('what the browser reported reaches the failed result', () => {
+  const PAGE = `<!doctype html><title>shop</title><link rel="icon" href="data:,">
+<script>console.error('widget broke at /api/widget?token=secret');</script>
+<script>throw new Error('boom from the page');</script>`;
+  let shop: Server;
+  let live: FixtureRun;
+
+  beforeAll(async () => {
+    shop = createServer((req, res) => {
+      const url = req.url ?? '';
+      if (url === '/') return void res.writeHead(200, { 'content-type': 'text/html' }).end(PAGE);
+      if (url.startsWith('/api/fail')) return void res.writeHead(500).end('no');
+      if (url === '/api/slow') return void setTimeout(() => res.writeHead(200).end('late'), 600);
+      if (url === '/api/drop') return void req.socket.destroy();
+      // Headers and a first chunk, and no end.
+      if (url === '/api/stream') return void res.writeHead(200).write('first');
+      res.writeHead(204).end();
+    });
+    await new Promise<void>((resolve) => shop.listen(0, '127.0.0.1', resolve));
+    const address = shop.address();
+    const site = `http://127.0.0.1:${typeof address === 'object' && address !== null ? address.port : 0}`;
+    live = await runFixture(false, [], { PLUNE_TEST_DIR: './findings', PLUNE_FINDINGS_SITE: site });
+  }, 240_000);
+
+  afterAll(() => {
+    shop?.closeAllConnections();
+    shop?.close();
+  });
+
+  interface Sent {
+    title: string;
+    rawStatus: string;
+    findings?: { items: Record<string, unknown>[]; omitted: number };
+  }
+  const sent = (): Sent[] =>
+    live.received.filter((r) => r.path.endsWith('/results')).flatMap((r) => r.body['results'] as Sent[]);
+  const resultOf = (title: string): Sent => {
+    const found = sent().find((r) => r.title.endsWith(title));
+    expect(found, live.stderr).toBeDefined();
+    return found as Sent;
+  };
+
+  it('with the four kinds, each in the declared step it happened in', () => {
+    const result = resultOf('a page that goes wrong in every way');
+    expect(result.rawStatus).toBe('failed');
+    expect(result.findings?.omitted).toBe(0);
+
+    const open = { index: 1, title: 'open the shop' };
+    const load = { index: 2, title: 'load the cart' };
+    const items = (result.findings?.items ?? []).map(({ durationMs: _ms, ...rest }) => rest);
+    expect(items).toHaveLength(5);
+    expect(items).toContainEqual({ kind: 'console', text: 'widget broke at /api/widget', step: open });
+    expect(items).toContainEqual({ kind: 'page_error', text: 'boom from the page', step: open });
+    expect(items).toContainEqual({ kind: 'request_failed', method: 'GET', path: '/api/fail', status: 500, step: load });
+    expect(items).toContainEqual({ kind: 'request_slow', method: 'GET', path: '/api/slow', status: 200, step: load });
+    expect(items).toContainEqual({ kind: 'request_failed', method: 'GET', path: '/api/drop', step: load });
+  });
+
+  it('with the time a slow request took, and none for a request that never answered', () => {
+    const items = resultOf('a page that goes wrong in every way').findings?.items ?? [];
+    expect(items.find((f) => f['path'] === '/api/slow')?.['durationMs']).toBeGreaterThanOrEqual(600);
+    expect(items.find((f) => f['path'] === '/api/drop')).not.toHaveProperty('durationMs');
+  });
+
+  it('and nothing the reporter posted holds the query string, the browser echo or the time of a finding', () => {
+    const posted = JSON.stringify(live.received.map((r) => r.body));
+    expect(posted).toContain('/api/fail');
+    expect(posted).not.toContain('secret');
+    expect(posted).not.toContain('Failed to load resource');
+    expect(posted).not.toContain('"at"');
+  });
+
+  it('the attachment itself is not a file of the result and not an artifact of the failure', () => {
+    expect(live.received.filter((r) => r.path.includes('plune-findings'))).toEqual([]);
+    expect(JSON.stringify(sent())).not.toContain('plune-findings');
+  });
+
+  it('a failed test that opened no browser sends no findings', () => {
+    const result = resultOf('a test that opens no browser');
+    expect(result.rawStatus).toBe('failed');
+    expect(result).not.toHaveProperty('findings');
+  });
+
+  it('nor does one with the collection switched off', () => {
+    const result = resultOf('a page nobody listens to');
+    expect(result.rawStatus).toBe('failed');
+    expect(result).not.toHaveProperty('findings');
+  });
+});

@@ -162,6 +162,114 @@ test('rejects a negative quantity', { annotation: { type: 'PluneId', description
 A result whose test matches no case is **not** sent and **not** invented — a made-up id would
 write into somebody else's history. The run summary says how many there were.
 
+## What the browser reported: console errors, page errors, failed and slow requests
+
+Import `test` from the fixture entry instead of `@playwright/test`, and each test that opens a browser
+collects what its browser context reported:
+
+```ts
+import { test, expect } from '@plune-ai/playwright/fixture';
+```
+
+A project that already has its own `test` merges the fixtures in, either way:
+
+```ts
+import { mergeTests } from '@playwright/test';
+import { test as findings } from '@plune-ai/playwright/fixture';
+export const test = mergeTests(myTest, findings);        // Playwright 1.39 and later
+
+import { findingsFixtures } from '@plune-ai/playwright/fixture';
+export const test = myTest.extend(findingsFixtures);
+```
+
+What is collected:
+
+| Kind | When | What is kept |
+| --- | --- | --- |
+| `console` | a `console.error` in a page | the text |
+| `page_error` | an uncaught error in a page | the error's message |
+| `request_failed` | an answer with status 400 or above, or no answer at all | method, path, the status and the duration when there was an answer |
+| `request_slow` | an answer under 400 that took the threshold or longer | method, path, status, duration |
+
+Two options, set as any Playwright option (`use` in the config, or `test.use` in a file):
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `pluneFindings` | `true` | `false` turns the collection off |
+| `pluneSlowRequestMs` | `3000` | how long a request takes, in milliseconds, before it is slow |
+
+What is never read from a request or a response: headers, bodies, cookies, post data. A request's own
+address is cut to its path before it leaves the test process (`https://shop.example/api/cart?token=…`
+is kept as `/api/cart`). Only `http:` and `https:` requests count. A test keeps its first 20 findings by time
+and counts the rest.
+
+**An address written into a text** (a console line, an error message) is cut too, by its shape. The text is
+read word by word, a word being a run of characters with no space, quote (`"`, `'`, `` ` ``) or angle bracket
+in it, and in each word:
+
+1. a `?` followed by a name and `=` cuts the word there; a name is letters, digits, `_`, `-`, `.`, `[`, `]`
+   and `%` (`?id=`, `?user-id=`, `?ids[]=`) (`api.example/y?id=5` is kept as `api.example/y`,
+   `localhost:3000/a?x=1` as `localhost:3000/a`, `./api?x=1` as `./api`);
+2. after `http://`, `https://`, `ws://` or `wss://` the word is cut at the first `?` or `#`, and a user and
+   password before the host are removed (`GET https://api.example/y?email=… failed` is kept as
+   `GET https://api.example/y failed`);
+3. after a `/`, `./` or `../` that starts the word (or follows `(`, `[`, `{`, `=`, `:`, `,` or `;`) the word is
+   cut at the first `?` or `#` (`/cb#access_token=…` is kept as `/cb`).
+
+What is cut is removed, not masked. Two limits of a rule by shape: a value that holds a raw space, quote or
+angle bracket ends the word there, and what follows it is kept (`/search?q=anna smith` is kept as
+`/search smith`); and on an address with no scheme and no leading slash, a query with no `name=`
+(`api.example/y?abc`) or a fragment (`api.example/y#token`) is not recognised and is kept. The cut runs to the
+end of the word, so punctuation right after an address goes with it. Only the first 4000 characters of a text
+are read, without the word that limit falls inside (a text of one word longer than that is not sent, only
+counted), and the result is cut to 300.
+
+Two things are told by Chromium's wording, and hold for Chromium only. A request the page itself aborted (a
+navigation away) is not reported as failed when its error is `net::ERR_ABORTED`; another browser words a
+cancelled request differently, and there it may be reported as failed. And the console line Chromium prints for
+every failed request, «Failed to load resource: …», is dropped because the request is already there; another
+browser's line of the same kind is kept as a console finding.
+
+The fixture needs Playwright 1.38 or later for the events it listens to (`weberror` is the newest); this
+package asks for 1.44 or later anyway.
+
+**What is masked, and what is not.** A console text, an error message and a path go through the masking the
+code snapshot uses, before they leave the test process; a text is masked with its line breaks still in it,
+then its addresses are cut, then its lines are joined. It replaces with a `‹…›` marker:
+
+- a value with a well-known form: a GitHub token (`ghp_…`, `github_pat_…`), a key starting `sk-`,
+  `sk_live_…` or `rk_test_…`, an npm token (`npm_…`), a Google key (`AIza…`), a Plune token (`plune_…`), an AWS
+  access key id (`AKIA…`), a Slack token (`xox…`), a JWT, a private key block;
+- the value after `Bearer`, and after `Basic` or `Token` when it looks encoded;
+- a quoted value given to a name that says credential (`password = '…'`, `apiKey: "…"`, `setToken('…')`);
+- the value of a parameter whose name says credential (`?token=…`, `&api_key=…`, `&session=…`), where the
+  address around it was not recognised and cut as above;
+- the value of an `Authorization`, `Cookie` or `…session…` header written at the start of a line
+  (`Cookie: sid=…` on a line of its own; not one in the middle of a sentence);
+- the user and password of an address (`https://user:pass@host`), and the value of a `PLUNE_…=` variable.
+
+Nothing else is. A password, a key of a form not listed, a personal detail or a customer's data that a page
+writes to its console as plain words (`login failed for anna@example.com with hunter2`) is sent as written,
+and so is an identifier in a path (`/reset/8f3a9c…`). A page that logs such things needs `pluneFindings: false`
+for those tests, or a fix in the page.
+
+A test that opens no browser context collects nothing, and no browser is opened for it. A context a test
+makes itself with `browser.newContext()` is not listened to. The fixture never fails a test and does not wait
+at its end for an answer still arriving: a response that had not finished when the test ended is not reported.
+
+The findings travel as one attachment of the test, `plune-findings` (`application/plune.findings+json`).
+It is an attachment like any other, so it is also in Playwright's own HTML, JSON and blob reports and in a
+trace, **for a passing test too**. It holds what is described above and nothing more: for each finding its
+kind, the cleaned text or the method, path, status and duration, and the time it happened; and the count of
+what was left out.
+
+The reporter reads it and sends the findings with the result of that attempt, each with the top-level
+`test.step` it happened in, **only when the attempt did not pass**: Plune shows them under a failure. The
+attachment itself is not uploaded as a file of the result and is not listed among the failure's artifacts.
+A Plune that does not know the field yet (an older self-hosted one) refuses the batch once; the reporter
+sends it again without the findings, says so in one line, and sends none for the rest of the run. No result
+is lost to it.
+
 ## Screenshots
 
 Every screenshot a test keeps as a file — Playwright's `screenshot` option, `testInfo.attach` with a

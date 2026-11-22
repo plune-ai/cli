@@ -11,7 +11,8 @@ import { defineConfig } from 'tsup';
  * `@playwright/test` never lands here either: the adapter imports only its types.
  */
 export default defineConfig({
-  entry: { index: 'src/index.ts' },
+  // `fixture` runs in the test worker and is the only entry that imports `@playwright/test` at runtime.
+  entry: { index: 'src/index.ts', fixture: 'src/fixture.ts' },
   format: ['esm', 'cjs'],
   target: 'node20',
   dts: true,

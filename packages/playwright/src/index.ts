@@ -16,8 +16,10 @@ import {
   type FailedAttempt,
   type KeyRef,
   type PendingResult,
+  type ResultFindings,
   type RunSession,
 } from '@plune-ai/cli/reporter-core';
+import { FINDINGS_TYPE, toWire } from './findings.js';
 
 /**
  * The Playwright half of the Plune reporter.
@@ -124,13 +126,40 @@ function metadataOf(result: TestResult): PluneMetadata | undefined {
   const found = result.attachments.find((a) => a.contentType === METADATA_TYPE);
   if (found === undefined) return undefined;
   try {
-    const raw =
-      found.body !== undefined
-        ? found.body.toString('utf8')
-        : found.path !== undefined
-          ? readFileSync(found.path, 'utf8')
-          : undefined;
+    const raw = textOfAttachment(found);
     return raw === undefined ? undefined : (JSON.parse(raw) as PluneMetadata);
+  } catch {
+    return undefined;
+  }
+}
+
+/** An attachment's text, from memory or from the runner's file. Throws when it cannot be read. */
+function textOfAttachment(found: TestResult['attachments'][number]): string | undefined {
+  if (found.body !== undefined) return found.body.toString('utf8');
+  return found.path !== undefined ? readFileSync(found.path, 'utf8') : undefined;
+}
+
+/**
+ * What the fixture collected in this attempt's browser, as the platform takes it. No attachment is
+ * «not collected»; one that cannot be read or parsed is the same, never an error.
+ */
+function findingsOf(result: TestResult): ResultFindings | undefined {
+  const found = result.attachments.find((a) => a.contentType === FINDINGS_TYPE);
+  if (found === undefined) return undefined;
+  try {
+    const raw = textOfAttachment(found);
+    if (raw === undefined) return undefined;
+    // The declared steps of the test body, as `declared` reads them: top level only.
+    const steps = (result.steps ?? [])
+      .filter((step) => step.category === 'test.step')
+      .map((step, i, all) => {
+        const start = step.startTime.getTime();
+        // A step the test timed out in has a duration of -1: it never ended. It is open until the next
+        // top-level step starts, or to the end of the attempt when it is the last.
+        const end = step.duration >= 0 ? start + step.duration : (all[i + 1]?.startTime.getTime() ?? Infinity);
+        return { title: step.title, start, end };
+      });
+    return toWire(JSON.parse(raw), steps);
   } catch {
     return undefined;
   }
@@ -262,6 +291,7 @@ function pendingFrom(
   const errorContext = errorContextFields(attempt);
   const failure = NOT_FAILED.has(result.status) ? undefined : failureOf(attempt);
   const files = filesOf(attempt);
+  const findings = result.status === 'passed' ? undefined : findingsOf(result);
   const startedAt = result.startTime;
 
   return {
@@ -296,6 +326,9 @@ function pendingFrom(
     ...(failure !== undefined ? { failure } : {}),
     // Every attempt's, a passed one's too; the core uploads the screenshots and the text files once the result is stored.
     ...(files.length > 0 ? { files } : {}),
+    // Only with an attempt that did not pass: the run page shows what the browser reported under a failure,
+    // and nowhere else. Each attempt carries its own attachment, so a retry sends its own findings.
+    ...(findings !== undefined ? { findings } : {}),
   };
 }
 

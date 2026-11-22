@@ -59,6 +59,29 @@ describe('what installing this package costs', () => {
     expect(specifiers.filter((s) => !s.startsWith('node:') && !isNodeBuiltin(s))).toEqual([]);
   });
 
+  it('ships every file the fixture entry names', () => {
+    const entry = (manifest as { exports?: Record<string, Record<string, string>> }).exports?.['./fixture'];
+
+    expect(Object.keys(entry ?? {})).toEqual(['types', 'import', 'require']);
+    expect(Object.values(entry ?? {}).filter((f) => !fs.existsSync(path.join(root, f)))).toEqual([]);
+  });
+
+  // The fixture is the one entry that needs the runner at runtime, and nothing else: it bundles the masker,
+  // not the client, the session or anything the reporter talks to the platform with.
+  it('lets the fixture entry import only Node and the runner', () => {
+    for (const file of ['fixture.js', 'fixture.cjs']) {
+      const bundle = fs.readFileSync(path.join(root, 'dist', file), 'utf8');
+      const specifiers = [...bundle.matchAll(/(?:from|require\()\s*["']([^"']+)["']/g)].map((m) => m[1] as string);
+
+      expect(specifiers).toContain('@playwright/test');
+      expect(
+        specifiers.filter((s) => s !== '@playwright/test' && !s.startsWith('node:') && !isNodeBuiltin(s)),
+      ).toEqual([]);
+      expect(bundle).not.toMatch(/\/v1\/|Bearer \$\{/);
+      expect(Buffer.byteLength(bundle)).toBeLessThan(24 * 1024);
+    }
+  });
+
   /**
    * The size ceiling is the one that can actually go red, and it took a deliberate attempt to
    * break the others to find that out.

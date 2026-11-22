@@ -26,6 +26,9 @@ export type { DeferredBatch, DeferredResult } from './fallback.js';
 /** What failed and where, the text of every error and the files kept, from one normalized attempt — the same for both roads. */
 export { errorContextFields, errorContextOf, failureOf, filesOf, repoRootOf, webLink } from './failure-detail.js';
 
+/** The one masker of credential values: an adapter runs what it collects through it before the text leaves the test process. */
+export { maskCredentials } from './code-snapshot.js';
+
 /** The client itself, for the CLI commands that drive a run without a runner (C5). */
 export { createClient } from './client.js';
 export type { PlatformClient, ClientOutcome, ClientFailureKind, ClientOptions } from './client.js';
@@ -39,6 +42,9 @@ export type {
   ExpectedEntry,
   FailedAttempt,
   FailureDetail,
+  Finding,
+  FindingStep,
+  ResultFindings,
   FrozenSummary,
   ExternalKeyKind,
   KeyRef,

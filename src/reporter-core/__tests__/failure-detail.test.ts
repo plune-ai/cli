@@ -247,6 +247,7 @@ describe('failureOf — what the runner kept, and the CI run (AC-04, AC-05)', ()
           { name: 'screenshot', contentType: 'image/png', path: '/repo/test-results/a/test-failed-1.png' },
           { name: '_internal', contentType: 'text/plain', path: '/repo/test-results/a/x.txt' },
           { name: 'plune', contentType: 'application/plune.metadata+json', path: '/repo/test-results/a/m.json' },
+          { name: 'plune-findings', contentType: 'application/plune.findings+json', path: '/repo/test-results/a/f.json' },
           { name: 'note', contentType: 'text/plain' },
           { name: 'api-response', contentType: 'application/json', body: Buffer.from('{}') },
           { name: '', path: '/repo/test-results/a/unnamed.bin' },
