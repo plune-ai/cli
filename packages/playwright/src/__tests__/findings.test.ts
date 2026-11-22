@@ -479,3 +479,61 @@ describe('a step title at the cut', () => {
     expect((wire?.items[0] as { step: { title: string } }).step.title).toBe('y'.repeat(299));
   });
 });
+
+describe('a text is cleaned in an order that loses nothing to an earlier step', () => {
+  const said = (raw: string): string => {
+    const c = createCollector(3000);
+    c.console(raw, T0);
+    return (c.result().items[0] as { text: string } | undefined)?.text ?? '';
+  };
+
+  it('masks a header written on a line of its own, before the lines are joined', () => {
+    expect(said('request failed\nCookie: sid=abc123')).toBe('request failed Cookie: ‹header›');
+    const later = said('request failed\nGET /cart\nAuthorization: Zm9vOmJhcg==\nbye');
+    expect(later).not.toContain('Zm9vOmJhcg');
+    expect(later).toContain('request failed GET /cart Authorization:');
+  });
+
+  it('cuts a path written without its host at a fragment as well as at a query', () => {
+    expect(said('redirected to /cb#access_token=abc123')).toBe('redirected to /cb');
+    expect(said('opened /a?x=1#y twice')).toBe('opened /a twice');
+    expect(said('href=/a#tok and (/b?c)')).toBe('href=/a and (/b');
+  });
+
+  it('leaves alone a number sign and a question mark that are no address', () => {
+    for (const plain of ['issue #3 in /docs', 'see #3', 'what? no', 'really?=)', 'a/b#c']) {
+      expect(said(plain)).toBe(plain);
+    }
+  });
+
+  it('cuts a query with a named value wherever its token starts', () => {
+    expect(said('GET ./api?x=1 failed')).toBe('GET ./api failed');
+    expect(said('GET ../api?x=1 failed')).toBe('GET ../api failed');
+    expect(said('GET localhost:3000/a?x=1&y=2 failed')).toBe('GET localhost:3000/a failed');
+    expect(said('GET api.x/y?id=5 failed')).toBe('GET api.x/y failed');
+    expect(said('load("api.x/y?id=5&mail=a@b.c") failed')).toBe('load("api.x/y") failed');
+  });
+
+  it('cleans a megabyte of anything in no time: only the head of a text is ever read', () => {
+    const lines = [
+      ':/'.repeat(500_000),
+      '?a'.repeat(500_000),
+      `/${',/x'.repeat(300_000)}`,
+      `https://${'a@'.repeat(400_000)}`,
+      `${'x'.repeat(999_000)} https://h/a?token=secret`,
+      'password = "'.repeat(80_000),
+    ];
+    const started = performance.now();
+    const out = lines.map(said);
+    expect(performance.now() - started).toBeLessThan(200);
+    for (const text of out) expect(text.length).toBeLessThanOrEqual(300);
+    expect(out.join(' ')).not.toContain('secret');
+  });
+
+  it('drops the word the working length cut through, so half a credential is never taken for a plain word', () => {
+    const token = ['ghp', 'Zq7Xw2Lp9Rt4Vb6Nm1Kc8Hd3Jf5Gs0Ya2Ue7'].join('_');
+    // The query is cut away, so the tail of the working text moves into the 300 that are kept.
+    const text = said(`/a?x=${'y'.repeat(3970)} ${token}`);
+    expect(text).toBe('/a');
+  });
+});

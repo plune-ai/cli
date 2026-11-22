@@ -57,38 +57,84 @@ export interface Collector {
 const METHOD = /^[A-Z]{1,16}$/;
 const PATH = /^\/(?!\/)[^?#]*$/;
 
-/** At most 300, and not half of a character pair at the cut. */
-function clip(text: string): string {
-  const cut = text.slice(0, TEXT_MAX);
+/** At most `max`, and not half of a character pair at the cut. */
+function clip(text: string, max = TEXT_MAX): string {
+  const cut = text.slice(0, max);
   return /[\ud800-\udbff]$/.test(cut) ? cut.slice(0, -1) : cut;
 }
 
-/** Where an address written into a text ends: a space, a quote or an angle bracket. */
-const END = String.raw`\s"'\x60<>`;
-/** `scheme://`, a user and password, the host and path, then the query and fragment. */
-const ABSOLUTE = new RegExp(
-  String.raw`\b((?:https?|wss?):\/\/)(?:[^${END}/?#@]*@)?([^${END}?#]*)(?:[?#][^${END}]*)?`,
-  'gi',
-);
-/** A path written without its host, with a query: `/api/cart?id=5`. Only where a word starts, so `and/or?` stays. */
-const RELATIVE = new RegExp(String.raw`(^|[\s"'\x60<>(\[{=:,;])(\/[^${END}?#]*)\?[^${END}]*`, 'g');
-
 /**
- * An address inside a text keeps its host and path and loses the rest: a query string and a fragment are
- * removed, not masked, as they are from a request's own address, and so are a user and password.
- *
- * ponytail: found by its shape. Everything from the `?` or `#` to the next space, quote or angle bracket goes,
- * the punctuation after an address with it (`…/a?x=1).` loses `).`); a query written after a space, or an
- * address with no scheme and no leading slash (`api.x/y?id=5`), is not seen. Parse the text if that matters.
+ * How much of a raw text is ever read. A page can write a megabyte to its console, and the cleaning runs
+ * inside the listener, in the test's own worker: nothing below may cost more than this length allows.
+ * 300 are kept in the end; the rest is room for what the cutting takes away.
  */
-function withoutQueries(text: string): string {
-  return text.replace(ABSOLUTE, '$1$2').replace(RELATIVE, '$1$2');
+const WORK_MAX = 4000;
+
+/** One run of characters with no space, quote or angle bracket in it: where an address written into a text ends. */
+const TOKEN = /[^\s"'\x60<>]+/g;
+const SCHEME = /(?:https?|wss?):\/\//i;
+/** A `/`, `./` or `../` where a word starts: at the head of the token or after an opening mark. */
+const PATH_START = /(?:^|[(\[{=:,;])\.{0,2}\//;
+/** A query by its shape: `?`, a name, `=`. */
+const NAMED_QUERY = /\?\w+=/;
+
+/** The index of the first `?` or `#` at or after `from`, or the length. */
+function markIn(token: string, from: number): number {
+  const at = token.slice(from).search(/[?#]/);
+  return at === -1 ? token.length : from + at;
 }
 
-/** Addresses cut and credentials masked first, clipped after: a clip before could halve what they would then not recognise. */
+/**
+ * One token without what an address must not carry out of the worker. Three rules, each a single pass:
+ * 1. `?name=` anywhere in it: cut at that `?` (`api.x/y?id=5`, `localhost:3000/a?x=1`, `./api?x=1`).
+ * 2. `http(s)://` or `ws(s)://` in it: cut at the first `?` or `#` after it, and the user and password go.
+ * 3. a `/`, `./` or `../` where a word starts: cut at the first `?` or `#` after it (`/cb#access_token=…`).
+ * Removed, not masked: as from a request's own address.
+ *
+ * ponytail: by shape, not by parsing. Named so nobody takes it for more:
+ * - the cut runs to the end of the token, so punctuation after an address goes with it (`…/a?x=1).` loses `).`);
+ * - a value with a raw space, quote or angle bracket in it ends the token there, and what follows is kept;
+ * - a query with no `name=` on an address with no scheme and no leading slash (`api.x/y?abc`) is not seen,
+ *   nor is a fragment on one (`api.x/y#token`);
+ * - prose shaped like rule 1 (`what?no=yes`) is cut too.
+ */
+function withoutQuery(token: string): string {
+  const named = token.search(NAMED_QUERY);
+  let out = named === -1 ? token : token.slice(0, named);
+
+  const scheme = SCHEME.exec(out);
+  if (scheme !== null) {
+    const from = scheme.index + scheme[0].length;
+    const rest = out.slice(from, markIn(out, from));
+    const slash = rest.indexOf('/');
+    const user = rest.lastIndexOf('@', slash === -1 ? rest.length : slash);
+    return out.slice(0, from) + rest.slice(user + 1);
+  }
+  const path = PATH_START.exec(out);
+  if (path !== null) out = out.slice(0, markIn(out, path.index));
+  return out;
+}
+
+/**
+ * A text as it may leave the worker. The order is the point; each step would lose something to an earlier one:
+ * 1. the head of the raw text only (`WORK_MAX`), without the word the cut went through — half a credential is
+ *    not a credential the masking knows;
+ * 2. credentials masked while the line breaks are still there: a header line (`Cookie: …`) is known by its line;
+ * 3. addresses cut;
+ * 4. control characters and line breaks to single spaces;
+ * 5. the clip to 300.
+ */
 function cleaned(raw: string): string {
-  const flat = stripVTControlCharacters(raw).replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ');
-  return clip(maskCredentials(withoutQueries(flat)).trim());
+  let head = clip(raw, WORK_MAX);
+  if (raw.length > WORK_MAX) {
+    let end = head.length;
+    while (end > 0 && !/\s/.test(head[end - 1]!)) end -= 1;
+    // One word longer than the working length has no credential to halve that the last 300 would show.
+    if (end > 0) head = head.slice(0, end);
+  }
+  const masked = maskCredentials(stripVTControlCharacters(head));
+  const flat = masked.replace(TOKEN, withoutQuery).replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ');
+  return clip(flat.trim());
 }
 
 export function createCollector(slowMs: number): Collector {

@@ -1461,6 +1461,9 @@ export async function startRun(
         part = part.map(withoutTargets);
         out = await post(part);
       }
+      // A batch taken only on the third post, without findings and without targets, switches findings off as well,
+      // though removing targets alone might have cured it: the two are not told apart. The run goes on without
+      // findings; no result is lost.
       if (withoutItsFindings && out.ok) {
         if (!findingsRefused) log('plune: the platform does not take findings on a result yet — the results are sent without them.');
         findingsRefused = true;

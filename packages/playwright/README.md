@@ -198,15 +198,29 @@ Two options, set as any Playwright option (`use` in the config, or `test.use` in
 | `pluneFindings` | `true` | `false` turns the collection off |
 | `pluneSlowRequestMs` | `3000` | how long a request takes, in milliseconds, before it is slow |
 
-What is never collected: request and response headers, bodies, cookies, post data, and query strings. An
+What is never read from a request or a response: headers, bodies, cookies, post data. A request's own
 address is cut to its path before it leaves the test process (`https://shop.example/api/cart?token=…`
-is kept as `/api/cart`). The same holds inside a text: an address written into a console line or an error
-message keeps its host and path and loses its query string, its fragment and its user and password
-(`GET https://api.example/y?email=… failed` is kept as `GET https://api.example/y failed`, and
-`/api/widget?token=…` as `/api/widget`). An address is found by its shape, `http(s)://…`, `ws(s)://…` or a path
-that starts with `/`: a query written some other way (`api.example/y?id=5`, with no scheme) is not seen. A text
-is then cut to 300 characters. Only `http:` and `https:` requests count. A test keeps its first 20 findings by
-time and counts the rest.
+is kept as `/api/cart`). Only `http:` and `https:` requests count. A test keeps its first 20 findings by time
+and counts the rest.
+
+**An address written into a text** (a console line, an error message) is cut too, by its shape. The text is
+read word by word, a word being a run of characters with no space, quote (`"`, `'`, `` ` ``) or angle bracket
+in it, and in each word:
+
+1. a `?` followed by a name and `=` cuts the word there (`api.example/y?id=5` is kept as `api.example/y`,
+   `localhost:3000/a?x=1` as `localhost:3000/a`, `./api?x=1` as `./api`);
+2. after `http://`, `https://`, `ws://` or `wss://` the word is cut at the first `?` or `#`, and a user and
+   password before the host are removed (`GET https://api.example/y?email=… failed` is kept as
+   `GET https://api.example/y failed`);
+3. after a `/`, `./` or `../` that starts the word (or follows `(`, `[`, `{`, `=`, `:`, `,` or `;`) the word is
+   cut at the first `?` or `#` (`/cb#access_token=…` is kept as `/cb`).
+
+What is cut is removed, not masked. Two limits of a rule by shape: a value that holds a raw space, quote or
+angle bracket ends the word there, and what follows it is kept (`/search?q=anna smith` is kept as
+`/search smith`); and on an address with no scheme and no leading slash, a query with no `name=`
+(`api.example/y?abc`) or a fragment (`api.example/y#token`) is not recognised and is kept. The cut runs to the
+end of the word, so punctuation right after an address goes with it. Only the first 4000 characters of a text
+are read, and the result is cut to 300.
 
 Two things are told by Chromium's wording, and hold for Chromium only. A request the page itself aborted (a
 navigation away) is not reported as failed when its error is `net::ERR_ABORTED`; another browser words a
@@ -218,7 +232,8 @@ The fixture needs Playwright 1.38 or later for the events it listens to (`weberr
 package asks for 1.44 or later anyway.
 
 **What is masked, and what is not.** A console text, an error message and a path go through the masking the
-code snapshot uses, before they leave the test process. It replaces with a `‹…›` marker:
+code snapshot uses, before they leave the test process; a text is masked with its line breaks still in it,
+then its addresses are cut, then its lines are joined. It replaces with a `‹…›` marker:
 
 - a value with a well-known form: a GitHub token (`ghp_…`, `github_pat_…`), a key starting `sk-`,
   `sk_live_…` or `rk_test_…`, an npm token (`npm_…`), a Google key (`AIza…`), a Plune token (`plune_…`), an AWS
@@ -227,7 +242,8 @@ code snapshot uses, before they leave the test process. It replaces with a `‹�
 - a quoted value given to a name that says credential (`password = '…'`, `apiKey: "…"`, `setToken('…')`);
 - the value of a parameter whose name says credential (`?token=…`, `&api_key=…`, `&session=…`), where the
   address around it was not recognised and cut as above;
-- the value of an `Authorization`, `Cookie` or `…session…` header written out as a line;
+- the value of an `Authorization`, `Cookie` or `…session…` header written at the start of a line
+  (`Cookie: sid=…` on a line of its own; not one in the middle of a sentence);
 - the user and password of an address (`https://user:pass@host`), and the value of a `PLUNE_…=` variable.
 
 Nothing else is. A password, a key of a form not listed, a personal detail or a customer's data that a page
