@@ -129,8 +129,12 @@ describe('CLI · mcp lint · Plune tools contract', () => {
     );
 
     expect(failing.map((f) => `${f.id} on ${where(f)}: ${f.message} Fix: ${f.fix}`)).toEqual([]);
-    // plune_mission_update overwrites fields and removes the address, so it says destructiveHint: true.
-    expect(advice.filter((f) => f.id === 'hint-destructive-understated' && f.target.tool === 'plune_mission_update').map(where)).toEqual([]);
+    // plune_mission_update overwrites fields and removes the address, and plune_cases_update replaces a case's title,
+    // tags and steps whole, so both say destructiveHint: true.
+    const overwriters = ['plune_mission_update', 'plune_cases_update'];
+    expect(advice.filter((f) => f.id === 'hint-destructive-understated' && overwriters.includes(f.target.tool)).map(where)).toEqual([]);
+    // plune_cases_update is hidden: only the 2025 era lists it, after plune_discover_tools, so that view is where it is checked.
+    expect(tools.some((t) => t.name === 'plune_cases_update')).toBe(view.era === 'legacy' && view.revealHidden);
   });
 
   // Lists and lints every view itself, so it holds when run alone (-t) as well as after the views above.
