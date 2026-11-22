@@ -191,12 +191,13 @@ What is collected:
 | `request_failed` | an answer with status 400 or above, or no answer at all | method, path, the status and the duration when there was an answer |
 | `request_slow` | an answer under 400 that took the threshold or longer | method, path, status, duration |
 
-Two options, set as any Playwright option (`use` in the config, or `test.use` in a file):
+Three options, set as any Playwright option (`use` in the config, or `test.use` in a file):
 
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `pluneFindings` | `true` | `false` turns the collection off |
 | `pluneSlowRequestMs` | `3000` | how long a request takes, in milliseconds, before it is slow |
+| `pluneSecretEnv` | `[]` | names of environment variables whose values are masked in every text and path; see below |
 
 What is never read from a request or a response: headers, bodies, cookies, post data. A request's own
 address is cut to its path before it leaves the test process (`https://shop.example/api/cart?token=…`
@@ -248,10 +249,31 @@ then its addresses are cut, then its lines are joined. It replaces with a `‹�
   (`Cookie: sid=…` on a line of its own; not one in the middle of a sentence);
 - the user and password of an address (`https://user:pass@host`), and the value of a `PLUNE_…=` variable.
 
-Nothing else is. A password, a key of a form not listed, a personal detail or a customer's data that a page
-writes to its console as plain words (`login failed for anna@example.com with hunter2`) is sent as written,
-and so is an identifier in a path (`/reset/8f3a9c…`). A page that logs such things needs `pluneFindings: false`
-for those tests, or a fix in the page.
+Nothing else is by its form. A password, a key of a form not listed, a personal detail or a customer's data
+that a page writes to its console as plain words (`login failed for anna@example.com with hunter2`) is sent as
+written, and so is an identifier in a path (`/reset/8f3a9c…`). A page that logs such things needs
+`pluneFindings: false` for those tests, a fix in the page, or, for a secret your tests hold in an environment
+variable, its name in `pluneSecretEnv`.
+
+**Secrets you name: `pluneSecretEnv`.** The option takes the names of environment variables, never their
+values: an option can be read by any reporter and end up in a report, and a name gives nothing away.
+
+```ts
+// playwright.config.ts
+use: { pluneSecretEnv: ['SHOP_PASSWORD', 'SHOP_API_KEY'] },
+```
+
+When a test's browser opens, the fixture reads each variable in the test process, and from then on every
+occurrence of its value in a console text, an error message or a request's path is replaced by `‹env-secret›`,
+before anything else is done to the text (so before it is cut to 300 characters) and before the attachment is
+written. What is recognised is the exact value, and the value as an address carries it (the results of
+`encodeURIComponent` and of `encodeURI`). Its limits:
+
+- a value under 4 characters is not masked: replacing every `123` would shred a text and hide nothing;
+- a variable that is not set, or is empty, is skipped without a word;
+- a value the page changed in any other way is another string and is not recognised: base64, a hash, another
+  letter case, percent escapes written in lower case, a value split over two lines;
+- a path that a marker makes longer than 300 characters is not sent, only counted.
 
 A test that opens no browser context collects nothing, and no browser is opened for it. A context a test
 makes itself with `browser.newContext()` is not listened to. The fixture never fails a test and does not wait

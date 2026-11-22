@@ -7,7 +7,7 @@ import {
   type PlaywrightWorkerArgs,
   type PlaywrightWorkerOptions,
 } from '@playwright/test';
-import { FINDINGS_TYPE, watch } from './findings.js';
+import { FINDINGS_TYPE, secretValues, watch } from './findings.js';
 
 /**
  * `@plune-ai/playwright/fixture` — collects what the browser reported during a test (console errors, page
@@ -22,6 +22,12 @@ export interface PluneFindingsOptions {
   pluneFindings: boolean;
   /** A request that took this long, in milliseconds, is reported as slow. Default 3000. */
   pluneSlowRequestMs: number;
+  /**
+   * NAMES of environment variables whose values must never leave the test process: each value is replaced by
+   * `‹env-secret›` in every text and path. Names and not values on purpose: an option can be read by any
+   * reporter and written into a report; a name is safe there. Default none.
+   */
+  pluneSecretEnv: string[];
 }
 
 const SLOW_MS = 3000;
@@ -42,13 +48,20 @@ export const findingsFixtures: Fixtures<
 > = {
   pluneFindings: [true, { option: true }],
   pluneSlowRequestMs: [SLOW_MS, { option: true }],
-  context: async ({ context, pluneFindings, pluneSlowRequestMs }, use, testInfo) => {
+  pluneSecretEnv: [[], { option: true }],
+  context: async (
+    { context, pluneFindings, pluneSlowRequestMs, pluneSecretEnv },
+    use,
+    testInfo,
+  ) => {
     const collector = pluneFindings
       ? watch(
           context,
           Number.isFinite(pluneSlowRequestMs) && pluneSlowRequestMs >= 0
             ? pluneSlowRequestMs
             : SLOW_MS,
+          // Read when the test's browser opens: the values this worker has now.
+          secretValues(pluneSecretEnv),
         )
       : undefined;
     await use(context);
