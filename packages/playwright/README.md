@@ -200,10 +200,22 @@ Two options, set as any Playwright option (`use` in the config, or `test.use` in
 
 What is never collected: request and response headers, bodies, cookies, post data, and query strings. An
 address is cut to its path before it leaves the test process (`https://shop.example/api/cart?token=…`
-is kept as `/api/cart`), and a text is cut to 300 characters. Only `http:` and `https:` requests count. A
-request the page itself aborted (`net::ERR_ABORTED`, a navigation away) is not a failure, and Chromium's own
-«Failed to load resource» console line is dropped because the request is already there. A test keeps its
-first 20 findings by time and counts the rest.
+is kept as `/api/cart`). The same holds inside a text: an address written into a console line or an error
+message keeps its host and path and loses its query string, its fragment and its user and password
+(`GET https://api.example/y?email=… failed` is kept as `GET https://api.example/y failed`, and
+`/api/widget?token=…` as `/api/widget`). An address is found by its shape, `http(s)://…`, `ws(s)://…` or a path
+that starts with `/`: a query written some other way (`api.example/y?id=5`, with no scheme) is not seen. A text
+is then cut to 300 characters. Only `http:` and `https:` requests count. A test keeps its first 20 findings by
+time and counts the rest.
+
+Two things are told by Chromium's wording, and hold for Chromium only. A request the page itself aborted (a
+navigation away) is not reported as failed when its error is `net::ERR_ABORTED`; another browser words a
+cancelled request differently, and there it may be reported as failed. And the console line Chromium prints for
+every failed request, «Failed to load resource: …», is dropped because the request is already there; another
+browser's line of the same kind is kept as a console finding.
+
+The fixture needs Playwright 1.38 or later for the events it listens to (`weberror` is the newest); this
+package asks for 1.44 or later anyway.
 
 **What is masked, and what is not.** A console text, an error message and a path go through the masking the
 code snapshot uses, before they leave the test process. It replaces with a `‹…›` marker:
@@ -213,7 +225,8 @@ code snapshot uses, before they leave the test process. It replaces with a `‹�
   access key id (`AKIA…`), a Slack token (`xox…`), a JWT, a private key block;
 - the value after `Bearer`, and after `Basic` or `Token` when it looks encoded;
 - a quoted value given to a name that says credential (`password = '…'`, `apiKey: "…"`, `setToken('…')`);
-- the value of a URL parameter whose name says credential (`?token=…`, `&api_key=…`, `&session=…`);
+- the value of a parameter whose name says credential (`?token=…`, `&api_key=…`, `&session=…`), where the
+  address around it was not recognised and cut as above;
 - the value of an `Authorization`, `Cookie` or `…session…` header written out as a line;
 - the user and password of an address (`https://user:pass@host`), and the value of a `PLUNE_…=` variable.
 
@@ -227,6 +240,11 @@ makes itself with `browser.newContext()` is not listened to. The fixture never f
 at its end for an answer still arriving: a response that had not finished when the test ended is not reported.
 
 The findings travel as one attachment of the test, `plune-findings` (`application/plune.findings+json`).
+It is an attachment like any other, so it is also in Playwright's own HTML, JSON and blob reports and in a
+trace, **for a passing test too**. It holds what is described above and nothing more: for each finding its
+kind, the cleaned text or the method, path, status and duration, and the time it happened; and the count of
+what was left out.
+
 The reporter reads it and sends the findings with the result of that attempt, each with the top-level
 `test.step` it happened in, **only when the attempt did not pass**: Plune shows them under a failure. The
 attachment itself is not uploaded as a file of the result and is not listed among the failure's artifacts.

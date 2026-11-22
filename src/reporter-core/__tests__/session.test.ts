@@ -63,6 +63,8 @@ interface PlatformOptions {
   resultsFailure?: { status: number; error: string; quota?: Record<string, unknown> } | 'network';
   /** Only this call to `…/results` (from 0) meets `resultsFailure`; absent means every call does. */
   failCall?: number;
+  /** Fail every results call up to and including this one, instead of one call or all of them. */
+  failThrough?: number;
   /**
    * Whether this deployment has the run's title, environment and label columns. `false` models
    * one older than them: it validates
@@ -225,7 +227,8 @@ function platform(opts: PlatformOptions = {}) {
     const results = /\/v1\/runs\/([^/]+)\/results$/.exec(target);
     if (results) {
       const call = seen.resultCalls.push(Buffer.byteLength(String(init?.body ?? ''))) - 1;
-      const fails = opts.failCall === undefined || opts.failCall === call;
+      const fails =
+        opts.failThrough !== undefined ? call <= opts.failThrough : opts.failCall === undefined || opts.failCall === call;
       if (fails && opts.resultsFailure === 'network') throw new TypeError('fetch failed');
       if (fails && opts.resultsFailure !== undefined) {
         const { error, quota, status } = opts.resultsFailure;
@@ -466,6 +469,27 @@ describe('findings on a result', () => {
     const line = fs.readFileSync(cfg.fallbackPath as string, 'utf8');
     expect(line).toContain('a#0');
     expect(line).not.toContain('findings');
+    // The resend was refused as well, so nothing says the field was the reason.
+    expect(said(cfg)).toHaveLength(0);
+  });
+
+  it('a 400 that the resend does not cure says nothing about findings, and the next batch still carries them', async () => {
+    const { seen, fetchImpl } = platform({
+      known: { a: 'tc-a', b: 'tc-b' },
+      resultsFailure: { status: 400, error: 'bad' },
+      failThrough: 1,
+    });
+    const cfg = config(fetchImpl, { batchSize: 1 });
+    const run = await startRun(cfg);
+    await run.add(result('a', { findings: FOUND }));
+    await run.add(result('b', { findings: FOUND }));
+    await run.flush();
+
+    // The first batch with and without its findings, both refused; then the second, as it is.
+    expect(seen.resultCalls).toHaveLength(3);
+    expect(sent(seen).map((r) => [r['resultKey'], r['findings']])).toEqual([['b#0', FOUND]]);
+    expect(said(cfg)).toHaveLength(0);
+    expect(fs.readFileSync(cfg.fallbackPath as string, 'utf8')).toContain('a#0');
   });
 
   it('a quota refusal (429) is not a refusal of the field: no resend, and the next batch keeps them', async () => {

@@ -992,3 +992,36 @@ describe('what the browser reported goes with the failed attempt', () => {
     expect(added[0]?.files ?? []).toEqual([]);
   });
 });
+
+// Playwright gives a step the test timed out in a duration of -1 and no error.
+describe('a step that never finished is open', () => {
+  const START = Date.parse('2026-09-08T10:00:00.000Z');
+  const step = (title: string, fromMs: number, ms: number) => ({
+    title,
+    category: 'test.step',
+    startTime: new Date(START + fromMs),
+    duration: ms,
+    steps: [],
+  });
+  const stepsOfFindingsAt = async (steps: unknown[], times: number[]) => {
+    const body = { items: times.map((t) => ({ kind: 'console', text: 'x', at: START + t })), omitted: 0 };
+    const attachments = [
+      { name: 'plune-findings', contentType: 'application/plune.findings+json', body: Buffer.from(JSON.stringify(body)) },
+    ];
+    added.length = 0;
+    await run(new PluneReporter(), [fakeTest()], [fakeResult({ status: 'timedOut', errors: [], steps, attachments })]);
+    return added[0]?.findings?.items.map((f) => f.step?.title);
+  };
+
+  it('to the end of the attempt when it is the last one', async () => {
+    const steps = [step('Open', 100, 100), step('Pay', 800, -1)];
+
+    expect(await stepsOfFindingsAt(steps, [150, 500, 800, 30_000])).toEqual(['Open', undefined, 'Pay', 'Pay']);
+  });
+
+  it('to the start of the next top-level step otherwise', async () => {
+    const steps = [step('Open', 100, -1), step('Pay', 400, 50)];
+
+    expect(await stepsOfFindingsAt(steps, [99, 300, 400, 449, 450])).toEqual([undefined, 'Open', 'Pay', 'Pay', undefined]);
+  });
+});

@@ -758,7 +758,7 @@ describe('what the browser reported reaches the failed result', () => {
     const load = { index: 2, title: 'load the cart' };
     const items = (result.findings?.items ?? []).map(({ durationMs: _ms, ...rest }) => rest);
     expect(items).toHaveLength(5);
-    expect(items).toContainEqual({ kind: 'console', text: 'widget broke at /api/widget?token=‹credential›', step: open });
+    expect(items).toContainEqual({ kind: 'console', text: 'widget broke at /api/widget', step: open });
     expect(items).toContainEqual({ kind: 'page_error', text: 'boom from the page', step: open });
     expect(items).toContainEqual({ kind: 'request_failed', method: 'GET', path: '/api/fail', status: 500, step: load });
     expect(items).toContainEqual({ kind: 'request_slow', method: 'GET', path: '/api/slow', status: 200, step: load });

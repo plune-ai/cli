@@ -152,11 +152,13 @@ function findingsOf(result: TestResult): ResultFindings | undefined {
     // The declared steps of the test body, as `declared` reads them: top level only.
     const steps = (result.steps ?? [])
       .filter((step) => step.category === 'test.step')
-      .map((step) => ({
-        title: step.title,
-        start: step.startTime.getTime(),
-        end: step.startTime.getTime() + step.duration,
-      }));
+      .map((step, i, all) => {
+        const start = step.startTime.getTime();
+        // A step the test timed out in has a duration of -1: it never ended. It is open until the next
+        // top-level step starts, or to the end of the attempt when it is the last.
+        const end = step.duration >= 0 ? start + step.duration : (all[i + 1]?.startTime.getTime() ?? Infinity);
+        return { title: step.title, start, end };
+      });
     return toWire(JSON.parse(raw), steps);
   } catch {
     return undefined;

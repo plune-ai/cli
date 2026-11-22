@@ -1440,13 +1440,14 @@ export async function startRun(
           { results, ...(configuration !== undefined ? { configuration } : {}) },
         );
       let out = await post(part);
-      // `findings` is the newest field, so it goes first, by the rule written below for `targets`: a 400 on a batch that
-      // carries it is answered by one resend without it, and no later batch carries it. The 400 is not read for which key
-      // it names; a platform older than `targets` as well refuses the resend, and the lines below take those off too.
-      // A result is never lost to a field: what any 400 costs is the findings of this run.
+      // `findings` is the newest field, so it goes first: a 400 on a batch that carries it is answered by one resend
+      // without it. The 400 is not read for which key it names, so the resend is what tells: only when the batch is
+      // then taken (as it is, or after the lines below took `targets` off as well, for a platform older than both)
+      // was the field the reason, and only then is it said and no later batch carries it. A batch refused again was
+      // refused for something else: it is kept for a replay, and the next one still carries its findings.
+      let withoutItsFindings = false;
       if (!out.ok && out.kind === 'invalid' && out.status === 400 && part.some((r) => r.findings !== undefined)) {
-        if (!findingsRefused) log('plune: the platform does not take findings on a result yet — the results are sent without them.');
-        findingsRefused = true;
+        withoutItsFindings = true;
         part = part.map(withoutFindings);
         out = await post(part);
       }
@@ -1459,6 +1460,10 @@ export async function startRun(
         targetsRefused = true;
         part = part.map(withoutTargets);
         out = await post(part);
+      }
+      if (withoutItsFindings && out.ok) {
+        if (!findingsRefused) log('plune: the platform does not take findings on a result yet — the results are sent without them.');
+        findingsRefused = true;
       }
       // A success with no counts says nothing about what was stored: kept for a replay, not guessed —
       // and counts with no number in them say no more.

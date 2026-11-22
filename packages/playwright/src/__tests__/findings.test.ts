@@ -411,3 +411,71 @@ describe('toWire — what the reporter sends of an attachment', () => {
     }
   });
 });
+
+describe('an address inside a text keeps its host and path, and nothing after them', () => {
+  const said = (raw: string): string => {
+    const c = createCollector(3000);
+    c.console(raw, T0);
+    c.pageError(raw, T0 + 1);
+    const [first, second] = c.result().items as { text: string }[];
+    expect(second?.text).toBe(first?.text);
+    return first?.text ?? '';
+  };
+
+  it('cuts the query of an absolute address', () => {
+    expect(said('GET https://api.x/y?email=anna@x.io&id=5 failed')).toBe(
+      'GET https://api.x/y failed',
+    );
+    expect(said('ws closed wss://h/socket?session=abc')).toBe('ws closed wss://h/socket');
+    expect(said('no path http://h?x=1')).toBe('no path http://h');
+  });
+
+  it('cuts every address of a text, each at its own mark', () => {
+    expect(said('a http://h/a?x=1 then https://h2/b#frag and http://h3/c?y=2#z end')).toBe(
+      'a http://h/a then https://h2/b and http://h3/c end',
+    );
+  });
+
+  it('cuts to the end of the address, the punctuation after it too', () => {
+    expect(said('failed: https://h/a?x=1.')).toBe('failed: https://h/a');
+    expect(said('at "https://h/a?x=1", line 3')).toBe('at "https://h/a", line 3');
+  });
+
+  it('cuts a fragment, which can hold a token as well', () => {
+    expect(said('redirected to https://h/cb#access_token=abc123')).toBe(
+      'redirected to https://h/cb',
+    );
+  });
+
+  it('removes the user and the password of an address', () => {
+    expect(said('proxy https://anna:hunter2@h/x refused')).toBe('proxy https://h/x refused');
+    expect(said('mail the owner of https://h/users/anna@x.io')).toBe(
+      'mail the owner of https://h/users/anna@x.io',
+    );
+  });
+
+  it('cuts the query of a path written without its host', () => {
+    expect(said('widget broke at /api/widget?token=secret')).toBe('widget broke at /api/widget');
+    expect(said('load("/api/cart?id=5&email=a@b.c") failed')).toBe('load("/api/cart") failed');
+  });
+
+  it('leaves alone a question mark that is no address', () => {
+    for (const plain of [
+      'what? no',
+      'ready?yes',
+      'and/or? maybe',
+      'a/b?c',
+      'is 3 > 2 ? yes : no',
+    ]) {
+      expect(said(plain)).toBe(plain);
+    }
+  });
+});
+
+describe('a step title at the cut', () => {
+  it('is not left with half of a character pair', () => {
+    const steps = [{ title: `${'y'.repeat(299)}\u{1F600}`, start: T0, end: T0 + 1 }];
+    const wire = toWire({ items: [{ kind: 'console', text: 'x', at: T0 }], omitted: 0 }, steps);
+    expect((wire?.items[0] as { step: { title: string } }).step.title).toBe('y'.repeat(299));
+  });
+});

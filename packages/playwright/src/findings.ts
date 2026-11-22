@@ -57,14 +57,38 @@ export interface Collector {
 const METHOD = /^[A-Z]{1,16}$/;
 const PATH = /^\/(?!\/)[^?#]*$/;
 
-/** Masked first and cut after: a cut before the masking could halve a credential it would then not recognise. */
+/** At most 300, and not half of a character pair at the cut. */
+function clip(text: string): string {
+  const cut = text.slice(0, TEXT_MAX);
+  return /[\ud800-\udbff]$/.test(cut) ? cut.slice(0, -1) : cut;
+}
+
+/** Where an address written into a text ends: a space, a quote or an angle bracket. */
+const END = String.raw`\s"'\x60<>`;
+/** `scheme://`, a user and password, the host and path, then the query and fragment. */
+const ABSOLUTE = new RegExp(
+  String.raw`\b((?:https?|wss?):\/\/)(?:[^${END}/?#@]*@)?([^${END}?#]*)(?:[?#][^${END}]*)?`,
+  'gi',
+);
+/** A path written without its host, with a query: `/api/cart?id=5`. Only where a word starts, so `and/or?` stays. */
+const RELATIVE = new RegExp(String.raw`(^|[\s"'\x60<>(\[{=:,;])(\/[^${END}?#]*)\?[^${END}]*`, 'g');
+
+/**
+ * An address inside a text keeps its host and path and loses the rest: a query string and a fragment are
+ * removed, not masked, as they are from a request's own address, and so are a user and password.
+ *
+ * ponytail: found by its shape. Everything from the `?` or `#` to the next space, quote or angle bracket goes,
+ * the punctuation after an address with it (`…/a?x=1).` loses `).`); a query written after a space, or an
+ * address with no scheme and no leading slash (`api.x/y?id=5`), is not seen. Parse the text if that matters.
+ */
+function withoutQueries(text: string): string {
+  return text.replace(ABSOLUTE, '$1$2').replace(RELATIVE, '$1$2');
+}
+
+/** Addresses cut and credentials masked first, clipped after: a clip before could halve what they would then not recognise. */
 function cleaned(raw: string): string {
-  const text = maskCredentials(stripVTControlCharacters(raw))
-    .replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ')
-    .trim()
-    .slice(0, TEXT_MAX);
-  // Not half of a character pair at the cut.
-  return /[\ud800-\udbff]$/.test(text) ? text.slice(0, -1) : text;
+  const flat = stripVTControlCharacters(raw).replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ');
+  return clip(maskCredentials(withoutQueries(flat)).trim());
 }
 
 export function createCollector(slowMs: number): Collector {
@@ -195,7 +219,7 @@ function wireItem(item: unknown, steps: readonly StepSpan[]): Finding | undefine
   if (typeof at !== 'number' || !Number.isFinite(at)) return undefined;
   // The start is in and the end is out: two steps that share a millisecond give it to the later one.
   const index = steps.findIndex((s) => s.start <= at && at < s.end);
-  const title = index === -1 ? '' : steps[index]!.title.slice(0, TEXT_MAX);
+  const title = index === -1 ? '' : clip(steps[index]!.title);
   const step = title === '' ? {} : { step: { index: index + 1, title } };
 
   if (kind === 'console' || kind === 'page_error') {
