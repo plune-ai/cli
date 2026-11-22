@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **`@plune-ai/playwright/fixture` collects what the browser reported during a test.** A new entry of `@plune-ai/playwright`: `import { test, expect } from '@plune-ai/playwright/fixture'` (or merge `findingsFixtures` into your own `test`). Each test that opens a browser context collects its console errors, page errors, requests that failed (status 400 or above, or no answer) and requests that were slow (`pluneSlowRequestMs`, default 3000), and attaches them as `plune-findings` (`application/plune.findings+json`): the first 20 by time, the rest counted. An address is cut to its path, a text to 300 characters, both with credentials masked; headers, bodies, cookies, post data and query strings are never read. A test that opens no browser collects nothing; `pluneFindings: false` turns it off. The reporter does not send the findings to Plune yet. `@plune-ai/cli/reporter-core` exports `maskCredentials` for it.
+
 ## [0.39.9] - 2026-11-22
 
 ### Added

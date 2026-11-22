@@ -162,6 +162,57 @@ test('rejects a negative quantity', { annotation: { type: 'PluneId', description
 A result whose test matches no case is **not** sent and **not** invented — a made-up id would
 write into somebody else's history. The run summary says how many there were.
 
+## What the browser reported: console errors, page errors, failed and slow requests
+
+Import `test` from the fixture entry instead of `@playwright/test`, and each test that opens a browser
+collects what its browser context reported:
+
+```ts
+import { test, expect } from '@plune-ai/playwright/fixture';
+```
+
+A project that already has its own `test` merges the fixtures in, either way:
+
+```ts
+import { mergeTests } from '@playwright/test';
+import { test as findings } from '@plune-ai/playwright/fixture';
+export const test = mergeTests(myTest, findings);        // Playwright 1.39 and later
+
+import { findingsFixtures } from '@plune-ai/playwright/fixture';
+export const test = myTest.extend(findingsFixtures);
+```
+
+What is collected:
+
+| Kind | When | What is kept |
+| --- | --- | --- |
+| `console` | a `console.error` in a page | the text |
+| `page_error` | an uncaught error in a page | the error's message |
+| `request_failed` | an answer with status 400 or above, or no answer at all | method, path, the status and the duration when there was an answer |
+| `request_slow` | an answer under 400 that took the threshold or longer | method, path, status, duration |
+
+Two options, set as any Playwright option (`use` in the config, or `test.use` in a file):
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `pluneFindings` | `true` | `false` turns the collection off |
+| `pluneSlowRequestMs` | `3000` | how long a request takes, in milliseconds, before it is slow |
+
+What is never collected: request and response headers, bodies, cookies, post data, and query strings. An
+address is cut to its path before it leaves the test process (`https://shop.example/api/cart?token=…`
+is kept as `/api/cart`), a text is cut to 300 characters, and both go through the same credential masking
+as the code snapshot. Only `http:` and `https:` requests count. A request the page itself aborted
+(`net::ERR_ABORTED`, a navigation away) is not a failure, and Chromium's own «Failed to load resource»
+console line is dropped because the request is already there. A test keeps its first 20 findings by time and
+counts the rest.
+
+A test that opens no browser context collects nothing, and no browser is opened for it. A context a test
+makes itself with `browser.newContext()` is not listened to. The fixture never fails a test.
+
+The findings travel as one attachment of the test, `plune-findings` (`application/plune.findings+json`).
+**The reporter of this version does not send them to Plune yet:** the attachment is in Playwright's own
+reports and nowhere else.
+
 ## Screenshots
 
 Every screenshot a test keeps as a file — Playwright's `screenshot` option, `testInfo.attach` with a
