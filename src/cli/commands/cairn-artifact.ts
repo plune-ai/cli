@@ -54,7 +54,8 @@ export interface CairnScreencast {
 
 export interface CairnIngestPayload {
   schemaVersion: typeof INGEST_SCHEMA_VERSION;
-  run: { runId: string; mode: CairnRunMode; target: string };
+  /** `cost` is what the whole run spent, once per run; absent when the report counted nothing. */
+  run: { runId: string; mode: CairnRunMode; target: string; cost?: { tokens: number; cases: number } };
   cases: CairnIngestCase[];
 }
 
@@ -549,12 +550,15 @@ export async function readCairnRun(
     cases = casesFromDesign(report);
   }
 
+  const tokens = own(asRecord(own(report, 'cost')), 'totalTokens');
   return {
     schemaVersion: INGEST_SCHEMA_VERSION,
     run: {
       runId: str(report['runId'], path.basename(dir)),
       mode,
       target: str(report['url'], 'unknown'),
+      // Cairn states the run's tokens as `cost.totalTokens` in every mode; the platform copies it onto each proposal.
+      ...(Number.isInteger(tokens) && (tokens as number) >= 0 ? { cost: { tokens: tokens as number, cases: cases.length } } : {}),
     },
     cases,
   };
