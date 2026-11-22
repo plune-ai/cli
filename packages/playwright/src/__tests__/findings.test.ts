@@ -525,7 +525,8 @@ describe('a text is cleaned in an order that loses nothing to an earlier step', 
     ];
     const started = performance.now();
     const out = lines.map(said);
-    expect(performance.now() - started).toBeLessThan(200);
+    // A wide bound on purpose: the unbounded cleaning took minutes on this input, a loaded runner takes milliseconds.
+    expect(performance.now() - started).toBeLessThan(2000);
     for (const text of out) expect(text.length).toBeLessThanOrEqual(300);
     expect(out.join(' ')).not.toContain('secret');
   });
@@ -535,5 +536,43 @@ describe('a text is cleaned in an order that loses nothing to an earlier step', 
     // The query is cut away, so the tail of the working text moves into the 300 that are kept.
     const text = said(`/a?x=${'y'.repeat(3970)} ${token}`);
     expect(text).toBe('/a');
+  });
+});
+
+describe('the word the working length cuts through', () => {
+  const token = ['ghp', 'Zq7Xw2Lp9Rt4Vb6Nm1Kc8Hd3Jf5Gs0Ya2Ue7'].join('_');
+  const collected = (raw: string) => {
+    const c = createCollector(3000);
+    c.console(raw, T0);
+    return c.result();
+  };
+
+  it('is found by the same separators that split the words: a quote ends a word as a space does', () => {
+    // The token starts right after the closing quote and the cut falls inside it.
+    const out = collected(`"/a?x=${'y'.repeat(3959)}"${token} and more`);
+    expect(out.items).toEqual([{ kind: 'console', text: '"/a"', at: T0 }]);
+    expect(JSON.stringify(out)).not.toContain('ghp_');
+  });
+
+  it('is the whole text when there is no separator before the cut: dropped and counted', () => {
+    expect(collected('z'.repeat(5000))).toEqual({ items: [], omitted: 1 });
+    expect(collected('z'.repeat(4000)).items).toHaveLength(1);
+  });
+
+  it('is no word at all when the cut falls on a separator: the last whole word stays', () => {
+    const out = collected(`/a?x=${'y'.repeat(3980)} lastword123456 tail`);
+    expect(out.items).toEqual([{ kind: 'console', text: '/a lastword123456', at: T0 }]);
+  });
+});
+
+describe('the name of a query parameter', () => {
+  it('may hold a hyphen, a dot, square brackets and a percent sign', () => {
+    const c = createCollector(3000);
+    for (const [i, query] of ['?user-id=5', '?a.b=5', '?ids[]=5', '?user%20id=5'].entries()) {
+      c.console(`GET api.x/y${query}&z=1 failed`, T0 + i);
+    }
+    expect(c.result().items.map((f) => (f as { text: string }).text)).toEqual(
+      Array.from({ length: 4 }, () => 'GET api.x/y failed'),
+    );
   });
 });

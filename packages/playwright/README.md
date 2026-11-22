@@ -207,7 +207,8 @@ and counts the rest.
 read word by word, a word being a run of characters with no space, quote (`"`, `'`, `` ` ``) or angle bracket
 in it, and in each word:
 
-1. a `?` followed by a name and `=` cuts the word there (`api.example/y?id=5` is kept as `api.example/y`,
+1. a `?` followed by a name and `=` cuts the word there; a name is letters, digits, `_`, `-`, `.`, `[`, `]`
+   and `%` (`?id=`, `?user-id=`, `?ids[]=`) (`api.example/y?id=5` is kept as `api.example/y`,
    `localhost:3000/a?x=1` as `localhost:3000/a`, `./api?x=1` as `./api`);
 2. after `http://`, `https://`, `ws://` or `wss://` the word is cut at the first `?` or `#`, and a user and
    password before the host are removed (`GET https://api.example/y?email=… failed` is kept as
@@ -220,7 +221,8 @@ angle bracket ends the word there, and what follows it is kept (`/search?q=anna 
 `/search smith`); and on an address with no scheme and no leading slash, a query with no `name=`
 (`api.example/y?abc`) or a fragment (`api.example/y#token`) is not recognised and is kept. The cut runs to the
 end of the word, so punctuation right after an address goes with it. Only the first 4000 characters of a text
-are read, and the result is cut to 300.
+are read, without the word that limit falls inside (a text of one word longer than that is not sent, only
+counted), and the result is cut to 300.
 
 Two things are told by Chromium's wording, and hold for Chromium only. A request the page itself aborted (a
 navigation away) is not reported as failed when its error is `net::ERR_ABORTED`; another browser words a

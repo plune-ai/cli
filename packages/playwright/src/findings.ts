@@ -70,13 +70,19 @@ function clip(text: string, max = TEXT_MAX): string {
  */
 const WORK_MAX = 4000;
 
-/** One run of characters with no space, quote or angle bracket in it: where an address written into a text ends. */
-const TOKEN = /[^\s"'\x60<>]+/g;
+/**
+ * What ends a word: a space, a quote or an angle bracket. Defined once, for the split into words and for the
+ * search of the word the working length cut through — two ideas of a word would let half of one out.
+ */
+const SEPARATORS = String.raw`\s"'\x60<>`;
+const SEPARATOR = new RegExp(`[${SEPARATORS}]`);
+/** One word: where an address written into a text ends. */
+const TOKEN = new RegExp(`[^${SEPARATORS}]+`, 'g');
 const SCHEME = /(?:https?|wss?):\/\//i;
 /** A `/`, `./` or `../` where a word starts: at the head of the token or after an opening mark. */
 const PATH_START = /(?:^|[(\[{=:,;])\.{0,2}\//;
-/** A query by its shape: `?`, a name, `=`. */
-const NAMED_QUERY = /\?\w+=/;
+/** A query by its shape: `?`, a name, `=`. A name is word characters, `-`, `.`, `[`, `]` and `%`. */
+const NAMED_QUERY = /\?[\w\-.[\]%]+=/;
 
 /** The index of the first `?` or `#` at or after `from`, or the length. */
 function markIn(token: string, from: number): number {
@@ -126,11 +132,12 @@ function withoutQuery(token: string): string {
  */
 function cleaned(raw: string): string {
   let head = clip(raw, WORK_MAX);
-  if (raw.length > WORK_MAX) {
+  // A cut that falls on a separator went through no word. With no separator before it the whole text is
+  // the cut word: nothing is left, and the caller drops and counts it.
+  if (raw.length > WORK_MAX && !SEPARATOR.test(raw[head.length]!)) {
     let end = head.length;
-    while (end > 0 && !/\s/.test(head[end - 1]!)) end -= 1;
-    // One word longer than the working length has no credential to halve that the last 300 would show.
-    if (end > 0) head = head.slice(0, end);
+    while (end > 0 && !SEPARATOR.test(head[end - 1]!)) end -= 1;
+    head = head.slice(0, end);
   }
   const masked = maskCredentials(stripVTControlCharacters(head));
   const flat = masked.replace(TOKEN, withoutQuery).replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ');
