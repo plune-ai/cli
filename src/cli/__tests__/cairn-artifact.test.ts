@@ -32,6 +32,16 @@ describe('readCairnRun — design runs', () => {
     expect(payload.cases).toHaveLength(29);
   });
 
+  it('sends the run cost the report states, so a proposal does not read «cost not named»', async () => {
+    const payload = await readCairnRun(fixture('design'));
+    expect(payload.run.cost).toEqual({ tokens: 9987, cases: 29 });
+  });
+
+  it('sends no cost when the report counted none, rather than a zero', async () => {
+    const payload = await readCairnRun(fixture('api'));
+    expect(payload.run).not.toHaveProperty('cost');
+  });
+
   it('carries the identity that makes dedup possible', async () => {
     const payload = await readCairnRun(fixture('design'));
     for (const c of payload.cases) expect(c.stableId).toMatch(/^[0-9a-f]{12}$/);

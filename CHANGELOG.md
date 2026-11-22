@@ -15,6 +15,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 - Plugin icon: a 1024 px `icon.png` at the repository root, referenced by the `icon` field in `.claude-plugin/plugin.json` for the plugin directory listing.
 
+### Fixed
+
+- **`plune ingest` sends the run's cost.** A Cairn `report.json` states what the run spent as `cost.totalTokens`; the ingest now sends it as the run's `cost` (`tokens`, and the number of cases in the batch), and the platform shows it on every proposal of the run. Before, the cost was never read, so every proposal from a Cairn run (`design`, `explore`, `api`, `mcp`, `--propose-scenarios`) read «Run cost: not named». A report with no token count sends no cost, not a zero.
+
 ## [0.39.8] - 2026-11-22
 
 ### Added

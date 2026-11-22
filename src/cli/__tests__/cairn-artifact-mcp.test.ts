@@ -398,7 +398,8 @@ describe('CLI · ingest · mcp run · agent scenarios proposed by cairn', () => 
       path.join(fixture('scenarios'), 'report.json'),
     );
     const payload = await readCairnRun(fixture('scenarios'));
-    expect(payload.run).toEqual({ runId: 'run-scenarios', mode: 'mcp', target: 'node' });
+    // The run's own tokens travel with it: without them every proposal of the run reads «cost not named».
+    expect(payload.run).toEqual({ runId: 'run-scenarios', mode: 'mcp', target: 'node', cost: { tokens: 1234, cases: 2 } });
     expect(payload.cases.map((c) => c.stableId)).toEqual(report.testCases.map((c) => c.stableId));
     expect(payload.cases.map((c) => c.title)).toEqual(report.testCases.map((c) => c.title));
     for (const c of payload.cases) {
