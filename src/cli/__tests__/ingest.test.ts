@@ -158,9 +158,26 @@ describe('formatIngestResult', () => {
   it('tells the reader where proposed cases went', () => {
     expect(formatIngestResult({ runId: 'r1', linked: 1, proposed: 2, skipped: 3 })).toMatch(/review/i);
   });
+
+  // A repeat is answered with the first ingest's counters: printing them as new sends the reader to look for proposals nobody queued.
+  it('says a repeat was already ingested and names the run, without the counters as if new', () => {
+    const out = formatIngestResult({ runId: 'r1', linked: 1, proposed: 30, skipped: 0, repeat: true, files: ['0 session file(s) uploaded'] });
+    expect(out).toMatch(/already ingested/i);
+    expect(out).toContain('r1');
+    expect(out).not.toMatch(/case\(s\) proposed|result\(s\) attached/);
+    expect(out).toContain('0 session file(s) uploaded');
+  });
 });
 
 // An ingest shows in the platform's queue from start to end, as `plune sync` does since 0.30.2.
+describe('CLI · ingest · a run the platform already recorded', () => {
+  it('marks the result a repeat when the platform answers 200, and not when it answers 201', async () => {
+    const counters = { runId: 'run-1', linked: 0, proposed: 30, skipped: 0 };
+    expect(await handleIngest(deps({ fetchImpl: okFetch(counters, 200) }))).toMatchObject({ ...counters, repeat: true });
+    expect((await handleIngest(deps({ fetchImpl: okFetch(counters, 201) }))).repeat).toBeUndefined();
+  });
+});
+
 describe('CLI · ingest · job reporting, held to the platform contract', () => {
   const COUNTERS = { runId: 'run-1', linked: 0, proposed: 29, skipped: 0 };
   const ingest = (fn: typeof fetch) => handleIngest(deps({ fetchImpl: fn }));
