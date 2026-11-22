@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- Plugin icon: a 1024 px `icon.png` at the repository root, referenced by the `icon` field in `.claude-plugin/plugin.json` for the plugin directory listing.
+
 ## [0.39.8] - 2026-11-22
 
 ### Added
