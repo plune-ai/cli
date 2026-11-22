@@ -1,7 +1,7 @@
 {
   "name": "plune",
   "displayName": "Plune",
-  "version": "0.39.8",
+  "version": "0.39.9",
   "description": "The Plune MCP server (plune mcp serve) and the Plune skills: QA missions and MCP server scenarios.",
   "author": {
     "name": "Plune",
@@ -15,7 +15,7 @@
   "mcpServers": {
     "plune": {
       "command": "npx",
-      "args": ["-y", "@plune-ai/cli@0.39.8", "mcp", "serve"]
+      "args": ["-y", "@plune-ai/cli@0.39.9", "mcp", "serve"]
     }
   }
 }
