@@ -11,10 +11,13 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.39.8] - 2026-11-22
+
 ### Added
 
 - **`plune run import` sends a result's trace link from JUnit XML and Playwright JSON.** A JUnit test case gives it as `<property name="plune.trace.url" value="https://…"/>`, a Playwright test as a `PluneTrace` annotation (named as `PluneId` is); in Playwright JSON each attempt's own annotation comes first, then the test's. The link goes up as the result's `traceUrl`, trimmed. One the platform would refuse (the same rules as for `plune sync`) is not sent: the result is imported without it, and the import prints `plune: "<test>": trace link not sent (<reason>)`. A platform that does not take the field yet refuses the batch once; it is sent again without trace links and targets, as for targets. Allure, k6 and Lighthouse reports still send none. Before, `plune run import` sent no trace link from any format.
 - **A JUnit import also reads the trace link from a `PluneTrace` property.** Playwright's own `junit` reporter writes a `{ type: 'PluneTrace', description: url }` annotation as `<property name="PluneTrace" value="…"/>`, so a Playwright suite no longer needs a second annotation named `plune.trace.url` to send its trace links through JUnit. A test case that carries both properties sends `plune.trace.url`; a `PluneTrace` link the platform would refuse is dropped with the same `trace link not sent` warning.
+- **`@plune-ai/playwright` 0.7.5** carries the reporter core change above: a batch that carries `targets` or a trace link and gets a 400 is sent again without them. The Playwright reporter itself sends no trace link, so its results reach the platform as before; nothing else in the adapter changed.
 
 ### Changed
 
