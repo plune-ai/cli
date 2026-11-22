@@ -46,6 +46,8 @@ interface Seen {
 interface PlatformOptions {
   /** A platform older than `targets`: its strict schema answers 400 to a batch where any result carries them. */
   refuseTargets?: boolean;
+  /** A platform older than `findings`, refusing it the same way. */
+  refuseFindings?: boolean;
   /** A platform older than `traceUrl`, refusing it the same way. */
   refuseTraceUrl?: boolean;
   /**
@@ -233,6 +235,9 @@ function platform(opts: PlatformOptions = {}) {
       if (opts.refuseTargets === true && list.some((r) => 'targets' in r)) {
         return json({ error: "Unrecognized key(s) in object: 'targets'" }, 400);
       }
+      if (opts.refuseFindings === true && list.some((r) => 'findings' in r)) {
+        return json({ error: "Unrecognized key(s) in object: 'findings'" }, 400);
+      }
       if (opts.refuseTraceUrl === true && list.some((r) => 'traceUrl' in r)) {
         return json({ error: "Unrecognized key(s) in object: 'traceUrl'" }, 400);
       }
@@ -394,6 +399,102 @@ describe('startRun — what the run intended to run (AC-09)', () => {
     await startRun(config(fetchImpl));
 
     expect(seen.starts[0]?.body['configuration']).toBeUndefined();
+  });
+});
+
+describe('findings on a result', () => {
+  const sent = (seen: Seen) => seen.results.flatMap((r) => r.results);
+  const FOUND = { items: [{ kind: 'console' as const, text: 'bad' }], omitted: 0 };
+  const said = (cfg: ReporterConfig) => logOf(cfg).filter((l) => /does not take findings/.test(l));
+
+  it('are sent to a platform that takes them, beside targets, in one request', async () => {
+    const { seen, fetchImpl } = platform({ known: { a: 'tc-a', b: 'tc-b' } });
+    const cfg = config(fetchImpl);
+    const run = await startRun(cfg);
+    await run.add(result('a', { findings: FOUND, targets: ['notes_get'] }));
+    await run.add(result('b'));
+    await run.flush();
+
+    expect(seen.resultCalls).toHaveLength(1);
+    expect(sent(seen).map((r) => [r['findings'], r['targets']])).toEqual([[FOUND, ['notes_get']], [undefined, undefined]]);
+    expect(sent(seen)[1]).not.toHaveProperty('findings');
+    expect(said(cfg)).toHaveLength(0);
+  });
+
+  it('a platform without the field refuses the batch: it is sent again without them, every result lands with its targets, and no later batch carries them', async () => {
+    const { seen, fetchImpl } = platform({ known: { a: 'tc-a', b: 'tc-b', c: 'tc-c' }, refuseFindings: true });
+    const cfg = config(fetchImpl, { batchSize: 2 });
+    const run = await startRun(cfg);
+    await run.add(result('a', { findings: FOUND, targets: ['notes_get'] }));
+    await run.add(result('b'));
+    await run.add(result('c', { findings: FOUND }));
+    await run.flush();
+
+    // The refused first try, its resend, then the second batch sent without them from the start.
+    expect(seen.resultCalls).toHaveLength(3);
+    expect(sent(seen).map((r) => r['resultKey'])).toEqual(['a#0', 'b#0', 'c#0']);
+    for (const r of sent(seen)) expect(r).not.toHaveProperty('findings');
+    expect(sent(seen)[0]?.['targets']).toEqual(['notes_get']);
+    expect(fs.existsSync(cfg.fallbackPath as string)).toBe(false);
+    expect(said(cfg)).toEqual(['plune: the platform does not take findings on a result yet — the results are sent without them.']);
+  });
+
+  it('a platform older than both fields: findings go first, then targets, and the result lands on the third try', async () => {
+    const { seen, fetchImpl } = platform({ known: { a: 'tc-a' }, refuseFindings: true, refuseTargets: true });
+    const cfg = config(fetchImpl);
+    const run = await startRun(cfg);
+    await run.add(result('a', { findings: FOUND, targets: ['notes_get'] }));
+    await run.flush();
+
+    expect(seen.resultCalls).toHaveLength(3);
+    expect(sent(seen)).toHaveLength(1);
+    expect(sent(seen)[0]).not.toHaveProperty('findings');
+    expect(sent(seen)[0]).not.toHaveProperty('targets');
+    expect(fs.existsSync(cfg.fallbackPath as string)).toBe(false);
+    expect(said(cfg)).toHaveLength(1);
+    expect(logOf(cfg).filter((l) => /does not take targets/.test(l))).toHaveLength(1);
+  });
+
+  it('a 400 about something else: one resend without them, then the batch is kept in the fallback file, without them', async () => {
+    const { seen, fetchImpl } = platform({ known: { a: 'tc-a' }, resultsFailure: { status: 400, error: 'bad' } });
+    const cfg = config(fetchImpl);
+    const run = await startRun(cfg);
+    await run.add(result('a', { findings: FOUND }));
+    await run.flush();
+
+    expect(seen.resultCalls).toHaveLength(2);
+    const line = fs.readFileSync(cfg.fallbackPath as string, 'utf8');
+    expect(line).toContain('a#0');
+    expect(line).not.toContain('findings');
+  });
+
+  it('a quota refusal (429) is not a refusal of the field: no resend, and the next batch keeps them', async () => {
+    const { seen, fetchImpl } = platform({
+      known: { a: 'tc-a', b: 'tc-b' },
+      resultsFailure: { status: 429, error: 'results quota reached', quota: { kind: 'results', used: 10, limit: 10 } },
+      failCall: 0,
+    });
+    const cfg = config(fetchImpl, { batchSize: 1 });
+    const run = await startRun(cfg);
+    await run.add(result('a', { findings: FOUND }));
+    await run.add(result('b', { findings: FOUND }));
+    await run.flush();
+
+    expect(seen.resultCalls).toHaveLength(2);
+    expect(sent(seen).map((r) => [r['resultKey'], r['findings']])).toEqual([['b#0', FOUND]]);
+    expect(said(cfg)).toHaveLength(0);
+  });
+
+  it('a result kept in the fallback file carries none: a replay does not know what the platform takes', async () => {
+    const { fetchImpl } = platform({ known: { a: 'tc-a' }, resultsFailure: { status: 422, error: 'refused' } });
+    const cfg = config(fetchImpl);
+    const run = await startRun(cfg);
+    await run.add(result('a', { findings: FOUND }));
+    await run.flush();
+
+    const line = fs.readFileSync(cfg.fallbackPath as string, 'utf8');
+    expect(line).toContain('a#0');
+    expect(line).not.toContain('findings');
   });
 });
 
@@ -1910,6 +2011,7 @@ describe('screenshots go to the result they belong to', () => {
           { name: 'trace', contentType: 'application/zip', path: put('trace.zip') },
           { name: 'error-context', contentType: 'text/markdown', path: put('error-context.md') },
           { name: 'plune', contentType: 'application/plune.metadata+json', path: put('plune.json') },
+          { name: 'plune-findings', contentType: 'application/plune.findings+json', path: put('findings.json') },
         ],
       }),
       result('b', { files: Array.from({ length: 22 }, (_, i) => shot(`b-${i}`)) }),

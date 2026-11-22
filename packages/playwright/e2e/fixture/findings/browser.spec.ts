@@ -1,7 +1,8 @@
 import { test, expect } from '../../../dist/fixture.js';
 
 // The one place in this suite that opens a browser: what the fixture collects is what a real browser context
-// emits, and no fake can say that. The site is the tiny server `findings.e2e.test.ts` starts.
+// emits, and no fake can say that. The site is the tiny server `reporter.e2e.test.ts` starts.
+// Every test here fails on purpose: what the browser reported is sent only with an attempt that did not pass.
 const site = process.env['PLUNE_FINDINGS_SITE'] ?? '';
 
 test.describe('with a page', () => {
@@ -13,6 +14,8 @@ test.describe('with a page', () => {
     });
     await test.step('load the cart', async () => {
       await page.evaluate(async () => {
+        // An answer that never ends: not a finding, and nothing the end of the test may wait for.
+        await fetch('/api/stream');
         for (const path of ['/api/fail?token=secret', '/api/slow', '/api/drop']) {
           await fetch(path)
             .then((r) => r.text())
@@ -20,12 +23,12 @@ test.describe('with a page', () => {
         }
       });
     });
-    expect(await page.title()).toBe('shop');
+    expect(await page.title()).toBe('not the shop');
   });
 });
 
 test('a test that opens no browser', () => {
-  expect(1 + 1).toBe(2);
+  expect(1 + 1).toBe(3);
 });
 
 test.describe('switched off', () => {
@@ -33,5 +36,6 @@ test.describe('switched off', () => {
 
   test('a page nobody listens to', async ({ page }) => {
     await page.goto(`${site}/`);
+    expect(await page.title()).toBe('not the shop');
   });
 });

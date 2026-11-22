@@ -30,6 +30,7 @@ vi.mock('@plune-ai/cli/reporter-core', async () => {
     failureOf: actual.failureOf,
     filesOf: actual.filesOf,
     webLink: actual.webLink,
+    maskCredentials: actual.maskCredentials,
     // The one that reads the disk. The recorded run's repository is `/repo`, not on this machine.
     repoRootOf: vi.fn((dir: string) => {
       rootsAsked.push(dir);
@@ -879,5 +880,115 @@ describe('the commit and branch the run opens with', () => {
 
   it('outside a CI: the runner and nothing else — no commit is guessed', async () => {
     expect(await metaOf(undefined)).toEqual({ runner: 'playwright' });
+  });
+});
+
+describe('what the browser reported goes with the failed attempt', () => {
+  const FINDINGS = 'application/plune.findings+json';
+  const START = Date.parse('2026-09-08T10:00:00.000Z');
+  const step = (title: string, fromMs: number, ms: number, steps: unknown[] = [], category = 'test.step') => ({
+    title,
+    category,
+    startTime: new Date(START + fromMs),
+    duration: ms,
+    steps,
+  });
+  const attachment = (body: unknown) => ({
+    name: 'plune-findings',
+    contentType: FINDINGS,
+    body: Buffer.from(typeof body === 'string' ? body : JSON.stringify(body)),
+  });
+  const failedWith = (over: Record<string, unknown>) =>
+    fakeResult({ status: 'failed', errors: [{ message: 'Error: boom' }], ...over });
+  const COLLECTED = {
+    items: [
+      { kind: 'console', text: 'early', at: START + 5 },
+      { kind: 'request_failed', method: 'GET', path: '/api/cart', status: 500, durationMs: 12, at: START + 150 },
+      { kind: 'page_error', text: 'late', at: START + 900 },
+    ],
+    omitted: 0,
+  };
+
+  it('sends each finding with the top-level declared step it happened in', async () => {
+    const steps = [
+      step('Before Hooks', 0, 10, [step('Log in', 0, 10)], 'hook'),
+      step('Open the shop', 100, 100, [step('Wait for the list', 140, 40)]),
+      step('page.click', 200, 50, [], 'pw:api'),
+      step('Pay', 800, 200),
+    ];
+    await run(new PluneReporter(), [fakeTest()], [failedWith({ steps, attachments: [attachment(COLLECTED)] })]);
+
+    expect(added[0]?.findings).toEqual({
+      items: [
+        // Inside a hook's step: not a step of the test body.
+        { kind: 'console', text: 'early' },
+        // Inside a nested step: the top-level one it belongs to, counted among the declared steps only.
+        { kind: 'request_failed', method: 'GET', path: '/api/cart', status: 500, durationMs: 12, step: { index: 1, title: 'Open the shop' } },
+        { kind: 'page_error', text: 'late', step: { index: 2, title: 'Pay' } },
+      ],
+      omitted: 0,
+    });
+  });
+
+  it('sends «collected, nothing found» as an empty list', async () => {
+    await run(new PluneReporter(), [fakeTest()], [failedWith({ attachments: [attachment({ items: [], omitted: 0 })] })]);
+
+    expect(added[0]?.findings).toEqual({ items: [], omitted: 0 });
+  });
+
+  it('sends no field when nothing was collected', async () => {
+    await run(new PluneReporter(), [fakeTest()], [failedWith({})]);
+
+    expect(added[0]).not.toHaveProperty('findings');
+  });
+
+  // The run page shows the block only under a failure.
+  it('sends no field with a passed result, whatever it collected', async () => {
+    await run(new PluneReporter(), [fakeTest()], [fakeResult({ attachments: [attachment(COLLECTED)] })]);
+
+    expect(added[0]).not.toHaveProperty('findings');
+  });
+
+  it('sends the findings of the attempt they were collected in', async () => {
+    const test = fakeTest();
+    const reporter = new PluneReporter();
+    reporter.onConfigure(configWith(null));
+    reporter.onBegin(suiteOf(test));
+    reporter.onTestEnd(test, failedWith({ retry: 0, attachments: [attachment(COLLECTED)] }));
+    reporter.onTestEnd(test, failedWith({ retry: 1, attachments: [attachment({ items: [], omitted: 3 })] }));
+    await reporter.onEnd({} as FullResult);
+
+    expect(added.map((r) => [r.execution?.retry, r.findings?.items.length, r.findings?.omitted])).toEqual([
+      [0, 3, 0],
+      [1, 0, 3],
+    ]);
+  });
+
+  it('reads a malformed or unreadable attachment as no findings, and still reports the result', async () => {
+    for (const bad of [attachment('not json'), attachment('[1,2]'), { name: 'plune-findings', contentType: FINDINGS, path: '/nowhere/findings.json' }]) {
+      added.length = 0;
+      await run(new PluneReporter(), [fakeTest()], [failedWith({ attachments: [bad] })]);
+
+      expect(added).toHaveLength(1);
+      expect(added[0]).not.toHaveProperty('findings');
+    }
+  });
+
+  it('keeps the attachment out of the artifacts of the failure, on disk or in memory', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'plune-findings-'));
+    const onDisk = join(dir, 'findings.json');
+    writeFileSync(onDisk, JSON.stringify(COLLECTED));
+    const attachments = [
+      { name: 'plune-findings', contentType: FINDINGS, path: onDisk },
+      { name: 'trace', contentType: 'application/zip', path: join(dir, 'trace.zip') },
+    ];
+    await run(new PluneReporter(), [fakeTest()], [failedWith({ attachments })]);
+
+    expect(added[0]?.findings?.items).toHaveLength(3);
+    expect(added[0]?.failure?.artifacts).toEqual([{ name: 'trace', contentType: 'application/zip' }]);
+    // In memory it is no text the platform keeps, so it is not among the files at all.
+    added.length = 0;
+    await run(new PluneReporter(), [fakeTest()], [failedWith({ attachments: [attachment(COLLECTED)] })]);
+    expect(added[0]?.files ?? []).toEqual([]);
   });
 });

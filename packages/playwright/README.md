@@ -200,18 +200,39 @@ Two options, set as any Playwright option (`use` in the config, or `test.use` in
 
 What is never collected: request and response headers, bodies, cookies, post data, and query strings. An
 address is cut to its path before it leaves the test process (`https://shop.example/api/cart?token=…`
-is kept as `/api/cart`), a text is cut to 300 characters, and both go through the same credential masking
-as the code snapshot. Only `http:` and `https:` requests count. A request the page itself aborted
-(`net::ERR_ABORTED`, a navigation away) is not a failure, and Chromium's own «Failed to load resource»
-console line is dropped because the request is already there. A test keeps its first 20 findings by time and
-counts the rest.
+is kept as `/api/cart`), and a text is cut to 300 characters. Only `http:` and `https:` requests count. A
+request the page itself aborted (`net::ERR_ABORTED`, a navigation away) is not a failure, and Chromium's own
+«Failed to load resource» console line is dropped because the request is already there. A test keeps its
+first 20 findings by time and counts the rest.
+
+**What is masked, and what is not.** A console text, an error message and a path go through the masking the
+code snapshot uses, before they leave the test process. It replaces with a `‹…›` marker:
+
+- a value with a well-known form: a GitHub token (`ghp_…`, `github_pat_…`), a key starting `sk-`,
+  `sk_live_…` or `rk_test_…`, an npm token (`npm_…`), a Google key (`AIza…`), a Plune token (`plune_…`), an AWS
+  access key id (`AKIA…`), a Slack token (`xox…`), a JWT, a private key block;
+- the value after `Bearer`, and after `Basic` or `Token` when it looks encoded;
+- a quoted value given to a name that says credential (`password = '…'`, `apiKey: "…"`, `setToken('…')`);
+- the value of a URL parameter whose name says credential (`?token=…`, `&api_key=…`, `&session=…`);
+- the value of an `Authorization`, `Cookie` or `…session…` header written out as a line;
+- the user and password of an address (`https://user:pass@host`), and the value of a `PLUNE_…=` variable.
+
+Nothing else is. A password, a key of a form not listed, a personal detail or a customer's data that a page
+writes to its console as plain words (`login failed for anna@example.com with hunter2`) is sent as written,
+and so is an identifier in a path (`/reset/8f3a9c…`). A page that logs such things needs `pluneFindings: false`
+for those tests, or a fix in the page.
 
 A test that opens no browser context collects nothing, and no browser is opened for it. A context a test
-makes itself with `browser.newContext()` is not listened to. The fixture never fails a test.
+makes itself with `browser.newContext()` is not listened to. The fixture never fails a test and does not wait
+at its end for an answer still arriving: a response that had not finished when the test ended is not reported.
 
 The findings travel as one attachment of the test, `plune-findings` (`application/plune.findings+json`).
-**The reporter of this version does not send them to Plune yet:** the attachment is in Playwright's own
-reports and nowhere else.
+The reporter reads it and sends the findings with the result of that attempt, each with the top-level
+`test.step` it happened in, **only when the attempt did not pass**: Plune shows them under a failure. The
+attachment itself is not uploaded as a file of the result and is not listed among the failure's artifacts.
+A Plune that does not know the field yet (an older self-hosted one) refuses the batch once; the reporter
+sends it again without the findings, says so in one line, and sends none for the rest of the run. No result
+is lost to it.
 
 ## Screenshots
 

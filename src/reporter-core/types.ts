@@ -161,6 +161,35 @@ export interface PendingResult {
    * `traceUrlProblem`. Absent rather than empty; a platform older than the field is handled as for `targets`.
    */
   traceUrl?: string;
+  /**
+   * What the browser reported during the attempt. Absent means not collected; an empty list means collected and
+   * nothing found. A platform older than the field is handled as for `targets`.
+   */
+  findings?: ResultFindings;
+}
+
+/** Where in the test a finding belongs: a declared step, by its position from 1 and its title. */
+export interface FindingStep {
+  index: number;
+  title: string;
+}
+
+/** One thing the browser reported. The platform's objects are strict: no key beyond these. */
+export type Finding =
+  | { kind: 'console' | 'page_error'; text: string; step?: FindingStep }
+  | {
+      kind: 'request_failed' | 'request_slow';
+      method: string;
+      path: string;
+      status?: number;
+      durationMs?: number;
+      step?: FindingStep;
+    };
+
+/** At most 20 findings, and how many more were seen and not sent. */
+export interface ResultFindings {
+  items: Finding[];
+  omitted: number;
 }
 
 /**

@@ -98,8 +98,8 @@ const TYPE_BY_EXTENSION: Record<string, string> = {
   '.jpeg': 'image/jpeg',
   '.webp': 'image/webp',
 };
-/** The attachment that tells the reporter which test case a test is: read by it, and not a file of the test. */
-const METADATA_TYPE = 'application/plune.metadata+json';
+/** The attachments the reporter reads — which test case a test is, what its browser reported — and not files of the test. */
+const READ_NOT_KEPT = new Set(['application/plune.metadata+json', 'application/plune.findings+json']);
 /** The longest name the platform takes for a result's file — in UTF-16 units, as it measures. */
 const NAME_MAX = 200;
 
@@ -202,15 +202,22 @@ function withoutTargets<T extends DeferredResult>(result: T): T {
   return rest as T;
 }
 
+/** A result as a platform older than `findings` takes it. */
+function withoutFindings<T extends DeferredResult>(result: T): T {
+  if (result.findings === undefined) return result;
+  const { findings: _findings, ...rest } = result;
+  return rest as T;
+}
+
 /**
  * A result as the fallback file keeps it: its files by their paths, as it always has, and no body. JSON
  * writes a Buffer as one number for every byte, which a replay could not tell from the text it was — and
  * a text attached from memory is uploaded once its result is stored or not at all, like every file.
  */
 function onDisk(deferred: DeferredResult): DeferredResult {
-  // ponytail: a replayed line has no way to learn what the platform takes, so it carries no targets; keep them once
-  // every platform a fallback file can reach accepts the field.
-  const result = withoutTargets(deferred);
+  // ponytail: a replayed line has no way to learn what the platform takes, so it carries no targets and no findings;
+  // keep them once every platform a fallback file can reach accepts the fields.
+  const result = withoutFindings(withoutTargets(deferred));
   if (!('files' in result) || result.files === undefined) return result;
   const { files, ...rest } = result;
   const kept = files.filter((f) => f.path !== undefined).map(({ body: _body, ...file }) => file);
@@ -834,9 +841,9 @@ export function fileSender(options: FileSenderOptions) {
         const type =
           mediaTypeOf(file.contentType) ??
           (file.path === undefined ? undefined : TYPE_BY_EXTENSION[extname(file.path).toLowerCase()]);
-        // A type nobody named, the test-case id the reporter reads (not the test's file), an image or a trace kept as
-        // a body: not a file to send, so neither sent nor counted.
-        if (type === undefined || type === METADATA_TYPE) continue;
+        // A type nobody named, what the reporter itself reads (the test-case id, the findings: not the test's files),
+        // an image or a trace kept as a body: not a file to send, so neither sent nor counted.
+        if (type === undefined || READ_NOT_KEPT.has(type)) continue;
         const kind = kindOf(type);
         if (kind !== 'text' && file.path === undefined) continue;
         const name = nameOf(file);
@@ -1008,6 +1015,8 @@ export async function startRun(
   let offline = token === '';
   /** The platform refused a batch that carried `targets` or `traceUrl`: neither is sent again by this process. */
   let targetsRefused = false;
+  /** The same for `findings`, the newer field. */
+  let findingsRefused = false;
   let done = false;
   /** Names shortened to fit a key or a title, by original value — said once, counted once. */
   const shortened = new Set<string>();
@@ -1419,6 +1428,7 @@ export async function startRun(
     // a line as one request, and a line of every batch left would be the request the route refuses.
     for (const packedPart of packed(submissions)) {
       let part = targetsRefused ? packedPart.map(withoutTargets) : packedPart;
+      if (findingsRefused) part = part.map(withoutFindings);
       if (offline) {
         defer(part);
         continue;
@@ -1430,6 +1440,16 @@ export async function startRun(
           { results, ...(configuration !== undefined ? { configuration } : {}) },
         );
       let out = await post(part);
+      // `findings` is the newest field, so it goes first, by the rule written below for `targets`: a 400 on a batch that
+      // carries it is answered by one resend without it, and no later batch carries it. The 400 is not read for which key
+      // it names; a platform older than `targets` as well refuses the resend, and the lines below take those off too.
+      // A result is never lost to a field: what any 400 costs is the findings of this run.
+      if (!out.ok && out.kind === 'invalid' && out.status === 400 && part.some((r) => r.findings !== undefined)) {
+        if (!findingsRefused) log('plune: the platform does not take findings on a result yet — the results are sent without them.');
+        findingsRefused = true;
+        part = part.map(withoutFindings);
+        out = await post(part);
+      }
       // `targets` and `traceUrl` are newer than some platforms, and their schema refuses a key it does not know (400). The batch goes
       // again without them, once, and no later one carries them: the results land, only what they are about is lost.
       // Only a 400: `invalid` also covers a quota's 429, which says nothing about the field. Any other 400 is refused

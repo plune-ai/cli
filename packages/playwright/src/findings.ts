@@ -1,5 +1,5 @@
 import { stripVTControlCharacters } from 'node:util';
-import { maskCredentials } from '@plune-ai/cli/reporter-core';
+import { maskCredentials, type Finding, type ResultFindings } from '@plune-ai/cli/reporter-core';
 
 /**
  * What the browser reported while a test ran: console errors, page errors, requests that failed or
@@ -147,6 +147,73 @@ export function createCollector(slowMs: number): Collector {
     result() {
       return { items: [...items], omitted };
     },
+  };
+}
+
+/** A top-level declared step of the attempt, in order: its title, and the time it ran from and up to (not including). */
+export interface StepSpan {
+  title: string;
+  start: number;
+  end: number;
+}
+
+const isCount = (value: unknown, min: number, max: number): value is number =>
+  typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max;
+const isText = (value: unknown): value is string =>
+  typeof value === 'string' && value.length >= 1 && value.length <= TEXT_MAX;
+
+/**
+ * The attachment as the platform takes it, or `undefined` for what is not the attachment at all.
+ *
+ * The platform's objects are strict and one bad item refuses the whole batch of results, so each item is
+ * built again from the keys of the contract and checked against it; one that does not pass is dropped and
+ * counted, never sent. The fixture already reduced everything — this is the reporter not taking the word
+ * of another process, or of another version of the fixture.
+ *
+ * ponytail: only top-level declared steps are matched. A finding inside a nested step is given the
+ * top-level one around it; one inside a hook's or a fixture's step is given none. Walk the tree if the
+ * run page ever shows nested steps.
+ */
+export function toWire(raw: unknown, steps: readonly StepSpan[]): ResultFindings | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const { items, omitted } = raw as { items?: unknown; omitted?: unknown };
+  if (!Array.isArray(items)) return undefined;
+
+  const kept: Finding[] = [];
+  let dropped = isCount(omitted, 0, OMITTED_MAX) ? omitted : 0;
+  for (const item of items as unknown[]) {
+    const finding = kept.length < FINDINGS_MAX ? wireItem(item, steps) : undefined;
+    if (finding === undefined) dropped += 1;
+    else kept.push(finding);
+  }
+  return { items: kept, omitted: Math.min(OMITTED_MAX, dropped) };
+}
+
+function wireItem(item: unknown, steps: readonly StepSpan[]): Finding | undefined {
+  if (typeof item !== 'object' || item === null) return undefined;
+  const { kind, text, method, path, status, durationMs, at } = item as Record<string, unknown>;
+  if (typeof at !== 'number' || !Number.isFinite(at)) return undefined;
+  // The start is in and the end is out: two steps that share a millisecond give it to the later one.
+  const index = steps.findIndex((s) => s.start <= at && at < s.end);
+  const title = index === -1 ? '' : steps[index]!.title.slice(0, TEXT_MAX);
+  const step = title === '' ? {} : { step: { index: index + 1, title } };
+
+  if (kind === 'console' || kind === 'page_error') {
+    return isText(text) ? { kind, text, ...step } : undefined;
+  }
+  if (kind !== 'request_failed' && kind !== 'request_slow') return undefined;
+  if (typeof method !== 'string' || !METHOD.test(method)) return undefined;
+  if (!isText(path) || !PATH.test(path)) return undefined;
+  if (status !== undefined && !isCount(status, 100, 599)) return undefined;
+  if (durationMs !== undefined && !isCount(durationMs, 0, Number.MAX_SAFE_INTEGER))
+    return undefined;
+  return {
+    kind,
+    method,
+    path,
+    ...(status !== undefined ? { status } : {}),
+    ...(durationMs !== undefined ? { durationMs } : {}),
+    ...step,
   };
 }
 

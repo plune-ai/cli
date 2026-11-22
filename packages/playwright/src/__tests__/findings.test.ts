@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { EventEmitter } from 'node:events';
-import { FINDINGS_MAX, FINDINGS_TYPE, OMITTED_MAX, createCollector, watch } from '../findings.js';
+import {
+  FINDINGS_MAX,
+  FINDINGS_TYPE,
+  OMITTED_MAX,
+  createCollector,
+  toWire,
+  watch,
+} from '../findings.js';
 
 const T0 = 1_700_000_000_000;
 
@@ -246,6 +253,19 @@ describe('watch — the listeners on a browser context', () => {
     expect(c.result().items).toHaveLength(1);
   });
 
+  it('does not wait for a response that never ends: what is collected is there at once', async () => {
+    const context = new EventEmitter();
+    const c = watch(context, 0);
+    const req = request('http://h/stream', { startTime: T0, responseEnd: -1 });
+    context.emit('request', req);
+    context.emit('response', {
+      ...response(req, 200),
+      finished: () => new Promise(() => undefined),
+    });
+    await settle();
+    expect(c.result()).toEqual({ items: [], omitted: 0 });
+  });
+
   it('never throws out of a listener, and never out of a context that cannot be listened to', async () => {
     const context = new EventEmitter();
     const c = watch(context, 3000);
@@ -266,5 +286,128 @@ describe('watch — the listeners on a browser context', () => {
     await settle();
     expect(c.result()).toEqual({ items: [], omitted: 0 });
     expect(() => watch({ on: bad }, 3000).result()).not.toThrow();
+  });
+});
+
+describe('toWire — what the reporter sends of an attachment', () => {
+  const STEPS = [
+    { title: 'open the shop', start: T0, end: T0 + 100 },
+    { title: 'load the cart', start: T0 + 100, end: T0 + 300 },
+    { title: 'pay', start: T0 + 500, end: T0 + 600 },
+  ];
+  const at = (time: number) =>
+    toWire({ items: [{ kind: 'console', text: 'x', at: time }], omitted: 0 }, STEPS)?.items[0];
+
+  it('gives a finding the top-level step its time falls in: the start is in, the end is out', () => {
+    expect(at(T0)).toEqual({
+      kind: 'console',
+      text: 'x',
+      step: { index: 1, title: 'open the shop' },
+    });
+    expect(at(T0 + 99.9)).toMatchObject({ step: { index: 1 } });
+    // Two steps share the millisecond: it is the later one's.
+    expect(at(T0 + 100)).toMatchObject({ step: { index: 2, title: 'load the cart' } });
+    expect(at(T0 + 599)).toMatchObject({ step: { index: 3 } });
+  });
+
+  it('gives no step before the first, between two, at the end of the last, or with no steps at all', () => {
+    for (const time of [T0 - 1, T0 + 300, T0 + 400, T0 + 600]) {
+      expect(at(time)).toEqual({ kind: 'console', text: 'x' });
+    }
+    expect(toWire({ items: [{ kind: 'console', text: 'x', at: T0 }], omitted: 0 }, [])).toEqual({
+      items: [{ kind: 'console', text: 'x' }],
+      omitted: 0,
+    });
+  });
+
+  it('clips a step title to 300 and leaves out a step with no title', () => {
+    const long = [{ title: 'y'.repeat(400), start: T0, end: T0 + 1 }];
+    const wire = toWire({ items: [{ kind: 'console', text: 'x', at: T0 }], omitted: 0 }, long);
+    expect((wire?.items[0] as { step: { title: string } }).step.title).toHaveLength(300);
+    const untitled = [{ title: '', start: T0, end: T0 + 1 }];
+    expect(
+      toWire({ items: [{ kind: 'console', text: 'x', at: T0 }], omitted: 0 }, untitled)?.items[0],
+    ).toEqual({ kind: 'console', text: 'x' });
+  });
+
+  it('sends only the keys of the contract: no time, nothing a newer fixture added', () => {
+    const wire = toWire(
+      {
+        items: [
+          {
+            kind: 'request_failed',
+            method: 'GET',
+            path: '/a',
+            status: 500,
+            durationMs: 7,
+            at: T0,
+            headers: { a: 'b' },
+          },
+          { kind: 'request_failed', method: 'POST', path: '/b', at: T0 },
+          { kind: 'page_error', text: 'boom', at: T0, stack: 'at x' },
+        ],
+        omitted: 2,
+        extra: true,
+      },
+      [],
+    );
+    expect(wire).toEqual({
+      items: [
+        { kind: 'request_failed', method: 'GET', path: '/a', status: 500, durationMs: 7 },
+        { kind: 'request_failed', method: 'POST', path: '/b' },
+        { kind: 'page_error', text: 'boom' },
+      ],
+      omitted: 2,
+    });
+  });
+
+  it('drops and counts every item that would refuse the batch', () => {
+    const bad = [
+      { kind: 'other', text: 'x', at: T0 },
+      { kind: 'console', text: '', at: T0 },
+      { kind: 'console', text: 'x'.repeat(301), at: T0 },
+      { kind: 'console', text: 7, at: T0 },
+      { kind: 'console', text: 'x' },
+      { kind: 'request_failed', method: 'get', path: '/a', at: T0 },
+      { kind: 'request_failed', method: 'GET', path: '/a?b=1', at: T0 },
+      { kind: 'request_failed', method: 'GET', path: '//h/a', at: T0 },
+      { kind: 'request_failed', method: 'GET', path: `/${'a'.repeat(300)}`, at: T0 },
+      { kind: 'request_failed', method: 'GET', path: '/a', status: 99, at: T0 },
+      { kind: 'request_slow', method: 'GET', path: '/a', durationMs: -1, at: T0 },
+      { kind: 'request_slow', method: 'GET', path: '/a', durationMs: 1.5, at: T0 },
+      null,
+      'console',
+    ];
+    expect(
+      toWire({ items: [...bad, { kind: 'console', text: 'ok', at: T0 }], omitted: 1 }, []),
+    ).toEqual({
+      items: [{ kind: 'console', text: 'ok' }],
+      omitted: bad.length + 1,
+    });
+  });
+
+  it('sends the first 20 and counts the rest, never past the ceiling', () => {
+    const items = Array.from({ length: 23 }, (_, i) => ({
+      kind: 'console',
+      text: `line ${i}`,
+      at: T0 + i,
+    }));
+    const wire = toWire({ items, omitted: 4 }, []);
+    expect(wire?.items).toHaveLength(20);
+    expect(wire?.items[19]).toEqual({ kind: 'console', text: 'line 19' });
+    expect(wire?.omitted).toBe(7);
+    expect(toWire({ items, omitted: OMITTED_MAX }, [])?.omitted).toBe(OMITTED_MAX);
+  });
+
+  it('reads a count that is no count as zero', () => {
+    for (const omitted of [-1, 1.5, '3', null, undefined]) {
+      expect(toWire({ items: [], omitted }, [])).toEqual({ items: [], omitted: 0 });
+    }
+  });
+
+  it('says nothing for what is not the attachment', () => {
+    for (const raw of [null, undefined, 'x', 7, [], { items: 'x', omitted: 0 }, { omitted: 0 }]) {
+      expect(toWire(raw, [])).toBeUndefined();
+    }
   });
 });
