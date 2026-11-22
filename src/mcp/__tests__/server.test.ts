@@ -157,9 +157,25 @@ describe.each(['legacy', 'modern'] as const)('plune mcp serve, %s era', (era) =>
     expect(listed).toContain('plune_mission_get');
     // Every hidden tool writes, so discovery has nothing to offer a read token and could only answer with a refusal.
     expect(listed).not.toContain('plune_discover_tools');
-    // An unlisted tool is unknown to the server: a protocol error -32602, as both eras' tools page specifies (the
-    // SDK 1.x server answered it with an isError result instead).
-    await expect(c.callTool('plune_mission_create', { name: 'x' })).rejects.toThrow(/-32602/);
+    // A writer called by its name anyway is a tool error that names the reason, not -32602 «Tool … not found»,
+    // which reads as a tool that does not exist.
+    const r = await c.callTool('plune_mission_create', { name: 'x' });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toBe(
+      'This connection has read-only access: plune_mission_create writes. Ask the person to reconnect with read and write access.',
+    );
+    expect(r.structuredContent).toMatchObject({ error: { code: 'read_only_token' } });
+    expect(c.platform.calls).toHaveLength(0);
+    // The refusal is not a listing: the list is the same after it.
+    expect(await names(c)).toEqual(listed);
+  });
+
+  it('CLI · mcp serve · a read token: an unknown tool is still -32602, a writer with input that does not fit is still refused as read-only', async () => {
+    const c = await connect(era, { scope: 'read' });
+    await expect(c.callTool('plune_no_such_tool', {})).rejects.toThrow(/-32602 .*plune_no_such_tool/);
+    const r = await c.callTool('plune_api_request', { method: 'DELETE' });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toMatch(/read-only access: plune_api_request writes/);
     expect(c.platform.calls).toHaveLength(0);
   });
 
@@ -247,8 +263,11 @@ describe('plune mcp serve, modern era: a fixed tool list', () => {
 
   it('CLI · mcp serve · 2026-07-28 · a read token: a hidden writer called by name is refused as a listed one is, nothing reaches the platform', async () => {
     const c = await connect('modern', { scope: 'read' });
-    await expect(c.callTool('plune_run_create', { run: { name: 'x' } })).rejects.toThrow(/-32602 .*plune_run_create/);
-    await expect(c.callTool('plune_mission_create', { name: 'x' })).rejects.toThrow(/-32602 .*plune_mission_create/);
+    for (const name of ['plune_run_create', 'plune_mission_create']) {
+      const r = await c.callTool(name, { name: 'x' });
+      expect(r.isError).toBe(true);
+      expect(text(r)).toBe(`This connection has read-only access: ${name} writes. Ask the person to reconnect with read and write access.`);
+    }
     expect(c.platform.calls).toHaveLength(0);
   });
 

@@ -390,8 +390,12 @@ describe('CLI · mcp serve · modern client (2026-07-28, JSON lines)', () => {
     await s.end();
     if (list === 'timeout' || run === 'timeout') throw new Error('the server stayed silent');
     expect(names(list)).toEqual(defaultVisibleTools('read'));
-    expect(run.error?.code).toBe(-32602);
-    expect(run.error?.message).toContain('plune_run_create');
+    // A tool error that names the reason, not -32602 «Tool … not found».
+    expect(run.error).toBeUndefined();
+    expect(run.result).toMatchObject({
+      isError: true,
+      content: [{ type: 'text', text: expect.stringContaining('read-only access: plune_run_create writes') }],
+    });
     expect(seenAuth.length).toBe(asked);
   });
 
