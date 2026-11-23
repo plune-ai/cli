@@ -683,23 +683,54 @@ export function createProgram(): Command {
     .description('Scaffold plune.yaml (interactive), an example dataset, and .env.example')
     .option('--force', 'Overwrite existing files instead of skipping them', false)
     .option('--yes', 'Non-interactive: scaffold defaults without prompts (for CI)', false)
-    .action(async (options: { force: boolean; yes: boolean }, command: Command) => {
-      const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
-      const [{ initCommand }, { NonTtyError }] = await Promise.all([
-        import('./cli/commands/init.js'),
-        import('./config/errors.js'),
-      ]);
-      try {
-        await initCommand({ cwd: process.cwd(), force: options.force, yes: options.yes });
-      } catch (err) {
-        if (err instanceof NonTtyError) {
-          process.stderr.write((err as Error).message + '\n');
-          process.exit(1);
+    .option(
+      '--from-openai-eval <eval.json>',
+      'Build plune.yaml from an exported OpenAI eval (the answer of GET /v1/evals/{eval_id}) and print what each grader became',
+    )
+    .option('--run <run.json>', 'With --from-openai-eval: one run of that eval, for the prompt and the model')
+    .option('--data <rows.jsonl>', 'With --from-openai-eval: the test data, one {"item": {...}} per line')
+    .action(
+      async (
+        options: { force: boolean; yes: boolean; fromOpenaiEval?: string; run?: string; data?: string },
+        command: Command,
+      ) => {
+        const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
+        const [{ initCommand, initFromOpenAiEval }, { NonTtyError }] = await Promise.all([
+          import('./cli/commands/init.js'),
+          import('./config/errors.js'),
+        ]);
+        if (options.fromOpenaiEval === undefined && (options.run !== undefined || options.data !== undefined)) {
+          process.stderr.write('--run and --data need --from-openai-eval <eval.json>\n');
+          process.exit(2);
           return;
         }
-        failUnexpected(err, verbose);
-      }
-    });
+        try {
+          if (options.fromOpenaiEval !== undefined) {
+            await initFromOpenAiEval({
+              cwd: process.cwd(),
+              force: options.force,
+              evalPath: options.fromOpenaiEval,
+              ...(options.run !== undefined ? { runPath: options.run } : {}),
+              ...(options.data !== undefined ? { dataPath: options.data } : {}),
+            });
+            return;
+          }
+          await initCommand({ cwd: process.cwd(), force: options.force, yes: options.yes });
+        } catch (err) {
+          if (err instanceof Error && err.name === 'OpenAiEvalImportError') {
+            process.stderr.write(err.message + '\n');
+            process.exit(2);
+            return;
+          }
+          if (err instanceof NonTtyError) {
+            process.stderr.write((err as Error).message + '\n');
+            process.exit(1);
+            return;
+          }
+          failUnexpected(err, verbose);
+        }
+      },
+    );
 
   // CLOUD COMMANDS — optional, and deliberately last. They are the only commands that
   // talk to a server; everything above runs fully local, with no account and no network, and that
