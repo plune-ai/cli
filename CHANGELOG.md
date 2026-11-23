@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Fixed
+
+- **A trace link that does not start with `https://` as written is left out instead of failing the upload.** `https:host/x`, `https:/host/x`, `https:\\host/x` and `HTTPS://host/x` passed the check, as a URL parser reads each as https with a host, and the link was sent as written; the platform keeps only a link that starts with `https://`, so it refused the whole upload. Such a link is now dropped with the line `trace link not sent (must be an https address)`, and the result, eval or case is sent without it. This covers `plune run import` (JUnit `plune.trace.url` and `PluneTrace`, the Playwright annotation), `plune sync` and `plune ingest`.
+
 ## [0.39.11] - 2026-11-23
 
 ### Added

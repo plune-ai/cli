@@ -490,4 +490,16 @@ describe('handleSync · the trace link of an eval', () => {
     const { sent } = await syncEvals([evalOf('cap', { traceUrl: url })]);
     expect(sent[0]?.['traceUrl']).toBe(url);
   });
+
+  // A URL parser reads each of these as https with a host; the platform keeps only a link that starts with `https://`.
+  it.each([
+    ['no slashes', 'https:langfuse.example/trace/1'],
+    ['one slash', 'https:/langfuse.example/trace/1'],
+    ['backslashes', 'https:\\\\langfuse.example/trace/1'],
+    ['an upper-case scheme', 'HTTPS://langfuse.example/trace/1'],
+  ])('drops a link that does not start with https:// as written: %s', async (_name, traceUrl) => {
+    const { sent, warnings } = await syncEvals([evalOf('odd', { traceUrl }), evalOf('ok', { traceUrl: TRACE })]);
+    expect(sent.map((e) => e['traceUrl'])).toEqual([undefined, TRACE]);
+    expect(warnings).toEqual(['plune: eval "odd": trace link not sent (must be an https address) — the eval is synced without it.\n']);
+  });
 });

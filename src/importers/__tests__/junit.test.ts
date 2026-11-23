@@ -387,4 +387,16 @@ describe('CLI · run import · JUnit · a trace link under the name Playwright w
       'plune: "trace.spec.js › checkout › refuses an expired card": trace link not sent (must be an https address) — the result is imported without it.',
     ]);
   });
+
+  it('drops a plune.trace.url written without the two slashes, says so, and still imports the result', () => {
+    const xml =
+      '<testsuite name="s"><testcase classname="c" name="t"><properties><property name="plune.trace.url" value="https:langfuse.example.com/traces/1"/></properties></testcase></testsuite>';
+    const notes: string[] = [];
+
+    const results = readJUnit(xml, 'r.xml', [], notes);
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).not.toHaveProperty('traceUrl');
+    expect(notes).toEqual(['plune: "c › t": trace link not sent (must be an https address) — the result is imported without it.']);
+  });
 });

@@ -201,9 +201,11 @@ const evalResultSchema = z.object({
 export const TRACE_URL_MAX = 2048;
 
 /**
- * Why the platform would refuse this trace link, or `undefined` when it takes it (after trimming): https only, a host, no user
- * name or password, no space or control character, at most `TRACE_URL_MAX` characters. The same rules as the platform's, so a
- * bad link is dropped here with a warning instead of failing the whole upload with a 400.
+ * Why the platform would refuse this trace link, or `undefined` when it takes it (after trimming): it starts with `https://`
+ * as written, in lower case and with both slashes, has a host, no user name or password, no space or control character, and
+ * at most `TRACE_URL_MAX` characters. The same rules as the platform's, so a bad link is dropped here with a warning instead
+ * of failing the whole upload with a 400. The start is read from the text, not from the parsed URL: a URL parser also takes
+ * `https:host`, `https:/host`, `https:\\host` and `HTTPS://host` as https, and the link is sent as it was written.
  */
 export function traceUrlProblem(value: unknown): string | undefined {
   if (typeof value !== 'string') return 'not a string';
@@ -216,7 +218,7 @@ export function traceUrlProblem(value: unknown): string | undefined {
   } catch {
     return 'must be an https address';
   }
-  if (parsed.protocol !== 'https:' || parsed.hostname === '') return 'must be an https address';
+  if (!url.startsWith('https://') || parsed.hostname === '') return 'must be an https address';
   if (parsed.username !== '' || parsed.password !== '') return 'must carry no user name or password';
   return undefined;
 }
