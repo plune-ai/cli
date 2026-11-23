@@ -924,3 +924,71 @@ describe('watch — an answer whose body the page never reads', () => {
     expect(c.result().items).toHaveLength(1);
   });
 });
+
+describe('an answer already judged whose connection then breaks', () => {
+  const seen = (status: number, durationMs: number, key: object) => ({
+    url: 'http://h/api/report',
+    method: 'GET',
+    status,
+    at: T0,
+    durationMs,
+    key,
+  });
+  const broken = (key: object, errorText = 'net::ERR_CONNECTION_RESET') => ({
+    url: 'http://h/api/report',
+    method: 'GET',
+    errorText,
+    at: T0,
+    key,
+  });
+
+  it('is a failed request when it was only slow: the status and the duration stay', () => {
+    const c = createCollector(3000);
+    const key = {};
+    c.response(seen(200, 3200, key));
+    c.failed(broken(key));
+    expect(c.result()).toEqual({
+      items: [
+        {
+          kind: 'request_failed',
+          method: 'GET',
+          path: '/api/report',
+          status: 200,
+          durationMs: 3200,
+          at: T0,
+        },
+      ],
+      omitted: 0,
+    });
+  });
+
+  it('stays slow when the page itself aborted it, and stays as it is when it had already failed', () => {
+    const c = createCollector(3000);
+    const aborted = {};
+    c.response(seen(200, 3200, aborted));
+    c.failed(broken(aborted, 'net::ERR_ABORTED'));
+    const failed = {};
+    c.response({ ...seen(503, 40, failed), at: T0 + 1 });
+    c.failed({ ...broken(failed), at: T0 + 1 });
+    expect(c.result().items.map((f) => [f.kind, 'status' in f ? f.status : 0])).toEqual([
+      ['request_slow', 200],
+      ['request_failed', 503],
+    ]);
+  });
+});
+
+describe('a slow threshold of 0', () => {
+  it('makes every answer under 400 slow at its headers, however fast', () => {
+    const c = createCollector(0);
+    c.response({ url: 'http://h/a', method: 'GET', status: 200, at: T0, durationMs: 0, key: {} });
+    c.response({
+      url: 'http://h/b',
+      method: 'GET',
+      status: 404,
+      at: T0 + 1,
+      durationMs: 0,
+      key: {},
+    });
+    expect(c.result().items.map((f) => f.kind)).toEqual(['request_slow', 'request_failed']);
+  });
+});

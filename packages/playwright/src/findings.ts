@@ -293,8 +293,13 @@ export function createCollector(slowMs: number, secrets: readonly string[] = [])
       // A navigation away or a cancelled load aborts what was in flight: the page's doing, not a failure of the
       // request. ponytail: Chromium's wording only; another browser's aborted request is reported as failed.
       if (errorText?.includes('net::ERR_ABORTED') === true) return;
-      // Already a finding by its answer (a 502 whose connection then broke): not a second one.
-      if (seen.key !== undefined && judged.has(seen.key)) return;
+      // Already judged by its answer: not a second finding. One that was only slow (a 200 whose headers took
+      // long, and whose connection then broke) has now failed, with the status and the duration it had.
+      const known = seen.key === undefined ? undefined : judged.get(seen.key);
+      if (known !== undefined) {
+        if (known !== null) known.kind = 'request_failed';
+        return;
+      }
       request('request_failed', seen, {});
     },
     result() {

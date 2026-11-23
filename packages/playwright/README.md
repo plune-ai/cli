@@ -202,7 +202,7 @@ Three options, set as any Playwright option (`use` in the config, or `test.use` 
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `pluneFindings` | `true` | `false` turns the collection off |
-| `pluneSlowRequestMs` | `3000` | how long a request takes, in milliseconds, before it is slow |
+| `pluneSlowRequestMs` | `3000` | how long a request takes, in milliseconds, before it is slow; `0` makes every answer under 400 slow |
 | `pluneSecretEnv` | `[]` | names of environment variables whose values are masked in every text and path; see below |
 
 What is never read from a request or a response: headers, bodies, cookies, post data. A request's own
@@ -293,7 +293,11 @@ kind, the cleaned text or the method, path, status and duration, and the time it
 what was left out.
 
 The reporter reads it and sends the findings with the result of that attempt, each with the top-level
-`test.step` it happened in, **only when the attempt did not pass**: Plune shows them under a failure. The
+`test.step` it happened in, **only when the attempt did not pass**: Plune shows them under a failure. A
+finding gets the top-level `test.step` whose time span holds it (for a request, the time it started; for a
+console line or an error, the time it reached the test process). The end of a step is exclusive and counted in
+whole milliseconds, so an event in a step's last millisecond, or one the browser delivers after the step has
+closed, gets no step; nor does one inside a hook or a fixture. The
 attachment itself is not uploaded as a file of the result and is not listed among the failure's artifacts.
 A Plune that does not know the field yet (an older self-hosted one) refuses the batch once; the reporter
 sends it again without the findings, says so in one line, and sends none for the rest of the run. No result
