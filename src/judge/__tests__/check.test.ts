@@ -89,6 +89,8 @@ describe('labels', () => {
     expect(JSON.stringify(all)).not.toContain('score');
     expect(labelTemplate(r, 'f').trim().split('\n')).toHaveLength(1);
     expect(labelTemplate(run(ev('e', [row('q', null, true)])))).toBe('');
+    // Rows whose vars repeat cannot be told apart by a label: they are not offered.
+    expect(labelTemplate(run(ev('e', [row('d', 'a', true), row('d', 'b', true), row('u', 'c', true)]))).trim().split('\n')).toHaveLength(1);
     expect(() => labelTemplate(r, 'nope')).toThrow('the run has no eval "nope"');
   });
 

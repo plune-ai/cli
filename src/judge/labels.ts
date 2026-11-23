@@ -73,14 +73,20 @@ export function parseLabels(text: string): Label[] {
   return labels;
 }
 
-/** A labels file to fill in: one line per row of the run that has an answer, `human` left `null`. */
+/** A labels file to fill in: one line per row of the run that has an answer and vars of its own, `human` left `null`. */
 export function labelTemplate(run: RunResult, evalId?: string): string {
   const evals = run.evals.filter((ev) => evalId === undefined || ev.id === evalId || baseEvalId(ev) === evalId);
   if (evals.length === 0) throw new JudgeCheckError(`the run has no eval ${JSON.stringify(evalId)}`);
   const lines: string[] = [];
   for (const ev of evals) {
+    const seen = new Map<string, number>();
     for (const row of ev.rows) {
-      if (row.output === null) continue;
+      const hash = varsHashOf(row.vars);
+      seen.set(hash, (seen.get(hash) ?? 0) + 1);
+    }
+    for (const row of ev.rows) {
+      // A row whose vars repeat cannot be told apart by its label, so it is not offered.
+      if (row.output === null || seen.get(varsHashOf(row.vars))! > 1) continue;
       // `vars` and `output` are there to read while labelling; the check keys on the two hashes only.
       // The judge's own verdict is left out on purpose, so it does not lead the person.
       lines.push(

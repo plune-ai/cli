@@ -431,6 +431,7 @@ Judge check: faq, check 1 (llm-judge)
     judge pass            18            2
     judge fail             2           18
   agreement 0.90 · TPR 0.90 · TNR 0.90 · kappa 0.80 (95% 0.59 to 0.95)
+  warning: the judge is gpt-4.1, the model that wrote the answers: a model tends to favour its own text
   --min-kappa 0.6: met
 ```
 
@@ -452,7 +453,8 @@ One JSON object per line:
 | `note` | Optional. |
 
 `--init` writes the file from the run, with `human` left `null` and the row's `vars` and `output`
-beside the hashes to read while labelling. The judge's own verdict is left out, so it does not lead
+beside the hashes to read while labelling. Rows with no answer, and rows whose `vars` repeat in the
+run (a label could not say which of them it means), are not written. The judge's own verdict is left out, so it does not lead
 the person. `--init` does not write over an existing file, which may already hold labels; `--force`
 does. A line that is not a label stops the check with its line number.
 
