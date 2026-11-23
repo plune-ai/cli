@@ -90,6 +90,8 @@ export interface IngestResult {
   files?: string[];
   /** The platform already held a run for this report's run id (answered 200): the counters are the first ingest's, nothing new was written. */
   repeat?: true;
+  /** What the reader left out of the payload and why (a trace link the platform would refuse): whole lines, printed first. */
+  notes?: string[];
 }
 
 /** What the ingest wrote for one case: the proposal it queued, or the result it attached. A skipped case has none. */
@@ -279,7 +281,8 @@ export async function handleIngest(deps: IngestDeps): Promise<IngestResult> {
 
   // Throws a typed error for an unknown format, an unfinished run, or evidence that cannot be joined
   // safely — all before anything leaves the machine, so a refusal uploads nothing.
-  const payload: CairnIngestPayload = await readCairnRun(dir);
+  const notes: string[] = [];
+  const payload: CairnIngestPayload = await readCairnRun(dir, { notes });
   // The recordings are read and sized before the ingest, which declares them on their cases. Never a reason to refuse the run.
   const session = await readCairnSessionFiles(dir).catch(() => undefined);
   for (const c of payload.cases) {
@@ -304,6 +307,7 @@ export async function handleIngest(deps: IngestDeps): Promise<IngestResult> {
     );
     if (files.length > 0) result.files = files;
     if (sent.repeat) result.repeat = true;
+    if (notes.length > 0) result.notes = notes;
     await job.finish({ ok: true });
     if (job.problem !== undefined) result.jobProblem = job.problem;
     return result;
@@ -376,12 +380,14 @@ export function formatIngestResult(r: IngestResult): string {
   // The counters of a repeat are the first ingest's: printed as they are, they send the reader to the queue for proposals nobody made.
   if (r.repeat === true) {
     return `${[
+      ...(r.notes ?? []),
       `This Cairn run was already ingested → ${r.runId}`,
       '  nothing new was proposed or attached; a run with a new run id is ingested as new',
       ...files,
     ].join('\n')}\n`;
   }
   const lines = [
+    ...(r.notes ?? []),
     `Ingested Cairn run → ${r.runId}`,
     `  ${r.linked} result(s) attached to existing cases`,
     `  ${r.proposed} case(s) proposed — review them in Plune to accept`,
