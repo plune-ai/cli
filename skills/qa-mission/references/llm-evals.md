@@ -14,8 +14,9 @@ file.
   twice; it runs on each pull request with eval-action.
 - **Risks**: an answer that invents facts not in its context, an answer off the question, an answer
   that breaks a rule the product states (tone, a topic it must refuse).
-- **Out of scope**: judge calibration (how far the judging model agrees with a person). Write it as
-  an out-of-scope item; it is a separate task.
+- **Out of scope**: judge calibration (how far the judging model agrees with a person) is not part
+  of the eval set. Write it as a follow-up for the user, as described in "Judge calibration" below;
+  it needs a person's labels, which you do not write.
 
 ## The eval set
 
@@ -89,6 +90,18 @@ evals:
 
 The eval's `pass_threshold` (beside `runs`) is the share of passing runs; the one inside
 `llm-judge` is the lowest judge score one answer needs. They are different numbers.
+
+## Judge calibration
+
+A judge's pass is worth only as much as its agreement with a person. Propose a golden set to the
+user as a follow-up: 30 to 50 rows of a real run, each labelled pass or fail by a person, and
+`plune judge-check` to measure the judge against them (agreement, TPR, TNR, Cohen's kappa with a
+95% interval). `plune judge-check labels/<eval>.jsonl --init` writes the file to fill in. Leave
+every `human` field to the person: a label you wrote would measure the judge against a model.
+
+Tell the user to keep two labels files, a dev set to read while changing `criteria` and a test set
+held aside for the figure, and to give the judge a model other than the one that answers (a
+`provider` on the `llm-judge`). The steps are in the CLI guide, `plune judge-check`.
 
 ## The pull request
 
