@@ -38,19 +38,26 @@ export interface CollectedFindings {
   omitted: number;
 }
 
+type RequestFinding = Extract<CollectedFinding, { kind: 'request_failed' | 'request_slow' }>;
+
 export interface Collector {
   console(text: string, at: number): void;
   pageError(message: string, at: number): void;
-  /** A request that got an answer; `at` is when the request started. */
+  /**
+   * A request that got an answer; `at` is when the request started. With a `key` (anything that stands for the
+   * request) it may be called again as more is known: the first call that makes it a finding records it, a
+   * later one only gives it its duration.
+   */
   response(seen: {
     url: string;
     method: string;
     status: number;
     at: number;
     durationMs: number;
+    key?: object;
   }): void;
-  /** A request that never got one. */
-  failed(seen: { url: string; method: string; errorText?: string; at: number }): void;
+  /** A request whose connection failed. One already recorded by its answer, under the same `key`, is not recorded again. */
+  failed(seen: { url: string; method: string; errorText?: string; at: number; key?: object }): void;
   result(): CollectedFindings;
 }
 
@@ -235,15 +242,23 @@ export function createCollector(slowMs: number, secrets: readonly string[] = [])
       ? { method, path }
       : undefined;
   };
+  /**
+   * What became of each request already judged, by the caller's key for it: its finding, or `null` for one that
+   * is not a finding to send (not a web request, or dropped and counted). A request is seen more than once —
+   * at its headers, at its end, when its connection breaks — and is one finding, counted once.
+   */
+  const judged = new WeakMap<object, RequestFinding | null>();
   const request = (
     kind: 'request_failed' | 'request_slow',
-    seen: { url: string; method: string; at: number },
+    seen: { url: string; method: string; at: number; key?: object },
     extra: { status?: number; durationMs?: number },
   ): void => {
     const where = place(seen.url, seen.method);
-    if (where === null) return;
+    const finding: RequestFinding | null =
+      where === null || where === undefined ? null : { kind, ...where, ...extra, at: seen.at };
+    if (seen.key !== undefined) judged.set(seen.key, finding);
     if (where === undefined) drop();
-    else keep({ kind, ...where, ...extra, at: seen.at });
+    else if (finding !== null) keep(finding);
   };
 
   return {
@@ -259,6 +274,13 @@ export function createCollector(slowMs: number, secrets: readonly string[] = [])
     },
     response({ status, durationMs, ...seen }) {
       const ms = Number.isFinite(durationMs) ? Math.max(0, Math.round(durationMs)) : undefined;
+      const known = seen.key === undefined ? undefined : judged.get(seen.key);
+      if (known !== undefined) {
+        // Seen again, at its end: the same finding with the duration it has now. Its place among the first by
+        // start, or among the counted, was settled when it was first seen and does not change.
+        if (known !== null && ms !== undefined) known.durationMs = ms;
+        return;
+      }
       const extra = {
         ...(Number.isInteger(status) && status >= 100 && status <= 599 ? { status } : {}),
         ...(ms !== undefined ? { durationMs: ms } : {}),
@@ -271,10 +293,13 @@ export function createCollector(slowMs: number, secrets: readonly string[] = [])
       // A navigation away or a cancelled load aborts what was in flight: the page's doing, not a failure of the
       // request. ponytail: Chromium's wording only; another browser's aborted request is reported as failed.
       if (errorText?.includes('net::ERR_ABORTED') === true) return;
+      // Already a finding by its answer (a 502 whose connection then broke): not a second one.
+      if (seen.key !== undefined && judged.has(seen.key)) return;
       request('request_failed', seen, {});
     },
     result() {
-      return { items: [...items], omitted };
+      // Copies: a request completed later must not change what was already handed out.
+      return { items: items.map((item) => ({ ...item })), omitted };
     },
   };
 }
@@ -355,7 +380,7 @@ export interface Watched {
 interface SeenRequest {
   url(): string;
   method(): string;
-  timing(): { startTime: number; responseEnd: number };
+  timing(): { startTime: number; responseStart?: number; responseEnd: number };
   failure(): { errorText: string } | null;
 }
 
@@ -427,26 +452,40 @@ export function watch(
           url: request.url(),
           method: request.method(),
           at: startOf(request),
+          key: request,
           ...(errorText !== undefined ? { errorText } : {}),
         });
       }),
     );
     context.on(
       'response',
-      quiet(async (response: SeenResponse) => {
+      quiet((response: SeenResponse) => {
         const request = response.request();
-        // The end of the response is known only once its body is in.
-        // ponytail: a response still arriving when the test ends is not reported; wait at teardown if that loses findings.
-        await response.finished();
-        if (!once(request)) return;
-        const end = request.timing().responseEnd;
-        collector.response({
+        if (settled.has(request)) return;
+        /** Since the request started: what `timing()` says, or this process's own clock when it says nothing. */
+        const spent = (measured: number | undefined): number =>
+          measured !== undefined && measured >= 0
+            ? measured
+            : Date.now() - (started.get(request) ?? Date.now());
+        const seen = (durationMs: number) => ({
           url: request.url(),
           method: request.method(),
           status: response.status(),
           at: startOf(request),
-          durationMs: end >= 0 ? end : Date.now() - (started.get(request) ?? Date.now()),
+          durationMs,
+          key: request,
         });
+        // Judged now, by the time to the headers: a body the page never reads never ends in Chromium, and a
+        // failure that waited for it was never reported. Nothing here or at the end of the test waits for it.
+        collector.response(seen(spent(request.timing().responseStart)));
+        // If the body does come in, the same request gets its whole duration — and is judged then, when its
+        // headers alone had not made it a finding.
+        void response
+          .finished()
+          .then(() => {
+            if (once(request)) collector.response(seen(spent(request.timing().responseEnd)));
+          })
+          .catch(() => undefined);
       }),
     );
   } catch {

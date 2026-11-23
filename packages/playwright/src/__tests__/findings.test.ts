@@ -256,7 +256,7 @@ describe('watch — the listeners on a browser context', () => {
 
   it('does not wait for a response that never ends: what is collected is there at once', async () => {
     const context = new EventEmitter();
-    const c = watch(context, 0);
+    const c = watch(context, 3000);
     const req = request('http://h/stream', { startTime: T0, responseEnd: -1 });
     context.emit('request', req);
     context.emit('response', {
@@ -673,5 +673,254 @@ describe('the values of named environment variables never leave the worker', () 
   it('reads nothing from a list that is not one of names', () => {
     expect(secretValues(undefined as unknown as string[], ENV)).toEqual([]);
     expect(secretValues([7, null, 'SHOP_KEY'] as unknown as string[], ENV)).toContain(ENV.SHOP_KEY);
+  });
+});
+
+describe('a request is recorded when its answer arrives, and completed if it ever finishes', () => {
+  const seen = (status: number, durationMs: number, key: object, at = T0) => ({
+    url: 'http://h/api/pay',
+    method: 'POST',
+    status,
+    at,
+    durationMs,
+    key,
+  });
+
+  it('keeps one item for one request: the later call fills in the duration', () => {
+    const c = createCollector(3000);
+    const key = {};
+    c.response(seen(500, 12, key));
+    expect(c.result().items).toEqual([
+      {
+        kind: 'request_failed',
+        method: 'POST',
+        path: '/api/pay',
+        status: 500,
+        durationMs: 12,
+        at: T0,
+      },
+    ]);
+    c.response(seen(500, 40, key));
+    expect(c.result()).toEqual({
+      items: [
+        {
+          kind: 'request_failed',
+          method: 'POST',
+          path: '/api/pay',
+          status: 500,
+          durationMs: 40,
+          at: T0,
+        },
+      ],
+      omitted: 0,
+    });
+  });
+
+  it('records an answer under 400 once it is known to be slow, at its headers or at its end', () => {
+    const c = createCollector(3000);
+    const fastThenSlow = {};
+    c.response(seen(200, 5, fastThenSlow));
+    expect(c.result().items).toEqual([]);
+    c.response(seen(200, 3500, fastThenSlow));
+    const slowAtHeaders = {};
+    c.response(seen(200, 3100, slowAtHeaders, T0 + 1));
+    c.response(seen(200, 3900, slowAtHeaders, T0 + 1));
+    expect(c.result().items.map((f) => ('durationMs' in f ? [f.kind, f.durationMs] : []))).toEqual([
+      ['request_slow', 3500],
+      ['request_slow', 3900],
+    ]);
+  });
+
+  it('does not report as failed a request already recorded by its answer', () => {
+    const c = createCollector(3000);
+    const key = {};
+    c.response(seen(500, 12, key));
+    c.failed({
+      url: 'http://h/api/pay',
+      method: 'POST',
+      errorText: 'net::ERR_CONNECTION_RESET',
+      at: T0,
+      key,
+    });
+    expect(c.result().items).toEqual([
+      {
+        kind: 'request_failed',
+        method: 'POST',
+        path: '/api/pay',
+        status: 500,
+        durationMs: 12,
+        at: T0,
+      },
+    ]);
+  });
+
+  it('counts once a request that cannot be sent, however often it is seen', () => {
+    const c = createCollector(3000);
+    const key = {};
+    const bad = { ...seen(500, 12, key), url: 'http://h//evil/x' };
+    c.response(bad);
+    c.response({ ...bad, durationMs: 40 });
+    c.failed({ url: bad.url, method: 'POST', at: T0, key });
+    expect(c.result()).toEqual({ items: [], omitted: 1 });
+  });
+
+  it('keeps the order by start and the count right when an item recorded early is completed late', () => {
+    const c = createCollector(3000);
+    const late = {};
+    // Recorded first, started last: pushed out by twenty that started before it.
+    c.response(seen(500, 1, late, T0 + 100));
+    const first = {};
+    c.response(seen(500, 1, first, T0));
+    for (let i = 1; i < 20; i++) c.console(`line ${i}`, T0 + i);
+    expect(c.result().omitted).toBe(1);
+
+    c.response(seen(500, 77, late, T0 + 100));
+    c.response(seen(500, 88, first, T0));
+    const out = c.result();
+    expect(out.omitted).toBe(1);
+    expect(out.items).toHaveLength(20);
+    expect(out.items.map((f) => f.at)).toEqual(Array.from({ length: 20 }, (_, i) => T0 + i));
+    expect(out.items[0]).toMatchObject({ kind: 'request_failed', durationMs: 88 });
+    expect(JSON.stringify(out)).not.toContain('77');
+  });
+
+  it('hands out a result that a later completion does not change', () => {
+    const c = createCollector(3000);
+    const key = {};
+    c.response(seen(500, 12, key));
+    const before = c.result();
+    c.response(seen(500, 40, key));
+    expect(before.items[0]).toMatchObject({ durationMs: 12 });
+  });
+});
+
+describe('watch — an answer whose body the page never reads', () => {
+  const never = () => new Promise<null>(() => undefined);
+  const request = (
+    url: string,
+    timing: { startTime: number; responseStart: number; responseEnd: number },
+  ) => ({
+    url: () => url,
+    method: () => 'POST',
+    timing: () => timing,
+    failure: () => null,
+  });
+  const settle = () => new Promise((r) => setImmediate(r));
+
+  it('is recorded at once when it is a 500 or a 404, with the time to its headers', async () => {
+    const context = new EventEmitter();
+    const c = watch(context, 3000);
+    const pay = request('http://h/api/pay', {
+      startTime: T0,
+      responseStart: 21.4,
+      responseEnd: -1,
+    });
+    const missing = request('http://h/api/missing', {
+      startTime: T0 + 1,
+      responseStart: 8,
+      responseEnd: -1,
+    });
+    for (const [req, status] of [
+      [pay, 500],
+      [missing, 404],
+    ] as const) {
+      context.emit('request', req);
+      context.emit('response', { request: () => req, status: () => status, finished: never });
+    }
+    // No tick in between: nothing waits for the body.
+    expect(c.result().items).toEqual([
+      {
+        kind: 'request_failed',
+        method: 'POST',
+        path: '/api/pay',
+        status: 500,
+        durationMs: 21,
+        at: T0,
+      },
+      {
+        kind: 'request_failed',
+        method: 'POST',
+        path: '/api/missing',
+        status: 404,
+        durationMs: 8,
+        at: T0 + 1,
+      },
+    ]);
+  });
+
+  it('gets its whole duration when the body does come in, and stays one item', async () => {
+    const context = new EventEmitter();
+    const c = watch(context, 3000);
+    const timing = { startTime: T0, responseStart: 21, responseEnd: -1 };
+    const req = request('http://h/api/pay', timing);
+    let finish: (v: null) => void = () => undefined;
+    context.emit('request', req);
+    context.emit('response', {
+      request: () => req,
+      status: () => 500,
+      finished: () => new Promise<null>((resolve) => (finish = resolve)),
+    });
+    expect(c.result().items).toMatchObject([{ durationMs: 21 }]);
+    timing.responseEnd = 64.2;
+    finish(null);
+    await settle();
+    expect(c.result()).toEqual({
+      items: [
+        {
+          kind: 'request_failed',
+          method: 'POST',
+          path: '/api/pay',
+          status: 500,
+          durationMs: 64,
+          at: T0,
+        },
+      ],
+      omitted: 0,
+    });
+  });
+
+  it('is slow by the time to its headers when it is under 400, and nothing when they came fast', async () => {
+    const context = new EventEmitter();
+    const c = watch(context, 3000);
+    const slow = request('http://h/api/report', {
+      startTime: T0,
+      responseStart: 3200,
+      responseEnd: -1,
+    });
+    const fast = request('http://h/api/ok', {
+      startTime: T0 + 1,
+      responseStart: 15,
+      responseEnd: -1,
+    });
+    for (const req of [slow, fast]) {
+      context.emit('request', req);
+      context.emit('response', { request: () => req, status: () => 200, finished: never });
+    }
+    await settle();
+    expect(c.result().items).toEqual([
+      {
+        kind: 'request_slow',
+        method: 'POST',
+        path: '/api/report',
+        status: 200,
+        durationMs: 3200,
+        at: T0,
+      },
+    ]);
+  });
+
+  it('is one item when the connection breaks after the answer', async () => {
+    const context = new EventEmitter();
+    const c = watch(context, 3000);
+    const req = {
+      ...request('http://h/api/pay', { startTime: T0, responseStart: 5, responseEnd: -1 }),
+      failure: () => ({ errorText: 'net::ERR_CONNECTION_RESET' }),
+    };
+    context.emit('request', req);
+    context.emit('response', { request: () => req, status: () => 502, finished: never });
+    context.emit('requestfailed', req);
+    await settle();
+    expect(c.result().items).toMatchObject([{ kind: 'request_failed', status: 502 }]);
+    expect(c.result().items).toHaveLength(1);
   });
 });

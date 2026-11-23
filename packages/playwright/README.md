@@ -191,6 +191,12 @@ What is collected:
 | `request_failed` | an answer with status 400 or above, or no answer at all | method, path, the status and the duration when there was an answer |
 | `request_slow` | an answer under 400 that took the threshold or longer | method, path, status, duration |
 
+A request is judged when its answer's headers arrive, and again if its body comes in. The duration is the time
+from the start of the request to the end of the answer; **of a request whose body was never read, or was still
+arriving when the test ended, it is the time to its headers.** So a 500 or a 404 is reported whether or not the
+page reads its body (in Chromium a `fetch` whose body is never read never finishes), and an answer under 400
+is slow when its headers alone took the threshold; how long an unread body would have taken is not known.
+
 Three options, set as any Playwright option (`use` in the config, or `test.use` in a file):
 
 | Option | Default | Meaning |
@@ -277,7 +283,8 @@ written. What is recognised is the exact value, and the value as an address carr
 
 A test that opens no browser context collects nothing, and no browser is opened for it. A context a test
 makes itself with `browser.newContext()` is not listened to. The fixture never fails a test and does not wait
-at its end for an answer still arriving: a response that had not finished when the test ended is not reported.
+at its end for an answer still arriving: such an answer is reported by what its headers said (failed by its
+status, slow by the time to them), and an answer under 400 whose headers came in time is not reported.
 
 The findings travel as one attachment of the test, `plune-findings` (`application/plune.findings+json`).
 It is an attachment like any other, so it is also in Playwright's own HTML, JSON and blob reports and in a
