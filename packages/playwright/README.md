@@ -191,12 +191,18 @@ What is collected:
 | `request_failed` | an answer with status 400 or above, or no answer at all | method, path, the status and the duration when there was an answer |
 | `request_slow` | an answer under 400 that took the threshold or longer | method, path, status, duration |
 
+A request is judged when its answer's headers arrive, and again if its body comes in. The duration is the time
+from the start of the request to the end of the answer; **of a request whose body was never read, or was still
+arriving when the test ended, it is the time to its headers.** So a 500 or a 404 is reported whether or not the
+page reads its body (in Chromium a `fetch` whose body is never read never finishes), and an answer under 400
+is slow when its headers alone took the threshold; how long an unread body would have taken is not known.
+
 Three options, set as any Playwright option (`use` in the config, or `test.use` in a file):
 
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `pluneFindings` | `true` | `false` turns the collection off |
-| `pluneSlowRequestMs` | `3000` | how long a request takes, in milliseconds, before it is slow |
+| `pluneSlowRequestMs` | `3000` | how long a request takes, in milliseconds, before it is slow; `0` makes every answer under 400 slow |
 | `pluneSecretEnv` | `[]` | names of environment variables whose values are masked in every text and path; see below |
 
 What is never read from a request or a response: headers, bodies, cookies, post data. A request's own
@@ -277,7 +283,8 @@ written. What is recognised is the exact value, and the value as an address carr
 
 A test that opens no browser context collects nothing, and no browser is opened for it. A context a test
 makes itself with `browser.newContext()` is not listened to. The fixture never fails a test and does not wait
-at its end for an answer still arriving: a response that had not finished when the test ended is not reported.
+at its end for an answer still arriving: such an answer is reported by what its headers said (failed by its
+status, slow by the time to them), and an answer under 400 whose headers came in time is not reported.
 
 The findings travel as one attachment of the test, `plune-findings` (`application/plune.findings+json`).
 It is an attachment like any other, so it is also in Playwright's own HTML, JSON and blob reports and in a
@@ -286,7 +293,11 @@ kind, the cleaned text or the method, path, status and duration, and the time it
 what was left out.
 
 The reporter reads it and sends the findings with the result of that attempt, each with the top-level
-`test.step` it happened in, **only when the attempt did not pass**: Plune shows them under a failure. The
+`test.step` it happened in, **only when the attempt did not pass**: Plune shows them under a failure. A
+finding gets the top-level `test.step` whose time span holds it (for a request, the time it started; for a
+console line or an error, the time it reached the test process). The end of a step is exclusive and counted in
+whole milliseconds, so an event in a step's last millisecond, or one the browser delivers after the step has
+closed, gets no step; nor does one inside a hook or a fixture. The
 attachment itself is not uploaded as a file of the result and is not listed among the failure's artifacts.
 A Plune that does not know the field yet (an older self-hosted one) refuses the batch once; the reporter
 sends it again without the findings, says so in one line, and sends none for the rest of the run. No result

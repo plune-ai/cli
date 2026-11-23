@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Fixed
+
+- **`@plune-ai/playwright` 0.8.1: the fixture reports a failed request whose body the page never reads.** In Chromium a `fetch` whose response body is never read does not finish, and the fixture waited for the end of a response before it recorded anything: a 500 or a 404 that the page only checked with `response.ok` was lost, and the findings came out empty, while Firefox and WebKit reported it. A request is now judged when the headers of its answer arrive: status 400 or above is `request_failed` at once, and an answer under 400 is `request_slow` when its headers alone took `pluneSlowRequestMs`. If the body does come in, the same finding gets its whole duration, and an answer that was fast to its headers is judged again by its whole time; otherwise the duration is the time to the headers. A request is still one finding (an answer followed by a broken connection is not reported twice), the order is still by the start of the request, and the end of a test still waits for nothing.
+
 ### Changed
 
 - **`@plune-ai/playwright` 0.8.0** is the first version that carries the `@plune-ai/playwright/fixture` entry and the reporter's `findings` described under 0.39.10: that release left the adapter at 0.7.5, which was already published, so the adapter was not published with it. A minor version, as the adapter gains a new entry. The fixture also gains the option `pluneSecretEnv`, a list of the names of environment variables (default none): the value of each, as it is and percent-encoded, is replaced by `‹env-secret›` in every console text, error message and request path before the attachment is written; a value under 4 characters, an unset variable and a value the page changed in another way (base64, for one) are not masked.

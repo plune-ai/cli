@@ -713,6 +713,10 @@ describe('what the browser reported reaches the failed result', () => {
 <script>throw new Error('boom from the page');</script>`;
   /** No shape the masking knows: only its name in `pluneSecretEnv` can mask it. */
   const SHOP_KEY = 'tangerine dream/4471';
+  const BLANK = '<!doctype html><title>blank</title><link rel="icon" href="data:,">';
+  /** Chromium always; `PLUNE_E2E_BROWSERS=firefox,webkit` adds the others where they are installed. */
+  const BROWSERS = ['chromium', ...(process.env['PLUNE_E2E_BROWSERS'] ?? '').split(',').filter((b) => b !== '')];
+  const unread = new Map<string, FixtureRun>();
   let shop: Server;
   let live: FixtureRun;
 
@@ -720,6 +724,10 @@ describe('what the browser reported reaches the failed result', () => {
     shop = createServer((req, res) => {
       const url = req.url ?? '';
       if (url === '/') return void res.writeHead(200, { 'content-type': 'text/html' }).end(PAGE);
+      if (url === '/blank') return void res.writeHead(200, { 'content-type': 'text/html' }).end(BLANK);
+      // A body long enough that nobody could take it for read by accident.
+      if (url === '/api/pay') return void res.writeHead(500).end('x'.repeat(64 * 1024));
+      if (url === '/api/missing') return void res.writeHead(404).end('x'.repeat(64 * 1024));
       if (url.startsWith('/api/keys/')) return void res.writeHead(403).end('no');
       if (url.startsWith('/api/fail')) return void res.writeHead(500).end('no');
       if (url === '/api/slow') return void setTimeout(() => res.writeHead(200).end('late'), 600);
@@ -736,6 +744,15 @@ describe('what the browser reported reaches the failed result', () => {
       PLUNE_FINDINGS_SITE: site,
       SHOP_KEY_FOR_E2E: SHOP_KEY,
     });
+    for (const browser of BROWSERS) {
+      unread.set(
+        browser,
+        await runFixture(false, ['unread.spec.ts', `--browser=${browser}`], {
+          PLUNE_TEST_DIR: './findings',
+          PLUNE_FINDINGS_SITE: site,
+        }),
+      );
+    }
   }, 240_000);
 
   afterAll(() => {
@@ -802,6 +819,26 @@ describe('what the browser reported reaches the failed result', () => {
     expect(posted).not.toContain(SHOP_KEY);
     expect(posted).not.toContain(encodeURIComponent(SHOP_KEY));
     expect(posted).not.toContain('tangerine');
+  });
+
+  it.each(BROWSERS)('with a failed request whose body the page never read, in %s', (browser) => {
+    const run = unread.get(browser);
+    const results = (run?.received ?? [])
+      .filter((r) => r.path.endsWith('/results'))
+      .flatMap((r) => r.body['results'] as Sent[]);
+    const itemsOf = (title: string) =>
+      (results.find((r) => r.title.endsWith(title))?.findings?.items ?? []).filter(
+        (f) => f['kind'] === 'request_failed',
+      );
+
+    const [pay, ...morePay] = itemsOf('a 500 to a POST whose body is not read');
+    expect(pay, run?.stderr).toMatchObject({ kind: 'request_failed', method: 'POST', path: '/api/pay', status: 500 });
+    expect(morePay).toEqual([]);
+    expect(pay?.['durationMs']).toEqual(expect.any(Number));
+
+    const [missing, ...moreMissing] = itemsOf('a 404 to a GET whose body is not read');
+    expect(missing, run?.stderr).toMatchObject({ kind: 'request_failed', method: 'GET', path: '/api/missing', status: 404 });
+    expect(moreMissing).toEqual([]);
   });
 
   it('a failed test that opened no browser sends no findings', () => {

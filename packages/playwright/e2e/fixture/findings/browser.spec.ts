@@ -10,7 +10,14 @@ test.describe('with a page', () => {
 
   test('a page that goes wrong in every way', async ({ page }) => {
     await test.step('open the shop', async () => {
+      // The page's console line and its error reach this process a moment after the load, sometimes after
+      // `goto` has returned: the step stays open until both are here, or they would belong to no step.
+      const said = page.waitForEvent('console');
+      const thrown = page.waitForEvent('pageerror');
       await page.goto(`${site}/`);
+      await Promise.all([said, thrown]);
+      // A step's end is its start plus a whole number of milliseconds: what happens in its last one can fall out.
+      await page.waitForTimeout(50);
     });
     await test.step('load the cart', async () => {
       await page.evaluate(async () => {
