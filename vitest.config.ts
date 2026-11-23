@@ -34,6 +34,8 @@ export default defineConfig({
         // Embeddings feature (ADR-EMB02): cosine is pure math → 100%. The XenovaEmbedder
         // wrapper is a dirty edge (live-only), so it is not gated here.
         'src/embeddings/cosine.ts': { branches: 100 },
+        // Judge calibration: the agreement figures and the label matching are pure.
+        'src/judge/**': { branches: 100 },
         // Orchestrator (S8): the integration module — ≥85% branches (§2). Tested via injected
         // fake deps (no real API); the CLI composition root is covered by handleRun + live.
         'src/orchestrator/**': { branches: 85 },

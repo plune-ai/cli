@@ -679,6 +679,41 @@ export function createProgram(): Command {
     );
 
   program
+    .command('judge-check')
+    .description(
+      "Compare a judge's verdicts in a saved run with a person's pass/fail labels: TPR, TNR, Cohen's kappa and its 95% interval. Local only",
+    )
+    .argument('<labels.jsonl>', 'The labels file: one {"eval", "vars_hash", "output_hash", "human", "by", "at"} per line')
+    .option('--run <file>', 'The saved run to read', '.plune/last-run.json')
+    .option('--init', 'Write the labels file to fill in from the run, one line per row with an answer', false)
+    .option('--force', 'With --init: write over an existing labels file', false)
+    .option('--eval <id>', 'Only this eval')
+    .option('--check <n>', 'The check to compare, by its position in a row from 1 (default: the one check a model judges)')
+    .option('--min-kappa <k>', "Exit 1 when an eval's kappa is below k or has no value")
+    .option('--max-interval-width <w>', 'Warn when the 95% interval of kappa is wider than w (default 0.4)')
+    // Exit 1 means "kappa below --min-kappa": a mistyped flag in CI must not read as that.
+    .exitOverride((err) => process.exit(err.exitCode === 0 ? 0 : 2))
+    .action(async (labels: string, options: Record<string, unknown>, command: Command) => {
+      const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
+      const [{ handleJudgeCheck }, { JudgeCheckError }] = await Promise.all([
+        import('./cli/commands/judge-check.js'),
+        import('./judge/labels.js'),
+      ]);
+      try {
+        process.exitCode = await handleJudgeCheck(labels, options, process.cwd(), (t) => {
+          process.stdout.write(t);
+        });
+      } catch (err) {
+        if (err instanceof JudgeCheckError) {
+          process.stderr.write(err.message + '\n');
+          process.exit(2);
+          return;
+        }
+        failUnexpected(err, verbose);
+      }
+    });
+
+  program
     .command('init')
     .description('Scaffold plune.yaml (interactive), an example dataset, and .env.example')
     .option('--force', 'Overwrite existing files instead of skipping them', false)
