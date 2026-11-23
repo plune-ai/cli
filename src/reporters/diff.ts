@@ -10,6 +10,8 @@ import type { Comparison, Word } from '../diff/stats.js';
 import { MIN_ATTEMPTS } from '../diff/stats.js';
 import type { DiffAdvice } from '../diff/advice.js';
 import { noCommands, noCommandsJson } from '../mcp-testing/report/human.js';
+import type { RunResult } from '../types/results.js';
+import { unsteadyRows } from './helpers.js';
 
 /** How a gate, or a cell of the model matrix, says a value could not be measured. */
 export const NOT_MEASURED = 'not measured';
@@ -269,7 +271,20 @@ function matrixMarkdown(d: RunDiff, room: number): string[] {
   ];
 }
 
-export function renderDiffMarkdown(d: RunDiff, budget: number = COMMENT_BUDGET): string {
+/** How many unsteady rows the markdown names before it only counts the rest. */
+const UNSTEADY_LISTED = 10;
+
+// One line naming the rows of the current run that passed some of their repeats but not all (the report's
+// ` · flaky 0.6` mark): stable passes are not listed in the table, so a per-row mark would miss them. Read-only.
+function unsteadyLine(current: RunResult | undefined): string[] {
+  const rows = current === undefined ? [] : unsteadyRows(current);
+  if (rows.length === 0) return [];
+  const named = rows.slice(0, UNSTEADY_LISTED).map((r) => `\`${oneLine(r.id)}\`${r.mark}`);
+  const more = rows.length > UNSTEADY_LISTED ? `, and ${rows.length - UNSTEADY_LISTED} more` : '';
+  return ['', `Unsteady in this run: ${named.join(', ')}${more}`];
+}
+
+export function renderDiffMarkdown(d: RunDiff, budget: number = COMMENT_BUDGET, current?: RunResult): string {
   const out: string[] = [STICKY_MARKER, '## Plune eval diff', ''];
   const head = headline(d);
   out.push(head ? `### ${head.mark} ${capital(head.text)}` : '### ✅ No regressions');
@@ -278,7 +293,7 @@ export function renderDiffMarkdown(d: RunDiff, budget: number = COMMENT_BUDGET):
   // Stable passes are summarized, not listed — only changes are worth a row.
   const notable = d.evals.filter((e) => e.status !== 'stable-pass');
   if (d.matrix !== undefined) {
-    const rest = [...gatesMarkdown(d), ...adviceMarkdown(d), `_${summaryLine(d)}_`].join('\n');
+    const rest = [...gatesMarkdown(d), ...adviceMarkdown(d), `_${summaryLine(d)}_`, ...unsteadyLine(current)].join('\n');
     out.push(...matrixMarkdown(d, budget - out.join('\n').length - rest.length - 2));
   } else if (notable.length > 0) {
     out.push('| Eval | Baseline → Current | Change |');
@@ -291,6 +306,7 @@ export function renderDiffMarkdown(d: RunDiff, budget: number = COMMENT_BUDGET):
   out.push(...gatesMarkdown(d));
   out.push(...adviceMarkdown(d));
   out.push(`_${summaryLine(d)}_`);
+  out.push(...unsteadyLine(current));
   return out.join('\n');
 }
 
@@ -311,9 +327,10 @@ function renderDiffJson(d: RunDiff): string {
   return JSON.stringify(d, null, 2);
 }
 
-export function renderDiff(d: RunDiff, format: DiffFormat = 'console'): string {
+/** `current` is the current run, read only for the markdown's unsteady line; the JSON and console forms ignore it. */
+export function renderDiff(d: RunDiff, format: DiffFormat = 'console', current?: RunResult): string {
   // Names in a file may come from a server: no line may read as a CI workflow command.
   if (format === 'json') return noCommandsJson(renderDiffJson(d));
-  if (format === 'markdown') return noCommands(renderDiffMarkdown(d));
+  if (format === 'markdown') return noCommands(renderDiffMarkdown(d, COMMENT_BUDGET, current));
   return noCommands(renderDiffConsole(d));
 }
