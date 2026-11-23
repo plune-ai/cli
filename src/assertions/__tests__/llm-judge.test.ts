@@ -48,6 +48,35 @@ describe('llm-judge (ADR-SR02)', () => {
     expect(r.reason).toContain('threshold');
   });
 
+  it('sends the judge the input the answer was given for, before the output (plune-ai/cli#374)', async () => {
+    const asked: string[] = [];
+    const j: Judge = {
+      ask: async (p) => {
+        asked.push(p);
+        return '{"score":1}';
+      },
+    };
+    await llmJudge.run({
+      ...ctx('the', { criteria: 'answers what was asked' }, j),
+      input: 'What is the third word of this question?',
+    });
+    expect(asked[0]).toContain('INPUT:\nWhat is the third word of this question?\n\nOUTPUT:\nthe');
+    expect(asked[0]).toMatch(/CRITERIA are about the OUTPUT given that INPUT/);
+  });
+
+  it('without an input, sends only the criteria and the output, as before', async () => {
+    const asked: string[] = [];
+    const j: Judge = {
+      ask: async (p) => {
+        asked.push(p);
+        return '{"score":1}';
+      },
+    };
+    await llmJudge.run(ctx('out', { criteria: 'x' }, j));
+    expect(asked[0]).not.toContain('INPUT');
+    expect(asked[0]).toContain('CRITERIA: x\n\nOUTPUT:\nout');
+  });
+
   it('propagates a ProviderError from the judge (AC-10)', async () => {
     const j: Judge = {
       ask: async () => {

@@ -106,6 +106,21 @@ describe('runRow', () => {
     expect(r.usage!.cost_usd).toBeCloseTo(0.002); // output cost (0.001) + judge-call cost (0.001) (AC-7)
   });
 
+  it('sends the judge the rendered prompt of the row (plune-ai/cli#374)', async () => {
+    const complete = vi
+      .fn()
+      .mockResolvedValueOnce({ output: 'hi', usage: { input_tokens: 1, output_tokens: 1 } })
+      .mockResolvedValueOnce({
+        output: '{"score":1}',
+        usage: { input_tokens: 1, output_tokens: 1 },
+      });
+    const provider: Provider = { complete, estimateCost: () => ({ cost_usd: 0 }) };
+    const assertions: AssertionConfig[] = [{ type: 'llm-judge', criteria: 'answers the question' }];
+    await runRow(params({ assertions, provider, row: { vars: { question: 'say hi' } } }));
+    const judgePrompt = complete.mock.calls[1]![0].prompt_resolved as string;
+    expect(judgePrompt).toContain('INPUT:\nQ: say hi\n\nOUTPUT:\nhi');
+  });
+
   it('passes the provider-reported cost into estimateCost for the row (provider-reported-cost)', async () => {
     // complete() reports cost_usd=0.5; estimateCost echoes the reported arg (else a sentinel).
     // If runRow forwards res.cost_usd, the row cost is 0.5, not the 999 fallback.

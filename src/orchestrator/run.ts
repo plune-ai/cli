@@ -146,11 +146,13 @@ export function dryRunRow(vars: DatasetRow['vars'], usage: Usage): RowResult {
 /**
  * The row's assertions on an answer, with what the judge calls among them cost. Shared by plain and agentic rows;
  * an agentic row passes its transcript. A heuristic never decides the row: what it finds, or why it could not run,
- * goes to `advice`, not to `records`.
+ * goes to `advice`, not to `records`. `input` is the rendered prompt the model answered; it is required so that a
+ * new caller cannot leave the judge without it by accident (plune-ai/cli#374).
  */
 export async function assess(
   p: Pick<RowParams, 'assertions' | 'row' | 'provider' | 'providerConfig' | 'embedder'>,
   output: string,
+  input: string | undefined,
   transcript?: AgentTranscript,
 ): Promise<{
   records: AssertionResultRecord[];
@@ -187,6 +189,7 @@ export async function assess(
             params: assertion,
             embedder: p.embedder,
             judge,
+            ...(input !== undefined ? { input } : {}),
             ...(transcript !== undefined ? { transcript } : {}),
           });
     if (ASSERTION_CLASSES[assertion.type] === 'heuristic') {
@@ -318,7 +321,7 @@ export async function runRow(p: RowParams): Promise<RowResult> {
     }
   }
 
-  const { records, assertionError, judgeCost, judgeUnpriced } = await assess(p, output);
+  const { records, assertionError, judgeCost, judgeUnpriced } = await assess(p, output, prompt);
 
   const finalUsage: Usage = {
     ...usage,

@@ -22,6 +22,8 @@ export interface AssertionContext<TParams> {
   judge?: Judge;
   // The row's tool loop, for the tool-call assertions of an eval with `mcp`. Additive, like the two above.
   transcript?: AgentTranscript;
+  // The rendered prompt of the row: the text the model answered. llm-judge sends it to the judge. Additive.
+  input?: string;
 }
 
 export interface Assertion<TParams = unknown> {

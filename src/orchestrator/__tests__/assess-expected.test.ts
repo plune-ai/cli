@@ -23,6 +23,7 @@ function assessWith(assertions: AssertionConfig[], row: DatasetRow, output: stri
       embedder,
     },
     output,
+    undefined,
   );
 }
 

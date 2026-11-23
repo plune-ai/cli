@@ -137,6 +137,20 @@ An LLM scores how well the output meets a free-text `criteria`.
   pass_threshold: 0.7
 ```
 
+The judge is sent three things: the `criteria`, the input (the eval's `prompt` or `prompt_file` with the
+row's variables filled in), and the model's output. It is told that the criteria are about the output given
+that input, so a criterion such as "the answer is correct" can be judged against the question. In an eval
+with `mcp`, the input is that prompt alone: the judge is not sent the tool calls or their results, only the
+final answer. The prompt's tokens are part of each judge call, and `--dry-run` does not price judge calls.
+
+`{{expected}}` and `{{vars.X}}` work in `criteria`, as in any string parameter. Use them to give the judge
+what the prompt does not hold, such as a reference answer:
+
+```yaml
+- type: llm-judge
+  criteria: "The answer means the same as: {{expected}}"
+```
+
 ### `faithfulness` (RAG)
 Of the factual claims in the output, what fraction is supported by the provided `context`? Catches
 hallucinations in retrieval-augmented answers.
