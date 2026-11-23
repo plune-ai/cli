@@ -101,7 +101,8 @@ export async function initFromOpenAiEval(options: InitFromOpenAiEvalOptions): Pr
     await import('../../config/init/from-openai-eval.js');
   const read = (file: string): string => {
     try {
-      return fs.readFileSync(path.resolve(cwd, file), 'utf8');
+      // Without the byte order mark some shells put first, which JSON.parse refuses.
+      return fs.readFileSync(path.resolve(cwd, file), 'utf8').replace(/^﻿/, '');
     } catch (err) {
       throw new OpenAiEvalImportError(`cannot read ${file}: ${(err as Error).message}`);
     }
@@ -120,9 +121,13 @@ export async function initFromOpenAiEval(options: InitFromOpenAiEvalOptions): Pr
     ...(options.dataPath !== undefined ? { rows: read(options.dataPath) } : {}),
   });
 
-  reportWrite(cwd, 'plune.yaml', converted.yaml, force);
-  if (converted.dataset) reportWrite(cwd, converted.dataset.path, converted.dataset.jsonl, force);
-  reportWrite(cwd, '.env.example', ENV_EXAMPLE_TPL, force);
+  try {
+    reportWrite(cwd, 'plune.yaml', converted.yaml, force);
+    if (converted.dataset) reportWrite(cwd, converted.dataset.path, converted.dataset.jsonl, force);
+    reportWrite(cwd, '.env.example', ENV_EXAMPLE_TPL, force);
+  } catch (err) {
+    throw new OpenAiEvalImportError(`cannot write the files: ${(err as Error).message}`);
+  }
   process.stdout.write('\n' + formatReport(converted.report));
   process.stdout.write(nextSteps(keyVarOf(cwd)));
 }

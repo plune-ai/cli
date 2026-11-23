@@ -3,8 +3,8 @@
 //
 // The shapes are the ones in OpenAI's API reference: the eval object with `testing_criteria`, a run with
 // `data_source.input_messages` and `data_source.model`, and test data as one `{"item": {...}}` per line.
-// A grader either has a check here that means the same, or it is reported as not converted with the
-// reason. Nothing is dropped without a line in the report.
+// A grader either has a check here, or it is reported as not converted with the reason: every grader
+// gets a line in the report.
 
 import { stringify } from 'yaml';
 
@@ -45,16 +45,48 @@ type Var = string | number | boolean;
 
 const isObj = (v: unknown): v is Obj => v !== null && typeof v === 'object' && !Array.isArray(v);
 
-const ITEM_REF = /\{\{\s*item\.([\w.]+)\s*\}\}/g;
+const ITEM_REF = /\{\{\s*item\.([^{}]*?)\s*\}\}/g;
+const ANY_REF = /\{\{[^{}]*\}\}/g;
+/** A name a row here can hold and a placeholder here can name: one flat field. */
+const FLAT = /^\w+$/;
+const NOT_FLAT = 'a row here is flat, and a field a placeholder names is letters, digits and _';
 const SAMPLE_REF = /\{\{\s*sample\.[\w.]+\s*\}\}/g;
 const OUTPUT_TEXT = /^\{\{\s*sample\.output_text\s*\}\}$/;
 
-/** `{{ item.x }}` as this config writes it: `{{x}}` in a prompt, `{{vars.x}}` in a check. Collects the names. */
-function rewriteItemRefs(text: string, prefix: '' | 'vars.', seen: Set<string>): string {
-  return text.replace(ITEM_REF, (_m, name: string) => {
+/**
+ * `{{ item.x }}` as this config writes it: `{{x}}` in a prompt, `{{vars.x}}` in a check. Collects the names.
+ * A name that is not one flat field (`a.b`, `a-b`) cannot be a placeholder here: it is left as it was and
+ * collected in `bad`, for the caller to report.
+ */
+function rewriteItemRefs(
+  text: string,
+  prefix: '' | 'vars.',
+  seen: Set<string>,
+  bad: Set<string>,
+): string {
+  return text.replace(ITEM_REF, (match, name: string) => {
+    if (!FLAT.test(name)) {
+      bad.add(name);
+      return match;
+    }
     seen.add(name);
     return `{{${prefix}${name}}}`;
   });
+}
+
+const badRefs = (bad: Set<string>): string =>
+  [...bad]
+    .sort()
+    .map((n) => `{{ item.${n} }}`)
+    .join(', ');
+
+/** True when a message of the template carries a part that is not text (an image, audio). */
+function hasNonText(messages: unknown): boolean {
+  const nonText = (content: unknown): boolean =>
+    Array.isArray(content)
+      ? content.some(nonText)
+      : isObj(content) && typeof content.text !== 'string';
+  return Array.isArray(messages) && messages.some((m) => isObj(m) && nonText(m.content));
 }
 
 /** The text of a message's content: a string, a text part, or a list of parts. Parts that are not text are left out. */
@@ -93,9 +125,9 @@ function slug(name: unknown): string {
  * A judge's criteria from a model grader's messages: item references rewritten, the output named in words.
  * A message that is the sample alone is left out: llm-judge gives the judge the output itself.
  */
-function criteriaOf(grader: Obj, seen: Set<string>): string {
+function criteriaOf(grader: Obj, seen: Set<string>, bad: Set<string>): string {
   const more = (text: string): boolean => text.replace(SAMPLE_REF, '').trim() !== '';
-  return rewriteItemRefs(joinMessages(grader.input, more), 'vars.', seen).replace(
+  return rewriteItemRefs(joinMessages(grader.input, more), 'vars.', seen, bad).replace(
     SAMPLE_REF,
     'the OUTPUT',
   );
@@ -122,6 +154,9 @@ function convertGrader(grader: Obj, seen: Set<string>): { assertion?: Obj; line:
       );
     }
     if (typeof grader.reference !== 'string') return skip('it has no reference text');
+    // An empty reference: `contains` of it passes on anything, and semantic-similarity refuses it.
+    if (grader.reference === '' && !(type === 'string_check' && grader.operation === 'eq'))
+      return skip('its reference is empty');
     // A reference that names another field of the sample cannot be read after the fact; say so, not half-convert.
     if (SAMPLE_REF.test(grader.reference)) {
       SAMPLE_REF.lastIndex = 0;
@@ -130,7 +165,9 @@ function convertGrader(grader: Obj, seen: Set<string>): { assertion?: Obj; line:
       );
     }
     const local = new Set<string>();
-    const reference = rewriteItemRefs(grader.reference, 'vars.', local);
+    const bad = new Set<string>();
+    const reference = rewriteItemRefs(grader.reference, 'vars.', local, bad);
+    if (bad.size > 0) return skip(`its reference points at ${badRefs(bad)}: ${NOT_FLAT}`);
     const ok = (
       assertion: Obj,
       status: ReportStatus,
@@ -164,16 +201,27 @@ function convertGrader(grader: Obj, seen: Set<string>): { assertion?: Obj; line:
       );
     }
     const t = grader.pass_threshold;
-    const threshold = typeof t === 'number' && t >= 0 && t <= 1 ? { threshold: t } : {};
+    const inRange = typeof t === 'number' && t >= 0 && t <= 1;
     return ok(
-      { type: 'semantic-similarity', reference, ...threshold },
+      { type: 'semantic-similarity', reference, ...(inRange ? { threshold: t } : {}) },
       'approximate',
-      'semantic-similarity: the embedding model is a different, local one, so run it and look at the threshold again',
+      'semantic-similarity: the embedding model is a different, local one, so run it and look at the threshold again' +
+        (t !== undefined && !inRange
+          ? `; pass_threshold ${JSON.stringify(t)} is not between 0 and 1 and was left out`
+          : ''),
     );
   }
 
-  if (type === 'score_model') {
-    const criteria = criteriaOf(grader, seen);
+  if (type === 'score_model' || type === 'label_model') {
+    const local = new Set<string>();
+    const bad = new Set<string>();
+    const criteria = criteriaOf(grader, local, bad);
+    if (bad.size > 0) return skip(`its messages point at ${badRefs(bad)}: ${NOT_FLAT}`);
+    local.forEach((n) => seen.add(n));
+    const parts = hasNonText(grader.input)
+      ? '; parts of its messages that are not text were left out'
+      : '';
+    if (type === 'label_model') return labelModel(grader, criteria, subject, parts);
     if (criteria === '') return skip('its messages hold no text');
     const range = Array.isArray(grader.range) ? grader.range : [0, 1];
     const [min, max] = [range[0], range[1]];
@@ -184,40 +232,15 @@ function convertGrader(grader: Obj, seen: Set<string>): { assertion?: Obj; line:
       const scaled = Math.min(1, Math.max(0, (t - min) / (max - min)));
       pass = { pass_threshold: Number(scaled.toFixed(4)) };
       scale = `pass_threshold ${t} on ${min}..${max} became ${pass.pass_threshold as number} on 0..1`;
+    } else if (t !== undefined) {
+      scale = `pass_threshold ${JSON.stringify(t)} could not be rescaled from the range ${JSON.stringify(grader.range)} and was left out, so the default of llm-judge applies`;
     }
     return {
       assertion: { type: 'llm-judge', criteria, ...pass, ...judgeProvider(grader) },
       line: {
         status: 'approximate',
         subject,
-        note: `llm-judge: the grader's messages are the criteria and the judge scores 0..1; ${scale}`,
-      },
-    };
-  }
-
-  if (type === 'label_model') {
-    const text = criteriaOf(grader, seen);
-    const labels = Array.isArray(grader.labels)
-      ? grader.labels.filter((l) => typeof l === 'string')
-      : [];
-    const passing = Array.isArray(grader.passing_labels)
-      ? grader.passing_labels.filter((l) => typeof l === 'string')
-      : [];
-    if (labels.length === 0 || passing.length === 0)
-      return skip('it has no labels or no passing labels');
-    const rule =
-      `Pick one label for the OUTPUT from: ${labels.join(', ')}. ` +
-      `Score 1 if the label is one of: ${passing.join(', ')}. Otherwise score 0.`;
-    return {
-      assertion: {
-        type: 'llm-judge',
-        criteria: text === '' ? rule : `${text}\n\n${rule}`,
-        ...judgeProvider(grader),
-      },
-      line: {
-        status: 'approximate',
-        subject,
-        note: 'llm-judge: the judge gives a score, 1 for a passing label, in place of the label itself',
+        note: `llm-judge: the grader's messages are the criteria and the judge scores 0..1; ${scale}${parts}`,
       },
     };
   }
@@ -226,21 +249,56 @@ function convertGrader(grader: Obj, seen: Set<string>): { assertion?: Obj; line:
   return skip('this grader type has no check here');
 }
 
+/** A label_model grader as an llm-judge check that scores 1 for a passing label. */
+function labelModel(
+  grader: Obj,
+  text: string,
+  subject: string,
+  parts: string,
+): { assertion?: Obj; line: ReportLine } {
+  const skip = (note: string): { line: ReportLine } => ({
+    line: { status: 'not converted', subject, note },
+  });
+  const labels = Array.isArray(grader.labels)
+    ? grader.labels.filter((l) => typeof l === 'string')
+    : [];
+  const passing = Array.isArray(grader.passing_labels)
+    ? grader.passing_labels.filter((l) => typeof l === 'string')
+    : [];
+  if (labels.length === 0 || passing.length === 0)
+    return skip('it has no labels or no passing labels');
+  const rule =
+    `Pick one label for the OUTPUT from: ${labels.join(', ')}. ` +
+    `Score 1 if the label is one of: ${passing.join(', ')}. Otherwise score 0.`;
+  return {
+    assertion: {
+      type: 'llm-judge',
+      criteria: text === '' ? rule : `${text}\n\n${rule}`,
+      ...judgeProvider(grader),
+    },
+    line: {
+      status: 'approximate',
+      subject,
+      note: `llm-judge: the judge gives a score, 1 for a passing label, in place of the label itself${parts}`,
+    },
+  };
+}
+
 /** The rows of the test data as dataset rows. A value that is not a string, number or boolean becomes JSON text. */
 function convertRows(items: unknown[], report: ReportLine[]): { vars: Record<string, Var> }[] {
   const asText = new Set<string>();
   const rows = items.map((raw, i) => {
-    const item = isObj(raw) && isObj(raw.item) ? raw.item : raw;
+    const item = isObj(raw) && 'item' in raw ? raw.item : raw;
     if (!isObj(item)) throw new OpenAiEvalImportError(`test data row ${i + 1} is not an object`);
-    const vars: Record<string, Var> = {};
-    for (const [key, value] of Object.entries(item)) {
-      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')
-        vars[key] = value;
-      else {
-        vars[key] = JSON.stringify(value);
+    // fromEntries, not assignment: a field named __proto__ stays a field.
+    const vars = Object.fromEntries(
+      Object.entries(item).map(([key, value]): [string, Var] => {
+        if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')
+          return [key, value];
         asText.add(key);
-      }
-    }
+        return [key, JSON.stringify(value)];
+      }),
+    );
     return { vars };
   });
   if (asText.size > 0) {
@@ -297,7 +355,35 @@ export function convertOpenAiEval({ evalObject, run, rows }: ConvertInput): Conv
   const source = isObj(run) && isObj(run.data_source) ? run.data_source : {};
   const template = isObj(source.input_messages) ? source.input_messages.template : undefined;
   const count = Array.isArray(template) ? template.length : 0;
-  let prompt = rewriteItemRefs(joinMessages(template), '', seen);
+  const inPrompt = new Set<string>();
+  let prompt = rewriteItemRefs(joinMessages(template), '', inPrompt, new Set());
+  inPrompt.forEach((n) => seen.add(n));
+  // Whatever is still in braces and is not a field of the row: `plune run` refuses such a prompt.
+  const left = [...new Set(prompt.match(ANY_REF) ?? [])].filter(
+    (m) => !inPrompt.has(m.slice(2, -2)),
+  );
+  if (left.length > 0) {
+    report.push({
+      status: 'check',
+      subject: 'prompt',
+      note: `it still holds ${left.join(', ')}, which is not a field of a row: plune run refuses the prompt until you change it`,
+    });
+  }
+  if (hasNonText(template)) {
+    report.push({
+      status: 'check',
+      subject: 'prompt',
+      note: 'parts of its messages that are not text were left out',
+    });
+  }
+  const sampling = isObj(source.sampling_params) ? Object.keys(source.sampling_params).sort() : [];
+  if (sampling.length > 0) {
+    report.push({
+      status: 'check',
+      subject: 'model',
+      note: `the sampling parameters of the run are not carried over: ${sampling.join(', ')}`,
+    });
+  }
   if (prompt === '') {
     prompt = 'Replace this line with your prompt.';
     report.push({
@@ -328,7 +414,8 @@ export function convertOpenAiEval({ evalObject, run, rows }: ConvertInput): Conv
     isObj(source.source) && Array.isArray(source.source.content)
       ? source.source.content
       : undefined;
-  const items = rows !== undefined ? parseJsonl(rows) : inline;
+  const fromFile = rows !== undefined ? parseJsonl(rows) : [];
+  const items = fromFile.length > 0 ? fromFile : inline;
   let dataset: Converted['dataset'];
   let datasetField: unknown;
   if (items !== undefined && items.length > 0) {
@@ -347,16 +434,10 @@ export function convertOpenAiEval({ evalObject, run, rows }: ConvertInput): Conv
     report.push({
       status: 'check',
       subject: 'test data',
-      note: 'no test data was found (give the file with --data): the dataset is one placeholder row',
-    });
-  }
-
-  const nested = [...seen].filter((n) => n.includes('.'));
-  if (nested.length > 0) {
-    report.push({
-      status: 'check',
-      subject: 'placeholders',
-      note: `these point inside a nested value, and a row here is flat: ${nested.sort().join(', ')}`,
+      note:
+        rows !== undefined
+          ? 'the test data file holds no rows: the dataset is one placeholder row'
+          : 'no test data was found (give the file with --data): the dataset is one placeholder row',
     });
   }
 

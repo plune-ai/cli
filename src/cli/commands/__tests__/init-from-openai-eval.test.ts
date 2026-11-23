@@ -307,7 +307,307 @@ describe('plune init --from-openai-eval', () => {
 
     await createProgram().parseAsync(['node', 'plune', 'init', '--data', 'rows.jsonl']);
     expect(exitSpy).toHaveBeenCalledTimes(2);
+    expect(exitSpy).toHaveBeenNthCalledWith(2, 2);
     expect(stderr.join('')).toContain('--run and --data need --from-openai-eval');
     expect(fs.readdirSync(tmp)).toEqual([]);
+  });
+
+  it.each([
+    ['a name with a dash', '{{ item.correct-label }}'],
+    ['a name inside a nested value', '{{ item.meta.label }}'],
+  ])('a reference to %s is not converted: no placeholder here can name it', (_name, reference) => {
+    const { yaml, report } = grader({
+      type: 'string_check',
+      input: OUT,
+      reference,
+      operation: 'eq',
+    });
+    expect(firstAssertion(yaml)).toBeUndefined();
+    expect(report[0]).toMatchObject({ status: 'not converted' });
+    expect(report[0]!.note).toContain(`its reference points at ${reference}`);
+  });
+
+  it('a model grader whose messages point at such a name is not converted either', () => {
+    const { yaml, report } = grader({
+      type: 'score_model',
+      input: [{ role: 'user', content: 'Compare with {{ item.meta.answer }}.' }],
+    });
+    expect(firstAssertion(yaml)).toBeUndefined();
+    expect(report[0]!.note).toContain('its messages point at {{ item.meta.answer }}');
+  });
+
+  it('two graders that read the sample in their reference are both refused', () => {
+    const g = {
+      type: 'string_check',
+      input: OUT,
+      reference: '{{ sample.output_json.x }}',
+      operation: 'eq',
+    };
+    const { report } = convertOpenAiEval({
+      evalObject: {
+        name: 'x',
+        testing_criteria: [
+          { name: 'a', ...g },
+          { name: 'b', ...g },
+        ],
+      },
+    });
+    expect(report.slice(0, 2).map((l) => l.status)).toEqual(['not converted', 'not converted']);
+  });
+
+  it('an empty reference: eq keeps it, like and cosine are not converted', () => {
+    const base = { input: OUT, reference: '' };
+    expect(firstAssertion(grader({ type: 'string_check', operation: 'eq', ...base }).yaml)).toEqual(
+      {
+        type: 'exact-match',
+        value: '',
+      },
+    );
+    for (const g of [
+      { type: 'string_check', operation: 'like', ...base },
+      { type: 'text_similarity', evaluation_metric: 'cosine', ...base },
+    ]) {
+      const { yaml, report } = grader(g);
+      expect(firstAssertion(yaml)).toBeUndefined();
+      expect(report[0]!.note).toBe('its reference is empty');
+    }
+  });
+
+  it('says so when a threshold is left out: cosine above 1, and a score range that cannot be rescaled', () => {
+    const cosine = grader({
+      type: 'text_similarity',
+      input: OUT,
+      reference: 'x',
+      evaluation_metric: 'cosine',
+      pass_threshold: 5,
+    });
+    expect(firstAssertion(cosine.yaml)).toEqual({ type: 'semantic-similarity', reference: 'x' });
+    expect(cosine.report[0]!.note).toContain(
+      'pass_threshold 5 is not between 0 and 1 and was left out',
+    );
+
+    const score = grader({
+      type: 'score_model',
+      range: [5, 1],
+      pass_threshold: 3,
+      input: [{ role: 'user', content: 'Grade it.' }],
+    });
+    expect(firstAssertion(score.yaml)).toEqual({ type: 'llm-judge', criteria: 'Grade it.' });
+    expect(score.report[0]!.note).toContain(
+      'pass_threshold 3 could not be rescaled from the range [5,1]',
+    );
+  });
+
+  it('names the parts of a message that are not text, in a grader and in the prompt', () => {
+    const image = { type: 'input_image', image_url: 'https://example.com/a.png' };
+    const { report } = convertOpenAiEval({
+      evalObject: {
+        name: 'x',
+        testing_criteria: [
+          {
+            name: 'g',
+            type: 'score_model',
+            input: [{ role: 'user', content: [{ type: 'input_text', text: 'Grade it.' }, image] }],
+          },
+        ],
+      },
+      run: {
+        data_source: {
+          input_messages: {
+            type: 'template',
+            template: [
+              { role: 'user', content: [{ type: 'input_text', text: 'Describe.' }, image] },
+            ],
+          },
+        },
+      },
+    });
+    expect(report[0]!.note).toContain('parts of its messages that are not text were left out');
+    expect(report.filter((l) => l.subject === 'prompt').map((l) => l.note)).toContain(
+      'parts of its messages that are not text were left out',
+    );
+  });
+
+  it('the prompt: what is left in braces and the sampling parameters of the run are each named', () => {
+    const { yaml, report } = convertOpenAiEval({
+      evalObject: EVAL,
+      run: {
+        data_source: {
+          model: 'gpt-4.1',
+          sampling_params: { temperature: 0.2, seed: 7 },
+          input_messages: {
+            type: 'template',
+            template: [
+              {
+                role: 'user',
+                content: '{{ item.q }} {{name}} {{ item.a-b }} {{ sample.output_text }}',
+              },
+            ],
+          },
+        },
+      },
+    });
+    expect((parse(yaml) as { evals: { prompt: string }[] }).evals[0]!.prompt).toBe(
+      '{{q}} {{name}} {{ item.a-b }} {{ sample.output_text }}',
+    );
+    const notes = report.map((l) => `${l.subject}: ${l.note}`);
+    expect(notes.find((n) => n.startsWith('prompt: it still holds'))).toContain(
+      '{{name}}, {{ item.a-b }}, {{ sample.output_text }}, which is not a field of a row',
+    );
+    expect(notes).toContain(
+      'model: the sampling parameters of the run are not carried over: seed, temperature',
+    );
+  });
+
+  it('uses the rows a run carries inline, also when the data file given holds none', () => {
+    const run = {
+      data_source: {
+        ...RUN.data_source,
+        source: {
+          type: 'file_content',
+          content: [{ item: { ticket_text: 'a', correct_label: 'Other' } }],
+        },
+      },
+    };
+    for (const rows of [undefined, '\n']) {
+      const { dataset } = convertOpenAiEval({
+        evalObject: EVAL,
+        run,
+        ...(rows !== undefined ? { rows } : {}),
+      });
+      expect(JSON.parse(dataset!.jsonl)).toEqual({
+        vars: { ticket_text: 'a', correct_label: 'Other' },
+      });
+    }
+    const empty = convertOpenAiEval({ evalObject: EVAL, rows: '\n' });
+    expect(empty.dataset).toBeUndefined();
+    expect(empty.report.find((l) => l.subject === 'test data')!.note).toContain('holds no rows');
+  });
+
+  it('refuses a row whose item is not an object, and keeps a field named __proto__', () => {
+    expect(() => convertOpenAiEval({ evalObject: EVAL, rows: '{"item": 5}\n' })).toThrow(
+      'test data row 1 is not an object',
+    );
+    const { dataset } = convertOpenAiEval({
+      evalObject: EVAL,
+      rows: '{"item": {"__proto__": "x", "a": 1}}\n',
+    });
+    expect(dataset!.jsonl).toBe('{"vars":{"__proto__":"x","a":1}}\n');
+  });
+
+  it('every kind of converted check is one the config schema accepts', async () => {
+    const all = {
+      name: 'All kinds',
+      testing_criteria: [
+        {
+          name: 'a',
+          type: 'string_check',
+          input: OUT,
+          reference: '{{ item.label }}',
+          operation: 'ilike',
+        },
+        {
+          name: 'b',
+          type: 'text_similarity',
+          input: OUT,
+          reference: '{{ item.label }}',
+          evaluation_metric: 'cosine',
+          pass_threshold: 0.8,
+        },
+        {
+          name: 'c',
+          type: 'score_model',
+          model: 'o4-mini',
+          range: [1, 5],
+          pass_threshold: 4,
+          input: [{ role: 'user', content: 'Grade.' }],
+        },
+        {
+          name: 'd',
+          type: 'label_model',
+          model: 'gpt-4.1',
+          labels: ['yes', 'no'],
+          passing_labels: ['yes'],
+          input: [{ role: 'user', content: 'Label.' }],
+        },
+      ],
+    };
+    await initFromOpenAiEval({
+      cwd: tmp,
+      force: false,
+      evalPath: put('eval.json', JSON.stringify(all)),
+    });
+    const config = await loadConfig({ cwd: tmp, env: {} });
+    expect(config.evals[0]!.assertions!.map((a) => a.type)).toEqual([
+      'contains',
+      'semantic-similarity',
+      'llm-judge',
+      'llm-judge',
+    ]);
+  });
+
+  it('reads a file that starts with a byte order mark', async () => {
+    const evalPath = put('eval.json', '﻿' + JSON.stringify(EVAL));
+    const dataPath = put('rows.jsonl', '﻿{"item":{"correct_label":"Other"}}\n');
+    await initFromOpenAiEval({ cwd: tmp, force: false, evalPath, dataPath });
+    expect(fs.existsSync(path.join(tmp, 'datasets', 'it-ticket-categorization.jsonl'))).toBe(true);
+  });
+
+  it('a file that cannot be written is a refusal with a message, not a stack trace', async () => {
+    const evalPath = put('eval.json', JSON.stringify(EVAL));
+    const dataPath = put('rows.jsonl', '{"item":{"correct_label":"Other"}}\n');
+    put('datasets', 'a file where the folder should be');
+    await expect(
+      initFromOpenAiEval({ cwd: tmp, force: false, evalPath, dataPath }),
+    ).rejects.toThrow(/^cannot write the files: /);
+    await expect(initFromOpenAiEval({ cwd: tmp, force: true, evalPath, dataPath })).rejects.toThrow(
+      OpenAiEvalImportError,
+    );
+  });
+
+  it('odd shapes: each grader still gets a line with its reason, and a nameless eval gets an id', () => {
+    const { yaml, report, dataset } = convertOpenAiEval({
+      evalObject: {
+        testing_criteria: [
+          5,
+          { type: 'string_check', input: OUT, operation: 'eq' },
+          { name: 'no text', type: 'score_model', input: [7, { role: 'user', content: 3 }] },
+          { name: 'no labels', type: 'label_model', labels: 'yes', passing_labels: 1 },
+          {
+            name: 'rule only',
+            type: 'label_model',
+            labels: ['yes', 'no'],
+            passing_labels: ['yes'],
+          },
+        ],
+      },
+      // A row that is the item itself, with no `item` around it.
+      rows: '{"q": "a"}\n',
+    });
+    expect(report.slice(0, 5).map((l) => `${l.subject}: ${l.status}: ${l.note}`)).toEqual([
+      '(no name) [unknown]: not converted: this grader type has no check here',
+      '(no name) [string_check]: not converted: it has no reference text',
+      'no text [score_model]: not converted: its messages hold no text',
+      'no labels [label_model]: not converted: it has no labels or no passing labels',
+      'rule only [label_model]: approximate: llm-judge: the judge gives a score, 1 for a passing label, in place of the label itself',
+    ]);
+    const ev = (parse(yaml) as { evals: Record<string, unknown>[] }).evals[0]!;
+    expect(ev.id).toBe('imported-eval');
+    expect(ev).not.toHaveProperty('description');
+    expect(firstAssertion(yaml)!.criteria).toBe(
+      'Pick one label for the OUTPUT from: yes, no. Score 1 if the label is one of: yes. Otherwise score 0.',
+    );
+    expect(dataset!.path).toBe('datasets/imported-eval.jsonl');
+    expect(JSON.parse(dataset!.jsonl)).toEqual({ vars: { q: 'a' } });
+    // A name with nothing an id can hold falls back the same way.
+    expect(convertOpenAiEval({ evalObject: { name: '---', testing_criteria: [] } }).yaml).toContain(
+      'id: imported-eval',
+    );
+  });
+
+  it('refuses a run file that is not an object', () => {
+    expect(() => convertOpenAiEval({ evalObject: EVAL, run: [] })).toThrow(
+      'the run file is not a run object',
+    );
   });
 });
