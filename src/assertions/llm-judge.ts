@@ -7,11 +7,20 @@ import { askJson, parseScored } from './judge-helpers.js';
 
 const DEFAULT_PASS_THRESHOLD = 0.5;
 
-function prompt(criteria: string, output: string): string {
+// With the input (the text the model answered) the judge can tell whether the OUTPUT
+// answers it (plune-ai/cli#374). Without one the prompt is as before.
+function prompt(criteria: string, output: string, input: string | undefined): string {
+  const given =
+    input === undefined
+      ? ''
+      : 'The OUTPUT is the answer to the INPUT; the CRITERIA are about the OUTPUT given that INPUT. ';
   return (
     'You are a strict evaluator. Score from 0 to 1 how well the OUTPUT meets the CRITERIA. ' +
+    given +
     'Respond ONLY with JSON: {"score": <0..1>, "reason": "<short explanation>"}.\n\n' +
-    `CRITERIA: ${criteria}\n\nOUTPUT:\n${output}`
+    `CRITERIA: ${criteria}\n\n` +
+    (input === undefined ? '' : `INPUT:\n${input}\n\n`) +
+    `OUTPUT:\n${output}`
   );
 }
 
@@ -23,7 +32,9 @@ export const llmJudge: Assertion<LlmJudgeAssertion> = {
     const criteria = interpolate(ctx.params.criteria, ctx);
     const threshold = ctx.params.pass_threshold ?? DEFAULT_PASS_THRESHOLD;
 
-    const { score, reason } = parseScored(await askJson(ctx.judge, prompt(criteria, ctx.output)));
+    const { score, reason } = parseScored(
+      await askJson(ctx.judge, prompt(criteria, ctx.output, ctx.input)),
+    );
     const passed = score >= threshold;
     return {
       passed,

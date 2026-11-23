@@ -486,6 +486,7 @@ export async function runAgentRow(p: AgentRowParams): Promise<RowResult> {
   const { records, assertionError, judgeCost, judgeUnpriced, advice } = await assess(
     p,
     output,
+    prompt,
     agent,
   );
   // `no-repeated-call` already tells a repeat of the tools it covers: one advice for one finding.

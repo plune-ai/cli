@@ -137,6 +137,18 @@ An LLM scores how well the output meets a free-text `criteria`.
   pass_threshold: 0.7
 ```
 
+The judge is sent three things: the `criteria`, the input (the eval's `prompt` with the row's variables
+filled in, the text the model answered), and the model's output. It is told that the criteria are about the
+output given that input, so a criterion such as "the answer is correct" can be judged against the question.
+
+`{{expected}}` and `{{vars.X}}` work in `criteria`, as in any string parameter. Use them to give the judge
+what the prompt does not hold, such as a reference answer:
+
+```yaml
+- type: llm-judge
+  criteria: "The answer means the same as: {{expected}}"
+```
+
 ### `faithfulness` (RAG)
 Of the factual claims in the output, what fraction is supported by the provided `context`? Catches
 hallucinations in retrieval-augmented answers.

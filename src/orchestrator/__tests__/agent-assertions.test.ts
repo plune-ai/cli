@@ -53,6 +53,7 @@ async function runWith(
   assertions: AssertionConfig[],
   turns: { name: string; args?: Record<string, unknown> }[][],
   limits: McpLimits = {},
+  provider: Provider = model(turns),
 ): Promise<RunResult> {
   const config: Config = {
     version: 1,
@@ -69,7 +70,7 @@ async function runWith(
     ],
   };
   const deps: RunDeps = {
-    resolveProvider: () => model(turns),
+    resolveProvider: () => provider,
     embedder: { embed: () => Promise.resolve([]) },
     cache: {
       get: () => undefined,
@@ -104,6 +105,25 @@ describe('CLI · run · agent loop · tool-call assertions', () => {
       { type: 'tool-not-called', passed: true },
     ]);
     expect((row.agent as AgentRecord).advice).toBeUndefined();
+  });
+
+  it('CLI · run · agent loop · llm-judge · the judge is sent the rendered prompt of the row (plune-ai/cli#374)', async () => {
+    const asked: string[] = [];
+    const provider: Provider = {
+      ...model([[]]),
+      complete: (req) => {
+        asked.push(req.prompt_resolved);
+        return Promise.resolve({
+          output: '{"score":1}',
+          usage: { input_tokens: 1, output_tokens: 1 },
+        });
+      },
+    };
+    const r = await runWith([{ type: 'llm-judge', criteria: 'answers it' }], [[]], {}, provider);
+    expect(r.evals[0]!.rows[0]!.assertions).toEqual([
+      { type: 'llm-judge', passed: true, score: 1, reason: 'score 1.000 vs threshold 0.5' },
+    ]);
+    expect(asked[0]).toContain('INPUT:\ngo\n\nOUTPUT:\ndone');
   });
 
   it('CLI · run · agent loop · tool-call assertions · a heuristic finding is advice: not in assertions[], status unchanged (AC-7)', async () => {
