@@ -11,6 +11,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.39.12] - 2026-11-23
+
 ### Added
 
 - **The markdown of `plune diff` names the unsteady rows of the current run.** A row that passed some of its repeats but not all gets one line under the summary, `` Unsteady in this run: `a` · flaky 0.6 ``, with the mark `plune report` prints (at most 10 named, the rest counted), so the pull request comment shows that a passing eval is not steady. A run without repeats and a dry run get no line. The JSON output, the gates and the exit codes are unchanged. See the [CLI guide](docs/guide/cli.md#exit-codes).
