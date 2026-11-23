@@ -131,7 +131,7 @@ An LLM scores how well the output meets a free-text `criteria`.
 |-------|----------|---------|---------|
 | `criteria` | yes | — | What "good" means, in plain language. |
 | `pass_threshold` | no | `0.5` | Minimum score (0–1) to pass. Not the eval's `pass_threshold`, which is the share of [repeated runs](./configuration.md#repeats-runs-and-pass_threshold) that must pass. |
-| `provider` | no | (eval's provider) | The judge: the eval's provider with these fields over it. Every field you leave out (`type`, `model`, `temperature`, `max_tokens`, `timeout`, ...) is the eval's, so `{ model: ... }` alone changes only the model. A `type` other than the eval's is another provider, and the run needs that provider's API key. |
+| `provider` | no | (eval's provider) | The judge: the eval's provider with these fields over it. Every field you leave out (`type`, `model`, `temperature`, `max_tokens`, `timeout`, ...) is the eval's, so `{ model: ... }` alone changes only the model and keeps the eval's `type`; with several models of different types, set `type` too. Settings the judge model may refuse are inherited as well (`temperature`, `reasoning_effort`); set them on the check when they differ. A `type` other than the eval's is another provider, and the run needs that provider's API key. |
 
 ```yaml
 - type: llm-judge
