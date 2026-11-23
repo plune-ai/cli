@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { judgeCheck, formatJudgeCheck, JUDGE_TYPES } from '../check.js';
 import { JudgeCheckError, labelTemplate, matchLabels, outputHashOf, parseLabels, varsHashOf, type Label } from '../labels.js';
 import type { EvalResult, RowResult, RunResult } from '../../types/results.js';
-import type { Config } from '../../types/config.js';
 
 const row = (q: string, output: string | null, judge: boolean, extra: Partial<RowResult> = {}): RowResult => ({
   vars: { q },
@@ -19,7 +18,6 @@ const ev = (id: string, rows: RowResult[], more: Partial<EvalResult> = {}): Eval
   tags: [],
   rows,
   passed: true,
-  measured: { runs: 1, rows: rows.length, rows_hash: '', assertions_hash: '', model: 'openai/model-a' },
   ...more,
 });
 const run = (...evals: EvalResult[]): RunResult => ({
@@ -107,7 +105,8 @@ describe('labels', () => {
     const shifted = row('shifted', 'a', true, { assertions: [{ type: 'contains', passed: true }, { type: 'contains', passed: true }] });
     const twice = row('twice', 'a', true);
     const noAnswer = row('none', null, true);
-    const e = ev('e', [ok, changed, errored, erredLater, blocked, short, shifted, twice, noAnswer]);
+    const dup = row('dup', 'a', true);
+    const e = ev('e', [ok, changed, errored, erredLater, blocked, short, shifted, twice, noAnswer, dup, row('dup', 'b', false)]);
     const m = matchLabels(e, 1, 'llm-judge', [
       label('e', ok, 'pass'),
       label('e', ok, 'pass', { by: 'Jane Roe' }),
@@ -122,6 +121,7 @@ describe('labels', () => {
       label('e', twice, 'pass'),
       label('e', twice, 'fail', { by: 'Jane Roe' }),
       label('e', noAnswer, 'pass'),
+      label('e', dup, 'pass'),
       label('other', ok, 'pass'),
     ]);
     expect(m).toEqual({
@@ -130,11 +130,15 @@ describe('labels', () => {
         { human: true, judge: false },
       ],
       unlabelled: 1,
-      stale: 2,
+      stale: 1,
       missing: 1,
-      notJudged: 4,
+      notJudged: 5,
       conflicting: 1,
+      repeated: 1,
     });
+    // A hash in capitals is the same hash.
+    const upper = label('e', ok, 'fail', { vars_hash: varsHashOf(ok.vars).toUpperCase(), output_hash: outputHashOf('a').toUpperCase() });
+    expect(matchLabels(e, 1, 'llm-judge', parseLabels(JSON.stringify(upper))).pairs).toEqual([{ human: false, judge: true }]);
     // The check before the one that errored keeps its verdict.
     expect(matchLabels(e, 0, 'contains', [label('e', errored, 'fail')]).pairs).toEqual([{ human: false, judge: true }]);
   });
@@ -160,45 +164,43 @@ describe('judge-check', () => {
 
   it('warns below 30 rows, on a wide interval and on a judge that is the answering model', () => {
     const { e, labels } = agreeing('faq', 12, 9);
-    const config = { version: 1, provider: { type: 'openai', model: 'model-a' }, evals: [{ id: 'faq', assertions: [{ type: 'contains', value: 'x' }, { type: 'llm-judge', criteria: 'c' }] }] } as unknown as Config;
-    const [c] = judgeCheck(run(e), labels, {}, config).evals;
+    const measured = { runs: 1, rows: 12, rows_hash: '', assertions_hash: '', model: 'openai/model-a' };
+    const [c] = judgeCheck(run({ ...e, measured }), labels).evals;
     expect(c!.warnings).toEqual([
       '12 labelled rows, fewer than 30: these figures are not reliable yet',
       expect.stringMatching(/^the 95% interval of kappa is \d\.\d\d wide, more than 0\.4: label more rows before trusting the number$/),
       'the judge is model-a, the model that wrote the answers: a model tends to favour its own text',
     ]);
-    // A judge with a model of its own is not warned about; nor is a check no model judges.
-    const own = structuredClone(config) as unknown as { evals: { assertions: { provider?: unknown }[] }[] };
-    own.evals[0]!.assertions[1]!.provider = { model: 'model-b' };
-    expect(judgeCheck(run(e), labels, {}, own as unknown as Config).evals[0]!.warnings).toHaveLength(2);
-    expect(judgeCheck(run(e), labels, { check: 1 }, config).evals[0]!.warnings.join()).not.toContain('the judge is');
+    // A check no model judges is not warned about.
+    expect(judgeCheck(run({ ...e, measured }), labels, { check: 1 }).evals[0]!.warnings.join()).not.toContain('the judge is');
   });
 
-  it('the model of a cell, a config without the eval, and a run without a model', () => {
+  it('the model of a cell, and a run without a model', () => {
     const { e, labels } = agreeing('faq', 40, 36);
     const cell = { ...e, id: 'faq@model-b', provider: { type: 'openai', model: 'model-b' } };
     const cellLabels = labels.map((l) => ({ ...l, eval: 'faq@model-b' }));
-    const config = { version: 1, provider: [], defaults: { assertions: [{ type: 'contains', value: 'x' }] }, evals: [{ id: 'faq', assertions: [{ type: 'llm-judge', criteria: 'c' }] }] } as unknown as Config;
-    expect(judgeCheck(run(cell), cellLabels, {}, config).evals[0]!.warnings).toEqual([
+    expect(judgeCheck(run(cell), cellLabels).evals[0]!.warnings).toEqual([
       'the judge is model-b, the model that wrote the answers: a model tends to favour its own text',
     ]);
-    const elsewhere = { ...config, evals: [] } as unknown as Config;
-    expect(judgeCheck(run(cell), cellLabels, {}, elsewhere).evals[0]!.warnings).toEqual([]);
-    const { measured: _m, ...bare } = e;
-    const noDefaults = { version: 1, provider: [], evals: [{ id: 'faq', assertions: [] }] } as unknown as Config;
-    expect(judgeCheck(run(bare), labels, {}, noDefaults).evals[0]!.warnings).toEqual([]);
-    // A RAG check has no provider of its own: the model of the cell judges it.
-    const rag = { version: 1, provider: [], evals: [{ id: 'faq', assertions: [{ type: 'contains', value: 'x' }, { type: 'faithfulness', context: 'c' }] }] } as unknown as Config;
-    expect(judgeCheck(run(e), labels, {}, rag).evals[0]!.warnings).toEqual([
-      'the judge is model-a, the model that wrote the answers: a model tends to favour its own text',
-    ]);
-    // A heuristic check leaves no verdict in a row, so it does not count toward the position.
-    const heuristic = { version: 1, provider: [], evals: [{ id: 'faq', assertions: [{ type: 'no-repeated-call' }, { type: 'contains', value: 'x' }, { type: 'llm-judge', criteria: 'c' }] }] } as unknown as Config;
-    expect(judgeCheck(run(e), labels, {}, heuristic).evals[0]!.warnings).toEqual([
-      'the judge is model-a, the model that wrote the answers: a model tends to favour its own text',
-    ]);
-    // A config with fewer checks than the run (it changed since): no claim about the judge.
-    expect(judgeCheck(run(e), labels, {}, noDefaults).evals[0]!.warnings).toEqual([]);
+    expect(judgeCheck(run(e), labels).evals[0]!.warnings).toEqual([]);
+  });
+
+  it('--min-kappa met at the printed value: 0.40 meets 0.4', () => {
+    // TP 20, FN 5, FP 10, TN 15: kappa sums to 0.3999999999999999, printed 0.40.
+    const pairs = [[true, true, 20], [true, false, 5], [false, true, 10], [false, false, 15]] as const;
+    const rows: RowResult[] = [];
+    const labels: Label[] = [];
+    for (const [human, judge, n] of pairs) {
+      for (let i = 0; i < n; i++) {
+        const r = row(`${human}-${judge}-${i}`, 'a', judge);
+        rows.push(r);
+        labels.push(label('k', r, human ? 'pass' : 'fail'));
+      }
+    }
+    const report = judgeCheck(run(ev('k', rows)), labels, { minKappa: 0.4 });
+    expect(report.exitCode).toBe(0);
+    expect(formatJudgeCheck(report, 0.4)).toContain('kappa 0.40');
+    expect(formatJudgeCheck(report, 0.4)).toContain('--min-kappa 0.4: met');
   });
 
   it('kappa with no value is said, fails --min-kappa, and the interval warning is not given', () => {

@@ -87,23 +87,16 @@ describe('plune judge-check', () => {
     expect(out.join('')).toContain('more than 0.1');
   });
 
-  it('names the judge as the answering model when plune.yaml says so', async () => {
+  it('names the judge as the answering model', async () => {
     saveRun();
     await handleJudgeCheck('l.jsonl', { init: true }, tmp, write);
     fill('l.jsonl', 40);
     const run = JSON.parse(fs.readFileSync(path.join(tmp, '.plune', 'last-run.json'), 'utf8')) as RunResult;
     run.evals[0]!.measured = { runs: 1, rows: 40, rows_hash: '', assertions_hash: '', model: 'openai/model-a' };
     fs.writeFileSync(path.join(tmp, '.plune', 'last-run.json'), JSON.stringify(run));
-    fs.writeFileSync(
-      path.join(tmp, 'plune.yaml'),
-      'version: 1\nprovider: { type: openai, model: model-a }\nevals:\n  - id: faq\n    prompt: "{{q}}"\n    dataset: { examples: [{ vars: { q: x } }] }\n    assertions:\n      - { type: llm-judge, criteria: good }\n',
-    );
     out = [];
     await handleJudgeCheck('l.jsonl', {}, tmp, write);
     expect(out.join('')).toContain('warning: the judge is model-a, the model that wrote the answers');
-    out = [];
-    await handleJudgeCheck('l.jsonl', { config: 'plune.yaml' }, tmp, write);
-    expect(out.join('')).toContain('the judge is model-a');
   });
 
   it.each([
@@ -112,7 +105,6 @@ describe('plune judge-check', () => {
     [{ check: '1.5' }, '--check is a whole number, not 1.5'],
     [{ minKappa: '2' }, '--min-kappa is a number from -1 to 1, not "2"'],
     [{ maxIntervalWidth: ' ' }, '--max-interval-width is a number from 0 to 2'],
-    [{ config: 'missing.yaml' }, 'cannot read the config missing.yaml'],
   ])('refuses %o', async (flags, message) => {
     saveRun();
     await handleJudgeCheck('l.jsonl', { init: true }, tmp, write);
@@ -155,5 +147,12 @@ describe('plune judge-check', () => {
     await createProgram().parseAsync(['node', 'plune', 'judge-check', 'l.jsonl', '--init']);
     expect(fs.existsSync(path.join(tmp, 'l.jsonl'))).toBe(true);
     expect(exit).toHaveBeenCalledTimes(1);
+    // A mistyped flag or a missing argument is exit 2, not the 1 of a kappa below --min-kappa.
+    exit.mockImplementation(((code?: number) => {
+      throw new Error(`exit ${code}`);
+    }) as (code?: string | number | null) => never);
+    await expect(createProgram().parseAsync(['node', 'plune', 'judge-check', 'l.jsonl', '--min-kapa', '1'])).rejects.toThrow('exit 2');
+    await expect(createProgram().parseAsync(['node', 'plune', 'judge-check'])).rejects.toThrow('exit 2');
+    await expect(createProgram().parseAsync(['node', 'plune', 'judge-check', '--help'])).rejects.toThrow('exit 0');
   });
 });

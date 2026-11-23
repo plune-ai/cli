@@ -691,7 +691,8 @@ export function createProgram(): Command {
     .option('--check <n>', 'The check to compare, by its position in a row from 1 (default: the one check a model judges)')
     .option('--min-kappa <k>', "Exit 1 when an eval's kappa is below k or has no value")
     .option('--max-interval-width <w>', 'Warn when the 95% interval of kappa is wider than w (default 0.4)')
-    .option('--config <path>', 'The plune.yaml that names the judge model (default: the one in this folder, when there is one)')
+    // Exit 1 means "kappa below --min-kappa": a mistyped flag in CI must not read as that.
+    .exitOverride((err) => process.exit(err.exitCode === 0 ? 0 : 2))
     .action(async (labels: string, options: Record<string, unknown>, command: Command) => {
       const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
       const [{ handleJudgeCheck }, { JudgeCheckError }] = await Promise.all([

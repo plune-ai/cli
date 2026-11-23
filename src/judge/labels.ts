@@ -29,7 +29,7 @@ export interface Label {
 export const varsHashOf = (vars: Record<string, unknown>): string => sha256(canonicalJson(vars));
 export const outputHashOf = (output: string): string => sha256(output);
 
-const HEX64 = /^[0-9a-f]{64}$/;
+const HEX64 = /^[0-9a-f]{64}$/i;
 const isObj = (v: unknown): v is Record<string, unknown> =>
   v !== null && typeof v === 'object' && !Array.isArray(v);
 
@@ -62,8 +62,8 @@ export function parseLabels(text: string): Label[] {
         throw new JudgeCheckError(`${where}: a label says who gave it and when (by, at)`);
       labels.push({
         eval: v.eval,
-        vars_hash: v.vars_hash as string,
-        output_hash: v.output_hash as string,
+        vars_hash: (v.vars_hash as string).toLowerCase(),
+        output_hash: (v.output_hash as string).toLowerCase(),
         human: v.human,
         by,
         at,
@@ -113,6 +113,8 @@ export interface Matched {
   notJudged: number;
   /** Two labels of one row that disagree with each other. */
   conflicting: number;
+  /** The run has several rows with these vars: which one the label read cannot be told. */
+  repeated: number;
 }
 
 /**
@@ -126,8 +128,13 @@ export function matchLabels(
   labels: readonly Label[],
 ): Matched {
   const rows = new Map<string, RowResult>();
-  for (const row of ev.rows) rows.set(varsHashOf(row.vars), row);
-  const m: Matched = { pairs: [], unlabelled: 0, stale: 0, missing: 0, notJudged: 0, conflicting: 0 };
+  const repeats = new Set<string>();
+  for (const row of ev.rows) {
+    const hash = varsHashOf(row.vars);
+    if (rows.has(hash)) repeats.add(hash);
+    rows.set(hash, row);
+  }
+  const m: Matched = { pairs: [], unlabelled: 0, stale: 0, missing: 0, notJudged: 0, conflicting: 0, repeated: 0 };
 
   const byRow = new Map<string, Set<'pass' | 'fail'>>();
   for (const l of labels) {
@@ -141,7 +148,16 @@ export function matchLabels(
       m.missing += 1;
       continue;
     }
-    if (row.output === null || outputHashOf(row.output) !== l.output_hash) {
+    if (repeats.has(l.vars_hash)) {
+      m.repeated += 1;
+      continue;
+    }
+    // No answer this time (the provider failed): nothing to compare, not a changed answer.
+    if (row.output === null) {
+      m.notJudged += 1;
+      continue;
+    }
+    if (outputHashOf(row.output) !== l.output_hash) {
       m.stale += 1;
       continue;
     }

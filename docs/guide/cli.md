@@ -458,8 +458,10 @@ does. A line that is not a label stops the check with its line number.
 
 A label is left out, and counted beside `labelled rows`, when it is still `null`, when the answer
 changed since (`output_hash` differs), when the row is not in this run, when the run holds no
-verdict of the check for that row (it was blocked, or the run stopped the row's checks at an earlier
-error), or when two labels of one row say both pass and fail.
+verdict of the check for that row (no answer this time, the row was blocked, or the run stopped the
+row's checks at an earlier error), when two labels of one row say both pass and fail, or when the
+run has several rows with the same `vars`, so the label cannot be tied to one of them. Hashes are
+read in either case.
 
 ### The figures
 
@@ -474,9 +476,10 @@ error), or when two labels of one row say both pass and fail.
 
 Warnings are printed under the figures when fewer than 30 rows are labelled, when the interval is
 wider than `--max-interval-width` (0.4 by default) or cannot be estimated, when kappa has no value,
-and when the judge is the model that wrote the answers: an `llm-judge` without a `provider` of its
-own, or a RAG check, is judged by the model of the eval. That last warning needs `plune.yaml`: the
-one in this folder, or the one `--config` names.
+and when the judge is the model that wrote the answers. A run judges every model check with the
+model of the eval, an `llm-judge` that names a `provider` of its own included (plune-ai/cli#373),
+so that warning is given for each of them. `--min-kappa` allows for floating-point rounding: a kappa
+that works out to exactly 0.4 meets `--min-kappa 0.4` even when the sum comes to 0.3999999999999999.
 
 ### Options
 
@@ -489,7 +492,6 @@ one in this folder, or the one `--config` names.
 | `--check <n>` | The check to compare, by its position in a row from 1. By default the one check a model judges; with none or several, the command lists them and asks for this. |
 | `--min-kappa <k>` | Exit 1 when the kappa of an eval is below `k` (from -1 to 1) or has no value. |
 | `--max-interval-width <w>` | Warn when the 95% interval is wider than `w` (from 0 to 2). Default 0.4. |
-| `--config <path>` | The `plune.yaml` that names the judge's model. |
 
 ### Exit codes
 
@@ -497,7 +499,7 @@ one in this folder, or the one `--config` names.
 |------|---------|
 | `0` | Printed the figures; with `--min-kappa`, every eval met it. |
 | `1` | With `--min-kappa`: an eval's kappa is below it or has no value. |
-| `2` | Something to fix: no run or labels file, a line that is not a label, an unknown `--eval`, a `--check` the rows do not have, a flag value out of range, a `plune.yaml` that `--config` names and cannot be read. |
+| `2` | Something to fix: no run or labels file, a line that is not a label, an unknown `--eval`, a `--check` the rows do not have, a flag value out of range, an unknown flag or a missing argument. |
 
 ## `plune automate`
 

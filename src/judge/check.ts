@@ -1,12 +1,13 @@
-// `plune judge-check`: does the judge of an eval agree with a person? (plune-ai/plune#2888). Pure: the run, the
-// labels and the config come in as values, the report goes out as text. Nothing is changed by the result: no
-// threshold and no judge prompt moves because of what it says.
+// `plune judge-check`: does the judge of an eval agree with a person? (plune-ai/plune#2888). Pure: the run and
+// the labels come in as values, the report goes out as text. Nothing is changed by the result: no threshold and
+// no judge prompt moves because of what it says.
 
 import { agreementOf, type Agreement } from './agreement.js';
-import { ASSERTION_CLASSES } from '../assertions/classes.js';
 import { JudgeCheckError, matchLabels, type Label, type Matched } from './labels.js';
 import { baseEvalId, type EvalResult, type RunResult } from '../types/results.js';
-import type { Config } from '../types/config.js';
+
+/** `kappa` meets `min`, allowing for float rounding: an exact 0.4 that sums to 0.3999999999999999 meets 0.4. */
+export const meetsKappa = (kappa: number | null, min: number): boolean => kappa !== null && kappa >= min - 1e-9;
 
 /** Checks whose verdict a model gives. */
 export const JUDGE_TYPES: readonly string[] = ['llm-judge', 'faithfulness', 'answer-relevance', 'context-precision'];
@@ -72,28 +73,16 @@ function pickCheck(ev: EvalResult, wanted: number | undefined): number {
 }
 
 /**
- * The model that answered the eval, when the config shows that the same model judged check `check`: an
- * `llm-judge` without a `provider` of its own, or a RAG check, is judged by the model of the cell.
+ * The model that answered the eval, when it also judged a check of type `checkType`.
+ * The run judges every model check with the model of the cell, even an `llm-judge` that names a
+ * `provider` of its own (plune-ai/cli#373), so the type is enough; read the run's judge once it records one.
  */
-function selfJudge(ev: EvalResult, check: number, config: Config | undefined): string | undefined {
-  const app = ev.provider?.model ?? ev.measured?.model?.split('/').slice(1).join('/');
-  const evConfig = config?.evals.find((e) => e.id === baseEvalId(ev));
-  if (app === undefined || config === undefined || evConfig === undefined) return undefined;
-  // A row records every check but the heuristic ones, in the order of the config.
-  const assertion = [...(config.defaults?.assertions ?? []), ...evConfig.assertions].filter(
-    (a) => ASSERTION_CLASSES[a.type] !== 'heuristic',
-  )[check];
-  if (assertion === undefined || !JUDGE_TYPES.includes(assertion.type)) return undefined;
-  const own = assertion.type === 'llm-judge' ? assertion.provider?.model : undefined;
-  return (own ?? app) === app ? app : undefined;
+function selfJudge(ev: EvalResult, checkType: string): string | undefined {
+  if (!JUDGE_TYPES.includes(checkType)) return undefined;
+  return ev.provider?.model ?? ev.measured?.model?.split('/').slice(1).join('/');
 }
 
-export function judgeCheck(
-  run: RunResult,
-  labels: readonly Label[],
-  options: CheckOptions = {},
-  config?: Config,
-): CheckReport {
+export function judgeCheck(run: RunResult, labels: readonly Label[], options: CheckOptions = {}): CheckReport {
   const maxWidth = options.maxIntervalWidth ?? DEFAULT_MAX_INTERVAL_WIDTH;
   const labelled = new Set(labels.map((l) => l.eval));
   const evals = run.evals.filter((ev) =>
@@ -133,16 +122,11 @@ export function judgeCheck(
     if (agreement.kappa === null && agreement.n > 0) {
       warnings.push('kappa has no value: the person and the judge each gave one answer only');
     }
-    const self = selfJudge(ev, check, config);
+    const self = selfJudge(ev, checkType);
     if (self !== undefined) {
       warnings.push(`the judge is ${self}, the model that wrote the answers: a model tends to favour its own text`);
     }
-    if (
-      options.minKappa !== undefined &&
-      (agreement.kappa === null || agreement.kappa < options.minKappa)
-    ) {
-      exitCode = 1;
-    }
+    if (options.minKappa !== undefined && !meetsKappa(agreement.kappa, options.minKappa)) exitCode = 1;
     out.push({ evalId: ev.id, check, checkType, matched, agreement, warnings });
   }
   const inRun = new Set(run.evals.map((ev) => ev.id));
@@ -163,6 +147,7 @@ export function formatJudgeCheck(report: CheckReport, minKappa?: number): string
         [m.stale, 'answer changed since the label'],
         [m.missing, 'not in this run'],
         [m.notJudged, 'no verdict of this check'],
+        [m.repeated, 'on a row whose vars repeat in the run'],
         [m.conflicting, 'labelled both pass and fail'],
       ] as const
     )
@@ -177,8 +162,7 @@ export function formatJudgeCheck(report: CheckReport, minKappa?: number): string
     lines.push(`  agreement ${fmt(a.agreement)} · TPR ${fmt(a.tpr)} · TNR ${fmt(a.tnr)} · kappa ${fmt(a.kappa)}${iv}`);
     for (const w of e.warnings) lines.push(`  warning: ${w}`);
     if (minKappa !== undefined) {
-      const ok = a.kappa !== null && a.kappa >= minKappa;
-      lines.push(`  --min-kappa ${minKappa}: ${ok ? 'met' : 'not met'}`);
+      lines.push(`  --min-kappa ${minKappa}: ${meetsKappa(a.kappa, minKappa) ? 'met' : 'not met'}`);
     }
     lines.push('');
   }

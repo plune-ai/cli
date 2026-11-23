@@ -13,7 +13,7 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ### Added
 
-- **`plune judge-check <labels.jsonl>` says how well a model judge agrees with a person.** It reads a saved run and a file of pass/fail labels for its rows, one JSON object per line keyed by the eval and the hash of the row's `vars`, tied to the answer by the hash of its `output`; `--init` writes that file from the run to fill in. It prints agreement, TPR, TNR and Cohen's kappa with a 95% bootstrap interval (fixed seed), and warns when fewer than 30 rows are labelled, when the interval is wide, and when the judge is the model that wrote the answers. A label whose answer changed since is named and not counted. `--min-kappa` makes it exit 1 below a level, for CI. It reads files only and changes nothing. See the [CLI guide](docs/guide/cli.md#plune-judge-check).
+- **`plune judge-check <labels.jsonl>` says how well a model judge agrees with a person.** It reads a saved run and a file of pass/fail labels for its rows, one JSON object per line keyed by the eval and the hash of the row's `vars`, tied to the answer by the hash of its `output`; `--init` writes that file from the run to fill in. It prints agreement, TPR, TNR and Cohen's kappa with a 95% bootstrap interval (fixed seed), and warns when fewer than 30 rows are labelled, when the interval is wide, and when the judge is the model that wrote the answers. Labels whose answer changed since, and the others it cannot use, are counted beside the figures, each kind apart, and not used. `--min-kappa` makes it exit 1 below a level, for CI; anything to fix, a mistyped flag included, is exit 2. It reads files only and changes nothing. See the [CLI guide](docs/guide/cli.md#plune-judge-check).
 
 ### Fixed
 

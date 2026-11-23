@@ -4,11 +4,9 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { loadConfig } from '../../config/loader.js';
 import { judgeCheck, formatJudgeCheck, type CheckOptions } from '../../judge/check.js';
 import { JudgeCheckError, labelTemplate, parseLabels } from '../../judge/labels.js';
 import { parseRunResult } from '../../types/run-result-schema.js';
-import type { Config } from '../../types/config.js';
 import type { RunResult } from '../../types/results.js';
 
 export interface JudgeCheckFlags {
@@ -19,7 +17,6 @@ export interface JudgeCheckFlags {
   maxIntervalWidth?: string;
   init?: boolean;
   force?: boolean;
-  config?: string;
 }
 
 function number(flag: string, raw: string | undefined, min: number, max: number): number | undefined {
@@ -41,16 +38,6 @@ function readRun(cwd: string, file: string): RunResult {
     return parseRunResult(JSON.parse(text.replace(/^﻿/, ''))) as RunResult;
   } catch {
     throw new JudgeCheckError(`${file} is not a run that plune run writes`);
-  }
-}
-
-/** The config, when there is one to read: it names the judge's model. Without it that one warning is not given. */
-async function configOf(cwd: string, file: string | undefined): Promise<Config | undefined> {
-  try {
-    return await loadConfig({ cwd, ...(file !== undefined ? { configPath: path.resolve(cwd, file) } : {}), env: {} });
-  } catch (err) {
-    if (file !== undefined) throw new JudgeCheckError(`cannot read the config ${file}: ${(err as Error).message}`);
-    return undefined;
   }
 }
 
@@ -95,7 +82,7 @@ export async function handleJudgeCheck(
   if (width !== undefined) options.maxIntervalWidth = width;
   if (flags.eval !== undefined) options.evalId = flags.eval;
 
-  const report = judgeCheck(run, parseLabels(text), options, await configOf(cwd, flags.config));
+  const report = judgeCheck(run, parseLabels(text), options);
   write(formatJudgeCheck(report, options.minKappa));
   return report.exitCode;
 }
