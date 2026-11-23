@@ -74,6 +74,69 @@ describe('readCairnRun — design runs', () => {
   });
 });
 
+const TRACE = 'https://trace.example.com/project/p1/traces/t1';
+
+/** The real design run, with `traceUrl` set on every case as Cairn writes it, under the given mode. */
+async function runWithTrace(traceUrl: unknown, mode: 'design' | 'explore' = 'design'): Promise<string> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cairn-trace-'));
+  const report = JSON.parse(await fs.readFile(path.join(fixture('design'), 'report.json'), 'utf8')) as {
+    mode: string;
+    testCases: Record<string, unknown>[];
+  };
+  report.mode = mode;
+  report.testCases = report.testCases.map((c) => ({ ...c, traceUrl }));
+  await fs.writeFile(path.join(dir, 'report.json'), JSON.stringify(report), 'utf8');
+  return dir;
+}
+
+describe('readCairnRun — the trace link of a case', () => {
+  it('CLI · ingest · design run · gives each case the trace link its report carries', async () => {
+    const dir = await runWithTrace(TRACE);
+    const notes: string[] = [];
+    const payload = await readCairnRun(dir, { notes });
+    expect(payload.cases).toHaveLength(29);
+    expect(payload.cases.every((c) => c.traceUrl === TRACE)).toBe(true);
+    expect(notes).toEqual([]);
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it('CLI · ingest · explore run · gives each case the trace link its report carries', async () => {
+    const dir = await runWithTrace(TRACE, 'explore');
+    const payload = await readCairnRun(dir);
+    expect(payload.run.mode).toBe('explore');
+    expect(payload.cases.every((c) => c.traceUrl === TRACE)).toBe(true);
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it('CLI · ingest · a report without the link gives cases without the key, not a null or an empty text', async () => {
+    const payload = await readCairnRun(fixture('design'));
+    for (const c of payload.cases) expect(c).not.toHaveProperty('traceUrl');
+    const empty = await runWithTrace('');
+    for (const c of (await readCairnRun(empty)).cases) expect(c).not.toHaveProperty('traceUrl');
+    await fs.rm(empty, { recursive: true, force: true });
+  });
+
+  // The platform refuses such a link with a 400 for the whole run: here it costs the link alone.
+  it.each([
+    ['an http address', 'http://trace.example.com/project/p1/traces/t1?key=k-123', /https/],
+    ['an address with a user name and password', 'https://user:pw-123@trace.example.com/project/p1/traces/t1', /user name or password/],
+    ['an over-long address', `${TRACE}/${'a'.repeat(2048)}`, /longer than 2048/],
+  ])('CLI · ingest · %s is left out, the case is still sent, and it is said once', async (_name, link, why) => {
+    const dir = await runWithTrace(link);
+    const notes: string[] = [];
+    const payload = await readCairnRun(dir, { notes });
+    expect(payload.cases).toHaveLength(29);
+    for (const c of payload.cases) expect(c).not.toHaveProperty('traceUrl');
+    // Every case carries the same refused link: one line for the reason, one for how many more, never the address.
+    expect(notes).toHaveLength(2);
+    expect(notes[0]).toMatch(/trace link not sent/);
+    expect(notes[0]).toMatch(why);
+    expect(notes[1]).toMatch(/28 more case\(s\)/);
+    expect(notes.join('\n')).not.toMatch(/trace\.example\.com|k-123|pw-123/);
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+});
+
 describe('readCairnRun — api runs', () => {
   it('reads the cases and attaches the verdict each one actually produced', async () => {
     const payload = await readCairnRun(fixture('api'));

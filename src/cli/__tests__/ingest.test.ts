@@ -1,3 +1,5 @@
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -113,6 +115,36 @@ describe('handleIngest', () => {
     expect(body.run?.mode).toBe('mcp');
     expect(body.cases).toHaveLength(54);
     expect(body.cases?.filter((c) => c.verdict !== undefined)).toHaveLength(5);
+  });
+
+  /** The real design run in a new directory, its first two cases given a trace link each. */
+  const withTraces = async (first: string, second: string): Promise<string> => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ingest-trace-'));
+    const report = JSON.parse(await fs.readFile(path.join(fixture('design'), 'report.json'), 'utf8')) as { testCases: Record<string, unknown>[] };
+    report.testCases[0]!['traceUrl'] = first;
+    report.testCases[1]!['traceUrl'] = second;
+    await fs.writeFile(path.join(dir, 'report.json'), JSON.stringify(report), 'utf8');
+    return dir;
+  };
+
+  it('CLI · ingest · sends the trace link of a case, leaves out one that is not a plain https link, and says so', async () => {
+    const dir = await withTraces('https://trace.example.com/project/p1/traces/t1', 'http://trace.example.com/project/p1/traces/t2');
+    let body: { cases?: Record<string, unknown>[] } = {};
+    const result = await handleIngest(
+      deps({
+        dir,
+        fetchImpl: (async (_u: string, init: RequestInit) => {
+          body = JSON.parse(init.body as string) as typeof body;
+          return new Response('{}', { status: 201 });
+        }) as unknown as typeof fetch,
+      }),
+    );
+    expect(body.cases).toHaveLength(29);
+    expect(body.cases?.[0]?.['traceUrl']).toBe('https://trace.example.com/project/p1/traces/t1');
+    expect(body.cases?.filter((c) => 'traceUrl' in c)).toHaveLength(1);
+    expect(result.notes).toHaveLength(1);
+    expect(formatIngestResult(result)).toMatch(/^plune: .*trace link not sent \(must be an https address\)/);
+    await fs.rm(dir, { recursive: true, force: true });
   });
 });
 

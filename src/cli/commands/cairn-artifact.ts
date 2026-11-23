@@ -10,6 +10,7 @@
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { traceUrlOf } from '../../importers/trace-url.js';
 import { safe, safeText } from '../../mcp-testing/scan/config/config.js';
 import { redactSecrets } from '../../providers/errors.js';
 
@@ -38,6 +39,8 @@ export interface CairnIngestCase {
   verdict?: CairnVerdict;
   technique?: string;
   priority?: string;
+  /** The https address of the run's trace, as the report gives it to the case. Absent when it gives none or the link is refused. */
+  traceUrl?: string;
   /** The case's recordings, from `screencasts/screencasts.json`. Absent when the run recorded none for it. */
   screencasts?: CairnScreencast[];
 }
@@ -175,6 +178,8 @@ interface EvidenceRecord {
 export interface ReadCairnRunDeps {
   /** Injected for tests; returns `undefined` when the run executed nothing and wrote no evidence. */
   readEvidence?: (dir: string) => Promise<EvidenceRecord[] | undefined>;
+  /** Lines for the person, filled while reading: what was left out of the payload and why. */
+  notes?: string[];
 }
 
 const asRecord = (v: unknown): Record<string, unknown> =>
@@ -448,24 +453,44 @@ async function defaultReadEvidence(dir: string): Promise<EvidenceRecord[] | unde
  * Cases a page-exploring run designed. Both `design` and `explore` write them under the same key with
  * the same fields; only `explore`'s validation report differs, and it is not mapped here — an
  * explored case arrives without a verdict rather than with a guessed one.
+ *
+ * A case's `traceUrl` passes the rules every imported trace link passes; one that does not costs the link alone and
+ * is said in `notes` without the address. Cairn gives every case of a run the same link, so a refused one is said
+ * once, with a count of the other cases that carried it.
  */
-function casesFromDesign(report: Record<string, unknown>): CairnIngestCase[] {
+function casesFromDesign(report: Record<string, unknown>, notes: string[]): CairnIngestCase[] {
   const list = Array.isArray(report['testCases']) ? report['testCases'] : [];
-  return list.map((raw) => {
+  const refused = new Map<string, number>();
+  const cases = list.map((raw) => {
     const c = asRecord(raw);
     const steps = (Array.isArray(c['steps']) ? c['steps'] : [])
       .map((s) => str(s))
       .filter((s) => s !== '');
+    const title = str(c['title'], 'untitled case');
+    const link = own(c, 'traceUrl') ?? undefined;
+    const said: string[] = [];
+    const traceUrl = traceUrlOf(link, title, said);
+    if (said.length > 0) {
+      const key = typeof link === 'string' ? link.trim() : typeof link;
+      const before = refused.get(key) ?? 0;
+      if (before === 0) notes.push(...said);
+      refused.set(key, before + 1);
+    }
     return {
       stableId: str(c['stableId']),
-      title: str(c['title'], 'untitled case'),
+      title,
       execution: c['execution'] === 'manual' ? ('manual' as const) : ('auto' as const),
       steps: steps.length > 0 ? steps : ['(no steps recorded)'],
       expected: str(c['expected'], '(no expected result recorded)'),
       ...(typeof c['technique'] === 'string' ? { technique: c['technique'] } : {}),
       ...(typeof c['priority'] === 'string' ? { priority: c['priority'] } : {}),
+      ...(traceUrl !== undefined ? { traceUrl } : {}),
     };
   });
+  for (const times of refused.values()) {
+    if (times > 1) notes.push(`plune: ${times - 1} more case(s) carry the same trace link — sent without it.`);
+  }
+  return cases;
 }
 
 /**
@@ -544,10 +569,10 @@ export async function readCairnRun(
     // refused by casesFromMcp, as before.
     cases =
       own(report, 'cases') === undefined && Array.isArray(own(report, 'testCases'))
-        ? casesFromDesign(report)
+        ? casesFromDesign(report, deps.notes ?? [])
         : await casesFromMcp(dir, report);
   } else {
-    cases = casesFromDesign(report);
+    cases = casesFromDesign(report, deps.notes ?? []);
   }
 
   const tokens = own(asRecord(own(report, 'cost')), 'totalTokens');
