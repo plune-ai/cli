@@ -39,6 +39,21 @@ export function flakyText(a: { passed: number; runs: number }): string {
   return ` · flaky ${Number((a.passed / a.runs).toFixed(2))}`;
 }
 
+/**
+ * The repeated rows of a run that passed some of their runs but not all, each as `<eval id> · flaky 0.6`:
+ * the same mark the report prints. Empty for a run without repeats and for a dry run, where nothing ran.
+ */
+export function unsteadyRows(result: RunResult): { id: string; mark: string }[] {
+  if (result.dry_run === true) return [];
+  return result.evals.flatMap((ev) =>
+    ev.rows.flatMap((row) => {
+      const a = row.attempts;
+      const mark = a === undefined || a.results.length === 0 ? '' : flakyText(a);
+      return mark === '' ? [] : [{ id: ev.id, mark }];
+    }),
+  );
+}
+
 /** The line a measured run without repeats prints once under its summary: one run cannot tell a flaky case. */
 export const NOT_MEASURED_STABILITY = 'stability: not measured (runs: 1)';
 

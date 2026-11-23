@@ -276,3 +276,63 @@ describe('CLI · diff · gates · plune diff exit codes', () => {
     }
   });
 });
+
+describe('plune diff: the steadiness mark of the current run', () => {
+  // An eval run 5 times; `passed` of them passed. Example data only.
+  function repeated(id: string, passed: number, dry = false): EvalResult {
+    const attempt = (ok: boolean) => ({ output: 'x', cached: false, assertions: [{ type: 'exact-match', passed: ok }] });
+    const results = dry ? [] : Array.from({ length: 5 }, (_, i) => attempt(i < passed));
+    const ok = passed >= 3;
+    return {
+      id,
+      tags: [],
+      passed: ok,
+      rows: [
+        {
+          vars: {},
+          output: 'x',
+          cached: false,
+          assertions: [{ type: 'exact-match', passed: ok }],
+          attempts: { runs: 5, pass_threshold: 0.6, passed: dry ? 0 : passed, failed: dry ? 0 : 5 - passed, errored: 0, results },
+        },
+      ],
+    };
+  }
+  async function out(cur: RunResult, format: string): Promise<string> {
+    const base = write('base.json', runResult([ev('a', true), ev('b', true), ev('c', true)]));
+    const curPath = write('cur.json', cur);
+    const w: string[] = [];
+    vi.spyOn(process.stdout, 'write').mockImplementation((c: string | Uint8Array): boolean => {
+      w.push(typeof c === 'string' ? c : Buffer.from(c).toString());
+      return true;
+    });
+    await createProgram().parseAsync(['node', 'plune', 'diff', base, curPath, '--format', format]);
+    return w.join('');
+  }
+
+  it('3 of 5 passed: the markdown names the eval with the report mark', async () => {
+    const md = await out(runResult([repeated('a', 3), repeated('b', 5), repeated('c', 0)]), 'markdown');
+    expect(md).toContain('Unsteady in this run: `a` · flaky 0.6');
+  });
+
+  it('5 of 5 and 0 of 5 passed: no mark', async () => {
+    const md = await out(runResult([repeated('a', 5), repeated('b', 0), ev('c', true)]), 'markdown');
+    expect(md).not.toMatch(/flaky|Unsteady/);
+  });
+
+  it('a run without repeats: no mark', async () => {
+    const md = await out(runResult([ev('a', true), ev('b', false), ev('c', true)]), 'markdown');
+    expect(md).not.toMatch(/flaky|Unsteady/);
+  });
+
+  it('a dry run: no mark, as in the report', async () => {
+    const md = await out({ ...runResult([repeated('a', 3, true)]), dry_run: true }, 'markdown');
+    expect(md).not.toMatch(/flaky|Unsteady/);
+  });
+
+  it('the JSON diff has no new key', async () => {
+    const json = JSON.parse(await out(runResult([repeated('a', 3), ev('b', true), ev('c', true)]), 'json')) as Record<string, unknown>;
+    expect(Object.keys(json)).toEqual(['evals', 'summary']);
+    expect(JSON.stringify(json)).not.toMatch(/flaky|unsteady/i);
+  });
+});
