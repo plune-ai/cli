@@ -5,6 +5,7 @@
 [![npm](https://img.shields.io/npm/v/@plune-ai/cli)](https://www.npmjs.com/package/@plune-ai/cli)
 [![CI](https://github.com/plune-ai/cli/actions/workflows/ci.yml/badge.svg)](https://github.com/plune-ai/cli/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/@plune-ai/cli)](./LICENSE)
+[![plune-ai/cli MCP server](https://glama.ai/mcp/servers/plune-ai/cli/badges/score.svg)](https://glama.ai/mcp/servers/plune-ai/cli)
 
 Plune runs an assertion suite against an LLM provider and gives you a pass/fail report —
 locally, in CI, or as a regression diff between two runs. You describe the checks in one
