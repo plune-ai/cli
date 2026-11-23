@@ -8,13 +8,13 @@
     "source": "github"
   },
   "websiteUrl": "https://docs.plune.ai/cli/guides/mcp/",
-  "version": "0.39.10",
+  "version": "0.39.11",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@plune-ai/cli",
-      "version": "0.39.10",
+      "version": "0.39.11",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"

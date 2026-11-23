@@ -11,6 +11,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.39.11] - 2026-11-23
+
 ### Added
 
 - **`plune init --from-openai-eval <eval.json>` builds `plune.yaml` from an exported OpenAI eval.** OpenAI shuts down its Evals dashboard, API and graders on 30 November 2026; this moves an eval saved from there. The flag reads the eval object (`testing_criteria`), with `--run <run.json>` the prompt template and the model of one run, and with `--data <rows.jsonl>` the test data, and writes `plune.yaml`, `.env.example` and, when there are rows, `datasets/<id>.jsonl`. A `string_check` grader becomes `exact-match` or `contains`, `text_similarity` with `cosine` becomes `semantic-similarity`, `score_model` and `label_model` become `llm-judge`; `string_check` `ne`, the other similarity metrics and `python` graders are not converted. The command prints a line for each grader, with what it became or why it was left out, and a line for what needs a look in the prompt, the model and the data. It reads files only and opens no connection. Without the flag `plune init` is unchanged. See the [CLI guide](docs/guide/cli.md#from-an-exported-openai-eval---from-openai-eval).
