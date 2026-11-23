@@ -18,7 +18,7 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ### Changed
 
-- **`llm-judge` now sees the input the answer was given for.** The judge used to be sent only the `criteria` and the output, so a criterion such as "the answer is correct" was judged without the question. It is now also sent the row's rendered prompt, the text the model answered, in an `INPUT` section before the output, and told that the criteria are about the output given that input. This holds for evals with and without `mcp`. Scores of existing `llm-judge` checks can change. The [assertions guide](docs/guide/assertions.md#llm-judge) now says what the judge is sent and that `{{expected}}` and `{{vars.X}}` work in `criteria` (plune-ai/cli#374).
+- **`llm-judge` now sees the input the answer was given for.** The judge used to be sent only the `criteria` and the output, so a criterion such as "the answer is correct" was judged without the question. It is now also sent the row's rendered prompt, the text the model answered, in an `INPUT` section before the output, and told that the criteria are about the output given that input. This holds for evals with and without `mcp` (with `mcp`, the prompt alone: not the tool calls or their results). Scores of existing `llm-judge` checks can change, and each judge call now also pays for the prompt's tokens, which `--dry-run` does not price. The [assertions guide](docs/guide/assertions.md#llm-judge) now says what the judge is sent and that `{{expected}}` and `{{vars.X}}` work in `criteria` (plune-ai/cli#374).
 
 ### Fixed
 
