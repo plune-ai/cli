@@ -40,6 +40,8 @@ export const assertionResultRecordSchema = z.object({
   score: z.number().optional(),
   reason: z.string().optional(),
   binaryVerdicts: z.array(binaryVerdictSchema).optional(),
+  /** plune-ai/cli#373. Optional and additive — a RunResult written before it validates unchanged. */
+  judge_model: z.string().optional(),
 });
 
 const usageSchema = z.object({

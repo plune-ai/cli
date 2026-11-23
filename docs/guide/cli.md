@@ -480,9 +480,11 @@ read in either case.
 
 Warnings are printed under the figures when fewer than 30 rows are labelled, when the interval is
 wider than `--max-interval-width` (0.4 by default) or cannot be estimated, when kappa has no value,
-and when the judge is the model that wrote the answers. A run judges every model check with the
-model of the eval, an `llm-judge` that names a `provider` of its own included (plune-ai/cli#373),
-so that warning is given for each of them. `--min-kappa` allows for floating-point rounding: a kappa
+and when the judge is the model that wrote the answers. The run names the judge of each model check
+in `judge_model`, and an `llm-judge` with a `provider` of its own is judged by that model
+(plune-ai/cli#373), so the warning is given only when `judge_model` is the model of the eval. A run
+saved before the field existed judged every model check with the model of the eval, so for it the
+warning is given for each of them. `--min-kappa` allows for floating-point rounding: a kappa
 that works out to exactly 0.4 meets `--min-kappa 0.4` even when the sum comes to 0.3999999999999999.
 
 ### Options

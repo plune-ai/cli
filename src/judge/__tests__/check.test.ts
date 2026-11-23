@@ -187,6 +187,30 @@ describe('judge-check', () => {
     expect(judgeCheck(run(e), labels).evals[0]!.warnings).toEqual([]);
   });
 
+  it('a run that records the judge model warns only when it is the answering model', () => {
+    const { e, labels } = agreeing('faq', 40, 36);
+    const measured = { runs: 1, rows: 40, rows_hash: '', assertions_hash: '', model: 'openai/model-a' };
+    const judgedBy = (m: string): EvalResult => ({
+      ...e,
+      measured,
+      rows: e.rows.map((r) => ({ ...r, assertions: [r.assertions[0]!, { ...r.assertions[1]!, judge_model: m }] })),
+    });
+    expect(judgeCheck(run(judgedBy('openai/model-b')), labels).evals[0]!.warnings).toEqual([]);
+    // Same model name, another provider: a different judge.
+    expect(judgeCheck(run(judgedBy('anthropic/model-a')), labels).evals[0]!.warnings).toEqual([]);
+    expect(judgeCheck(run(judgedBy('openai/model-a')), labels).evals[0]!.warnings).toEqual([
+      'the judge is model-a, the model that wrote the answers: a model tends to favour its own text',
+    ]);
+    // The cell of a model matrix names its model in `provider`.
+    const cell = { ...judgedBy('openai/model-b'), id: 'faq@model-b', provider: { type: 'openai', model: 'model-b' } };
+    const cellLabels = labels.map((l) => ({ ...l, eval: 'faq@model-b' }));
+    expect(judgeCheck(run(cell), cellLabels).evals[0]!.warnings).toEqual([
+      'the judge is model-b, the model that wrote the answers: a model tends to favour its own text',
+    ]);
+    // With no answering model in the run, nothing to compare.
+    expect(judgeCheck(run({ ...judgedBy('openai/model-a'), measured: undefined }), labels).evals[0]!.warnings).toEqual([]);
+  });
+
   it('--min-kappa met at the printed value: 0.40 meets 0.4', () => {
     // TP 20, FN 5, FP 10, TN 15: kappa sums to 0.3999999999999999, printed 0.40.
     const pairs = [[true, true, 20], [true, false, 5], [false, true, 10], [false, false, 15]] as const;

@@ -35,6 +35,11 @@ export interface AssertionResultRecord {
   passed: boolean;
   score?: number;
   reason?: string;
+  /**
+   * plune-ai/cli#373. `<type>/<model>` of the model that judged the check, on a check a model judged (llm-judge,
+   * faithfulness, answer-relevance, context-precision). Optional and additive: a run written before it reads as before.
+   */
+  judge_model?: string;
 }
 
 export interface Usage {

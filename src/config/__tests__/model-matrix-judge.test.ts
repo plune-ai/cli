@@ -31,4 +31,9 @@ describe('CLI · run · model matrix · judge warning', () => {
     expect(selfJudgeWarnings({ version: 1, provider: A, providers: [A, B], evals: [ev('x', [named])] })).toEqual([]);
     expect(selfJudgeWarnings({ version: 1, provider: A, evals: [ev('x', [judge])] })).toEqual([]);
   });
+
+  it('a provider that names no model still takes the model of each cell, and warns', () => {
+    const tuned = { ...judge, provider: { temperature: 0 } } as const;
+    expect(selfJudgeWarnings({ version: 1, provider: A, providers: [A, B], evals: [ev('x', [tuned])] })).toHaveLength(1);
+  });
 });

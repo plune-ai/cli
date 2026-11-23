@@ -73,13 +73,17 @@ function pickCheck(ev: EvalResult, wanted: number | undefined): number {
 }
 
 /**
- * The model that answered the eval, when it also judged a check of type `checkType`.
- * The run judges every model check with the model of the cell, even an `llm-judge` that names a
- * `provider` of its own (plune-ai/cli#373), so the type is enough; read the run's judge once it records one.
+ * The model that answered the eval, when it also judged check `check` of type `checkType`. A run records the judge
+ * of a check as `judge_model` (plune-ai/cli#373), and an `llm-judge` may name a judge of its own: then only that
+ * record tells. A run written before the field judged every model check with the model of the cell.
  */
-function selfJudge(ev: EvalResult, checkType: string): string | undefined {
+function selfJudge(ev: EvalResult, check: number, checkType: string): string | undefined {
   if (!JUDGE_TYPES.includes(checkType)) return undefined;
-  return ev.provider?.model ?? ev.measured?.model?.split('/').slice(1).join('/');
+  const answered = ev.provider !== undefined ? `${ev.provider.type}/${ev.provider.model}` : ev.measured?.model;
+  if (answered === undefined) return undefined;
+  const judged = ev.rows.find((r) => r.assertions[check]?.judge_model !== undefined)?.assertions[check]!.judge_model;
+  if (judged !== undefined && judged !== answered) return undefined;
+  return answered.split('/').slice(1).join('/');
 }
 
 export function judgeCheck(run: RunResult, labels: readonly Label[], options: CheckOptions = {}): CheckReport {
@@ -122,7 +126,7 @@ export function judgeCheck(run: RunResult, labels: readonly Label[], options: Ch
     if (agreement.kappa === null && agreement.n > 0) {
       warnings.push('kappa has no value: the person and the judge each gave one answer only');
     }
-    const self = selfJudge(ev, checkType);
+    const self = selfJudge(ev, check, checkType);
     if (self !== undefined) {
       warnings.push(`the judge is ${self}, the model that wrote the answers: a model tends to favour its own text`);
     }

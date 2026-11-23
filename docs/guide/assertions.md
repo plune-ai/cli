@@ -118,9 +118,11 @@ external API. The model is downloaded once on first use and cached. This asserti
 
 ## LLM-judged checks
 
-These ask an LLM to evaluate the output. They use your configured provider as the "judge" (at
-temperature 0), so they cost tokens — and that cost is included in the run total. All four report a
-`score` and a `reason`.
+These ask an LLM to evaluate the output. They use the eval's provider as the "judge" (with its
+`temperature`, `max_tokens` and other settings), unless an `llm-judge` names a `provider` of its own, so
+they cost tokens — and that cost, priced at the judge's model, is included in the run total. All four
+report a `score` and a `reason`, and the run result names the model that judged each of them in
+`judge_model`, as `<type>/<model>`.
 
 ### `llm-judge`
 An LLM scores how well the output meets a free-text `criteria`.
@@ -129,12 +131,13 @@ An LLM scores how well the output meets a free-text `criteria`.
 |-------|----------|---------|---------|
 | `criteria` | yes | — | What "good" means, in plain language. |
 | `pass_threshold` | no | `0.5` | Minimum score (0–1) to pass. Not the eval's `pass_threshold`, which is the share of [repeated runs](./configuration.md#repeats-runs-and-pass_threshold) that must pass. |
-| `provider` | no | (eval's provider) | Use a different model as the judge. |
+| `provider` | no | (eval's provider) | The judge: the eval's provider with these fields over it. Every field you leave out (`type`, `model`, `temperature`, `max_tokens`, `timeout`, ...) is the eval's, so `{ model: ... }` alone changes only the model. A `type` other than the eval's is another provider, and the run needs that provider's API key. |
 
 ```yaml
 - type: llm-judge
   criteria: "The answer is correct, concise, and polite."
   pass_threshold: 0.7
+  provider: { type: openai, model: gpt-4.1 }   # another provider: the run needs its API key
 ```
 
 The judge is sent three things: the `criteria`, the input (the eval's `prompt` or `prompt_file` with the
