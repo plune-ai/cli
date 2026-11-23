@@ -82,6 +82,11 @@ ${err.message}`);
 }
 
 export function handleDiff(opts: DiffOptions): RunDiff {
+  return diffFiles(opts).diff;
+}
+
+/** `handleDiff`, plus the current run as read, for the markdown's unsteady line; the diff itself does not hold it. */
+export function diffFiles(opts: DiffOptions): { diff: RunDiff; current: RunResult } {
   const gateOpts: GateOptions = {
     ...(opts.failOnRegression === true ? { failOnRegression: true } : {}),
   };
@@ -104,6 +109,6 @@ export function handleDiff(opts: DiffOptions): RunDiff {
   // Added after the diff is made and the gates are read from it, so the advice is nowhere an input of either.
   const advice = adviceFor(baseline, current);
   const withAdvice = advice === undefined ? diff : { ...diff, advice };
-  if (!gatesEnabled(gateOpts)) return withAdvice;
-  return { ...withAdvice, gates: evaluateGates(baseline, current, diff, gateOpts, waivers, now) };
+  if (!gatesEnabled(gateOpts)) return { diff: withAdvice, current };
+  return { diff: { ...withAdvice, gates: evaluateGates(baseline, current, diff, gateOpts, waivers, now) }, current };
 }

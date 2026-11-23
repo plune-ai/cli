@@ -183,6 +183,8 @@ esac
 `plune diff <baseline> <current>` always prints the comparison. Each gate below is off until its flag
 is given; with none of them the exit is always `0`.
 
+With `--format markdown`, when a row of the current run passed some of its repeats but not all, one line under the summary names it with the mark `plune report` prints (`` Unsteady in this run: `a` · flaky 0.6 ``, at most 10 named, the rest counted); a run without repeats or a dry run gets no line, and the JSON, the gates and the exit code do not read it.
+
 | Flag | Gate | Fails when |
 |------|------|------------|
 | `--fail-on-regression` | `regression` | an eval went from passed to failed. Not measured when an eval of the current run was not measured, or the current run has no evals. |

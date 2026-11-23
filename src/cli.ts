@@ -653,14 +653,14 @@ export function createProgram(): Command {
         command: Command,
       ) => {
         const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
-        const [{ handleDiff, DiffInputError }, { renderDiff }] = await Promise.all([
+        const [{ diffFiles, DiffInputError }, { renderDiff }] = await Promise.all([
           import('./cli/commands/diff.js'),
           import('./reporters/diff.js'),
         ]);
         try {
           const { format: _format, output: _output, ...gateFlags } = options;
-          const diff = handleDiff({ baselinePath: baseline, currentPath: current, ...gateFlags });
-          writeReport(renderDiff(diff, toFormat(options.format)), options.output);
+          const { diff, current: run } = diffFiles({ baselinePath: baseline, currentPath: current, ...gateFlags });
+          writeReport(renderDiff(diff, toFormat(options.format), run), options.output);
           // Gating is opt-in (AC-4): the diff is always reported, and without --fail-on-regression or a gate
           // limit the exit is 0. With them: 1 for a measured failure (a regression first of all), 3 when
           // something was not measured, so there is no verdict and the run is not green either.
