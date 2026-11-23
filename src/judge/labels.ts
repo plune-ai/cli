@@ -1,4 +1,4 @@
-// Human pass/fail labels of eval rows, in the file ADR 0084 of the platform describes (plune-ai/plune#2889):
+// Human pass/fail labels of eval rows, in the format the platform reads:
 // one JSON object per line, keyed by the eval and the hash of the row's `vars`, tied to one answer by the
 // hash of its `output`. Pure: text in, values out.
 

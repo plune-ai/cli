@@ -1,4 +1,4 @@
-// `plune judge-check`: does the judge of an eval agree with a person? (plune-ai/plune#2888). Pure: the run and
+// `plune judge-check`: does the judge of an eval agree with a person? Pure: the run and
 // the labels come in as values, the report goes out as text. Nothing is changed by the result: no threshold and
 // no judge prompt moves because of what it says.
 

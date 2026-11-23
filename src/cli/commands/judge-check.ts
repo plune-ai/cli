@@ -1,4 +1,4 @@
-// `plune judge-check <labels.jsonl>` (plune-ai/plune#2888): reads a saved run and a person's labels, prints how
+// `plune judge-check <labels.jsonl>`: reads a saved run and a person's labels, prints how
 // well the judge agrees. Local only: no platform, no network, no model call. `--init` writes the labels file
 // to fill in from the run.
 

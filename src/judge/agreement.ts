@@ -1,4 +1,4 @@
-// How well a judge agrees with a person, from pairs of verdicts (plune-ai/plune#2888). Pure: no I/O.
+// How well a judge agrees with a person, from pairs of verdicts. Pure: no I/O.
 //
 // "Positive" is `pass`. TPR is the share of the rows a person passed that the judge passed too; TNR the
 // share of the rows a person failed that the judge failed too. Cohen's kappa is the agreement above what
