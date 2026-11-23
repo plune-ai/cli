@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Changed
+
+- **The `qa-mission` skill proposes judge calibration as a follow-up.** For an LLM surface the agent now suggests a golden set of 30 to 50 rows labelled by a person and `plune judge-check` to measure the judge, leaves every label to the person, and tells the user to keep a dev and a test labels file and to judge with a model other than the one that answers. The [CLI guide](docs/guide/cli.md#plune-judge-check) has a new part on the dev and the test file.
+
 ## [0.39.12] - 2026-11-23
 
 ### Added

@@ -467,6 +467,16 @@ row's checks at an earlier error), when two labels of one row say both pass and 
 run has several rows with the same `vars`, so the label cannot be tied to one of them. Hashes are
 read in either case.
 
+### A dev set and a test set
+
+Keep the labels in two files. Read the judge's verdicts on the **dev** file while you change the
+`criteria` or the judge model, and run `plune judge-check` on the **test** file only to report the
+figure. A kappa read on the labels you tuned against is higher than the judge will reach on new
+rows. Split the file `--init` wrote before anyone reads the judge's verdicts, for example every
+other line to each file; both files are read against the same run. Aim for 30 or more labelled
+rows in the test file, with enough `fail` among them: with two failing rows the interval of kappa
+spans almost everything.
+
 ### The figures
 
 - **agreement**: the share of rows where the judge and the person gave the same answer.
