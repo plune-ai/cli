@@ -79,6 +79,54 @@ function keyVarOf(cwd: string): string | undefined {
   }
 }
 
+export interface InitFromOpenAiEvalOptions {
+  cwd: string;
+  force: boolean;
+  /** The exported eval object (JSON). */
+  evalPath: string;
+  /** One run of the eval (JSON): the prompt template and the model. */
+  runPath?: string;
+  /** The test data (JSONL). */
+  dataPath?: string;
+}
+
+/**
+ * `plune init --from-openai-eval`: read the exported files, convert, then write. Everything is read and
+ * converted before the first write, so a file that is not what it should be leaves the folder untouched.
+ * Throws `OpenAiEvalImportError` for input the person can fix (the CLI maps it to exit 2).
+ */
+export async function initFromOpenAiEval(options: InitFromOpenAiEvalOptions): Promise<void> {
+  const { cwd, force } = options;
+  const { convertOpenAiEval, formatReport, OpenAiEvalImportError } =
+    await import('../../config/init/from-openai-eval.js');
+  const read = (file: string): string => {
+    try {
+      return fs.readFileSync(path.resolve(cwd, file), 'utf8');
+    } catch (err) {
+      throw new OpenAiEvalImportError(`cannot read ${file}: ${(err as Error).message}`);
+    }
+  };
+  const json = (file: string): unknown => {
+    try {
+      return JSON.parse(read(file));
+    } catch (err) {
+      if (err instanceof OpenAiEvalImportError) throw err;
+      throw new OpenAiEvalImportError(`${file} is not JSON`);
+    }
+  };
+  const converted = convertOpenAiEval({
+    evalObject: json(options.evalPath),
+    ...(options.runPath !== undefined ? { run: json(options.runPath) } : {}),
+    ...(options.dataPath !== undefined ? { rows: read(options.dataPath) } : {}),
+  });
+
+  reportWrite(cwd, 'plune.yaml', converted.yaml, force);
+  if (converted.dataset) reportWrite(cwd, converted.dataset.path, converted.dataset.jsonl, force);
+  reportWrite(cwd, '.env.example', ENV_EXAMPLE_TPL, force);
+  process.stdout.write('\n' + formatReport(converted.report));
+  process.stdout.write(nextSteps(keyVarOf(cwd)));
+}
+
 /**
  * Run the init flow. With `yes`, scaffold a default `plune.yaml` non-interactively (no prompts,
  * no TTY needed); otherwise run the interactive wizard (which throws `NonTtyError` in a non-TTY,

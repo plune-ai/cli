@@ -24,6 +24,47 @@ plune init
 - Without `--yes`, it requires an interactive terminal (TTY). In a non-interactive shell it exits with an error — write
   the `plune.yaml` by hand instead (see [Configuration](./configuration.md)).
 
+### From an exported OpenAI eval: `--from-openai-eval`
+
+OpenAI shuts down its Evals dashboard, API and graders on 30 November 2026. This flag turns an eval you saved from
+there into a `plune.yaml`. It reads files only and opens no connection, so it works after the shutdown too; nothing
+changes for `plune init` without the flag.
+
+```bash
+plune init --from-openai-eval eval.json --run run.json --data tickets.jsonl
+```
+
+- `eval.json` is the eval object: the answer of `GET /v1/evals/{eval_id}`, with its `testing_criteria`.
+- `--run <run.json>` (optional) is one run of that eval, the answer of `GET /v1/evals/{eval_id}/runs/{run_id}`. The
+  prompt comes from its `data_source.input_messages.template` and the model from `data_source.model`. Several messages
+  are joined into one prompt, a blank line between them; their roles are not kept.
+- `--data <rows.jsonl>` (optional) is the test data, one `{"item": {...}}` per line. It is written to
+  `datasets/<eval id>.jsonl` as rows of `vars`. A value that is not a string, a number or a boolean is written as JSON
+  text. Without `--data`, rows a run carries inline (`source.content`) are used.
+- Without a run or data, the prompt, the model (`gpt-4o`) or the dataset is a placeholder, and the report says which.
+
+`{{ item.x }}` becomes `{{x}}` in the prompt and `{{vars.x}}` in a check. Each grader becomes a check, or is reported
+as not converted:
+
+| Grader | Becomes | Report |
+|--------|---------|--------|
+| `string_check`, `eq` | `exact-match` | converted |
+| `string_check`, `like` | `contains` | converted |
+| `string_check`, `ilike` | `contains` with `ignore_case: true` | converted |
+| `string_check`, `ne` | nothing: there is no negated check | not converted |
+| `text_similarity`, `cosine` | `semantic-similarity` with the grader's `pass_threshold` as `threshold` | approximate: the embedding model is a different, local one |
+| `text_similarity`, any other metric | nothing | not converted |
+| `score_model` | `llm-judge`: the grader's messages are the `criteria`, its `pass_threshold` is rescaled from its `range` to 0–1, its model is the judge's `provider` | approximate |
+| `label_model` | `llm-judge` that scores 1 for a passing label | approximate: a score in place of the label |
+| `python` | nothing: no check runs code | not converted |
+
+A `string_check` or `text_similarity` grader is converted only when its `input` is `{{ sample.output_text }}`: a check
+reads the model's text answer, not its JSON, tool calls or audio.
+
+The command prints one line per grader with what it became and why, then the lines that need a look (`check`), then a
+count. Existing files are skipped unless `--force`. A file that cannot be read, is not JSON or is not an eval object
+ends with exit `2` before anything is written; so do `--run` and `--data` without `--from-openai-eval`.
+
 ---
 
 ## `plune run`
