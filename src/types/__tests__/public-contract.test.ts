@@ -145,6 +145,8 @@ interface GoldenAssertionResultRecord {
   passed: boolean;
   score?: number;
   reason?: string;
+  /** plune-ai/cli#373 — optional; the `<type>/<model>` that judged a model-judged check. */
+  judge_model?: string;
 }
 interface GoldenRowResult {
   vars: Record<string, unknown>;

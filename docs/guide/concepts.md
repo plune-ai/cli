@@ -185,9 +185,10 @@ downloaded once on first use and cached on disk; the first semantic run is there
 ## The LLM judge
 
 The LLM-judged assertions (`llm-judge`, `faithfulness`, `answer-relevance`, `context-precision`) need
-a model to *evaluate* the output. Plune builds a "judge" from your configured provider, always at
-**temperature 0** (for stable verdicts). Each judge asks for a small JSON verdict, which Plune parses
-into a score. `llm-judge` can point at a different model via its own `provider:` field.
+a model to *evaluate* the output. Plune builds a "judge" from the eval's provider, with its settings
+(`temperature` included). Each judge asks for a small JSON verdict, which Plune parses into a score.
+`llm-judge` can point at a different model via its own `provider:` field, whose fields go over the
+eval's provider; the judge's calls are priced at the judge's model.
 
 ## The RunResult
 
@@ -221,7 +222,8 @@ only prints it (`--format json`) and leaves the saved one as it was. Its shape:
           "latency_ms": 380,
           "assertions": [
             { "type": "contains", "passed": true },
-            { "type": "llm-judge", "passed": false, "score": 0.4, "reason": "too terse" }
+            { "type": "llm-judge", "passed": false, "score": 0.4, "reason": "too terse",
+              "judge_model": "openai/gpt-4o-mini" }  // the model that judged; absent in results of older versions
           ]
           // "error": { "code": "...", "message": "..." }  // present only when errored
           // "attempts": { "runs": 10, "pass_threshold": 0.8, "passed": 7, ... }  // only with runs > 1, see Repeats

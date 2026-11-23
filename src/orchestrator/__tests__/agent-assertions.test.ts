@@ -121,7 +121,7 @@ describe('CLI · run · agent loop · tool-call assertions', () => {
     };
     const r = await runWith([{ type: 'llm-judge', criteria: 'answers it' }], [[]], {}, provider);
     expect(r.evals[0]!.rows[0]!.assertions).toEqual([
-      { type: 'llm-judge', passed: true, score: 1, reason: 'score 1.000 vs threshold 0.5' },
+      { type: 'llm-judge', passed: true, score: 1, reason: 'score 1.000 vs threshold 0.5', judge_model: 'anthropic/m' },
     ]);
     expect(asked[0]).toContain('INPUT:\ngo\n\nOUTPUT:\ndone');
   });

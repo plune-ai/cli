@@ -31,4 +31,19 @@ describe('CLI · run · model matrix · judge warning', () => {
     expect(selfJudgeWarnings({ version: 1, provider: A, providers: [A, B], evals: [ev('x', [named])] })).toEqual([]);
     expect(selfJudgeWarnings({ version: 1, provider: A, evals: [ev('x', [judge])] })).toEqual([]);
   });
+
+  it('a judge that names a model but no type, in a run of several provider types, warns; with one type it does not', () => {
+    const typeless = { ...judge, provider: { model: 'j' } } as const;
+    const w = selfJudgeWarnings({ version: 1, provider: A, providers: [A, B], evals: [ev('x', [typeless])] });
+    expect(w).toHaveLength(1);
+    expect(w[0]).toContain('names a model but no type');
+    const A2 = { type: 'anthropic', model: 'm-a2' } as const;
+    expect(selfJudgeWarnings({ version: 1, provider: A, providers: [A, A2], evals: [ev('x', [typeless])] })).toEqual([]);
+    expect(selfJudgeWarnings({ version: 1, provider: A, providers: [A, B], defaults: { assertions: [typeless] }, evals: [ev('y', [])] })).toHaveLength(1);
+  });
+
+  it('a provider that names no model still takes the model of each cell, and warns', () => {
+    const tuned = { ...judge, provider: { temperature: 0 } } as const;
+    expect(selfJudgeWarnings({ version: 1, provider: A, providers: [A, B], evals: [ev('x', [tuned])] })).toHaveLength(1);
+  });
 });

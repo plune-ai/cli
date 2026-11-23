@@ -39,6 +39,7 @@ import type {
 } from '../types/config.js';
 import type { Provider } from '../types/provider.js';
 import type { Embedder } from '../types/embedder.js';
+import type { Judge } from '../types/judge.js';
 import type { Cache } from '../cache/cache.js';
 import { MAX_RUNS } from '../config/schema.js';
 import { mcpLimits } from '../config/mcp.js';
@@ -75,6 +76,11 @@ export interface RowParams {
   policyVersion?: number;
   /** Which repeat of the row this is, from 0 (`runs`); from 1 on it has a cache key of its own. */
   attempt?: number;
+  /**
+   * The provider of a judge config other than the eval's: an `llm-judge` with a `provider` of its own
+   * (plune-ai/cli#373). Without it such a check errors the row rather than be judged by the wrong model.
+   */
+  resolveJudge?: (cfg: ProviderConfig) => Provider;
 }
 
 /** The code on a row left unanswered by `--cache-strict`; the CLI turns these into its own exit code. */
@@ -150,7 +156,7 @@ export function dryRunRow(vars: DatasetRow['vars'], usage: Usage): RowResult {
  * new caller cannot leave the judge without it by accident (plune-ai/cli#374).
  */
 export async function assess(
-  p: Pick<RowParams, 'assertions' | 'row' | 'provider' | 'providerConfig' | 'embedder'>,
+  p: Pick<RowParams, 'assertions' | 'row' | 'provider' | 'providerConfig' | 'embedder' | 'resolveJudge'>,
   output: string,
   input: string | undefined,
   transcript?: AgentTranscript,
@@ -161,19 +167,39 @@ export async function assess(
   judgeUnpriced: boolean;
   advice: AgentAdvice[];
 }> {
-  // Row-local judge so judge-call cost is attributed to this row (ADR-OR02).
+  // Row-local judges so judge-call cost is attributed to this row (ADR-OR02), priced by the judge's own model.
   let judgeCost = 0;
   let judgeUnpriced = false;
-  const judge = buildJudge(p.provider, p.providerConfig, (u) => {
-    const c = p.provider.estimateCost(u);
-    judgeCost += c.cost_usd;
-    if (c.priced === false) judgeUnpriced = true;
-  });
 
   const records: AssertionResultRecord[] = [];
   const advice: AgentAdvice[] = [];
   let assertionError: RunError | undefined;
   for (const assertion of p.assertions) {
+    // An llm-judge with a `provider` of its own is judged by it; the fields it leaves out come from the
+    // eval's provider (plune-ai/cli#373). Every other check is judged by the eval's model.
+    const own = assertion.type === 'llm-judge' ? assertion.provider : undefined;
+    const judgeCfg: ProviderConfig = own === undefined ? p.providerConfig : { ...p.providerConfig, ...own };
+    // Set once the check asks its judge: only a check a model judged records which model that was.
+    let judgedBy: string | undefined;
+    const judge = (): Judge => {
+      let provider = p.provider;
+      if (own !== undefined) {
+        if (p.resolveJudge === undefined)
+          throw new Error('this run cannot build the judge named by the provider of an llm-judge check');
+        provider = p.resolveJudge(judgeCfg);
+      }
+      const inner = buildJudge(provider, judgeCfg, (u) => {
+        const c = provider.estimateCost(u);
+        judgeCost += c.cost_usd;
+        if (c.priced === false) judgeUnpriced = true;
+      });
+      return {
+        ask: (q) => {
+          judgedBy = `${judgeCfg.type}/${judgeCfg.model}`;
+          return inner.ask(q);
+        },
+      };
+    };
     // `{{expected}}` on a row with no expected value would render as '' and a `contains` of ''
     // passes on every answer: the check fails and says why instead (#246).
     const run = () =>
@@ -188,7 +214,7 @@ export async function assess(
             row: p.row,
             params: assertion,
             embedder: p.embedder,
-            judge,
+            judge: judge(),
             ...(input !== undefined ? { input } : {}),
             ...(transcript !== undefined ? { transcript } : {}),
           });
@@ -207,6 +233,7 @@ export async function assess(
         passed: result.passed,
         ...(result.score !== undefined ? { score: result.score } : {}),
         ...(result.reason !== undefined ? { reason: result.reason } : {}),
+        ...(judgedBy !== undefined ? { judge_model: judgedBy } : {}),
       });
     } catch (err) {
       // A judge/embedder infra failure surfaces as an errored row (ADR-OR02).
@@ -616,6 +643,17 @@ export async function runOrchestration(
     return { ev, template, rows, cells };
   });
 
+  // One provider per distinct judge config for the whole run, not one per row (plune-ai/cli#373).
+  const judges = new Map<string, Provider>();
+  const resolveJudge = (cfg: ProviderConfig): Provider => {
+    const key = canonicalJson(cfg);
+    const known = judges.get(key);
+    if (known !== undefined) return known;
+    const made = deps.resolveProvider(cfg);
+    judges.set(key, made);
+    return made;
+  };
+
   const swapped = Object.keys(options.toolDescriptions ?? {}).length > 0;
   if (swapped && !prepared.some((x) => x.ev.mcp !== undefined))
     throw new RunConfigError(
@@ -641,6 +679,7 @@ export async function runOrchestration(
           row,
           providerConfig,
           provider,
+          resolveJudge,
           embedder: deps.embedder,
           cache: deps.cache,
           now: deps.now,

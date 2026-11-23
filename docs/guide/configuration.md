@@ -99,9 +99,12 @@ provider:
   evals.
 - **Environment.** `PLUNE_TIMEOUT` and `PLUNE_MAX_RETRIES` apply to every model; `PLUNE_PROVIDER` and
   `PLUNE_MODEL` name one model, so with a list of several they are refused (exit `2`).
-- **The judge.** An `llm-judge` check without its own `provider` is judged by the model of the cell, so each
-  model grades its own answer. `plune run` says so on stderr (a warning, not an error) for each eval that has
-  one. Give the check a `provider` to use one judge for all cells.
+- **The judge.** An `llm-judge` check whose `provider` names no `model` is judged by the model of the cell, so
+  each model grades its own answer. `plune run` says so on stderr (a warning, not an error) for each eval that
+  has one. Give the check a `provider` with a `type` and a `model` to use one judge for all cells: a `model`
+  without a `type` takes the type of each cell, so with models of several types that model id goes to
+  providers that do not serve it, and `plune run` warns about that too. The judge's other settings
+  (`temperature`, `max_tokens` and the like) still come from each cell unless the check sets them.
 - **Cost.** Each cell is priced at its own model's rates, and `--dry-run` sums them and prints the number of
   models. A model you pay more for costs more in every eval: the matrix multiplies a run by the number of models.
 
