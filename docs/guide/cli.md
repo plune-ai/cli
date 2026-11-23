@@ -410,6 +410,95 @@ plune report --format json -o run.json
 | `0` | Rendered the saved run. |
 | `2` | No saved run yet (run `plune run` first), or the saved file is unreadable/malformed. |
 
+## `plune judge-check`
+
+Says how well a model judge (`llm-judge`, `faithfulness`, `answer-relevance`, `context-precision`)
+agrees with a person. It reads a saved run and a file of the person's pass/fail labels for its rows,
+and prints the agreement. It reads files only: no model call, no network, no platform. It changes
+nothing either: a low score moves no threshold and no judge prompt, it is a number for you to act on.
+
+```bash
+plune run                                      # saves .plune/last-run.json
+plune judge-check labels/faq.jsonl --init      # one line per row with an answer, to fill in
+# set "human" to "pass" or "fail" on each line, with "by" and "at"
+plune judge-check labels/faq.jsonl --min-kappa 0.6
+```
+
+```
+Judge check: faq, check 1 (llm-judge)
+  labelled rows: 40
+                 person pass  person fail
+    judge pass            18            2
+    judge fail             2           18
+  agreement 0.90 · TPR 0.90 · TNR 0.90 · kappa 0.80 (95% 0.59 to 0.95)
+  --min-kappa 0.6: met
+```
+
+### The labels file
+
+One JSON object per line:
+
+```json
+{"eval":"faq","vars_hash":"e3ce879e39ff2e3ed3b7425bdba45ab460084085c14dcf2f0839dc9d4083c93e","output_hash":"4e1195df020de59e0d65a33a4279f1183e7ae4e5d980e309f8b55adff2e61c3e","human":"pass","by":"John Doe","at":"2026-11-23","note":"optional"}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `eval` | The eval id as the run names it (`faq`, or `faq@gpt-4.1` for one model of several). |
+| `vars_hash` | sha256 of the row's `vars` in canonical JSON: which row this is. |
+| `output_hash` | sha256 of the answer the person read. When the answer changes, the label no longer counts. |
+| `human` | `"pass"`, `"fail"`, or `null` while nobody has labelled the row. |
+| `by`, `at` | Who gave the label and when. Required once `human` is set. |
+| `note` | Optional. |
+
+`--init` writes the file from the run, with `human` left `null` and the row's `vars` and `output`
+beside the hashes to read while labelling. The judge's own verdict is left out, so it does not lead
+the person. `--init` does not write over an existing file, which may already hold labels; `--force`
+does. A line that is not a label stops the check with its line number.
+
+A label is left out, and counted beside `labelled rows`, when it is still `null`, when the answer
+changed since (`output_hash` differs), when the row is not in this run, when the run holds no
+verdict of the check for that row (it was blocked, or the run stopped the row's checks at an earlier
+error), or when two labels of one row say both pass and fail.
+
+### The figures
+
+- **agreement**: the share of rows where the judge and the person gave the same answer.
+- **TPR**: of the rows the person passed, the share the judge passed too.
+- **TNR**: of the rows the person failed, the share the judge failed too.
+- **kappa**: Cohen's kappa, the agreement above what two raters who answer at random with the same
+  pass rates would reach. 1 is full agreement, 0 is chance. It has no value when the person and the
+  judge each gave one answer only.
+- **95% interval**: the bootstrap percentile interval of kappa over 2000 resamples of the labelled
+  rows, with a fixed seed, so the same files print the same numbers on every run.
+
+Warnings are printed under the figures when fewer than 30 rows are labelled, when the interval is
+wider than `--max-interval-width` (0.4 by default) or cannot be estimated, when kappa has no value,
+and when the judge is the model that wrote the answers: an `llm-judge` without a `provider` of its
+own, or a RAG check, is judged by the model of the eval. That last warning needs `plune.yaml`: the
+one in this folder, or the one `--config` names.
+
+### Options
+
+| Option | Meaning |
+|--------|---------|
+| `--init` | Write the labels file from the run. |
+| `--force` | With `--init`: write over an existing file. |
+| `--run <file>` | The saved run to read. Default `.plune/last-run.json`. |
+| `--eval <id>` | Only this eval (its id, or its id without `@<model>`). By default every eval with a label in the file. |
+| `--check <n>` | The check to compare, by its position in a row from 1. By default the one check a model judges; with none or several, the command lists them and asks for this. |
+| `--min-kappa <k>` | Exit 1 when the kappa of an eval is below `k` (from -1 to 1) or has no value. |
+| `--max-interval-width <w>` | Warn when the 95% interval is wider than `w` (from 0 to 2). Default 0.4. |
+| `--config <path>` | The `plune.yaml` that names the judge's model. |
+
+### Exit codes
+
+| Exit | Meaning |
+|------|---------|
+| `0` | Printed the figures; with `--min-kappa`, every eval met it. |
+| `1` | With `--min-kappa`: an eval's kappa is below it or has no value. |
+| `2` | Something to fix: no run or labels file, a line that is not a label, an unknown `--eval`, a `--check` the rows do not have, a flag value out of range, a `plune.yaml` that `--config` names and cannot be read. |
+
 ## `plune automate`
 
 Turns **one case from Plune** into Playwright code with [Cairn](https://github.com/plune-ai/cairn), and

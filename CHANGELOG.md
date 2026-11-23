@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **`plune judge-check <labels.jsonl>` says how well a model judge agrees with a person.** It reads a saved run and a file of pass/fail labels for its rows, one JSON object per line keyed by the eval and the hash of the row's `vars`, tied to the answer by the hash of its `output`; `--init` writes that file from the run to fill in. It prints agreement, TPR, TNR and Cohen's kappa with a 95% bootstrap interval (fixed seed), and warns when fewer than 30 rows are labelled, when the interval is wide, and when the judge is the model that wrote the answers. A label whose answer changed since is named and not counted. `--min-kappa` makes it exit 1 below a level, for CI. It reads files only and changes nothing. See the [CLI guide](docs/guide/cli.md#plune-judge-check).
+
 ### Fixed
 
 - **A trace link that does not start with `https://` as written is left out instead of failing the upload.** `https:host/x`, `https:/host/x`, `https:\\host/x` and `HTTPS://host/x` passed the check, as a URL parser reads each as https with a host, and the link was sent as written; the platform keeps only a link that starts with `https://`, so it refused the whole upload. Such a link is now dropped with the line `trace link not sent (must be an https address)`, and the result, eval or case is sent without it. This covers `plune run import` (JUnit `plune.trace.url` and `PluneTrace`, the Playwright annotation), `plune sync` and `plune ingest`.
