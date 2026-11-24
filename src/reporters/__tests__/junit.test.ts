@@ -4,7 +4,7 @@ import { parseXml, type XmlElement } from '../../importers/xml.js';
 import type { RowResult, RunResult } from '../../types/results.js';
 import { renderReport } from '../index.js';
 import { renderJunit } from '../junit.js';
-import { allPass, mixed } from './fixtures.js';
+import { allPass, dryRun, mixed } from './fixtures.js';
 
 const pass = { type: 'contains', passed: true };
 
@@ -221,6 +221,25 @@ describe('CLI · run --format junit · read back by run import', () => {
     expect(results[1]!.errorContext).toContain('too terse');
     expect(results[0]!.execution).toMatchObject({ startedAt: '2026-11-25T09:00:00.000Z', durationMs: 120 });
   });
+
+  it('an address like bob@Proton.me in the variables is not read as a case id, and the name is still their JSON', () => {
+    const vars = { email: 'bob@Proton.me', note: '@P123' };
+    const one = run([{ id: 'mail', tags: [], passed: true, rows: [{ vars, output: 'ok', cached: false, assertions: [pass] }] }], { total: 1, passed: 1 });
+    const xml = renderJunit(one);
+    const [read] = readJUnit(xml, 'report.xml');
+    expect(read).not.toHaveProperty('testCaseId');
+    const name = casesOf(suitesOf(xml)[0]!)[0]!.attrs['name']!;
+    expect(JSON.parse(name)).toEqual(vars);
+  });
+
+  it('a dry run says so on every row, and an error without a code still makes a document', () => {
+    const row = { vars: { q: 1 }, output: null, cached: false, assertions: [] };
+    expect(renderJunit(dryRun)).not.toContain('not judged');
+    expect(renderJunit(dryRun)).toContain('<skipped message="dry run (not executed)"/>');
+    const broken = run([{ id: 'e', tags: [], passed: false, rows: [{ ...row, error: {} as RowResult['error'] }] }], { total: 1, errored: 1 });
+    expect(renderJunit(broken)).toContain('<error type="error" message="">');
+    expect(renderJunit(broken).endsWith('</testsuites>\n')).toBe(true);
+  });
 });
 
 describe('CLI · run --format junit · text from a model', () => {
@@ -252,7 +271,7 @@ describe('CLI · run --format junit · text from a model', () => {
     expect(readJUnit(renderJunit(hostile), 'report.xml').map((r) => r.rawStatus)).toEqual(['failure', 'error']);
   });
 
-  it('no line of it reads as a CI workflow command', () => {
+  it('no line of it starts a GitHub workflow command', () => {
     const xml = renderJunit(hostile);
     expect(xml).not.toMatch(/^\s*::/m);
     expect(xml).not.toContain('##[');

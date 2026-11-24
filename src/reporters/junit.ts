@@ -20,14 +20,18 @@ const checkLine = (a: AssertionResultRecord): string =>
   `${a.type}${a.score !== undefined ? ` (score ${a.score})` : ''}${a.reason !== undefined ? `: ${a.reason}` : ''}`;
 
 /** The child that says what happened to the row; a passed row has none. */
-function outcome(row: RowResult, maxOut: number): string[] {
+function outcome(row: RowResult, maxOut: number, dryRun: boolean): string[] {
   const status = rowStatus(row);
   if (status === 'passed') return [];
   // JUnit has one word for a case that gave no verdict; the message keeps ours.
-  if (status === 'blocked' || status === 'skipped') return [`      <skipped message="${status} (not judged)"/>`];
+  // A dry run calls no model: its rows are skipped, and the file says why rather than «not judged».
+  if (status === 'blocked' || status === 'skipped')
+    return [`      <skipped message="${dryRun ? 'dry run (not executed)' : `${status} (not judged)`}"/>`];
   const repeats = repeatsText(row);
   if (status === 'errored') {
-    const { code, message } = row.error!;
+    // A report read from a file may hold an error without its code.
+    const code = row.error?.code ?? 'error';
+    const message = row.error?.message ?? '';
     const body = [...(repeats !== undefined ? [repeats] : []), message].join('\n');
     return [`      <error type="${xmlAttr(code)}" message="${xmlAttr(message)}">${xmlText(body)}</error>`];
   }
@@ -62,13 +66,15 @@ export function renderJunit(result: RunResult, opts: JunitOptions = {}): string 
     // `classname#name` is the key `plune run import` matches a case on: two rows with the same variables get a number.
     const seen = new Map<string, number>();
     for (const row of ev.rows) {
-      const vars = JSON.stringify(row.vars);
+      // `@P<id>` in a title is the case id to `plune run import`; an address like «bob@Proton.me» is not one. The JSON
+      // escape of `@` keeps the name the same JSON value and takes the token away.
+      const vars = JSON.stringify(row.vars).replace(/@(?=P[A-Za-z0-9_-])/g, '\\u0040');
       const nth = (seen.get(vars) ?? 0) + 1;
       seen.set(vars, nth);
       const name = nth === 1 ? vars : `${vars} #${nth}`;
       const time = row.latency_ms !== undefined ? ` time="${seconds(row.latency_ms)}"` : '';
       const head = `    <testcase classname="${xmlAttr(ev.id)}" name="${xmlAttr(name)}"${time}`;
-      const child = outcome(row, maxOut);
+      const child = outcome(row, maxOut, result.dry_run === true);
       suites.push(...(child.length === 0 ? [`${head}/>`] : [`${head}>`, ...child, '    </testcase>']));
     }
     suites.push('  </testsuite>');
@@ -79,6 +85,7 @@ export function renderJunit(result: RunResult, opts: JunitOptions = {}): string 
       `<testsuites name="plune run" tests="${totals.tests}" failures="${totals.failures}" errors="${totals.errors}" time="${seconds(result.summary.duration_ms)}">`,
       ...suites,
       '</testsuites>',
+      '',
     ].join('\n'),
   );
 }
