@@ -118,8 +118,8 @@ the last resort, used only when `PLUNE_TOKEN` is set nowhere else. Nothing write
 
 | Command | Summary |
 | ------- | ------- |
-| `plune run` | Run the suite. Flags: `--dry-run` (price the run from the model's rates — no provider key, no network; it prints the estimate with no verdict and does not replace the last run; with a [list of models](docs/guide/configuration.md#several-models-a-model--eval-matrix) each is priced at its own rates), `--only <id\|tag>` (repeatable; an eval id selects its cells on every model), `--bail`, `--no-cache`, `--cache-strict`, `--cache-max-age <duration>`, `--concurrency <n>`, `--format console\|json\|markdown`, `-o, --output <file>`. |
-| `plune report` | Re-render the most recent run. Flags: `--format`, `-o`. |
+| `plune run` | Run the suite. Flags: `--dry-run` (price the run from the model's rates — no provider key, no network; it prints the estimate with no verdict and does not replace the last run; with a [list of models](docs/guide/configuration.md#several-models-a-model--eval-matrix) each is priced at its own rates), `--only <id\|tag>` (repeatable; an eval id selects its cells on every model), `--bail`, `--no-cache`, `--cache-strict`, `--cache-max-age <duration>`, `--concurrency <n>`, `--format console\|json\|markdown\|junit` (`junit` is JUnit XML: a `<testsuite>` per eval, a `<testcase>` per row, the file `plune run import` and CI systems read), `-o, --output <file>`. |
+| `plune report` | Re-render the most recent run. Flags: `--format` (the formats of `plune run`, `junit` included), `-o`. |
 | `plune judge-check <labels.jsonl>` | How well a model judge agrees with a person's pass/fail labels of the saved run's rows: agreement, TPR, TNR, Cohen's kappa with a 95% interval. Offline; changes nothing. Flags: `--init`, `--force`, `--run`, `--eval`, `--check`, `--min-kappa`, `--max-interval-width`. See [the CLI reference](./docs/guide/cli.md#plune-judge-check). |
 | `plune diff <baseline> <current>` | Compare two `plune run --format json` outputs and report pass→fail regressions. Flags: `--fail-on-regression` (exit `1` on a regression, `3` when none but an eval was not measured), `--format`, `-o`. |
 | `plune init` | Scaffold `plune.yaml`, a sample dataset, and `.env.example`. Flags: `--yes` (non-interactive), `--force`, `--from-openai-eval <eval.json>` (build it from an exported OpenAI eval). |
@@ -153,7 +153,16 @@ the last resort, used only when `PLUNE_TOKEN` is set nowhere else. Nothing write
 
 Global flags: `-c, --config <path>` · `-v, --verbose` · `--no-color`.
 
-**Exit codes:** `0` everything passed · `1` an assertion failed · `2` configuration or execution error · `3` `pull` refused to overwrite uncommitted changes · `4` `push` had refusals · `5` `plune run --cache-strict` found rows with no cache entry (it wins over `1` and `2`: the run is incomplete).
+**Exit codes of `plune run`:**
+
+| Code | When |
+| --- | --- |
+| `0` | Every row passed. Also a `--dry-run`, a run where `--only` matched no eval, and a run whose rows that did not pass are all `blocked` or `skipped` (never judged). |
+| `1` | At least one row **failed** an assertion, whether or not other rows errored. Also an error the CLI did not expect (it says «This one is on us»), and an option `run` does not have or an option given without its value. |
+| `2` | The run **could not start or could not finish**: a configuration or usage error (no `plune.yaml`, YAML that does not parse, a config that does not validate, a missing provider key, an unknown prompt variable, `--runs` out of range, a bad `--tool-description`, flags that do not go together, a file or folder that cannot be read or written), **or** a run where rows **errored** (a provider outage) and none failed. |
+| `5` | `--cache-strict` found rows with no cache entry. It wins over `1` and `2`: the run is incomplete. |
+
+`--bail` and `--format` do not change the code. `plune run` returns no other code. Of the other commands, `plune pull` exits `3` when it refuses to overwrite uncommitted changes and `plune push` exits `4` when it had refusals; the rest say their codes in the table above and in the [CLI guide](docs/guide/cli.md).
 
 ### Completion cache
 

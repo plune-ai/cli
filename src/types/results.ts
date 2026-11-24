@@ -285,6 +285,19 @@ export function rowStatus(row: RowResult): RowStatus {
   return row.assertions.every((a) => a.passed) ? 'passed' : 'failed';
 }
 
+/**
+ * The statuses, worst first: the table `aggregateStatus` reads. `failed` over `errored` is the order of the exit
+ * code (a failed check outranks a run that could not finish); `blocked` over `passed`, because a group with a row
+ * that was never judged is not a passed group; `skipped` last, since a row left out on purpose says nothing about
+ * the rest.
+ */
+export const STATUS_PRIORITY: readonly RowStatus[] = ['failed', 'errored', 'blocked', 'passed', 'skipped'];
+
+/** The status of a parent from its children's: the worst one by `STATUS_PRIORITY`; `skipped` with no children. */
+export function aggregateStatus(children: readonly RowStatus[]): RowStatus {
+  return STATUS_PRIORITY.find((s) => children.includes(s)) ?? 'skipped';
+}
+
 export interface EvalResult {
   id: string;
   tags: string[];

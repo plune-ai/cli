@@ -11,6 +11,14 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **`plune run --format junit` writes the run as JUnit XML.** One `<testsuite>` per eval and one `<testcase>` per dataset row (`classname` the eval id, `name` the row's variables as JSON), with `time` in seconds. A failed row has a `<failure>` with the failed checks, their reasons and the output, an errored row an `<error>` with the error code and message, a blocked or a skipped row a `<skipped>` whose `message` says which. The counts of the suites add up to the run's summary, and each suite's property `plune.status` is the eval's status, the worst of its rows in the order `failed`, `errored`, `blocked`, `passed`, `skipped`. Characters XML cannot hold are removed from a model's output, and no line reads as a CI workflow command. `plune report --format junit` writes the same file for the last run, and `plune run import --format junit` reads it. `plune diff` has no JUnit form. The exit codes are unchanged. See the [CLI guide](docs/guide/cli.md#plune-run).
+
+### Changed
+
+- **The exit codes of `plune run` are written out as a table, and a test pins each.** `README.md` and the [CLI guide](docs/guide/cli.md#exit-codes) now say for each code when `plune run` returns it: `0`, `1`, `2` and `5`, with `2` named for both a configuration or usage error and a run where rows errored and none failed. No exit code changed.
+
 ## [0.39.14] - 2026-11-24
 
 ### Added
