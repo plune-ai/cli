@@ -13,7 +13,8 @@ import { createPluneMcpServer } from './server.js';
  * served by the SDK's stateless fallback, a 2026-07-28 one natively.
  *
  * The handler verifies nothing about the caller. The host does, and names the caller with every request: the API
- * address, the token (or its own `fetchImpl`) and the scope. Origin and Host checks belong in front of it too.
+ * address, the token (or its own `fetchImpl`), the scope and the tools switched off (`disabledTools`). Origin and Host
+ * checks belong in front of it too.
  */
 
 export interface PluneMcpHttpOptions {

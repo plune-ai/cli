@@ -10,6 +10,7 @@ import {
   MAX_VISIBLE_TOOLS,
   PLUNE_TOOLS,
   defaultVisibleTools,
+  offeredTo,
   pluneTool,
 } from '../index.js';
 
@@ -64,6 +65,28 @@ describe('the tool contract', () => {
     expect(visible).toContain('plune_discover_tools');
     // Something has to be behind discover_tools, or AC-02 has nothing to reveal.
     expect(PLUNE_TOOLS.length).toBeGreaterThan(visible.length);
+  });
+
+  it('CLI · mcp tools · a tool that is switched off is not offered, under either scope, and a name that is no tool changes nothing', () => {
+    const off = ['plune_mission_create', 'plune_mission_get'];
+    expect(offeredTo(pluneTool('plune_mission_create'), 'write', off)).toBe(false);
+    expect(offeredTo(pluneTool('plune_mission_get'), 'read', off)).toBe(false);
+    expect(offeredTo(pluneTool('plune_get'), 'read', off)).toBe(true);
+    expect(defaultVisibleTools('write', off)).toEqual(defaultVisibleTools('write').filter((n) => !off.includes(n)));
+    expect(defaultVisibleTools('read', off)).toEqual(defaultVisibleTools('read').filter((n) => !off.includes(n)));
+    expect(defaultVisibleTools('write', ['plune_no_such_tool'])).toEqual(defaultVisibleTools('write'));
+    expect(defaultVisibleTools(undefined, [])).toEqual(defaultVisibleTools());
+  });
+
+  it('CLI · mcp tools · discovery is offered while one hidden tool is left to find, and not once every one is switched off', () => {
+    const hidden = PLUNE_TOOLS.filter((t) => t.visibility !== 'core').map((t) => t.name);
+    const discover = pluneTool('plune_discover_tools');
+    expect(hidden.length).toBeGreaterThan(1);
+    expect(offeredTo(discover, 'write', hidden.slice(1))).toBe(true);
+    expect(offeredTo(discover, 'write', hidden)).toBe(false);
+    expect(defaultVisibleTools('write', hidden)).not.toContain('plune_discover_tools');
+    // Discovery can be switched off by its own name too.
+    expect(offeredTo(discover, 'write', ['plune_discover_tools'])).toBe(false);
   });
 
   it('AC-06: describes every tool as a task, not by its name', () => {

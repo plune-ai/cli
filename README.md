@@ -125,7 +125,7 @@ the last resort, used only when `PLUNE_TOKEN` is set nowhere else. Nothing write
 | `plune init` | Scaffold `plune.yaml`, a sample dataset, and `.env.example`. Flags: `--yes` (non-interactive), `--force`, `--from-openai-eval <eval.json>` (build it from an exported OpenAI eval). |
 | `plune login` | Save a [Plune platform](https://plune.ai/platform) API token so `sync` and `ingest` can reach it. The token is **checked against the API before it is saved**, so a wrong one fails here rather than two commands later. Get one at `https://beta.plune.ai` → Account → API tokens. Flags: `--token <token>` (omit to paste it or pipe it via stdin), `--skip-verify` (save without checking, for offline setup). In CI, skip this step: every platform command reads `PLUNE_TOKEN` from the environment first, and the saved login only when it is not set. |
 | `plune logout` | Remove the saved token. |
-| `plune mcp serve` | Serve the Plune tools to an AI agent (Claude Code, Codex, any MCP client) over **MCP stdio**. See [Plune tools for AI agents](#plune-tools-for-ai-agents-plune-mcp). Flags: `--project <id>` (default `PLUNE_PROJECT`), `--read-only` (offer only the read tools). |
+| `plune mcp serve` | Serve the Plune tools to an AI agent (Claude Code, Codex, any MCP client) over **MCP stdio**. See [Plune tools for AI agents](#plune-tools-for-ai-agents-plune-mcp). Flags: `--project <id>` (default `PLUNE_PROJECT`), `--read-only` (offer only the read tools), `--disable-tool <name>` (switch one tool off; repeatable). |
 | `plune mcp check` | Check that **any** MCP server starts and answers: handshake, protocol version, capabilities, the lists, `ping`. See [Is the server alive](#is-the-server-alive-plune-mcp-check). Flags: `--check-timeout <duration>`, `--wait <duration>`, `--smoke` (with `--smoke-limit`, `--smoke-timeout`, `--budget`, `--allow-write-calls`), `--out [<format>=]<path>` (repeatable), `--reporter junit-xml`, `--format human\|json\|github\|markdown`, and the connection flags. Exit `0` healthy, `1` a check failed, `2` the server did not start, could not be reached or wants credentials, or a flag is wrong, `3` something could not be measured. |
 | `plune mcp lint` | Check the tool list of **any** MCP server for what confuses a model — no account, no model. See [Checking any MCP server](#checking-any-mcp-server-plune-mcp-lint). Flags: `--fail-on error\|warn\|info\|never`, `--show-info`, `--format human\|json\|github\|markdown`, `--reporter junit-xml`, `--out [<format>=]<path>`, `--ignore-file <path>`, `--list-rules`, `--call`, `--call-limit <n>`, `--call-timeout <duration>`, and the connection flags (`--url`, `--header-env`, `--env`, …). Exit `0` clean, `1` findings, `2` the server did not start or a flag is wrong, `3` nothing measured. |
 | `plune mcp snapshot` | Write the contract of **any** MCP server — tools, resources, resource templates, prompts, capabilities, instructions — as one stable JSON file to commit. See [Contract snapshots](#contract-snapshots-plune-mcp-snapshot-and-plune-mcp-diff). Flags: `--out <path>` (default stdout), `--push` with `--server <id>` or `--server-name <name>` and optional `--environment <text>` (send it to the platform's MCP catalog; nothing is sent without `--push`), and the connection flags. Exit `0` written (or sent), `1` with `--push` the platform could not be reached (the snapshot is kept in a file), `2` the server did not start, a declared list could not be read, or the platform refused the push (login, body, quota), `3` the server lists nothing. |
@@ -739,6 +739,18 @@ args = ["-y", "@plune-ai/cli", "mcp", "serve"]
 The server reads the token the way every platform command does: `PLUNE_TOKEN` from the environment
 (set it in the client's `env` block), else the login `plune login` saved. A read token, or
 `--read-only`, offers only the read tools.
+
+`--disable-tool <name>` switches one tool off, and can be given several times: the tool is not in the
+tool list, `plune_discover_tools` neither lists nor reveals it, and a call by its name is answered with
+a tool error (code `tool_disabled`) that says it is switched off, before anything is sent to Plune, a
+`dry_run` included. `plune_discover_tools` itself leaves the list once every tool it could find is off.
+A name that is not a Plune tool ends the command with exit `2` and the list of names. Switching a tool
+off hides that tool, not the API route behind it: `plune_api_request` can still reach any route the
+token may use, so switch it off too, or use `--read-only`, when the point is to stop changes.
+
+```bash
+claude mcp add plune -- npx -y @plune-ai/cli mcp serve --disable-tool plune_api_request --disable-tool plune_cases_update
+```
 
 `plune_project_context`, the call an agent starts with, also answers `memoryRules`: the rules of the
 project's memory that a person accepted in the review queue and has not retired, each as its `id` and
