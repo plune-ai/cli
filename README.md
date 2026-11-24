@@ -153,7 +153,16 @@ the last resort, used only when `PLUNE_TOKEN` is set nowhere else. Nothing write
 
 Global flags: `-c, --config <path>` · `-v, --verbose` · `--no-color`.
 
-**Exit codes:** `0` everything passed · `1` an assertion failed · `2` configuration or execution error · `3` `pull` refused to overwrite uncommitted changes · `4` `push` had refusals · `5` `plune run --cache-strict` found rows with no cache entry (it wins over `1` and `2`: the run is incomplete).
+**Exit codes of `plune run`:**
+
+| Code | When |
+| --- | --- |
+| `0` | Every row passed. Also a `--dry-run`, a run where `--only` matched no eval, and a run whose rows that did not pass are all `blocked` or `skipped` (never judged). |
+| `1` | At least one row **failed** an assertion, whether or not other rows errored. Also an error the CLI did not expect (it says «This one is on us»), and an option `run` does not have or an option given without its value. |
+| `2` | The run **could not start or could not finish**: a configuration or usage error (no `plune.yaml`, YAML that does not parse, a config that does not validate, a missing provider key, an unknown prompt variable, `--runs` out of range, a bad `--tool-description`, flags that do not go together, a file or folder that cannot be read or written), **or** a run where rows **errored** (a provider outage) and none failed. |
+| `5` | `--cache-strict` found rows with no cache entry. It wins over `1` and `2`: the run is incomplete. |
+
+`--bail` and `--format` do not change the code. `plune run` returns no other code. Of the other commands, `plune pull` exits `3` when it refuses to overwrite uncommitted changes and `plune push` exits `4` when it had refusals; the rest say their codes in the table above and in the [CLI guide](docs/guide/cli.md).
 
 ### Completion cache
 
