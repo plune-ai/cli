@@ -1,8 +1,9 @@
 name: MCP self-checks — report
 
 # The record of the MCP self-checks that CI runs as a gate (ci.yml, "MCP — self-checks against the built server"):
-# the same commands, nightly and by hand, their JUnit imported into Plune. Never on a push or a pull request: the
-# gate does not need the platform, and a fork has no secret.
+# the same commands, nightly and by hand, their JUnit imported into Plune, and the server's contract
+# pushed there as a snapshot. Never on a push or a pull request: the gate does not need the platform, and a fork has
+# no secret.
 #
 # PLUNE_DOGFOOD_TOKEN (a repository secret) is a token of the project the results go to; the project is the token's,
 # so it is named nowhere here. PLUNE_DOGFOOD_API_URL (a repository variable) points at another deployment. Without
@@ -82,6 +83,20 @@ jobs:
           name: mcp-self-check-junit
           path: ${{ runner.temp }}/mcp-reports/
           if-no-files-found: warn
+
+      # The contract of the same built server, sent to the platform: a new snapshot when a tool, its schema or a
+      # capability changed since the last night, and no new one when nothing did. That is the history a person reads
+      # on the server's page. The server is found by its name and added on the first push.
+      - name: MCP — contract snapshot, pushed to Plune
+        if: ${{ !cancelled() && steps.token.outputs.present == 'true' }}
+        env:
+          PLUNE_TOKEN: ${{ secrets.PLUNE_DOGFOOD_TOKEN }}
+          PLUNE_API_URL: ${{ vars.PLUNE_DOGFOOD_API_URL || 'https://beta-api.plune.ai' }}
+        run: |
+          set -o pipefail
+          node dist/cli.cjs mcp snapshot --push --server-name "plune mcp serve" --environment ci \
+            --env PLUNE_TOKEN --env PLUNE_API_URL -- node dist/cli.cjs mcp serve \
+            | tee -a "$GITHUB_STEP_SUMMARY"
 
       # Red checks are reported too: that is what the record is for. Without --create: a check the project has no case
       # for is not offered to the review queue on every night. The folder import reads the JUnit files (lint, check);
