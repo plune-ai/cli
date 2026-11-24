@@ -27,8 +27,14 @@ const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-
   version: string;
 };
 
-function toFormat(s: string): ReportFormat {
+function toFormat(s: string): Exclude<ReportFormat, 'junit'> {
   return s === 'json' || s === 'markdown' ? s : 'console';
+}
+
+/** The formats of `run` and `report`: `junit` too, which `diff` does not write. */
+const RUN_FORMATS = 'console | json | markdown | junit';
+function toRunFormat(s: string): ReportFormat {
+  return s === 'junit' ? s : toFormat(s);
 }
 
 function shouldColor(outputPath: string | undefined): boolean {
@@ -179,7 +185,7 @@ export function createProgram(): Command {
       (val: string, prev: string[]) => [...prev, val],
       [] as string[],
     )
-    .option('--format <fmt>', 'console | json | markdown', 'console')
+    .option('--format <fmt>', RUN_FORMATS, 'console')
     .option('-o, --output <path>', 'Write the report to a file instead of stdout')
     .action(
       async (
@@ -261,7 +267,7 @@ export function createProgram(): Command {
           if (options.only.length > 0 && result.evals.length === 0) {
             process.stderr.write('No evals matched the selector.\n');
           }
-          const text = renderReport(result, toFormat(options.format), {
+          const text = renderReport(result, toRunFormat(options.format), {
             color: globals.color !== false && shouldColor(options.output),
           });
           writeReport(text, options.output);
@@ -589,7 +595,7 @@ export function createProgram(): Command {
   program
     .command('report')
     .description('Render the most recent run in a chosen format')
-    .option('--format <fmt>', 'console | json | markdown', 'console')
+    .option('--format <fmt>', RUN_FORMATS, 'console')
     .option('-o, --output <path>', 'Write the report to a file instead of stdout')
     .action(async (options: { format: string; output?: string }, command: Command) => {
       const globals = command.optsWithGlobals() as {
@@ -605,7 +611,7 @@ export function createProgram(): Command {
       const cwd = globals.config !== undefined ? dirname(resolve(globals.config)) : process.cwd();
       try {
         const result = handleReport({ cwd });
-        const text = renderReport(result, toFormat(options.format), {
+        const text = renderReport(result, toRunFormat(options.format), {
           color: globals.color !== false && shouldColor(options.output),
         });
         writeReport(text, options.output);

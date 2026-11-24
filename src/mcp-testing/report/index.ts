@@ -382,15 +382,22 @@ function markdown(run: McpRun): string {
 const NOT_XML =
   /[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g;
 export const xmlChars = (s: string): string => s.replace(NOT_XML, '');
-const xmlText = (s: string) =>
+export const xmlText = (s: string): string =>
   xmlChars(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 /** In an attribute a new line or tab would be read back as a space: kept as character references. */
-const xmlAttr = (s: string) =>
+export const xmlAttr = (s: string): string =>
   xmlText(s)
     .replace(/"/g, '&quot;')
     .replace(/\t/g, '&#9;')
     .replace(/\n/g, '&#10;')
     .replace(/\r/g, '&#13;');
+
+/**
+ * No line of an XML file reads as a workflow command, should a step print it: `##[` as a character reference, which
+ * a reader decodes to the same text; a line that starts with `::` gets a `?` (see `noCommands`).
+ */
+export const xmlNoCommands = (xml: string): string =>
+  xml.replace(/^([\s\u0085]*)::/gm, '$1?::').replaceAll('##[', '##&#91;');
 
 /**
  * One `<testsuite>` of the fixed cases, `classname` `mcp.<command>` (`mcp.conformance.<suite>`) and `name` the case
@@ -443,9 +450,5 @@ function junitXml(run: McpRun): string {
     );
   }
   lines.push('  </testsuite>', '</testsuites>');
-  // No line of the file reads as a workflow command, should a step print it: `##[` as a character reference, which
-  // a reader decodes to the same text; a line that starts with `::` gets a `?` (see `noCommands`).
-  return `${lines.join('\n')}\n`
-    .replace(/^([\s\u0085]*)::/gm, '$1?::')
-    .replaceAll('##[', '##&#91;');
+  return xmlNoCommands(`${lines.join('\n')}\n`);
 }

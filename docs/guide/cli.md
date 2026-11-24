@@ -97,7 +97,7 @@ plune run [options]
 | `--bail` | Stop after the first eval that fails. |
 | `--runs <n>` | Run every dataset row `n` times (`1` to `100`) for this run, over `runs` in the config; `pass_threshold` still comes from the config. A value outside the range exits `2`. See [Repeats](./configuration.md#repeats-runs-and-pass_threshold). |
 | `--tool-description <tool>=<text\|@file>` | For an eval with `mcp`: show the model this text as the description of that tool, in place of the server's, **for this run only**. **Repeatable.** `@file` reads the text from a file (at most 64 KB; a directory or an unreadable file is exit `2`); the text goes into every request to the model. The server is not changed and is asked nothing different; the tools the model was offered keep the server's own list in the transcript. The swap is recorded with the SHA-256 of the new text, as `description_overrides` on each row's `agent`. A name that no row offered changes nothing and is said on stderr. Exit `2` for a malformed value, a name given twice, an unreadable or empty file, or a run with no `mcp` eval. See [the experiment with descriptions](#advice-in-plune-diff). |
-| `--format <fmt>` | Output format: `console` (default), `json`, or `markdown`. |
+| `--format <fmt>` | Output format: `console` (default), `json`, `markdown`, or `junit`. A value that is none of them is rendered as `console`. |
 | `-o, --output <path>` | Write the report to a file instead of stdout. |
 
 ### Examples
@@ -127,7 +127,17 @@ Use `--format` to choose the shape and `-o` to write it to a file:
 ```bash
 plune run --format json                    # the raw RunResult, for scripts
 plune run --format markdown -o report.md   # a Markdown report (great for PR comments)
+plune run --format junit -o report.xml     # JUnit XML, for a CI system or `plune run import`
 ```
+
+`--format junit` writes one `<testsuite>` per eval (with several models, one per eval and model) and one
+`<testcase>` per dataset row: `classname` is the eval id, `name` the row's variables as JSON (a second row
+with the same variables gets ` #2`), `time` the row's latency in seconds. A failed row has a `<failure>`
+with the failed checks, their reasons and the output; an errored row an `<error>` with the error code and
+message; a blocked or a skipped row a `<skipped>` whose `message` says which. The suite's `tests`,
+`failures`, `errors` and `skipped` add up to the run's summary, and its property `plune.status` is the
+eval's status, the worst of its rows in the order `failed`, `errored`, `blocked`, `passed`, `skipped`.
+Characters XML cannot hold are removed from a model's output. The exit code does not depend on the format.
 
 The full machine-readable result is written to **`.plune/last-run.json`** (a `RunResult` — see
 [How it works](./concepts.md#the-runresult)); `plune report` re-renders it without re-running.
@@ -402,7 +412,7 @@ plune report --format json -o run.json
 
 | Option | Meaning |
 |--------|---------|
-| `--format <fmt>` | `console` (default), `json`, or `markdown`. |
+| `--format <fmt>` | `console` (default), `json`, `markdown`, or `junit`: the formats of `plune run`. |
 | `-o, --output <path>` | Write to a file instead of stdout. |
 
 ### Exit codes
