@@ -2,7 +2,7 @@
 // told back. A fake fetch stands in for the platform and answers the way the routes on master do.
 
 import { describe, expect, it } from 'vitest';
-import { createPluneToolExecutor, pluneTool, type PluneToolExecutor } from '../index.js';
+import { PLUNE_TOOLS, createPluneToolExecutor, pluneTool, type PluneToolExecutor } from '../index.js';
 import { fakeFetch, platformAnswer } from '../../mcp/__tests__/fixtures/platform.js';
 
 interface Seen {
@@ -35,7 +35,7 @@ function fakePlatform(responder: Responder = () => undefined) {
   return { seen, fetchImpl };
 }
 
-function executor(responder?: Responder, extra: { scope?: 'read' | 'write' } = {}) {
+function executor(responder?: Responder, extra: { scope?: 'read' | 'write'; disabledTools?: readonly string[] } = {}) {
   const platform = fakePlatform(responder);
   const exec = createPluneToolExecutor({
     token: 'plt_test',
@@ -603,6 +603,65 @@ describe('plune_discover_tools (AC-02)', () => {
   it('refuses an unknown name', async () => {
     const out = await executor().exec.execute('plune_discover_tools', { names: ['plune_nope'] });
     expect(out.ok).toBe(false);
+  });
+});
+
+describe('tools that are switched off (disabledTools)', () => {
+  const SWITCHED_OFF = (name: string) => `\`${name}\` is switched off for this connection. Ask the person who connected Plune to switch it on.`;
+  const hidden = PLUNE_TOOLS.filter((t) => t.visibility !== 'core').map((t) => t.name);
+
+  it('CLI · mcp tools · a tool that is off is refused by its name before any request, a dry run and input that does not fit included', async () => {
+    const { exec, seen } = executor(undefined, { disabledTools: ['plune_mission_create'] });
+    for (const input of [{ name: 'Checkout' }, { name: 'Checkout', dry_run: true }, { name: '' }]) {
+      const out = await exec.execute('plune_mission_create', input);
+      expect(out).toEqual({ ok: false, error: { code: 'tool_disabled', message: SWITCHED_OFF('plune_mission_create') } });
+    }
+    expect(seen).toHaveLength(0);
+    expect(exec.visibleTools()).not.toContain('plune_mission_create');
+    // The tools left on work as before.
+    await ok(exec, 'plune_mission_update', { missionId: 'm1', state: 'active', dry_run: true });
+  });
+
+  it('CLI · mcp tools · discover_tools neither lists nor reveals a tool that is off', async () => {
+    const { exec } = executor(undefined, { disabledTools: ['plune_cases_update'] });
+    const listing = await ok(exec, 'plune_discover_tools', {});
+    const available = (listing['available'] as { name: string }[]).map((t) => t.name);
+    expect(available).not.toContain('plune_cases_update');
+    expect(available).toContain('plune_results_write');
+    const out = await exec.execute('plune_discover_tools', { names: ['plune_results_write', 'plune_cases_update'] });
+    expect(out).toEqual({ ok: false, error: { code: 'tool_disabled', message: SWITCHED_OFF('plune_cases_update') } });
+    // Nothing of a refused call is switched on.
+    expect(exec.visibleTools()).not.toContain('plune_results_write');
+    expect(exec.visibleTools()).not.toContain('plune_cases_update');
+  });
+
+  it('CLI · mcp tools · discover_tools leaves the list once every hidden tool is off', () => {
+    expect(executor(undefined, { disabledTools: hidden.slice(1) }).exec.visibleTools()).toContain('plune_discover_tools');
+    expect(executor(undefined, { disabledTools: hidden }).exec.visibleTools()).not.toContain('plune_discover_tools');
+  });
+
+  it('CLI · mcp tools · with the read scope: a writer that is also off answers tool_disabled, a reader that is off is refused too', async () => {
+    const { exec, seen } = executor(undefined, { scope: 'read', disabledTools: ['plune_mission_create', 'plune_mission_get'] });
+    for (const [name, input] of [['plune_mission_create', { name: 'Checkout' }], ['plune_mission_get', { missionId: 'm1' }]] as const) {
+      const out = await exec.execute(name, input);
+      expect(out.ok).toBe(false);
+      if (!out.ok) expect(out.error.code).toBe('tool_disabled');
+    }
+    const writer = await exec.execute('plune_mission_update', { missionId: 'm1', state: 'active' });
+    expect(writer.ok).toBe(false);
+    if (!writer.ok) expect(writer.error.code).toBe('read_only_token');
+    expect(seen).toHaveLength(0);
+    expect(exec.visibleTools()).not.toContain('plune_mission_get');
+    expect(exec.visibleTools()).toContain('plune_get');
+  });
+
+  it('CLI · mcp tools · a name that is no tool is ignored', async () => {
+    const { exec } = executor(undefined, { disabledTools: ['plune_from_another_version'] });
+    expect(exec.visibleTools()).toEqual(executor().exec.visibleTools());
+    await ok(exec, 'plune_mission_create', { name: 'Checkout', dry_run: true });
+    const out = await exec.execute('plune_from_another_version', {});
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.error.code).toBe('unknown_tool');
   });
 });
 

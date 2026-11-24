@@ -29,6 +29,13 @@ export interface PluneToolExecutorOptions {
   sessionId?: string | undefined;
   /** The token's scope when it is known. `read` refuses every write before a request is made. */
   scope?: TokenScope | undefined;
+  /**
+   * Tools switched off for this caller, by name: none is shown, found by discover_tools or run, and a call to one by
+   * its name is refused with `tool_disabled` before any request. A name that is no tool is ignored (a host may hold a
+   * name from an older or newer tool set). It hides the tool, not the API route behind it: `plune_api_request` still
+   * reaches every route the token may use.
+   */
+  disabledTools?: readonly string[] | undefined;
   fetchImpl?: typeof fetch | undefined;
   userAgent?: string | undefined;
   now?: (() => number) | undefined;
@@ -62,6 +69,9 @@ const NO_PROJECT = 'projectId is needed: the server was started without a projec
 
 const readScopeMessage = (what: string) =>
   `This token has the read scope, so ${what}. Use a token with the write scope (Plune → Account → API tokens) and restart the server.`;
+
+const switchedOffMessage = (name: string) =>
+  `\`${name}\` is switched off for this connection. Ask the person who connected Plune to switch it on.`;
 
 const fail = (code: string, message: string, extra: Omit<ToolError, 'code' | 'message'> = {}): ToolOutcome => ({
   ok: false,
@@ -140,12 +150,13 @@ export function createPluneToolExecutor(opts: PluneToolExecutorOptions): PluneTo
   const now = opts.now ?? Date.now;
   const request = createPluneApi({ ...opts, sessionId });
   let scope: TokenScope | undefined = opts.scope;
+  const disabled = opts.disabledTools ?? [];
   const revealed = new Set<PluneToolName>();
   const confirms = new Map<string, { fingerprint: string; expires: number }>();
 
   const visibleTools = (): PluneToolName[] => {
-    const core = defaultVisibleTools(scope);
-    const extra = [...revealed].filter((n) => !(scope === 'read' && pluneTool(n).write) && !core.includes(n));
+    const core = defaultVisibleTools(scope, disabled);
+    const extra = [...revealed].filter((n) => !disabled.includes(n) && !(scope === 'read' && pluneTool(n).write) && !core.includes(n));
     return [...core, ...extra];
   };
 
@@ -380,13 +391,15 @@ export function createPluneToolExecutor(opts: PluneToolExecutorOptions): PluneTo
       const names = (i['names'] as string[] | undefined) ?? [];
       const unknown = names.filter((n) => !isPluneToolName(n));
       if (unknown.length > 0) return fail('invalid_input', `No such tool: ${unknown.join(', ')}. Call this tool without names to see what there is.`);
+      const off = names.filter((n) => disabled.includes(n));
+      if (off.length > 0) return fail('tool_disabled', off.map(switchedOffMessage).join(' '));
       const refused = names.filter((n) => scope === 'read' && pluneTool(n).write);
       if (refused.length > 0) return fail('read_only_token', readScopeMessage(`${refused.join(', ')} cannot be switched on`));
       const fixed = opts.fixedToolList === true;
       if (!fixed) for (const n of names as PluneToolName[]) revealed.add(n);
       const words = ((i['query'] as string | undefined) ?? '').toLowerCase().split(/\s+/).filter(Boolean);
       const visible = visibleTools();
-      const available = PLUNE_TOOLS.filter((t) => !visible.includes(t.name) && !(scope === 'read' && t.write))
+      const available = PLUNE_TOOLS.filter((t) => !visible.includes(t.name) && !disabled.includes(t.name) && !(scope === 'read' && t.write))
         .filter((t) => words.every((w) => `${t.name} ${t.title} ${t.description}`.toLowerCase().includes(w)))
         .map((t) => ({
           name: t.name,
@@ -478,6 +491,8 @@ export function createPluneToolExecutor(opts: PluneToolExecutorOptions): PluneTo
     async execute(name, input) {
       const handler = isPluneToolName(name) ? handlers[name] : undefined;
       if (handler === undefined) return fail('unknown_tool', `No such tool: ${name}.`);
+      // Off is not read-only: a dry run is refused too, and before the input is read, so input that does not fit gets the same answer.
+      if (disabled.includes(name)) return fail('tool_disabled', switchedOffMessage(name));
       const tool = pluneTool(name as PluneToolName);
       const parsed = tool.input.safeParse(input ?? {});
       if (!parsed.success) return fail('invalid_input', `The input does not fit: ${zodMessage(parsed.error)}`);

@@ -25,7 +25,7 @@ const MODERN_META = {
   'io.modelcontextprotocol/clientCapabilities': {},
 };
 
-async function connect(era: Era, opts: { scope?: 'read' | 'write'; answer?: AnswerFn } = {}) {
+async function connect(era: Era, opts: { scope?: 'read' | 'write'; disabledTools?: readonly string[]; answer?: AnswerFn } = {}) {
   const platform = fakeFetch(opts.answer ?? (() => undefined));
   const [client, serverSide] = InMemoryTransport.createLinkedPair();
   open.push(
@@ -38,6 +38,7 @@ async function connect(era: Era, opts: { scope?: 'read' | 'write'; answer?: Answ
             fetchImpl: platform.fetchImpl,
             version: '0.0.0-test',
             ...(opts.scope === undefined ? {} : { scope: opts.scope }),
+            ...(opts.disabledTools === undefined ? {} : { disabledTools: opts.disabledTools }),
           },
           ctx.era,
         ),
@@ -96,6 +97,7 @@ async function connect(era: Era, opts: { scope?: 'read' | 'write'; answer?: Answ
 }
 
 const text = (r: ToolResult) => (r.content ?? []).map((c) => c.text).join('\n');
+const SWITCHED_OFF = (name: string) => `\`${name}\` is switched off for this connection. Ask the person who connected Plune to switch it on.`;
 
 describe.each(['legacy', 'modern'] as const)('plune mcp serve, %s era', (era) => {
   const names = async (c: Awaited<ReturnType<typeof connect>>) => (await c.listTools()).map((t) => t.name);
@@ -176,6 +178,65 @@ describe.each(['legacy', 'modern'] as const)('plune mcp serve, %s era', (era) =>
     const r = await c.callTool('plune_api_request', { method: 'DELETE' });
     expect(r.isError).toBe(true);
     expect(text(r)).toMatch(/read-only access: plune_api_request writes/);
+    expect(c.platform.calls).toHaveLength(0);
+  });
+
+  it('CLI · mcp serve · a tool that is switched off is not listed, and a call by its name is a tool error that says why', async () => {
+    // One listed tool, one hidden one, and a name that is no tool, which changes nothing.
+    const c = await connect(era, { disabledTools: ['plune_mission_create', 'plune_run_create', 'plune_from_another_version'], answer: platformAnswer });
+    const listed = await names(c);
+    expect(listed).toEqual(defaultVisibleTools('write').filter((n) => n !== 'plune_mission_create'));
+    for (const [name, args] of [
+      ['plune_mission_create', { name: 'x', dry_run: true }],
+      ['plune_run_create', { run: { name: 'x' } }],
+      ['plune_run_create', {}],
+    ] as const) {
+      const r = await c.callTool(name, args);
+      expect(r.isError).toBe(true);
+      expect(text(r)).toBe(SWITCHED_OFF(name));
+      expect(r.structuredContent).toMatchObject({ error: { code: 'tool_disabled' } });
+    }
+    expect(c.platform.calls).toHaveLength(0);
+    await expect(c.callTool('plune_from_another_version', {})).rejects.toThrow(/-32602 .*plune_from_another_version/);
+    expect(await names(c)).toEqual(listed);
+    // The tools left on still work.
+    const r = await c.callTool('plune_mission_get', { missionId: FIXTURE_MISSION_ID });
+    expect(r.isError).toBeFalsy();
+  });
+
+  it('CLI · mcp serve · discover_tools neither lists nor reveals a tool that is switched off', async () => {
+    const c = await connect(era, { disabledTools: ['plune_run_create'] });
+    const listing = await c.callTool('plune_discover_tools', {});
+    expect(listing.isError).toBeFalsy();
+    const available = (listing.structuredContent as { available: { name: string }[] }).available.map((t) => t.name);
+    expect(available).not.toContain('plune_run_create');
+    expect(available).toContain('plune_results_write');
+    const r = await c.callTool('plune_discover_tools', { names: ['plune_run_create'] });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toBe(SWITCHED_OFF('plune_run_create'));
+    expect(r.structuredContent).toMatchObject({ error: { code: 'tool_disabled' } });
+    expect(await names(c)).not.toContain('plune_run_create');
+  });
+
+  it('CLI · mcp serve · discover_tools is not listed once every hidden tool is switched off', async () => {
+    const hidden = PLUNE_TOOLS.filter((t) => t.visibility === 'discoverable').map((t) => t.name);
+    const c = await connect(era, { disabledTools: hidden });
+    const listed = await names(c);
+    expect(listed).not.toContain('plune_discover_tools');
+    expect(listed).toEqual(defaultVisibleTools('write').filter((n) => n !== 'plune_discover_tools'));
+  });
+
+  it('CLI · mcp serve · a read token and tools switched off: each refusal names its own reason', async () => {
+    const c = await connect(era, { scope: 'read', disabledTools: ['plune_mission_get', 'plune_mission_create'] });
+    expect(await names(c)).toEqual(defaultVisibleTools('read').filter((n) => n !== 'plune_mission_get'));
+    for (const name of ['plune_mission_get', 'plune_mission_create']) {
+      const r = await c.callTool(name, { missionId: FIXTURE_MISSION_ID });
+      expect(r.isError).toBe(true);
+      expect(text(r)).toBe(SWITCHED_OFF(name));
+    }
+    const writer = await c.callTool('plune_mission_update', { missionId: FIXTURE_MISSION_ID });
+    expect(writer.isError).toBe(true);
+    expect(writer.structuredContent).toMatchObject({ error: { code: 'read_only_token' } });
     expect(c.platform.calls).toHaveLength(0);
   });
 
@@ -288,6 +349,14 @@ describe('plune mcp serve, modern era: a fixed tool list', () => {
     const modern = (await (await connect('modern')).listResult())['tools'];
     const legacy = (await (await connect('legacy')).listResult())['tools'];
     expect(modern).toEqual(legacy);
+  });
+
+  it('CLI · mcp serve · 2026-07-28 · with a tool switched off the list is still what the 2025 era lists', async () => {
+    const off = { disabledTools: ['plune_mission_create', 'plune_get'] };
+    const modern = (await (await connect('modern', off)).listResult())['tools'] as { name: string }[];
+    const legacy = (await (await connect('legacy', off)).listResult())['tools'];
+    expect(modern).toEqual(legacy);
+    expect(modern.map((t) => t.name)).toEqual(defaultVisibleTools('write', off.disabledTools));
   });
 });
 

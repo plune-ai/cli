@@ -112,16 +112,22 @@ export function createPluneMcpServer(opts: PluneMcpServerOptions, era: ProtocolE
     }
   };
 
-  let refusesWriters = false;
+  const disabled = opts.disabledTools ?? [];
+  let refusesByName = false;
   for (const tool of PLUNE_TOOLS) {
     // A known `read` token never sees a writer, nor discovery of writers (a forbidden tool is not listed rather than failing).
-    if (!offeredTo(tool, opts.scope)) {
-      // A writer called by its name anyway gets the reason as a tool error; unregistered, the SDK would answer -32602
-      // «Tool <name> not found», which reads as a tool that does not exist. No input schema, so input that does not fit
-      // gets the same answer. It stays out of `registered` (sync never switches it) and out of every list below.
-      if (tool.write) {
+    // A tool that is switched off is not seen either, nor discovery once nothing is left for it to find.
+    if (!offeredTo(tool, opts.scope, disabled)) {
+      // A writer, or a tool switched off, called by its name anyway gets the reason as a tool error; unregistered, the SDK
+      // would answer -32602 «Tool <name> not found», which reads as a tool that does not exist. No input schema, so input
+      // that does not fit gets the same answer. It stays out of `registered` (sync never switches it) and out of every
+      // list below. The refusal of a tool that is off is worded in `src/mcp-tools`, one sentence for every host.
+      if (disabled.includes(tool.name)) {
+        server.registerTool(tool.name, { description: tool.description }, async () => toResult(await executor.execute(tool.name, {})));
+        refusesByName = true;
+      } else if (tool.write) {
         server.registerTool(tool.name, { description: tool.description }, () => toResult(readOnlyRefusal(tool.name)));
-        refusesWriters = true;
+        refusesByName = true;
       }
       continue;
     }
@@ -144,12 +150,12 @@ export function createPluneMcpServer(opts: PluneMcpServerOptions, era: ProtocolE
   }
   if (fixed) {
     // Every registered tool stays enabled, so tools/call reaches it with the SDK's own checks; only the list is ours.
-    const tools = PLUNE_TOOLS.filter((t) => defaultVisibleTools(opts.scope).includes(t.name)).map(listed);
+    const tools = PLUNE_TOOLS.filter((t) => defaultVisibleTools(opts.scope, disabled).includes(t.name)).map(listed);
     server.server.setRequestHandler('tools/list', () => ({ tools }));
   } else {
     sync();
-    // McpServer lists every enabled tool, the refusing writers too; the list is then the enabled tools of `registered`.
-    if (refusesWriters)
+    // McpServer lists every enabled tool, the refusing ones too; the list is then the enabled tools of `registered`.
+    if (refusesByName)
       server.server.setRequestHandler('tools/list', () => ({
         tools: PLUNE_TOOLS.filter((t) => registered.get(t.name)?.enabled === true).map(listed),
       }));

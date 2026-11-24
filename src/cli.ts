@@ -829,17 +829,23 @@ export function createProgram(): Command {
     .description('Serve the Plune tools over MCP stdio, for Claude Code, Codex and other MCP clients')
     .option('--project <id>', 'Project the tools work in (default: PLUNE_PROJECT, else the token\'s own project)')
     .option('--read-only', 'Offer only the read tools, as for a read token', false)
-    .action(async (options: { project?: string; readOnly: boolean }, command: Command) => {
+    .option(
+      '--disable-tool <name>',
+      'Switch one tool off: not listed, not found by plune_discover_tools, refused when called by its name (repeatable)',
+      (val: string, prev: string[]) => [...prev, val],
+      [] as string[],
+    )
+    .action(async (options: { project?: string; readOnly: boolean; disableTool: string[] }, command: Command) => {
       const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
-      const { handleMcpServe } = await import('./cli/commands/mcp.js');
+      const { handleMcpServe, NoSuchToolError } = await import('./cli/commands/mcp.js');
       const { NotLoggedInError } = await import('./cli/commands/sync.js');
       try {
         await handleMcpServe(
-          { project: options.project, readOnly: options.readOnly },
+          { project: options.project, readOnly: options.readOnly, disableTool: options.disableTool },
           { version: pkg.version },
         );
       } catch (err) {
-        if (err instanceof NotLoggedInError) {
+        if (err instanceof NotLoggedInError || err instanceof NoSuchToolError) {
           process.stderr.write(`plune: ${err.message}\n`);
           process.exitCode = 2;
           return;

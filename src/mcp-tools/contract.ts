@@ -446,14 +446,17 @@ export function isPluneToolName(name: string): name is PluneToolName {
 /**
  * Whether a token of this scope is offered the tool at all. A `read` token gets no writer, and no discovery while every
  * hidden tool writes: there it could only answer with a refusal, which a model reads as a way to write.
+ *
+ * `disabled` names the tools switched off for this caller: none of them is offered, and discovery is offered only while
+ * a hidden tool is left for it to find. A name that is no tool is ignored.
  */
-export function offeredTo(tool: PluneToolDefinition, scope?: 'read' | 'write'): boolean {
-  if (scope !== 'read') return true;
-  if (tool.write) return false;
-  return tool.name !== 'plune_discover_tools' || PLUNE_TOOLS.some((t) => t.visibility !== 'core' && !t.write);
+export function offeredTo(tool: PluneToolDefinition, scope?: 'read' | 'write', disabled: readonly string[] = []): boolean {
+  const refused = (t: PluneToolDefinition) => disabled.includes(t.name) || (scope === 'read' && t.write);
+  if (refused(tool)) return false;
+  return tool.name !== 'plune_discover_tools' || PLUNE_TOOLS.some((t) => t.visibility !== 'core' && !refused(t));
 }
 
-/** The tools a client is shown before it asks for more; for a `read` token, only those it is offered. */
-export function defaultVisibleTools(scope?: 'read' | 'write'): PluneToolName[] {
-  return PLUNE_TOOLS.filter((t) => t.visibility === 'core' && offeredTo(t, scope)).map((t) => t.name);
+/** The tools a client is shown before it asks for more; only those it is offered (the scope, the tools switched off). */
+export function defaultVisibleTools(scope?: 'read' | 'write', disabled: readonly string[] = []): PluneToolName[] {
+  return PLUNE_TOOLS.filter((t) => t.visibility === 'core' && offeredTo(t, scope, disabled)).map((t) => t.name);
 }
