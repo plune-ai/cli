@@ -11,6 +11,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.39.14] - 2026-11-24
+
 ### Added
 
 - **`plune mcp serve --disable-tool <name>` switches single tools off.** The flag can be given several times. A tool that is off is not in `tools/list` in either protocol era, `plune_discover_tools` neither lists nor reveals it (asked for by name, it answers `tool_disabled`), and a call by its name is a tool error (`isError`, code `tool_disabled`) before any request, a `dry_run` included: `` `<tool>` is switched off for this connection. Ask the person who connected Plune to switch it on. `` `plune_discover_tools` leaves the list once every tool it could find is off. A name that is not a Plune tool ends the command with exit `2` and the names of the tools, before the server starts. A host of `@plune-ai/cli/mcp-http` or `@plune-ai/cli/mcp-tools` passes the same list as `disabledTools`; a name there that is no tool is ignored. Switching a tool off hides that tool, not the API route behind it: `plune_api_request` can still reach any route the token may use, so switch it off too, or use `--read-only`, when the point is to stop changes.
