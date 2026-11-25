@@ -83,7 +83,9 @@ export interface RowParams {
    */
   resolveJudge?: (cfg: ProviderConfig) => Provider;
   /** Builds the experimental `jev` judge of an `llm-judge` check; `onCost` is charged to the row. Without it such a check errors the row. */
-  jevJudge?: (cfg: JevJudgeConfig, onCost: (usd: number) => void) => Judge;
+  jevJudge?: (cfg: JevJudgeConfig, onCost: (cost: { cost_usd: number; priced?: boolean }) => void) => Judge;
+  /** Prices a `jev` judge call of so many input tokens, for a dry run. Without it a dry run leaves such a check out of the estimate. */
+  jevCost?: (model: string, inputTokens: number) => { cost_usd: number; priced?: boolean };
 }
 
 /** The code on a row left unanswered by `--cache-strict`; the CLI turns these into its own exit code. */
@@ -189,14 +191,17 @@ export async function assess(
     const judge = (): Judge => {
       if (jev !== undefined) {
         if (p.jevJudge === undefined) throw new Error('this run cannot build the jev judge of an llm-judge check');
-        const inner = p.jevJudge(jev, (usd) => {
-          judgeCost += usd;
+        const inner = p.jevJudge(jev, (c) => {
+          judgeCost += c.cost_usd;
+          if (c.priced === false) judgeUnpriced = true;
         });
         return {
           ask: (q) => inner.ask(q),
-          decide: (q) => {
-            judgedBy = `jev/${jev.model}`;
-            return inner.decide!(q);
+          decide: async (q) => {
+            const answer = await inner.decide!(q);
+            // The version the server answered with, not the one the config asked for.
+            judgedBy = `jev/${answer.model}`;
+            return answer;
           },
         };
       }
@@ -274,7 +279,17 @@ export async function runRow(p: RowParams): Promise<RowResult> {
   if (p.dryRun) {
     const est = estimateUsage(prompt, maxTokens);
     const cost = p.provider.estimateCost(est);
-    return dryRunRow(p.row.vars, { ...est, ...costFields(cost) });
+    // A `jev` judge is priced too: its input is the prompt, the answer (at most max_tokens, four characters a
+    // token) and the criteria. Text judges are not priced on a dry run.
+    let judged = 0;
+    let unpriced = cost.priced === false;
+    for (const a of p.assertions) {
+      if (a.type !== 'llm-judge' || a.provider?.type !== 'jev' || p.jevCost === undefined) continue;
+      const c = p.jevCost(a.provider.model, Math.ceil((prompt.length + maxTokens * 4 + a.criteria.length) / 3));
+      judged += c.cost_usd;
+      if (c.priced === false) unpriced = true;
+    }
+    return dryRunRow(p.row.vars, { ...est, cost_usd: cost.cost_usd + judged, ...(unpriced ? { priced: false } : cost.priced === undefined ? {} : { priced: cost.priced }) });
   }
 
   // An unset temperature keys as 0 (the cache policy version, not this default, retires old entries).
@@ -527,6 +542,8 @@ export interface RunDeps {
   connectMcp?: AgentConnect;
   /** Builds the experimental `jev` judge of an `llm-judge` check. A run without it errors the rows of such a check. */
   jevJudge?: RowParams['jevJudge'];
+  /** Prices a `jev` judge call for a dry run. */
+  jevCost?: RowParams['jevCost'];
 }
 
 function selectEvals(evals: EvalConfig[], only: string[] | undefined): EvalConfig[] {
@@ -701,6 +718,7 @@ export async function runOrchestration(
           provider,
           resolveJudge,
           ...(deps.jevJudge !== undefined ? { jevJudge: deps.jevJudge } : {}),
+          ...(deps.jevCost !== undefined ? { jevCost: deps.jevCost } : {}),
           embedder: deps.embedder,
           cache: deps.cache,
           now: deps.now,

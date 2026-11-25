@@ -95,7 +95,7 @@ describe('llm-judge (ADR-SR02)', () => {
       },
       decide: async (q) => {
         seen.push(q);
-        return p;
+        return { probability: p, model: 'jev-1.14.0' };
       },
     });
 

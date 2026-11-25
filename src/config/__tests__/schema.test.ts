@@ -186,6 +186,11 @@ describe('pluneConfigSchema', () => {
       expect(messages(withJudge({ type: 'jev' })).join('\n')).toContain('provider.model');
     });
 
+    it('takes a full version only: an alias would change the judge under a run', () => {
+      for (const model of ['jev-latest', 'jev-preview', 'jev', 'jev-1.14'])
+        expect(messages(withJudge({ type: 'jev', model })).join('\n')).toContain('full Jev version');
+    });
+
     it('takes none of a text model\'s settings', () => {
       expect(withJudge({ type: 'jev', model: 'jev-1.14.0', temperature: 0 }).success).toBe(false);
       expect(withJudge({ type: 'jev', model: 'jev-1.14.0', max_tokens: 10 }).success).toBe(false);

@@ -92,7 +92,10 @@ const jsonSchemaAssertionSchema = z.object({
 
 const jevJudgeSchema = z.strictObject({
   type: z.literal('jev'),
-  model: z.string().min(1),
+  // A full version, never an alias: `jev-latest` would change the judge under a run without a word.
+  model: z
+    .string()
+    .regex(/^jev-\d+\.\d+\.\d+$/, 'must be a full Jev version such as jev-1.14.0; an alias such as jev-latest is not taken'),
   timeout: providerTimeoutSchema.optional(),
 });
 const partialProviderSchema = providerConfigSchema.partial();

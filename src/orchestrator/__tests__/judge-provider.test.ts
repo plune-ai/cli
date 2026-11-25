@@ -119,8 +119,9 @@ describe('CLI · run · llm-judge provider', () => {
           },
           decide: async (q) => {
             asked.push({ cfg, q });
-            onCost(0.5);
-            return 0.8;
+            onCost({ cost_usd: 0.5, priced: true });
+            // The server answered with a newer patch than the config named.
+            return { probability: 0.8, model: 'jev-1.14.3' };
           },
         }),
       },
@@ -130,9 +131,33 @@ describe('CLI · run · llm-judge provider', () => {
     expect(resolved).toEqual([A]);
     expect(asked).toEqual([{ cfg: { type: 'jev', model: 'jev-1.14.0' }, q: { criteria: 'answers', output: expect.any(String), input: 'Q: q0' } }]);
     const row = r.evals[0]!.rows[0]!;
-    expect(row.assertions[0]).toMatchObject({ type: 'llm-judge', passed: true, score: 0.8, judge_model: 'jev/jev-1.14.0' });
+    expect(row.assertions[0]).toMatchObject({ type: 'llm-judge', passed: true, score: 0.8, judge_model: 'jev/jev-1.14.3' });
     expect(row.usage!.cost_usd).toBeCloseTo(20 * 0.001 + 0.5, 10);
-    expect(parseRunResult(r).evals[0]!.rows[0]!.assertions[0]!.judge_model).toBe('jev/jev-1.14.0');
+    expect(parseRunResult(r).evals[0]!.rows[0]!.assertions[0]!.judge_model).toBe('jev/jev-1.14.3');
+  });
+
+  it('a dry run prices the jev judge with the answer, and says so when the version has no price', async () => {
+    const { calls, deps } = setup();
+    const cfg = config([{ type: 'llm-judge', criteria: 'answers', provider: { type: 'jev', model: 'jev-1.14.0' } }]);
+    const plain = await runOrchestration(config([{ type: 'contains', value: 'x' }]), { dryRun: true }, deps);
+    const seen: Array<[string, number]> = [];
+    const dry = await runOrchestration(cfg, { dryRun: true }, {
+      ...deps,
+      jevCost: (model, tokens) => {
+        seen.push([model, tokens]);
+        return { cost_usd: 0.25, priced: true };
+      },
+    });
+    expect(calls).toEqual([]);
+    // 'Q: q0' is 5 characters, the answer at most 1024 tokens of four characters, the criteria 7.
+    expect(seen).toEqual([['jev-1.14.0', Math.ceil((5 + 1024 * 4 + 7) / 3)]]);
+    expect(dry.evals[0]!.rows[0]!.usage!.cost_usd).toBeCloseTo(plain.evals[0]!.rows[0]!.usage!.cost_usd + 0.25, 10);
+
+    const unpriced = await runOrchestration(cfg, { dryRun: true }, { ...deps, jevCost: () => ({ cost_usd: 0, priced: false }) });
+    expect(unpriced.evals[0]!.rows[0]!.usage!.priced).toBe(false);
+    // A caller with no price function leaves the judge out, as before.
+    const without = await runOrchestration(cfg, { dryRun: true }, deps);
+    expect(without.evals[0]!.rows[0]!.usage!.cost_usd).toBeCloseTo(plain.evals[0]!.rows[0]!.usage!.cost_usd, 10);
   });
 
   it('a run that cannot build the jev judge errors the row, and the eval model does not judge instead', async () => {

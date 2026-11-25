@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   JEV_BASE_URL,
+  jevBaseUrl,
+  jevCost,
   JEV_MAX_STATE_CHARS,
   jevState,
   makeJevJudge,
@@ -23,6 +25,7 @@ const answer = (p: number, tokens?: number) =>
 function setup(replies: Array<Response | Error>, env: NodeJS.ProcessEnv = { TYPESAFE_API_KEY: 'key-1' }) {
   const sent: Array<{ url: string; init: RequestInit }> = [];
   const costs: number[] = [];
+  const priced: Array<boolean | undefined> = [];
   const fetchFn = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     sent.push({ url: String(url), init: init! });
     const next = replies.shift();
@@ -30,8 +33,15 @@ function setup(replies: Array<Response | Error>, env: NodeJS.ProcessEnv = { TYPE
     if (next instanceof Error) throw next;
     return next;
   }) as unknown as typeof fetch;
-  const judge = makeJevJudge(cfg, { env, fetchFn, onCost: (usd) => costs.push(usd) });
-  return { judge, sent, costs };
+  const judge = makeJevJudge(cfg, {
+    env,
+    fetchFn,
+    onCost: (c) => {
+      costs.push(c.cost_usd);
+      priced.push(c.priced);
+    },
+  });
+  return { judge, sent, costs, priced };
 }
 
 const Q = { criteria: 'is correct', output: 'Paris', input: 'Capital of France?' };
@@ -46,7 +56,7 @@ describe('the experimental jev judge', () => {
 
   it('asks one yes-or-no question of the named model at the fixed address, with its own key', async () => {
     const { judge, sent, costs } = setup([answer(0.83, 1000)]);
-    expect(await judge.decide!(Q)).toBe(0.83);
+    expect(await judge.decide!(Q)).toEqual({ probability: 0.83, model: 'jev-1.14.0' });
     expect(sent).toHaveLength(1);
     expect(sent[0]!.url).toBe(`${JEV_BASE_URL}/v1/systemone`);
     expect((sent[0]!.init.headers as Record<string, string>)['authorization']).toBe('Bearer key-1');
@@ -84,7 +94,7 @@ describe('the experimental jev judge', () => {
 
   it('retries once on 429 and on 5xx, and no more', async () => {
     const once = setup([new Response('', { status: 429 }), answer(0.2, 10)]);
-    expect(await once.judge.decide!(Q)).toBe(0.2);
+    expect((await once.judge.decide!(Q)).probability).toBe(0.2);
     expect(once.sent).toHaveLength(2);
 
     const twice = setup([new Response('', { status: 503 }), new Response('', { status: 503 }), answer(0.2)]);
@@ -140,6 +150,50 @@ describe('the experimental jev judge', () => {
     expect(spy).toHaveBeenCalledTimes(1);
     expect(String(spy.mock.calls[0]![0])).toContain('experimental');
     spy.mockRestore();
+  });
+
+  it('names the version the server answered with, and prices it by that version', async () => {
+    const other = new Response(JSON.stringify({ model: 'jev-1.15.2', answers: { q: { type: 'noul', noul: 0.6 } }, usage: { input_tokens: 1000 } }), { status: 200 });
+    const { judge, costs, priced } = setup([other]);
+    expect(await judge.decide!(Q)).toEqual({ probability: 0.6, model: 'jev-1.15.2' });
+    // No price for that version: unpriced, said so, never billed at another version's rate.
+    expect(costs).toEqual([0]);
+    expect(priced).toEqual([false]);
+
+    const silent = setup([new Response(JSON.stringify({ answers: { q: { type: 'noul', noul: 0.6 } } }), { status: 200 })]);
+    expect((await silent.judge.decide!(Q)).model).toBe('jev-1.14.0');
+  });
+
+  it('prices by the built-in table, and a pricing entry of the config wins', () => {
+    expect(jevCost('jev-1.14.0', 1_000_000)).toEqual({ cost_usd: expect.closeTo(0.042, 10), priced: true });
+    expect(jevCost('jev-1.14.0', 1000, { 'jev-1.14.0': { input_per_1k_usd: 1, output_per_1k_usd: 9 } })).toEqual({ cost_usd: 1, priced: true });
+  });
+
+  describe('the address', () => {
+    it('is the default with nothing set, and takes an https address under typesafe.ai', () => {
+      expect(jevBaseUrl({})).toBe(JEV_BASE_URL);
+      expect(jevBaseUrl({ TYPESAFE_BASE_URL: 'https://eu.api.typesafe.ai/' })).toBe('https://eu.api.typesafe.ai');
+      expect(jevBaseUrl({ PLUNE_JEV_BASE_URL: 'https://typesafe.ai' })).toBe('https://typesafe.ai');
+    });
+
+    it('refuses TYPESAFE_BASE_URL elsewhere and says how to set the address for plune alone', () => {
+      for (const value of ['http://localhost:8080', 'https://typesafe.ai.evil.example', 'http://api.typesafe.ai', 'not a url'])
+        expect(() => jevBaseUrl({ TYPESAFE_BASE_URL: value })).toThrow('Set PLUNE_JEV_BASE_URL=https://api.typesafe.ai');
+    });
+
+    it('lets PLUNE_JEV_BASE_URL win over TYPESAFE_BASE_URL, and refuses it elsewhere too', () => {
+      expect(jevBaseUrl({ TYPESAFE_BASE_URL: 'http://localhost:8080', PLUNE_JEV_BASE_URL: 'https://api.typesafe.ai' })).toBe(JEV_BASE_URL);
+      expect(() => jevBaseUrl({ PLUNE_JEV_BASE_URL: 'http://localhost:8080' })).toThrow('Unset it or set it to');
+    });
+
+    it('sends nothing when the address is refused, and asks the address that is set', async () => {
+      const local = setup([], { TYPESAFE_API_KEY: 'key-1', TYPESAFE_BASE_URL: 'http://localhost:8080' });
+      await expect(local.judge.decide!(Q)).rejects.toThrow('typesafe.ai');
+      expect(local.sent).toEqual([]);
+      const eu = setup([answer(0.5, 1)], { TYPESAFE_API_KEY: 'key-1', PLUNE_JEV_BASE_URL: 'https://eu.api.typesafe.ai' });
+      await eu.judge.decide!(Q);
+      expect(eu.sent[0]!.url).toBe('https://eu.api.typesafe.ai/v1/systemone');
+    });
   });
 
   it('cannot answer a free-text prompt: the other judged checks do not get it by accident', async () => {

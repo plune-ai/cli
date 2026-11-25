@@ -144,7 +144,7 @@ The judge is sent three things: the `criteria`, the input (the eval's `prompt` o
 row's variables filled in), and the model's output. It is told that the criteria are about the output given
 that input, so a criterion such as "the answer is correct" can be judged against the question. In an eval
 with `mcp`, the input is that prompt alone: the judge is not sent the tool calls or their results, only the
-final answer. The prompt's tokens are part of each judge call, and `--dry-run` does not price judge calls.
+final answer. The prompt's tokens are part of each judge call, and `--dry-run` does not price the calls of a text judge.
 
 `{{expected}}` and `{{vars.X}}` work in `criteria`, as in any string parameter. Use them to give the judge
 what the prompt does not hold, such as a reference answer:
@@ -191,7 +191,7 @@ a text model. It is **experimental**: the option may change or go away, and `plu
 | Field | Required | Meaning |
 |-------|----------|---------|
 | `type` | yes | `jev`. |
-| `model` | yes | The Jev version, named in full. None is picked for you. |
+| `model` | yes | The Jev version in full, such as `jev-1.14.0`. None is picked for you, and an alias such as `jev-latest` is a config error: it would change the judge under a run without a word. |
 | `timeout` | no | Milliseconds for one request (default `30000`). |
 
 How it differs from a text judge:
@@ -200,15 +200,23 @@ How it differs from a text judge:
   answers with a probability. That probability is the check's `score`, `pass_threshold` (default `0.5`) applies
   to it, and the `reason` says that this judge gives none. The probability is not a calibrated confidence: in our
   runs Jev's wrong verdicts were as sure as its right ones, so raising the threshold does not filter them out.
-- **Where the text goes.** The request, the answer and the criterion are sent to `api.typesafe.ai`, and to no
-  other address. The key is read from `TYPESAFE_API_KEY`; without it the row errors and nothing is sent.
+- **Where the text goes.** The request, the answer and the criterion are sent to `https://api.typesafe.ai`. The
+  key is read from `TYPESAFE_API_KEY`; without it the row errors and nothing is sent. Another address is taken
+  from `PLUNE_JEV_BASE_URL`, or else `TYPESAFE_BASE_URL`, only if it is https under `typesafe.ai`. Anything else
+  ends the run with exit code `2` before a model is called: a `TYPESAFE_BASE_URL` set for a local server of
+  another model would have that model judged and reported as Jev. Set `PLUNE_JEV_BASE_URL=https://api.typesafe.ai`
+  to keep such a variable for your other tools.
+- **The version that judged.** `judge_model` in the run result is `jev/<version>` with the version the server
+  answered with, which is the one that judged.
 - **A size limit.** Request, answer and criterion together may be 16,000 characters. A longer check errors the
   row; nothing is cut and nothing is sent.
 - **A judge only.** `jev` cannot be the `provider` of a config or of an eval, takes none of a text model's
   settings (`temperature`, `max_tokens`), and judges `llm-judge` alone: `faithfulness`, `answer-relevance` and
   `context-precision` keep the eval's model.
-- **Cost.** Priced from the tokens Jev reports at USD 0.042 per million input tokens (indicative, read on
-  2026-11-24) and added to the row like any judge call. One retry on `429` and `5xx`.
+- **Cost.** Priced from the input tokens Jev reports and added to the row like any judge call. The built-in
+  price of `jev-1.14.0` is USD 0.042 per million input tokens (indicative, read on 2026-11-24); another version
+  needs a `pricing` entry in `plune.yaml`, or its cost is reported as unpriced. `--dry-run` includes an estimate
+  of this judge, taking the answer at `max_tokens`. One retry on `429` and `5xx`.
 
 When it fits, by our measurements of `jev-1.14.0` in November 2026 (kappa against labels, 95% interval):
 
