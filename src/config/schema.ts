@@ -94,8 +94,9 @@ const jsonSchemaAssertionSchema = z.object({
 // A broken marker or check inside `expected` is refused here, with its JSON path: before any model call.
 // `expected` is taken as it was parsed and checked by `validateExpected`, not by `z.json()`: that one drops a
 // key `__proto__` without a word, and the check would then pass on an answer that has no such key.
+// Strict, unlike the older types: a mistyped `mode` would otherwise leave the check on `exact` without a word.
 const jsonVerifyAssertionSchema = z
-  .object({
+  .strictObject({
     type: z.literal('json-verify'),
     expected: z.any(),
     mode: z.enum(COMPARE_MODES).optional(),

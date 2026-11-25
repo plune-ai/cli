@@ -72,6 +72,12 @@ describe('json-verify · functions · which strings are checks', () => {
     ]);
   });
 
+  it('numbers are written as JSON writes them', () => {
+    expect(parseExpectedString('@oneOf(0, -0, 10, 0.5, -1.25e-3, 1E2)')).toEqual({
+      checks: [expect.objectContaining({ args: [0, -0, 10, 0.5, -0.00125, 100] })],
+    });
+  });
+
   it('arguments: numbers, true, false, null and strings in either quote', () => {
     const parsed = parseExpectedString(`@oneOf( 1, -2.5 ,1e3,true,false,null,"a, b)" , 'it''s' )`.replace("''", "\\'"));
     expect(parsed).toEqual({
@@ -102,6 +108,11 @@ describe('json-verify · functions · a broken check is an error, never a litera
     ['@maxLength(1.5)', '@maxLength takes one whole number, 0 or more; got @maxLength(1.5)'],
     ['@oneOf()', '@oneOf takes at least one value; got @oneOf()'],
     ['@gt(abc)', '@gt: argument 1 must be a number, true, false, null or a string in quotes, got "abc" at character 5 of "@gt(abc)"'],
+    ['@oneOf(01)', '@oneOf: argument 1 must be a number, true, false, null or a string in quotes, got "01" at character 8 of "@oneOf(01)"'],
+    ['@oneOf(1, -01.5)', '@oneOf: argument 2 must be a number, true, false, null or a string in quotes, got "-01.5" at character 11 of "@oneOf(1, -01.5)"'],
+    ['@gt(.5)', '@gt: argument 1 must be a number, true, false, null or a string in quotes, got ".5" at character 5 of "@gt(.5)"'],
+    ['@gt(1e999)', '@gt: argument 1 is not a finite number, got "1e999" at character 5 of "@gt(1e999)"'],
+    ['@lt(-1e999)', '@lt: argument 1 is not a finite number, got "-1e999" at character 5 of "@lt(-1e999)"'],
     ['@gt(1,)', '@gt: argument 2 must be a number, true, false, null or a string in quotes, got "" at character 7 of "@gt(1,)"'],
     ['@gt(1', '@gt: expected "," or ")" at character 6 of "@gt(1"'],
     ['@gt(1 2)', '@gt: expected "," or ")" at character 7 of "@gt(1 2)"'],

@@ -121,7 +121,8 @@ export class CheckSyntaxError extends Error {
 }
 
 const CALL_START = /^@([A-Za-z_]\w*)(\()?/;
-const BARE_ARG = /^(?:-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)$/;
+// A number as JSON writes it: no leading zero, no bare dot.
+const BARE_ARG = /^(?:-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)$/;
 
 /** The arguments from just after `(`; returns them and the index just after `)`. */
 function parseArgs(s: string, from: number, name: string): [CheckArg[], number] {
@@ -154,7 +155,10 @@ function parseArgs(s: string, from: number, name: string): [CheckArg[], number] 
           `argument ${args.length + 1} must be a number, true, false, null or a string in quotes, got ${JSON.stringify(token)}`,
           start,
         );
-      args.push(JSON.parse(token) as CheckArg);
+      const value = JSON.parse(token) as CheckArg;
+      if (typeof value === 'number' && !Number.isFinite(value))
+        throw bad(`argument ${args.length + 1} is not a finite number, got ${JSON.stringify(token)}`, start);
+      args.push(value);
     }
     skipSpaces();
     if (s[i] === ')') return [args, i + 1];

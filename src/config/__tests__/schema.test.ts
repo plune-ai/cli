@@ -232,6 +232,14 @@ describe('pluneConfigSchema', () => {
       ]);
     });
 
+    it('refuses a key it does not have, so a mistyped mode is not a silent exact', () => {
+      expect(issuesOf({ type: 'json-verify', expected: { a: 1 }, modee: 'contains' })).toEqual([
+        'evals.0.assertions.0: Unrecognized key: "modee"',
+      ]);
+      // The other types still ignore a key they do not have.
+      expect(issuesOf({ type: 'json-schema', schema: {}, modee: 'contains' })).toEqual([]);
+    });
+
     it('is checked in defaults.assertions too', () => {
       const result = pluneConfigSchema.safeParse({
         ...validBase,

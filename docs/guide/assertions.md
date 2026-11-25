@@ -100,7 +100,12 @@ pattern, which number must be over zero, and leave the rest free.
 |-------|----------|---------|---------|
 | `expected` | yes | — | Any JSON value: what the answer is compared with. Its strings are not templates: `{{ }}` is not replaced in it. |
 | `mode` | no | `exact` | `exact`: the same keys and values, arrays in order. `unordered`: as `exact`, but the elements of an array may come in any order. `contains`: an object has the expected keys and may have more; an array has a match for every expected element and may have more, in any order. |
-| `extract` | no | `auto` | As in [`json-schema`](#json-schema). `auto` finds an object or an array; an answer that is a bare number or string needs `strict`. |
+| `extract` | no | `auto` | `strict`: the **whole** output is the JSON. `auto`: the first ```` ``` ```` block if what it holds is JSON; otherwise the first balanced `{…}` or `[…]` in the text that parses as JSON. That is the first one, not the largest: in `As noted in [1], the result is {"a": 1}` it is `[1]`. `auto` never finds a bare number or string. |
+
+A key the type does not have (`modee:`) is a config error, so a mistyped option cannot leave the check on its
+default. When the prompt asks for JSON only, use `extract: strict`: prose around the JSON then fails the check
+instead of being searched. `auto` is for answers that wrap the JSON in a sentence or a fenced block; it reads
+text with tens of thousands of unclosed brackets slowly (seconds), as `json-schema` does.
 
 An answer with these fields, whatever else it holds:
 
@@ -117,6 +122,7 @@ A classification with exactly these three keys, where only the list is free in i
 
 ```yaml
 - type: json-verify
+  extract: strict
   expected:
     label: '@oneOf("bug", "question", "feature")'
     confidence: '@isNumber() @gt(0.5)'
@@ -199,6 +205,11 @@ may make 2,000,000 such tries over all its arrays, nested ones included; arrays 
 take one try per element. Past the limit, or when more than 1,000 elements in a row would each have to give
 up their place for one, the check fails with the single reason `too large`, and lists no other difference.
 `exact` has no such limit.
+
+**Numbers.** A number is compared as JavaScript reads it, a 64-bit float: integers past 2^53 that differ only
+in their last digits are equal (`9007199254740993` and `9007199254740992`), and so are `1` and `1.0`. Compare
+such an id as a string. An argument of a check is a number as JSON writes it (`0.5`, not `.5` or `01`), and a
+number too large to be finite (`1e999`) is a config error.
 
 ---
 

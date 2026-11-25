@@ -63,6 +63,18 @@ describe('CLI · run · json-verify', () => {
     });
   });
 
+  it('auto takes the first JSON in the text, which in prose can be a citation; strict refuses the prose', async () => {
+    const output = 'As noted in [1], the result is {"a": 1}';
+    expect(await jsonVerify.run(ctx(output, { a: 1 }))).toEqual({
+      passed: false,
+      reason: '1 mismatch\n    $: type differs: expected object, got array\n      expected: {"a":1}\n      actual:   [1]',
+    });
+    expect((await jsonVerify.run(ctx(output, { a: 1 }, { extract: 'strict' }))).reason).toBe(
+      'output is not valid JSON (extract mode: strict)',
+    );
+    expect((await jsonVerify.run(ctx('{"a": 1}', { a: 1 }, { extract: 'strict' }))).passed).toBe(true);
+  });
+
   it('an answer that is not JSON is a failed check with a reason, not an error', async () => {
     expect(await jsonVerify.run(ctx('I cannot help with that.', { a: 1 }))).toEqual({
       passed: false,
