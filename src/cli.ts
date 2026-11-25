@@ -27,14 +27,19 @@ const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-
   version: string;
 };
 
-function toFormat(s: string): Exclude<ReportFormat, 'junit'> {
-  return s === 'json' || s === 'markdown' ? s : 'console';
-}
+/** What `diff` writes, and what `run` and `report` write: `junit` too, which a diff has no form of. */
+const DIFF_FORMATS = ['console', 'json', 'markdown'] as const;
+const RUN_FORMATS = [...DIFF_FORMATS, 'junit'] as const;
 
-/** The formats of `run` and `report`: `junit` too, which `diff` does not write. */
-const RUN_FORMATS = 'console | json | markdown | junit';
-function toRunFormat(s: string): ReportFormat {
-  return s === 'junit' ? s : toFormat(s);
+/**
+ * The `--format` typed, when the command writes it. Anything else is a usage error: exit 2 with the accepted
+ * formats, before the command does any work. It used to be rendered as console text with exit 0.
+ */
+function formatOrExit<T extends ReportFormat>(value: string, accepted: readonly T[]): T | undefined {
+  if ((accepted as readonly string[]).includes(value)) return value as T;
+  process.stderr.write(`Unknown --format "${value}". Use ${accepted.join(' | ')}.\n`);
+  process.exit(2);
+  return undefined;
 }
 
 function shouldColor(outputPath: string | undefined): boolean {
@@ -190,7 +195,7 @@ export function createProgram(): Command {
       (val: string, prev: string[]) => [...prev, val],
       [] as string[],
     )
-    .option('--format <fmt>', RUN_FORMATS, 'console')
+    .option('--format <fmt>', RUN_FORMATS.join(' | '), 'console')
     .option('-o, --output <path>', 'Write the report to a file instead of stdout')
     .action(
       async (
@@ -229,6 +234,8 @@ export function createProgram(): Command {
           process.exit(2);
           return;
         }
+        const format = formatOrExit(options.format, RUN_FORMATS);
+        if (format === undefined) return;
         // Lazy-load the heavy run pipeline only now that `run` is actually executing.
         const [
           { handleRun },
@@ -283,7 +290,7 @@ export function createProgram(): Command {
           if (options.only.length > 0 && result.evals.length === 0) {
             process.stderr.write('No evals matched the selector.\n');
           }
-          const text = renderReport(result, toRunFormat(options.format), {
+          const text = renderReport(result, format, {
             color: globals.color !== false && shouldColor(options.output),
           });
           writeReport(text, options.output);
@@ -611,7 +618,7 @@ export function createProgram(): Command {
   program
     .command('report')
     .description('Render the most recent run in a chosen format')
-    .option('--format <fmt>', RUN_FORMATS, 'console')
+    .option('--format <fmt>', RUN_FORMATS.join(' | '), 'console')
     .option('-o, --output <path>', 'Write the report to a file instead of stdout')
     .action(async (options: { format: string; output?: string }, command: Command) => {
       const globals = command.optsWithGlobals() as {
@@ -619,6 +626,8 @@ export function createProgram(): Command {
         config?: string;
         verbose?: boolean;
       };
+      const format = formatOrExit(options.format, RUN_FORMATS);
+      if (format === undefined) return;
       const [{ handleReport, ReportNotFoundError }, { renderReport }] = await Promise.all([
         import('./cli/commands/report.js'),
         import('./reporters/index.js'),
@@ -627,7 +636,7 @@ export function createProgram(): Command {
       const cwd = globals.config !== undefined ? dirname(resolve(globals.config)) : process.cwd();
       try {
         const result = handleReport({ cwd });
-        const text = renderReport(result, toRunFormat(options.format), {
+        const text = renderReport(result, format, {
           color: globals.color !== false && shouldColor(options.output),
         });
         writeReport(text, options.output);
@@ -646,7 +655,7 @@ export function createProgram(): Command {
     .description('Compare two `plune run --format json` outputs and report regressions')
     .argument('<baseline>', 'Path to the baseline run JSON (e.g. from main)')
     .argument('<current>', 'Path to the current run JSON (e.g. from the PR)')
-    .option('--format <fmt>', 'console | json | markdown', 'console')
+    .option('--format <fmt>', DIFF_FORMATS.join(' | '), 'console')
     .option(
       '--fail-on-regression',
       'Exit 1 when a pass→fail regression is detected, 3 when none is but an eval was not measured',
@@ -675,6 +684,8 @@ export function createProgram(): Command {
         command: Command,
       ) => {
         const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
+        const format = formatOrExit(options.format, DIFF_FORMATS);
+        if (format === undefined) return;
         const [{ diffFiles, DiffInputError }, { renderDiff }] = await Promise.all([
           import('./cli/commands/diff.js'),
           import('./reporters/diff.js'),
@@ -682,7 +693,7 @@ export function createProgram(): Command {
         try {
           const { format: _format, output: _output, ...gateFlags } = options;
           const { diff, current: run } = diffFiles({ baselinePath: baseline, currentPath: current, ...gateFlags });
-          writeReport(renderDiff(diff, toFormat(options.format), run), options.output);
+          writeReport(renderDiff(diff, format, run), options.output);
           // Gating is opt-in (AC-4): the diff is always reported, and without --fail-on-regression or a gate
           // limit the exit is 0. With them: 1 for a measured failure (a regression first of all), 3 when
           // something was not measured, so there is no verdict and the run is not green either.

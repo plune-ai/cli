@@ -174,7 +174,7 @@ models it covers.
 |------|---------|
 | `0` | Every row passed. Also a `--dry-run`, a run where `--only` matched no eval, and a run whose rows that did not pass are all `blocked` or `skipped` (never judged). |
 | `1` | At least one row **failed** an assertion, whether or not other rows errored. Also an error the CLI did not expect (it says «This one is on us»). |
-| `2` | The run **could not start or could not finish**: a configuration or usage error (no `plune.yaml`, YAML that does not parse, a config that does not validate, a missing provider key, an unknown prompt variable, `--runs` out of range, a bad `--tool-description`, flags that do not go together, an option `run` does not have, an option given without its value, a word after `run` that is no subcommand, a file or folder that cannot be read or written), **or** a run where rows **errored** (a provider outage) and none failed. |
+| `2` | The run **could not start or could not finish**: a configuration or usage error (no `plune.yaml`, YAML that does not parse, a config that does not validate, a missing provider key, an unknown prompt variable, `--runs` out of range, a bad `--tool-description`, flags that do not go together, an option `run` does not have, an option given without its value, a word after `run` that is no subcommand, a `--format` that is not one of the four, a file or folder that cannot be read or written), **or** a run where rows **errored** (a provider outage) and none failed. |
 | `5` | `--cache-strict` found rows with no cache entry. It wins over `1` and `2`: the run is incomplete. |
 
 `--bail` and `--format` do not change the code. `plune run` returns no other code.
@@ -213,7 +213,7 @@ With any of these flags it sets:
 |------|---------|
 | `0` | Every gate was measured and none failed (a failure lifted by a waiver does not count). |
 | `1` | A measured failure: a regression, or a gate over its limit. It wins over `3`. |
-| `2` | An input file is missing or is not a `plune run --format json` result, a limit is not a number of 0 or more, or the waivers file is malformed. |
+| `2` | An input file is missing or is not a `plune run --format json` result, a limit is not a number of 0 or more, the waivers file is malformed, or `--format` is not `console`, `json` or `markdown`. |
 | `3` | Something was **not measured**: an eval errored in the current run, none of its rows was judged, or it errored in the baseline and fails now; or a gate's value is missing. Re-run, or record what is missing. |
 
 **Cost.** The cost of a run is what it spent plus what its cache hits saved (`cost_usd` plus
@@ -423,7 +423,7 @@ plune report --format json -o run.json
 | Exit | Meaning |
 |------|---------|
 | `0` | Rendered the saved run. |
-| `2` | No saved run yet (run `plune run` first), or the saved file is unreadable/malformed. |
+| `2` | No saved run yet (run `plune run` first), the saved file is unreadable/malformed, or `--format` is not `console`, `json`, `markdown` or `junit`. |
 
 ## `plune judge-check`
 
