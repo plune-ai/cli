@@ -10,8 +10,11 @@ import * as path from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createProgram } from '../../../cli.js';
 import { guardNetwork, type NetGuard } from '../../../mock/__tests__/net-guard.js';
-import type { Outbound } from '../../../mock/record.js';
+import { RECORDING_NOTES, type Outbound } from '../../../mock/record.js';
 import { handleMock, MockUsageError, type MockFlags } from '../mock.js';
+
+// The three lines about masking a recording starts with, as sentences.
+const MASKING_SENTENCES = RECORDING_NOTES.slice(1, 4).map((line) => line.slice(2));
 
 const KEY = 'sk-test-9f8e7d6c5b4a3210';
 // What is left of the key in any encoding of it.
@@ -162,7 +165,7 @@ describe('CLI · mock · record then replay', () => {
       expect(lower).not.toContain(BODY_KEY);
       expect(lower).not.toContain(Buffer.from(BODY_KEY).toString('base64').toLowerCase());
     }
-    expect(printed).toMatch(/not found: a value under 8 characters/);
+    for (const sentence of MASKING_SENTENCES) expect(printed).toContain(`${sentence}\n`);
     expect(printed).toContain('recorded: POST 200\n');
     expect(printed).toContain('Stopped. Exchanges recorded: 1.\n');
     expect(printed).toMatch(/may hold personal or confidential text/);
@@ -310,13 +313,13 @@ describe('CLI · mock · help', () => {
       /prompts and the answers as they were sent and received: they may hold personal or confidential text/,
     );
     expect(help).toMatch(/never uploaded/);
-    // The limits of the masking, one plain sentence each.
-    expect(help).toContain(
-      'A credential value under 8 characters is not searched for and stays as it came.',
-    );
-    expect(help).toContain(
-      'A credential value in a form other than plain, URL-encoded, JSON-escaped, base64 or hex is not found and stays as it came.',
-    );
+    // What the masking does and where it stops, in the words the file itself starts with.
+    for (const sentence of MASKING_SENTENCES) expect(help).toContain(sentence);
+    expect(MASKING_SENTENCES).toEqual([
+      "A field of a JSON body whose name is a secret's holds [masked] in place of its value.",
+      'A credential value is also replaced wherever it is found, if it came in a header, the query or a cookie and has 8 characters or more, or in a body field and has 16 or more with no whitespace.',
+      'Not searched for: a value of letters only, a value over 4096 characters, and a value in a form other than plain, URL-encoded, JSON-escaped, base64 or hex.',
+    ]);
     expect(help).toMatch(/Redirects are passed back, not followed/);
     expect(help).toMatch(/Timing is not recorded/);
   });

@@ -5,7 +5,7 @@
 // Everything the command prints goes through `io`, so a test can read every byte of it.
 
 import { loadStubFile, StubFileError } from '../../mock/schema.js';
-import { MIN_SECRET_LENGTH, RecordError, startRecorder, type Outbound } from '../../mock/record.js';
+import { RECORDING_NOTES, RecordError, startRecorder, type Outbound } from '../../mock/record.js';
 import { start } from '../../mock/server.js';
 import * as path from 'node:path';
 
@@ -82,7 +82,10 @@ export async function handleMock(flags: MockFlags, io: MockIo): Promise<number> 
     io.stdout(
       `Recording at ${recorder.url}: point the base URL of the client there.\n` +
         'Prompts and answers are stored as they are and may hold personal or confidential text. The file stays on this machine.\n' +
-        `A credential the request carried is masked wherever its value is found; not found: a value under ${MIN_SECRET_LENGTH} characters, and a value in a form other than plain, URL-encoded, JSON-escaped, base64 or hex.\n` +
+        // What the masking does and where it stops, in the words the file starts with.
+        RECORDING_NOTES.slice(1, 4)
+          .map((line) => `${line.slice(2)}\n`)
+          .join('') +
         'Ctrl+C stops.\n',
     );
     io.onReady?.(recorder.url);

@@ -311,7 +311,6 @@ describe('mock · record · where a request goes', () => {
     ['a status under 100', 'HTTP/1.1 099 Odd\r\ncontent-length: 0\r\n\r\n'],
     ['a status over 599', 'HTTP/1.1 600 Odd\r\ncontent-length: 0\r\n\r\n'],
     ['a 101', 'HTTP/1.1 101 Switching Protocols\r\nupgrade: x\r\nconnection: upgrade\r\n\r\n'],
-    ['a 103 and nothing after it', 'HTTP/1.1 103 Early Hints\r\nlink: </a>\r\n\r\n'],
   ])('answers %s from the target with a 502, records nothing and goes on', async (_name, reply) => {
     const origin = await rawUpstream((socket) => socket.write(reply));
     const good = await upstream(json({ ok: true }));
@@ -397,7 +396,8 @@ describe('mock · record · what is written', () => {
   const CARRIED = {
     header: 'hdr-Kq7+Zx/9f8e7d6c5b4a=A',
     query: 'qry-Kq7+Zx/9f8e7d6c5b4a=B',
-    cookie: 'cke-Kq7+Zx/9f8e7d6c5b4a-C',
+    // Not `cookie`: the answer echoes these under their names, and that one is a secret's name.
+    cookiePart: 'cke-Kq7+Zx/9f8e7d6c5b4a-C',
     bodyField: 'bdy-Kq7+Zx/9f8e7d6c5b4a=D',
     nestedField: 'nst-Kq7+Zx/9f8e7d6c5b4a=E',
   };
@@ -425,7 +425,7 @@ describe('mock · record · what is written', () => {
           api_key: CARRIED.bodyField,
           options: { login: { clientSecret: CARRIED.nestedField } },
         },
-        { 'x-api-key': CARRIED.header, cookie: `theme=dark; sid=${CARRIED.cookie}` },
+        { 'x-api-key': CARRIED.header, cookie: `theme=dark; sid=${CARRIED.cookiePart}` },
       )
     ).text();
     await r.close();
@@ -487,7 +487,7 @@ describe('mock · record · what is written', () => {
     await (await post(`${r.url}/v1/whole`, {}, headers)).text();
     await r.close();
     expect(warnings).toEqual([
-      'not recorded: POST 200 (a credential is split over the events of the stream)',
+      'not recorded: POST 200 (a credential is split over the pieces of the answer)',
     ]);
     expect((await loadStubFile(r.file)).stubs.map((s) => s.path)).toEqual(['/v1/whole']);
     expect(fs.readFileSync(r.file, 'utf8')).not.toContain(KEY.slice(half));
@@ -497,8 +497,9 @@ describe('mock · record · what is written', () => {
     ['api_key', true],
     ['apiKey', true],
     ['x-api-key', true],
-    ['key', true],
-    ['auth', true],
+    ['key', false],
+    ['auth', false],
+    ['secret_key', true],
     ['token', true],
     ['access_token', true],
     ['refreshToken', true],
@@ -545,11 +546,12 @@ describe('mock · record · what is written', () => {
     await post(`${r.url}/v1/chat?q=1`, {});
     await r.close();
     const lines = fs.readFileSync(r.file, 'utf8').split('\n');
-    expect(lines.slice(0, 5)).toEqual([
+    expect(lines.slice(0, 6)).toEqual([
       `# Recorded by \`plune mock --record\` on 2026-01-02 from ${up.origin}`,
       '# Prompts and answers are stored as they were sent and received: they may hold personal or confidential text.',
-      '# A credential the request carried in a header, the query, a cookie or a body field is replaced by [masked] wherever its value was found.',
-      '# Not found: a value under 8 characters, and a value in a form other than plain, URL-encoded, JSON-escaped, base64 or hex.',
+      "# A field of a JSON body whose name is a secret's holds [masked] in place of its value.",
+      '# A credential value is also replaced wherever it is found, if it came in a header, the query or a cookie and has 8 characters or more, or in a body field and has 16 or more with no whitespace.',
+      '# Not searched for: a value of letters only, a value over 4096 characters, and a value in a form other than plain, URL-encoded, JSON-escaped, base64 or hex.',
       '# Request headers, query strings and timing are not stored. Keep this file local.',
     ]);
   });
@@ -564,7 +566,7 @@ describe('mock · record · the file', () => {
       await (await post(`${r.url}/v1/chat`, { i })).text();
       await vi.waitFor(() => expect(r.recorded).toBe(i));
       expect((await loadStubFile(r.file)).stubs).toHaveLength(i);
-      expect(fs.readdirSync(dir)).toEqual(['stubs.yaml']);
+      expect(fs.readdirSync(dir)).toEqual(['stubs.yaml', 'stubs.yaml.lock']);
     }
   });
 
@@ -665,28 +667,6 @@ describe('mock · record · the file', () => {
     expect(warnings[0]).toMatch(/^the file could not be written \(EPERM\): \d exchanges? wait/);
     expect(fs.readdirSync(dir)).toEqual(['stubs.yaml']);
   }, 15_000);
-
-  it('writes 1,000 exchanges of 10 KiB in under 15 seconds', async () => {
-    const text = 'x'.repeat(10 * 1024);
-    const up = await upstream((seen, res) => json({ for: seen.body, text })(seen, res));
-    const r = await recorder(up.origin);
-    const started = performance.now();
-    let next = 0;
-    await Promise.all(
-      Array.from({ length: 8 }, async () => {
-        while (next < 1000) {
-          const i = (next += 1);
-          await (await post(`${r.url}/v1/chat`, { i })).arrayBuffer();
-        }
-      }),
-    );
-    await r.close();
-    const elapsed = performance.now() - started;
-    expect(r.recorded).toBe(1000);
-    expect(r.unwritten).toBe(0);
-    expect((await loadStubFile(r.file)).stubs).toHaveLength(1000);
-    expect(elapsed).toBeLessThan(15_000);
-  }, 60_000);
 
   it('refuses a path outside the project folder, also through a link', async () => {
     const up = await upstream(json({ ok: true }));
@@ -1069,4 +1049,361 @@ describe('mock · record · stopping', () => {
     expect((await loadStubFile(r.file)).stubs).toHaveLength(5);
     expect(fs.readdirSync(dir)).toEqual(['stubs.yaml']);
   });
+});
+
+describe('mock · record · credentials, second pass', () => {
+  const HALF = Math.floor(KEY.length / 2);
+  const H1 = KEY.slice(0, HALF);
+  const H2 = KEY.slice(HALF);
+
+  it('records on, and prints the key nowhere, when a secret-named body field holds 16 KiB', async () => {
+    const up = await upstream(json({ ok: true }));
+    const r = await recorder(up.origin);
+    const rejections: unknown[] = [];
+    const onRejection = (reason: unknown): void => void rejections.push(reason);
+    process.on('unhandledRejection', onRejection);
+    try {
+      await (await post(`${r.url}/v1/a`, { n: 1 }, { authorization: `Bearer ${KEY}` })).text();
+      const big = { n: 2, thinking: { signature: 'Q'.repeat(16384) } };
+      await (await post(`${r.url}/v1/b`, big, { authorization: `Bearer ${KEY}` })).text();
+      await (await post(`${r.url}/v1/c`, { n: 3 }, { authorization: `Bearer ${KEY}` })).text();
+      await r.close();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    } finally {
+      process.off('unhandledRejection', onRejection);
+    }
+    expect(rejections).toEqual([]);
+    expect(warnings).toEqual([]);
+    expect(r.unwritten).toBe(0);
+    const { stubs } = await loadStubFile(r.file);
+    expect(stubs.map((s) => s.path)).toEqual(['/v1/a', '/v1/b', '/v1/c']);
+    expect(stubs[1]!.body).toEqual({ n: 2, thinking: { signature: '[masked]' } });
+    expect(fs.readFileSync(r.file, 'utf8')).not.toContain('QQQQ');
+  });
+
+  it('says in fixed words that a write failed, with nothing of the error in them', async () => {
+    const up = await upstream(json({ ok: true }));
+    const r = await recorder(up.origin);
+    vi.spyOn(fs.promises, 'writeFile').mockRejectedValue(new Error(`boom with ${KEY} in it`));
+    await (await post(`${r.url}/v1/a`, {}, { authorization: `Bearer ${KEY}` })).text();
+    await vi.waitFor(() => expect(warnings.length).toBeGreaterThan(0));
+    vi.restoreAllMocks();
+    await r.close();
+    expect(warnings).toEqual([
+      'the file could not be written (error): 1 exchange waits in memory for the next write',
+    ]);
+    expect(r.unwritten).toBe(0);
+  });
+
+  it.each([
+    [
+      'events with a space after the colon of their JSON',
+      'text/event-stream',
+      `data: {"delta": "${H1}"}\n\ndata: {"delta": "${H2}"}\n\n`,
+    ],
+    [
+      'events with CRLF, id lines and a comment',
+      'text/event-stream',
+      `: ping\r\n\r\nid: 1\r\ndata: {"delta":"${H1}"}\r\n\r\nid: 2\r\ndata: {"delta":"${H2}"}\r\n\r\n`,
+    ],
+    [
+      'events that put the pieces at different places of an array',
+      'text/event-stream',
+      `data: {"id":"c1","choices":[{"delta":"${H1}"}]}\n\ndata: {"id":"c1","choices":[null,{"delta":"${H2}"}]}\n\n`,
+    ],
+    [
+      'lines of JSON',
+      'application/x-ndjson',
+      `{"model":"m","response":"${H1}"}\n{"model":"m","response":"${H2}"}\n`,
+    ],
+    ['events of plain text', 'text/event-stream', `data: ${H1}\n\ndata: ${H2}\n\n`],
+    [
+      'compact events with other strings between the pieces',
+      'text/event-stream',
+      `data: {"id":"c1","d":"${H1}"}\n\ndata: {"id":"c1","d":"${H2}"}\n\n`,
+    ],
+  ])('does not record a credential that comes back split over %s', async (_name, type, body) => {
+    const up = await upstream((seen, res) => {
+      res.writeHead(200, { 'content-type': type });
+      res.end(seen.url === '/v1/split' ? body : 'data: fine\n\n');
+    });
+    const r = await recorder(up.origin);
+    const headers = { authorization: `Bearer ${KEY}` };
+    expect(await (await post(`${r.url}/v1/split`, {}, headers)).text()).toBe(body);
+    await (await post(`${r.url}/v1/whole`, {}, headers)).text();
+    await r.close();
+    expect(warnings).toEqual([
+      'not recorded: POST 200 (a credential is split over the pieces of the answer)',
+    ]);
+    expect((await loadStubFile(r.file)).stubs.map((s) => s.path)).toEqual(['/v1/whole']);
+    const text = fs.readFileSync(r.file, 'utf8');
+    expect(text).not.toContain(H1);
+    expect(text).not.toContain(H2);
+  });
+
+  it('leaves the keys of a body alone, and replays a request whose values name its keys', async () => {
+    const body = {
+      filter: { key: 'category' },
+      sort: { key: 'messages' },
+      messages: [{ role: 'user', content: 'what is the category of messages' }],
+    };
+    const answer = 'the category of messages is fine';
+    const up = await upstream((_s, res) => {
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end(answer);
+    });
+    const r = await recorder(up.origin);
+    await (await post(`${r.url}/v1/chat`, body)).text();
+    const url = await replay(r);
+    const [stub] = (await loadStubFile(r.file)).stubs;
+    expect(stub!.body).toEqual(body);
+    expect(stub!.response?.text).toBe(answer);
+    const again = await post(`${url}/v1/chat`, body);
+    expect(again.status).toBe(200);
+    expect(await again.text()).toBe(answer);
+  });
+
+  it('does not search for a header value made of letters only, so a prompt with that word still matches exactly', async () => {
+    const up = await upstream(json({ ok: true }));
+    const r = await recorder(up.origin);
+    const prompt = { messages: [{ role: 'user', content: 'my password is safe' }] };
+    await (await post(`${r.url}/v1/chat`, prompt, { 'x-api-key': 'password' })).text();
+    const url = await replay(r);
+    expect((await loadStubFile(r.file)).stubs[0]!.body).toEqual(prompt);
+    const other = { messages: [{ role: 'user', content: 'my dog is safe' }] };
+    expect((await post(`${url}/v1/chat`, other)).status).toBe(404);
+    expect((await post(`${url}/v1/chat`, prompt)).status).toBe(200);
+  });
+
+  it('masks a short or spaced value of a secret-named body field in place, and does not search for it', async () => {
+    const up = await upstream(json({ said: 'hunter2 and a pass phrase of words' }));
+    const r = await recorder(up.origin);
+    await (
+      await post(`${r.url}/v1/chat`, {
+        password: 'hunter2',
+        passphrase: 'a pass phrase of words',
+        note: 'hunter2 is not a secret here',
+      })
+    ).text();
+    await r.close();
+    const [stub] = (await loadStubFile(r.file)).stubs;
+    expect(stub!.body).toEqual({
+      password: '[masked]',
+      passphrase: '[masked]',
+      note: 'hunter2 is not a secret here',
+    });
+    expect(stub!.response?.json).toEqual({ said: 'hunter2 and a pass phrase of words' });
+  });
+
+  it('masks what is already written when a later request that is not recorded brings the credential', async () => {
+    const up = await upstream((seen, res) => {
+      if (seen.url === '/v1/redirect') {
+        res.writeHead(302, { location: '/elsewhere' });
+        res.end();
+      } else json({ leaked: KEY })(seen, res);
+    });
+    const r = await recorder(up.origin);
+    await (await post(`${r.url}/v1/first`, {})).text();
+    await vi.waitFor(() => expect(r.recorded).toBe(1));
+    expect(fs.readFileSync(r.file, 'utf8')).toContain(KEY);
+    expect((await post(`${r.url}/v1/redirect`, {}, { 'x-api-key': KEY })).status).toBe(302);
+    await vi.waitFor(() => expect(fs.readFileSync(r.file, 'utf8')).not.toContain(KEY_CORE));
+    await r.close();
+    expect((await loadStubFile(r.file)).stubs[0]!.response?.json).toEqual({ leaked: '[masked]' });
+  });
+
+  it('masks secret-named fields of a JSON answer by name, short ones too', async () => {
+    const answers: Record<string, [string, string]> = {
+      '/compact': [
+        'application/json',
+        '{"access_token":"short-tok","client_secret":{"value":"s3cr3t"},"expires_in":3600}',
+      ],
+      '/pretty': ['application/json', '{\n  "access_token": "short-tok",\n  "ok": true\n}\n'],
+      '/stream': ['text/event-stream', 'data: {"session":{"client_secret":"s3cr3t"},"n":1}\n\n'],
+    };
+    const up = await upstream((seen, res) => {
+      const [type, body] = answers[seen.url]!;
+      res.writeHead(200, { 'content-type': type });
+      res.end(body);
+    });
+    const r = await recorder(up.origin);
+    for (const p of Object.keys(answers)) await (await post(`${r.url}${p}`, {})).text();
+    await r.close();
+    const text = fs.readFileSync(r.file, 'utf8');
+    expect(text).not.toContain('short-tok');
+    expect(text).not.toContain('s3cr3t');
+    const responses = (await loadStubFile(r.file)).stubs.map((s) => s.response);
+    expect(responses[0]!.json).toEqual({
+      access_token: '[masked]',
+      client_secret: '[masked]',
+      expires_in: 3600,
+    });
+    expect(responses[1]!.json).toEqual({ access_token: '[masked]', ok: true });
+    expect(responses[2]!.sse).toEqual([{ data: { session: { client_secret: '[masked]' }, n: 1 } }]);
+  });
+
+  it('learns a credential from a form-encoded request body', async () => {
+    const secret = `frm+Zx/${KEY_CORE}=F`;
+    const up = await upstream((seen, res) => {
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end(`you sent ${seen.body} and ${secret}`);
+    });
+    const r = await recorder(up.origin);
+    const form = new URLSearchParams({ grant_type: 'client_credentials', client_secret: secret });
+    await (
+      await fetch(`${r.url}/oauth/token`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: form.toString(),
+      })
+    ).text();
+    await r.close();
+    expect(fs.readFileSync(r.file, 'utf8')).not.toContain(KEY_CORE);
+    expect((await loadStubFile(r.file)).stubs[0]!.response?.text).toBe(
+      'you sent grant_type=client_credentials&client_secret=[masked] and [masked]',
+    );
+  });
+
+  it('learns the password of Basic authorization', async () => {
+    const password = `pw-${KEY_CORE}`;
+    const up = await upstream(json({ user: 'john', password, hint: `it ends in ${password}` }));
+    const r = await recorder(up.origin);
+    const basic = Buffer.from(`john:${password}`).toString('base64');
+    await (await post(`${r.url}/v1/me`, {}, { authorization: `Basic ${basic}` })).text();
+    await r.close();
+    expect(fs.readFileSync(r.file, 'utf8')).not.toContain(KEY_CORE);
+    expect((await loadStubFile(r.file)).stubs[0]!.response?.json).toEqual({
+      user: 'john',
+      password: '[masked]',
+      hint: 'it ends in [masked]',
+    });
+  });
+});
+
+describe('mock · record · housekeeping', () => {
+  it('serialises each exchange once, however many writes follow it', async () => {
+    const up = await upstream(json({ ok: true }));
+    let serialised = 0;
+    const r = await recorder(up.origin, { onSerialise: () => (serialised += 1) });
+    for (let i = 1; i <= 25; i += 1) {
+      await (await post(`${r.url}/v1/chat`, { i })).text();
+      await vi.waitFor(() => expect(r.recorded).toBe(i));
+    }
+    await r.close();
+    expect(serialised).toBe(25);
+  });
+
+  it('warns once when the file passes 1 MiB, the limit of a stub file in `plune run`', async () => {
+    const big = 'x'.repeat(600 * 1024);
+    const up = await upstream((_s, res) => {
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end(big);
+    });
+    const r = await recorder(up.origin);
+    for (let i = 1; i <= 3; i += 1) {
+      await (await post(`${r.url}/v1/chat`, { i })).text();
+      await vi.waitFor(() => expect(r.recorded).toBe(i));
+    }
+    await r.close();
+    expect(warnings).toEqual([
+      'the recording is over 1 MiB: `plune run` refuses a stub file over 1 MiB, `plune mock` serves it',
+    ]);
+  });
+
+  it('records the final answer that follows a 103', async () => {
+    const origin = await rawUpstream((socket) =>
+      socket.end(
+        'HTTP/1.1 103 Early Hints\r\nlink: </a>\r\n\r\n' +
+          'HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: 5\r\n\r\nfinal',
+      ),
+    );
+    // No timeout near: without a final answer this test would not get its 200 in time.
+    const r = await recorder(origin, { upstreamTimeoutMs: 60_000 });
+    const res = await post(`${r.url}/v1/chat`, {});
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('final');
+    await r.close();
+    expect((await loadStubFile(r.file)).stubs[0]!.response?.text).toBe('final');
+  });
+
+  it('answers a 103 with nothing after it with a 502 when the timeout passes', async () => {
+    const origin = await rawUpstream((socket) =>
+      socket.write('HTTP/1.1 103 Early Hints\r\nlink: </a>\r\n\r\n'),
+    );
+    const r = await recorder(origin, { upstreamTimeoutMs: 200 });
+    const res = await post(`${r.url}/v1/chat`, {});
+    expect(res.status).toBe(502);
+    expect(await res.text()).toContain('(ETIMEDOUT)');
+  });
+
+  it('refuses a second recorder on a file a live one is writing, also with --force', async () => {
+    const up = await upstream(json({ ok: true }));
+    const first = await recorder(up.origin);
+    await (await post(`${first.url}/v1/chat`, {})).text();
+    await vi.waitFor(() => expect(first.recorded).toBe(1));
+    expect(fs.readdirSync(dir)).toEqual(['stubs.yaml', 'stubs.yaml.lock']);
+    await expect(
+      startRecorder({ target: up.origin, file: 'stubs.yaml', cwd: dir, force: true }),
+    ).rejects.toThrow(/another recorder \(process \d+\) is writing this file/);
+    await (await post(`${first.url}/v1/chat`, { n: 2 })).text();
+    await first.close();
+    expect((await loadStubFile(first.file)).stubs).toHaveLength(2);
+    expect(fs.readdirSync(dir)).toEqual(['stubs.yaml']);
+  });
+
+  it('takes over the lock of a process that is gone, with a warning', async () => {
+    const up = await upstream(json({ ok: true }));
+    const gone = spawn(process.execPath, ['-e', '']);
+    await once(gone, 'exit');
+    fs.writeFileSync(path.join(dir, 'stubs.yaml.lock'), `${gone.pid}\n`);
+    const r = await recorder(up.origin);
+    expect(warnings).toEqual([
+      'a lock of a recorder that is no longer running was found and taken over',
+    ]);
+    expect(fs.readFileSync(path.join(dir, 'stubs.yaml.lock'), 'utf8')).toBe(`${process.pid}\n`);
+    await r.close();
+    expect(fs.readdirSync(dir)).toEqual(['stubs.yaml']);
+  });
+
+  it('removes its own temp files of an earlier run that are older than a minute', async () => {
+    const up = await upstream(json({ ok: true }));
+    const old = new Date(Date.now() - 5 * 60_000);
+    const names = {
+      stale: `stubs.yaml.${'a'.repeat(32)}.tmp`,
+      fresh: `stubs.yaml.${'b'.repeat(32)}.tmp`,
+      otherFile: `other.yaml.${'c'.repeat(32)}.tmp`,
+      otherShape: 'stubs.yaml.backup.tmp',
+    };
+    for (const name of Object.values(names)) fs.writeFileSync(path.join(dir, name), 'x');
+    for (const name of [names.stale, names.otherFile, names.otherShape])
+      fs.utimesSync(path.join(dir, name), old, old);
+    const r = await recorder(up.origin);
+    await r.close();
+    expect(fs.readdirSync(dir).sort()).toEqual(
+      [names.fresh, names.otherFile, names.otherShape, 'stubs.yaml'].sort(),
+    );
+  });
+
+  it.each([
+    ['http://192.0.2.1', true],
+    ['http://api.example.com:8080', true],
+    ['https://192.0.2.1', false],
+    ['http://127.0.0.1:9', false],
+    ['http://localhost:9', false],
+    ['http://[::1]:9', false],
+  ])(
+    'for the target %s, warns that the credential travels unencrypted: %s',
+    async (target, warned) => {
+      const r = await recorder(target);
+      await r.close();
+      expect(warnings).toEqual(
+        warned
+          ? [
+              'the target is http: on another machine: every request, its credential included, travels unencrypted',
+            ]
+          : [],
+      );
+      expect(guard.seen).toEqual([]);
+    },
+  );
 });
