@@ -137,6 +137,49 @@ describe('readCairnRun — the trace link of a case', () => {
   });
 });
 
+/**
+ * fixtures/cairn/failure-variants is what `cairn propose-failures` wrote for one eval and a stub file recorded with
+ * `plune mock --record`: a `design` run whose cases are variants of the eval under a provider failure. Each case says
+ * why it exists in `rationale`, and the review queue shows that text when the proposal is opened.
+ */
+describe('readCairnRun — the reason a case gives for itself', () => {
+  it('CLI · ingest · design run · sends the rationale of a case, and the eval it is a variant of stays in the text', async () => {
+    const payload = await readCairnRun(fixture('failure-variants'));
+    expect(payload.run).toMatchObject({ mode: 'design', target: 'plune.yaml', cost: { tokens: 0, cases: 5 } });
+    expect(payload.cases).toHaveLength(5);
+    for (const c of payload.cases) {
+      expect(c.title).toContain('Eval "refund-answer"');
+      expect(c.rationale).toMatch(/^Variant of eval "refund-answer": /);
+      expect(c.technique).toBe('provider-failure');
+      expect(c.verdict).toBeUndefined();
+    }
+  });
+
+  it('CLI · ingest · a report without a rationale gives cases without the key', async () => {
+    for (const c of (await readCairnRun(fixture('design'))).cases) expect(c).not.toHaveProperty('rationale');
+  });
+
+  // The platform takes at most 400 characters and refuses the whole run for one more: here it costs the text alone.
+  it.each([
+    ['an empty text', '   '],
+    ['a text over 400 characters', 'a'.repeat(401)],
+    ['a value that is not a text', 7],
+  ])('CLI · ingest · %s as the rationale is left out and the case is still sent', async (_name, rationale) => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'plune-rationale-'));
+    const report = JSON.parse(await fs.readFile(path.join(fixture('failure-variants'), 'report.json'), 'utf8')) as {
+      testCases: Record<string, unknown>[];
+    };
+    report.testCases[0]!['rationale'] = rationale;
+    report.testCases[1]!['rationale'] = `  ${'b'.repeat(400)}  `;
+    await fs.writeFile(path.join(dir, 'report.json'), JSON.stringify(report));
+    const payload = await readCairnRun(dir);
+    expect(payload.cases).toHaveLength(5);
+    expect(payload.cases[0]).not.toHaveProperty('rationale');
+    expect(payload.cases[1]!.rationale).toBe('b'.repeat(400));
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+});
+
 describe('readCairnRun — api runs', () => {
   it('reads the cases and attaches the verdict each one actually produced', async () => {
     const payload = await readCairnRun(fixture('api'));

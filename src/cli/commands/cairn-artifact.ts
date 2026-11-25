@@ -20,6 +20,9 @@ const SUPPORTED_ARTIFACT_VERSION = 1;
 /** The payload version the Plune ingest endpoint validates — ours, not Cairn's. */
 const INGEST_SCHEMA_VERSION = 1;
 
+/** The most characters of a case's `rationale` the platform takes. */
+const RATIONALE_MAX = 400;
+
 export type CairnRunMode = 'explore' | 'design' | 'api' | 'mcp';
 export type CairnExecution = 'auto' | 'manual';
 /**
@@ -39,6 +42,8 @@ export interface CairnIngestCase {
   verdict?: CairnVerdict;
   technique?: string;
   priority?: string;
+  /** Why the case exists, in the words of whoever wrote it; the review queue shows it when the proposal is opened. */
+  rationale?: string;
   /** The https address of the run's trace, as the report gives it to the case. Absent when it gives none or the link is refused. */
   traceUrl?: string;
   /** The case's recordings, from `screencasts/screencasts.json`. Absent when the run recorded none for it. */
@@ -467,6 +472,8 @@ function casesFromDesign(report: Record<string, unknown>, notes: string[]): Cair
       .map((s) => str(s))
       .filter((s) => s !== '');
     const title = str(c['title'], 'untitled case');
+    const why = own(c, 'rationale');
+    const rationale = typeof why === 'string' ? why.trim() : '';
     const link = own(c, 'traceUrl') ?? undefined;
     const said: string[] = [];
     const traceUrl = traceUrlOf(link, title, said);
@@ -484,6 +491,8 @@ function casesFromDesign(report: Record<string, unknown>, notes: string[]): Cair
       expected: str(c['expected'], '(no expected result recorded)'),
       ...(typeof c['technique'] === 'string' ? { technique: c['technique'] } : {}),
       ...(typeof c['priority'] === 'string' ? { priority: c['priority'] } : {}),
+      // A text past the platform's limit refuses the whole ingest there, so it is left out, not cut.
+      ...(rationale !== '' && rationale.length <= RATIONALE_MAX ? { rationale } : {}),
       ...(traceUrl !== undefined ? { traceUrl } : {}),
     };
   });

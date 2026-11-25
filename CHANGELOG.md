@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **`plune ingest` sends the reason a designed case gives for itself.** A case under `testCases` of a Cairn report (`design`, `explore`, and the scenarios `cairn mcp-test --propose-scenarios` writes) may carry `rationale`: why the case exists. It was read and dropped; now it travels with the case and the review queue shows it when the proposal is opened. `cairn propose-failures` uses it to say which eval a failure variant comes from. A text that is empty, not a string or over 400 characters is left out and the case is still sent, because the platform refuses a whole run for a longer one. A report without the key is sent as before.
+
 ## [0.40.1] - 2026-11-25
 
 ### Fixed

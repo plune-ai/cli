@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "runId": "d0546c6d-56c9-4c4d-9072-2f13f722cdc1-variants",
+  "url": "plune.yaml",
+  "mode": "design",
+  "testCases": [
+    {
+      "stableId": "dce40a7ae094",
+      "id": "refund-answer-http-500",
+      "title": "Eval \"refund-answer\" when the first 2 calls to the provider end with HTTP 500 (http_500)",
+      "type": "Negative",
+      "technique": "provider-failure",
+      "execution": "auto",
+      "steps": [
+        "Move eval \"refund-answer-http-500\" from plune.failures.proposed.yaml into plune.yaml and copy stubs/refund-answer-http-500.stubs.yaml to the same path next to plune.yaml.",
+        "Run: plune run --only refund-answer-http-500"
+      ],
+      "expected": "The run passes as eval \"refund-answer\" does: the client of plune run tries again and gets the recorded answer.",
+      "rationale": "Variant of eval \"refund-answer\": the same prompt, data and checks, but the first 2 calls to the provider end with HTTP 500. The answer after the failure is the one recorded from the provider; none was generated. It shows how the eval's own model call survives the failure, not how your product does."
+    },
+    {
+      "stableId": "fd14db6b2a16",
+      "id": "refund-answer-http-429",
+      "title": "Eval \"refund-answer\" when the first call to the provider ends with HTTP 429 and retry-after of 1 second (http_429)",
+      "type": "Negative",
+      "technique": "provider-failure",
+      "execution": "auto",
+      "steps": [
+        "Move eval \"refund-answer-http-429\" from plune.failures.proposed.yaml into plune.yaml and copy stubs/refund-answer-http-429.stubs.yaml to the same path next to plune.yaml.",
+        "Run: plune run --only refund-answer-http-429"
+      ],
+      "expected": "The run passes as eval \"refund-answer\" does: the client of plune run tries again and gets the recorded answer.",
+      "rationale": "Variant of eval \"refund-answer\": the same prompt, data and checks, but the first call to the provider ends with HTTP 429 and retry-after of 1 second. The answer after the failure is the one recorded from the provider; none was generated. It shows how the eval's own model call survives the failure, not how your product does."
+    },
+    {
+      "stableId": "6d32548259f7",
+      "id": "refund-answer-reset",
+      "title": "Eval \"refund-answer\" when the first call to the provider ends with a connection reset (reset)",
+      "type": "Negative",
+      "technique": "provider-failure",
+      "execution": "auto",
+      "steps": [
+        "Move eval \"refund-answer-reset\" from plune.failures.proposed.yaml into plune.yaml and copy stubs/refund-answer-reset.stubs.yaml to the same path next to plune.yaml.",
+        "Run: plune run --only refund-answer-reset"
+      ],
+      "expected": "The run passes as eval \"refund-answer\" does: the client of plune run tries again and gets the recorded answer.",
+      "rationale": "Variant of eval \"refund-answer\": the same prompt, data and checks, but the first call to the provider ends with a connection reset. The answer after the failure is the one recorded from the provider; none was generated. It shows how the eval's own model call survives the failure, not how your product does."
+    },
+    {
+      "stableId": "65ba9f6c82e5",
+      "id": "refund-answer-slow-stream",
+      "title": "Eval \"refund-answer\" when the provider's answer arrives at 256 bytes per second (slow_stream)",
+      "type": "Negative",
+      "technique": "provider-failure",
+      "execution": "auto",
+      "steps": [
+        "Move eval \"refund-answer-slow-stream\" from plune.failures.proposed.yaml into plune.yaml and copy stubs/refund-answer-slow-stream.stubs.yaml to the same path next to plune.yaml.",
+        "Run: plune run --only refund-answer-slow-stream"
+      ],
+      "expected": "The run passes as eval \"refund-answer\" does, later: the whole recorded answer arrives, slowly. With provider.timeout set, an answer that takes longer than it errors the row.",
+      "rationale": "Variant of eval \"refund-answer\": the same prompt, data and checks, but the provider's answer arrives at 256 bytes per second. The answer after the failure is the one recorded from the provider; none was generated. It shows how the eval's own model call survives the failure, not how your product does."
+    },
+    {
+      "stableId": "c1a6b066858b",
+      "id": "refund-answer-truncated-json",
+      "title": "Eval \"refund-answer\" when half of the provider's answer arrives and the connection ends (truncated_json)",
+      "type": "Negative",
+      "technique": "provider-failure",
+      "execution": "auto",
+      "steps": [
+        "Move eval \"refund-answer-truncated-json\" from plune.failures.proposed.yaml into plune.yaml and copy stubs/refund-answer-truncated-json.stubs.yaml to the same path next to plune.yaml.",
+        "Run: plune run --only refund-answer-truncated-json"
+      ],
+      "expected": "The row is errored and plune run exits 2: a cut body is not tried again by plune 0.40. Keep the variant only to pin that the eval reports the failure, not a pass.",
+      "rationale": "Variant of eval \"refund-answer\": the same prompt, data and checks, but half of the provider's answer arrives and the connection ends. The answer after the failure is the one recorded from the provider; none was generated. It shows how the eval's own model call survives the failure, not how your product does."
+    }
+  ],
+  "cost": {
+    "totalTokens": 0,
+    "totalCostUsd": 0
+  }
+}
