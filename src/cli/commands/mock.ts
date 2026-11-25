@@ -100,6 +100,7 @@ export async function handleMock(flags: MockFlags, io: MockIo): Promise<number> 
   }
 
   if (flags.force) throw new MockUsageError('--force goes with --record');
+  // Any path the user names is served: the file is only read. The folder limit is the recorder's, which writes.
   let stubs;
   try {
     stubs = (await loadStubFile(path.resolve(cwd, flags.file))).stubs;
@@ -122,7 +123,8 @@ export async function handleMock(flags: MockFlags, io: MockIo): Promise<number> 
     await server.close();
     throw new MockUsageError((err as Error).message);
   }
-  io.stdout(`Serving ${stubs.length} stubs at ${scope.url}, with no network. Ctrl+C stops.\n`);
+  const count = `${stubs.length} ${stubs.length === 1 ? 'stub' : 'stubs'}`;
+  io.stdout(`Serving ${count} at ${scope.url}, with no network. Ctrl+C stops.\n`);
   io.onReady?.(scope.url);
   await stopped(io.signal);
   const unused = scope.close().length;

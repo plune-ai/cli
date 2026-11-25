@@ -232,22 +232,28 @@ export function matchesExact(expected: unknown, actual: unknown): boolean {
 /**
  * Why a request is not served, or nothing. Only a request addressed to the server by a loopback name and
  * its own port is: a name that merely resolves to this machine is how a web page elsewhere reaches a local
- * server (DNS rebinding). A request a browser sent for a page of another origin is refused too, and no
- * answer of the server carries a CORS header, so no page can read one.
+ * server (DNS rebinding). A request a browser sent for a page of another origin is refused too: one with
+ * an `Origin` that is not the server's, and one the browser marked in `Sec-Fetch-Site` as coming from
+ * another origin, which it does also where it sends no `Origin` (a plain GET for an image or a link). A page
+ * cannot set or remove that header. A client that is not a browser sends neither and is served. No answer
+ * of the server carries a CORS header, so no page can read one.
  */
 export function notLocal(req: http.IncomingMessage, port: number, bound = '127.0.0.1'): boolean {
   const names = ['127.0.0.1', 'localhost', '[::1]', bound.includes(':') ? `[${bound}]` : bound];
   const hosts = names.flatMap((name) => (port === 80 ? [name, `${name}:80`] : [`${name}:${port}`]));
   const host = (req.headers.host ?? '').toLowerCase();
   const { origin } = req.headers;
+  const site = req.headers['sec-fetch-site'];
   return (
     !hosts.includes(host) ||
-    (origin !== undefined && !hosts.some((h) => origin.toLowerCase() === `http://${h}`))
+    (origin !== undefined && !hosts.some((h) => origin.toLowerCase() === `http://${h}`)) ||
+    // Fail closed: of the four values a browser sends, `cross-site` and `same-site` are another origin.
+    (site !== undefined && !['same-origin', 'none'].includes(String(site).toLowerCase()))
   );
 }
 
 export const NOT_LOCAL_MESSAGE =
-  'This server answers only a request addressed to 127.0.0.1, localhost or [::1] with its own port, and none a web page of another origin sent';
+  'This server answers only a request addressed to 127.0.0.1, localhost or [::1] with its own port, and none a browser marks as sent from another origin';
 
 function maskedHeaders(headers: http.IncomingHttpHeaders): Record<string, string> {
   const out: Record<string, string> = {};

@@ -16,7 +16,7 @@
 // What it refuses, because a state machine cannot do it in linear time or because it is rarely needed:
 // backreferences, lookahead and lookbehind, named groups, `\p{...}`, `\x..`, `\u....`, `\c.`.
 
-/** How many nodes a pattern may come to once its counted repeats are written out: `a{50}` is 50. */
+/** How many nodes a pattern may come to once its counted repeats are written out: `a{50}` is 51, the repeat and its 50 copies. */
 export const MAX_REGEX_NODES = 2000;
 
 type CharTest = (code: number) => boolean;

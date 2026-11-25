@@ -720,6 +720,11 @@ describe('mock · server · only local requests', () => {
       expect((await get(port, { host: `${name}:${port}` })).status).toBe(200);
     const sameOrigin = { host: `127.0.0.1:${port}`, origin: `http://localhost:${port}` };
     expect((await get(port, sameOrigin)).status).toBe(200);
+    // What a browser sends for a request of the page itself, and for an address typed by the user.
+    for (const site of ['same-origin', 'none', 'Same-Origin', 'None'])
+      expect((await get(port, { host: `127.0.0.1:${port}`, 'sec-fetch-site': site })).status).toBe(
+        200,
+      );
   });
 
   it.each([
@@ -731,12 +736,30 @@ describe('mock · server · only local requests', () => {
       (port: number) => ({ host: `127.0.0.1:${port}`, origin: 'https://evil.example' }),
     ],
     ['an opaque origin', (port: number) => ({ host: `127.0.0.1:${port}`, origin: 'null' })],
+    // A browser sends no Origin with a plain GET (an image, a link), and still says where it came from.
+    [
+      'a request a browser marked as cross-site, with no Origin',
+      (port: number) => ({ host: `127.0.0.1:${port}`, 'sec-fetch-site': 'cross-site' }),
+    ],
+    [
+      'a request a browser marked as same-site, with no Origin',
+      (port: number) => ({ host: `127.0.0.1:${port}`, 'sec-fetch-site': 'Same-Site' }),
+    ],
+    [
+      'an empty Sec-Fetch-Site',
+      (port: number) => ({ host: `127.0.0.1:${port}`, 'sec-fetch-site': '' }),
+    ],
+    [
+      'a Sec-Fetch-Site value that is not one of the four',
+      (port: number) => ({ host: `127.0.0.1:${port}`, 'sec-fetch-site': 'cross-site, none' }),
+    ],
   ])('refuses %s with a 403, and no journal sees it', async (_name, headers) => {
     server = await start();
     const scope = server.scope('s', stubs);
     const answer = await get(server.port, headers(server.port));
     expect(answer.status).toBe(403);
     expect(answer.body).toContain('mock_not_local');
+    expect(answer.body).toContain('none a browser marks as sent from another origin');
     expect(answer.body).not.toContain('evil');
     expect(scope.journal).toEqual([]);
     expect(server.unrouted).toEqual([]);
