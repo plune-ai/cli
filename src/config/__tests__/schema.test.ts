@@ -131,13 +131,14 @@ describe('pluneConfigSchema', () => {
     });
   });
 
-  describe('AssertionConfig — all 10 kinds', () => {
+  describe('AssertionConfig — all 11 kinds on the output', () => {
     const assertionFixtures = [
       { type: 'exact-match', value: 'hello', trim: true },
       { type: 'contains', value: 'hello' },
       { type: 'contains-any', values: ['a', 'b'] },
       { type: 'contains-all', values: ['a', 'b'] },
       { type: 'json-schema', schema: { type: 'object' } },
+      { type: 'json-verify', expected: { a: '@isString()' }, mode: 'contains', extract: 'strict' },
       { type: 'llm-judge', criteria: 'is helpful' },
       { type: 'semantic-similarity', reference: 'reference text' },
       { type: 'faithfulness', context: 'some context' },
@@ -164,6 +165,55 @@ describe('pluneConfigSchema', () => {
             assertions: [{ type: 'not-a-real-type', value: 'x' }],
           },
         ],
+      });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('json-verify: the expected value is checked with the config', () => {
+    const issuesOf = (assertion: unknown): string[] => {
+      const result = pluneConfigSchema.safeParse({
+        ...validBase,
+        evals: [{ ...validBase.evals[0], assertions: [assertion] }],
+      });
+      return result.success ? [] : result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`);
+    };
+
+    it.each<[string, unknown]>([
+      ['null', null],
+      ['a number', 0],
+      ['a string', 'text'],
+      ['an array', [1, { a: null }]],
+      ['a marker', { $mode: 'contains', $value: { a: '@isNumber() @gt(0)' } }],
+      ['an escaped text', { a: '@@isString()', b: { $literal: '@nope()' } }],
+    ])('accepts expected: %s', (_name, expected) => {
+      expect(issuesOf({ type: 'json-verify', expected })).toEqual([]);
+    });
+
+    it('needs expected', () => {
+      expect(issuesOf({ type: 'json-verify' })).toHaveLength(1);
+      expect(issuesOf({ type: 'json-verify' })[0]).toMatch(/^evals\.0\.assertions\.0\.expected: /);
+    });
+
+    it('rejects a mode it does not have', () => {
+      expect(issuesOf({ type: 'json-verify', expected: 1, mode: 'partial' })[0]).toMatch(
+        /^evals\.0\.assertions\.0\.mode: /,
+      );
+    });
+
+    it('names every broken check and marker by its JSON path', () => {
+      const expected = { user: { id: '@gt()', tags: [{ $mode: 'loose', $value: [] }] }, name: '@isStrin()' };
+      expect(issuesOf({ type: 'json-verify', expected })).toEqual([
+        'evals.0.assertions.0.expected: $.user.id: @gt takes one number; got @gt()',
+        'evals.0.assertions.0.expected: $.user.tags[0]: $mode must be one of exact, unordered, contains; got "loose"',
+        expect.stringMatching(/^evals\.0\.assertions\.0\.expected: \$\.name: @isStrin is not a check function \(known: /),
+      ]);
+    });
+
+    it('is checked in defaults.assertions too', () => {
+      const result = pluneConfigSchema.safeParse({
+        ...validBase,
+        defaults: { assertions: [{ type: 'json-verify', expected: '@nope()' }] },
       });
       expect(result.success).toBe(false);
     });

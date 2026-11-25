@@ -90,13 +90,14 @@ export interface RowParams {
 export const CACHE_MISS_CODE = 'CACHE_MISS';
 
 /**
- * Format check for a completion, before it is cached or replayed: an eval with a `json-schema`
- * assertion needs an answer that holds JSON. Whether the JSON fits the schema is a content verdict
- * and is not asked here (adr/0001-completion-cache-hardening.md).
+ * Format check for a completion, before it is cached or replayed: an eval with a `json-schema` or
+ * a `json-verify` assertion needs an answer that holds JSON. Whether the JSON fits the schema or the
+ * expected value is a content verdict and is not asked here (adr/0001-completion-cache-hardening.md).
  */
 export function answerParses(output: string, assertions: AssertionConfig[]): boolean {
   return assertions.every(
-    (a) => a.type !== 'json-schema' || extractJson(output, a.extract ?? 'auto').ok,
+    (a) =>
+      (a.type !== 'json-schema' && a.type !== 'json-verify') || extractJson(output, a.extract ?? 'auto').ok,
   );
 }
 

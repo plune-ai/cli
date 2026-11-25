@@ -4,7 +4,7 @@ An **assertion** is one check on a model's output. Each has a `type` and its own
 returns pass/fail (some also return a `score` from 0 to 1 and a human-readable `reason`). An eval
 runs **all** its assertions on every dataset row.
 
-There are 24 types, in four families:
+There are 25 types, in four families:
 
 - **Deterministic** — fast, free, no network. Exact text / substring / JSON-shape checks.
 - **Semantic** — meaning-based, using a small **local** embedding model (no external API).
@@ -90,6 +90,103 @@ The output is valid JSON that conforms to a [JSON Schema](https://json-schema.or
 Use `auto` when the model tends to wrap JSON in prose or markdown fences; `strict` when you demand a
 pure-JSON response. A non-JSON output (or one that doesn't match) **fails** with a reason — it never
 crashes the run.
+
+### `json-verify`
+The JSON in the output matches an **expected JSON value**: all of it, or only the part you care about. Made for
+answers of a model, which are never the same twice: say which fields must be there, which string must match a
+pattern, which number must be over zero, and leave the rest free.
+
+| Param | Required | Default | Meaning |
+|-------|----------|---------|---------|
+| `expected` | yes | — | Any JSON value: what the answer is compared with. Its strings are not templates: `{{ }}` is not replaced in it. |
+| `mode` | no | `exact` | `exact`: the same keys and values, arrays in order. `unordered`: as `exact`, but the elements of an array may come in any order. `contains`: an object has the expected keys and may have more; an array has a match for every expected element and may have more, in any order. |
+| `extract` | no | `auto` | As in [`json-schema`](#json-schema). `auto` finds an object or an array; an answer that is a bare number or string needs `strict`. |
+
+An answer with these fields, whatever else it holds:
+
+```yaml
+- type: json-verify
+  mode: contains
+  expected:
+    name: John Doe
+    email: '@matchesRegex("^[^@ ]+@plune\.ai$")'
+    roles: [admin]
+```
+
+A classification with exactly these three keys, where only the list is free in its order:
+
+```yaml
+- type: json-verify
+  expected:
+    label: '@oneOf("bug", "question", "feature")'
+    confidence: '@isNumber() @gt(0.5)'
+    tags: { $mode: unordered, $value: [billing, urgent] }
+```
+
+A list that holds at least these two items, each with a positive quantity:
+
+```yaml
+- type: json-verify
+  mode: contains
+  expected:
+    items:
+      - { sku: A-100, qty: '@gt(0)' }
+      - { sku: B-200, qty: '@gt(0)' }
+```
+
+**Checks inside `expected`.** A string that starts with `@name(` is not compared as text: it is a list of
+checks on the actual value, separated by spaces, and all must hold.
+
+| Check | Holds when the value… |
+|-------|------------------------|
+| `@isNotNull()` | is not `null` (the key must still be there) |
+| `@isString()`, `@isNumber()`, `@isBoolean()`, `@isArray()`, `@isObject()` | is of that type |
+| `@matchesRegex("pattern")`, `@matchesRegex("pattern", "i")` | is a string the pattern finds a match in (anchor it with `^` and `$` for the whole string); the flags are `i`, `m`, `s`, `u` |
+| `@minLength(n)`, `@maxLength(n)` | is a string or an array of at least, at most, `n` in length |
+| `@gt(n)`, `@lt(n)` | is a number over, under, `n` |
+| `@oneOf(a, b, …)` | is one of the listed numbers, strings, `true`, `false` or `null` |
+
+Arguments are numbers, `true`, `false`, `null` and strings in double or single quotes. Inside the quotes only
+the quote itself is escaped (`\"`); every other backslash stays, so a pattern is written as it is: `"^\d+$"`.
+In YAML, put the whole check in single quotes.
+
+Every other string is a text to equal: `user@plune.ai`, `@john_doe`, `@ home`. For a text that itself starts
+like a check, double the first `@`: `'@@isString()'` expects the text `@isString()`. An unknown check, wrong
+arguments or a forgotten `()` after a check's name stops the run as a config error (exit `2`) before any model
+call, with the place: `evals.0.assertions.0.expected: $.email: @matchesRegexp is not a check function`.
+
+**A pattern that could run for minutes.** `@matchesRegex` refuses, as a config error, a pattern that repeats a
+group which already repeats inside, such as `(a+)+` or `(\w+\s?)+`: that shape can take exponential time on a
+short text. The rule goes by shape, so a safe pattern of that shape is refused too; write it without the nested
+repeat. A pattern is at most 500 characters, and it is not run on a value over 2,000 characters: the check
+fails and says so. Other slow patterns (two alternatives that match the same text, repeated) are not detected.
+
+**Another mode for one part.** `{ $mode: <mode>, $value: <value> }` in place of a value compares that value,
+and everything under it, in that mode. The keys `$mode` and `$literal` are reserved in `expected`: for data
+that really has one, or for a part where nothing should be read as a check or a marker, wrap it:
+`{ $literal: { $mode: dark } }` expects the object `{ "$mode": "dark" }`.
+
+**What a failure says.** The reason lists each difference with its JSON path, the expected and the actual
+fragment, in a fixed order, so the same answer gives the same text:
+
+```text
+2 mismatches
+    $.email: function not satisfied: @matchesRegex("^[^@ ]+@plune\.ai$")
+      expected: "@matchesRegex(\"^[^@ ]+@plune\\.ai$\")"
+      actual:   "user at plune.ai"
+    $.roles[0]: no match for an array element
+      expected: "admin"
+```
+
+A fragment is cut at 120 characters, and after ten differences the rest are counted (`and 7 more`). For an
+element with no match, the index is its place in `expected`. An output with no JSON in it **fails** with a
+reason, as in `json-schema`.
+
+**Arrays in any order.** In `unordered` and `contains`, each expected element needs an element of its own in
+the answer, and the pairing is the best there is: `{ sku: A }` does not take the only element that
+`{ sku: A, qty: 2 }` could match. Numbers, strings, booleans and `null` are paired at any size. Objects,
+arrays and checks are paired over at most 250,000 pairs (expected elements × elements of the answer left for
+them, so 500 × 500); past that the check fails and says the array is too large. `exact` has no such limit.
 
 ---
 
@@ -377,6 +474,7 @@ arguments are not supported yet.
 | Exact string / canned answer | `exact-match` |
 | A keyword is present / one of many / all of several | `contains` / `contains-any` / `contains-all` |
 | The output is well-formed JSON | `json-schema` |
+| The JSON has these fields and values, or values that pass a check | `json-verify` |
 | Same meaning, different words | `semantic-similarity` |
 | A subjective quality bar ("is it polite/correct/concise?") | `llm-judge` |
 | RAG answer doesn't hallucinate | `faithfulness` |

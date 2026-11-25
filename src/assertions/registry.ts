@@ -7,6 +7,7 @@ import type { AssertionKind } from '../types/config.js';
 import { exactMatch } from './exact-match.js';
 import { contains, containsAny, containsAll } from './contains.js';
 import { jsonSchema } from './json-schema.js';
+import { jsonVerify } from './json-verify.js';
 import { semanticSimilarity } from './semantic-similarity.js';
 import { llmJudge } from './llm-judge.js';
 import { faithfulness } from './faithfulness.js';
@@ -54,7 +55,7 @@ export function createAssertionRegistry(): AssertionRegistry {
 
 // Each impl is typed to its own params (Assertion<KindParams>); the registry erases that to
 // Assertion<unknown>. The cast is sound because the config schema guarantees the params handed
-// to run(ctx) match the resolved kind. All 24 documented kinds are registered.
+// to run(ctx) match the resolved kind. All 25 documented kinds are registered.
 export function createDefaultRegistry(): AssertionRegistry {
   const registry = createAssertionRegistry();
   registry.register('exact-match', exactMatch as Assertion);
@@ -62,6 +63,7 @@ export function createDefaultRegistry(): AssertionRegistry {
   registry.register('contains-any', containsAny as Assertion);
   registry.register('contains-all', containsAll as Assertion);
   registry.register('json-schema', jsonSchema as Assertion);
+  registry.register('json-verify', jsonVerify as Assertion);
   registry.register('semantic-similarity', semanticSimilarity as Assertion);
   registry.register('llm-judge', llmJudge as Assertion);
   registry.register('faithfulness', faithfulness as Assertion);

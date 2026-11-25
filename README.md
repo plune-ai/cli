@@ -10,7 +10,7 @@
 Plune runs an assertion suite against an LLM provider and gives you a pass/fail report —
 locally, in CI, or as a regression diff between two runs. You describe the checks in one
 `plune.yaml`; Plune calls the model, evaluates each assertion, caches results, and reports
-token cost. Ten built-in assertion types cover plain text, JSON-schema, LLM-as-judge, and
+token cost. Eleven built-in assertion types cover plain text, JSON (a schema or an expected value), LLM-as-judge, and
 RAG metrics (faithfulness, answer-relevance, context-precision).
 
 **Links:** [plune.ai](https://plune.ai) | [npm](https://www.npmjs.com/package/@plune-ai/cli) | [GitHub Action on Marketplace](https://github.com/marketplace/actions/plune-eval-diff)
@@ -108,6 +108,7 @@ the last resort, used only when `PLUNE_TOKEN` is set nowhere else. Nothing write
 | `contains-any`        | output contains at least one of `values`                         |
 | `contains-all`        | output contains every one of `values`                            |
 | `json-schema`         | output validates against the JSON `schema`                       |
+| `json-verify`         | the JSON in the output matches `expected` (`mode`: `exact`, `unordered`, `contains`) |
 | `llm-judge`           | an LLM grades the output against `criteria` (≥ `pass_threshold`) |
 | `semantic-similarity` | embedding similarity to `reference` ≥ `threshold`                |
 | `faithfulness`        | output is grounded in `context` (RAG)                            |

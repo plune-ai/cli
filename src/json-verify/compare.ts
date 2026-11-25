@@ -17,7 +17,7 @@
 // `@isString() @minLength(3)`. The rule for which strings are checks, and the escape `@@`, are in functions.ts.
 // Under `$literal` no string is a check.
 
-import { CheckSyntaxError, firstFailedCheck, parseExpectedString } from './functions.js';
+import { firstFailedCheck, parseExpectedString, type CheckSyntaxError } from './functions.js';
 
 export const COMPARE_MODES = ['exact', 'unordered', 'contains'] as const;
 export type CompareMode = (typeof COMPARE_MODES)[number];
@@ -114,8 +114,8 @@ export function validateExpected(expected: unknown): ExpectedIssue[] {
       try {
         parseExpectedString(exp);
       } catch (err) {
-        if (!(err instanceof CheckSyntaxError)) throw err;
-        issues.push({ path, message: err.message });
+        // The parser throws nothing but a CheckSyntaxError.
+        issues.push({ path, message: (err as CheckSyntaxError).message });
       }
     }
   };

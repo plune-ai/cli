@@ -25,7 +25,7 @@ export interface DatasetRow {
 
 export type DatasetRef = string | { examples: DatasetRow[] };
 
-// --- AssertionConfig discriminated union (10 kinds on the output, AC-03; 14 on the tool calls below) ---
+// --- AssertionConfig discriminated union (11 kinds on the output, AC-03; 14 on the tool calls below) ---
 
 export interface ExactMatchAssertion {
   type: 'exact-match';
@@ -55,6 +55,16 @@ export interface ContainsAllAssertion {
 export interface JsonSchemaAssertion {
   type: 'json-schema';
   schema: object;
+  extract?: 'auto' | 'strict';
+}
+
+/** The answer's JSON against an expected JSON value; the rules of `expected` are in src/json-verify. */
+export interface JsonVerifyAssertion {
+  type: 'json-verify';
+  /** Any JSON value. A string in it may be a check (`@isString()`), an object a `$mode` or `$literal` marker. */
+  expected: unknown;
+  /** Default `exact`. */
+  mode?: 'exact' | 'unordered' | 'contains';
   extract?: 'auto' | 'strict';
 }
 
@@ -212,6 +222,7 @@ export type AssertionConfig =
   | ContainsAnyAssertion
   | ContainsAllAssertion
   | JsonSchemaAssertion
+  | JsonVerifyAssertion
   | LlmJudgeAssertion
   | SemanticSimilarityAssertion
   | FaithfulnessAssertion

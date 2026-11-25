@@ -38,22 +38,23 @@ describe('Config shape (AC-03, AC-08)', () => {
     expect(p.temperature).toBe(0.5);
   });
 
-  it('constructs all 10 AssertionConfig kinds', () => {
+  it('constructs all 11 AssertionConfig kinds on the output', () => {
     const kinds: AssertionConfig[] = [
       { type: 'exact-match', value: 'hello' },
       { type: 'contains', value: 'world' },
       { type: 'contains-any', values: ['a', 'b'] },
       { type: 'contains-all', values: ['x', 'y'] },
       { type: 'json-schema', schema: { type: 'object' } },
+      { type: 'json-verify', expected: { a: 1 }, mode: 'contains' },
       { type: 'llm-judge', criteria: 'Is it helpful?' },
       { type: 'semantic-similarity', reference: 'baseline' },
       { type: 'faithfulness', context: 'some context' },
       { type: 'answer-relevance', question: 'What is it?' },
       { type: 'context-precision', context: 'ctx', question: 'q?' },
     ];
-    expect(kinds).toHaveLength(10);
+    expect(kinds).toHaveLength(11);
     const typeValues = kinds.map((k) => k.type);
-    expect(new Set(typeValues).size).toBe(10);
+    expect(new Set(typeValues).size).toBe(11);
   });
 
   it('constructs a DatasetRow with optional expected', () => {

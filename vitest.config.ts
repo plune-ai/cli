@@ -24,6 +24,8 @@ export default defineConfig({
         // are no-ops now and fail CLOSED the moment a file lands in them — Sprint 01+
         // cannot ship an uncovered assertions/cache/retry module by accident.
         'src/assertions/**': { branches: 100 },
+        // The JSON comparator behind the json-verify assertion: pure, so every branch has a test.
+        'src/json-verify/**': { branches: 100 },
         'src/cache/**': { branches: 90 },
         'src/retry/**': { branches: 90 },
         // Providers feature (ADR-PRV03/PRV04): the constitution's cost+retry ≥90% gate.

@@ -9,6 +9,7 @@ const PURE_KINDS: AssertionKind[] = [
   'contains-any',
   'contains-all',
   'json-schema',
+  'json-verify',
 ];
 
 describe('assertion registry (ADR-AP01)', () => {
