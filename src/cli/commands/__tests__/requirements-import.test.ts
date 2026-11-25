@@ -305,7 +305,7 @@ describe('what the platform answers', () => {
   });
 
   it.each([
-    [401, { error: 'bad' }, /token was rejected/, 2],
+    [401, { error: 'bad' }, /token was rejected.*The address that refused it is https:\/\/api\.test\./, 2],
     [403, { error: 'read-only member' }, /refused: read-only member\. Importing needs an owner or a member/, 1],
     [409, { error: "requirement key 'REQ-1' is taken" }, /taken by another change while the import ran\. Nothing was written; run it again \(requirement key 'REQ-1' is taken\)/, 1],
     [413, { error: 'at most 2000 requirements' }, /too large \(at most 2000 requirements\)\. Nothing was written/, 1],

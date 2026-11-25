@@ -12,7 +12,7 @@
 import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { resolveApiUrl, dashboardUrl } from '../api-url.js';
+import { resolveApiUrl, dashboardUrl, ifTokenRefused } from '../api-url.js';
 import { loadToken } from '../credentials.js';
 import { createClient } from '../../reporter-core/client.js';
 import { defaultRunTitle, readEnv } from '../../reporter-core/env.js';
@@ -106,7 +106,7 @@ export async function handleRunStart(options: StartOptions = {}): Promise<StartR
     // The same name the reporter would give it; `PLUNE_RUN_TITLE` replaces it, as everywhere.
     title: options.name ?? env.config.title ?? defaultRunTitle(),
   });
-  if (!out.ok) throw new RunCommandError(`Could not start the run — ${out.detail || out.kind}.`);
+  if (!out.ok) throw new RunCommandError(`Could not start the run — ${out.detail || out.kind}.${ifTokenRefused(out.status, apiUrl)}`);
 
   const result: StartResult = {
     id: out.body.run.id,
@@ -144,7 +144,7 @@ export interface FinishOptions extends RunCommandDeps {
  * `runnerCode` is `exec`'s: the exit code without the flag, and with it whenever no result reached the run.
  */
 export async function handleRunFinish(id: string, options: FinishOptions = {}, runnerCode?: number): Promise<number> {
-  const { client, write } = connect(options);
+  const { client, apiUrl, write } = connect(options);
   const event = options.terminate === true ? 'terminate' : 'finish';
 
   const out = await client.post<{ run?: { statusEvent?: string }; summary?: FrozenSummary }>(`/v1/runs/${id}/events`, {
@@ -155,7 +155,7 @@ export async function handleRunFinish(id: string, options: FinishOptions = {}, r
     throw new RunCommandError(
       out.status === 404
         ? `No run '${id}' — check the id, or whether the token belongs to the same project.`
-        : `Could not ${event} run ${id} — ${out.detail || out.kind}.`,
+        : `Could not ${event} run ${id} — ${out.detail || out.kind}.${ifTokenRefused(out.status, apiUrl)}`,
     );
   }
   write(`Run ${id} ${event === 'finish' ? 'finished' : 'terminated'}.`);
@@ -184,7 +184,7 @@ export async function handleRunFinish(id: string, options: FinishOptions = {}, r
  * so. Reassurance after the fact is the only kind this command can offer.
  */
 export async function handleRunDelete(id: string, options: RunCommandDeps = {}): Promise<void> {
-  const { client, write } = connect(options);
+  const { client, apiUrl, write } = connect(options);
 
   const out = await client.del(`/v1/runs/${encodeURIComponent(id)}`);
   if (!out.ok) {
@@ -195,7 +195,7 @@ export async function handleRunDelete(id: string, options: RunCommandDeps = {}):
           // exist. The person holding the terminal is better served by the list than by a guess.
           `No run '${id}' — check the id, whether the token belongs to the same project, ` +
           `or whether it is already deleted.`
-        : `Could not delete run ${id} — ${out.detail || out.kind}.`,
+        : `Could not delete run ${id} — ${out.detail || out.kind}.${ifTokenRefused(out.status, apiUrl)}`,
     );
   }
   write(`Run ${id} deleted, with its results and the review-queue entries it produced.`);
@@ -287,7 +287,7 @@ export async function handleRunReport(options: ReportOptions = {}): Promise<Repo
     .map((l) => JSON.parse(l) as DeferredLine);
   if (lines.length === 0) throw new RunCommandError(`Nothing to send — ${file} is empty.`);
 
-  const { client } = connect(options);
+  const { client, apiUrl } = connect(options);
   const result: ReportResult = { batches: lines.length, sent: 0, failed: 0 };
 
   // The lines of one session together, in the order each session first appears.
@@ -317,7 +317,7 @@ export async function handleRunReport(options: ReportOptions = {}): Promise<Repo
         else {
           result.failed += ready.length;
           write(
-            `Could not send ${ready.length} result(s) to run ${line.runId} — ${out.detail || out.kind}.`,
+            `Could not send ${ready.length} result(s) to run ${line.runId} — ${out.detail || out.kind}.${ifTokenRefused(out.status, apiUrl)}`,
           );
         }
       }

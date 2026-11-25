@@ -1,5 +1,5 @@
 import { loadToken as loadStoredToken } from '../credentials.js';
-import { resolveApiUrl } from '../api-url.js';
+import { resolveApiUrl, tokenRefusedBy } from '../api-url.js';
 import { NotLoggedInError } from './sync.js';
 import type { PluneMcpServerOptions } from '../../mcp/server.js';
 
@@ -48,6 +48,7 @@ export async function handleMcpServe(flags: McpServeFlags, deps: McpServeDeps): 
     token,
     apiUrl,
     version: deps.version,
+    tokenRejectedHint: tokenRefusedBy(apiUrl),
     ...(projectId !== undefined ? { projectId } : {}),
     ...(flags.readOnly === true ? { scope: 'read' as const } : {}),
     ...(disabledTools.length > 0 ? { disabledTools } : {}),

@@ -164,7 +164,7 @@ call, and so is a `timeout` stub without `provider.timeout`. A run that holds a 
 | `plune diff <baseline> <current>` | Compare two `plune run --format json` outputs and report pass→fail regressions. Flags: `--fail-on-regression` (exit `1` on a regression, `3` when none but an eval was not measured), `--format`, `-o`. |
 | `plune mock <file>` | Serve a stub file on `127.0.0.1` so a product's model calls are answered locally, with no network. With `--record --target <origin>` it forwards each request to that origin and writes the answers into the file as stubs to replay later. Prompts and answers are stored as they are; credentials are masked by a few fixed rules that do not catch everything, and `plune mock --help` and the [CLI guide](docs/guide/cli.md#plune-mock) say what they miss. Flags: `--record`, `--target`, `--force`, `--scope`, `--port`. |
 | `plune init` | Scaffold `plune.yaml`, a sample dataset, and `.env.example`. Flags: `--yes` (non-interactive), `--force`, `--from-openai-eval <eval.json>` (build it from an exported OpenAI eval). |
-| `plune login` | Save a [Plune platform](https://plune.ai/platform) API token so `sync` and `ingest` can reach it. The token is **checked against the API before it is saved**, so a wrong one fails here rather than two commands later. Get one at `https://beta.plune.ai` → Account → API tokens. Flags: `--token <token>` (omit to paste it or pipe it via stdin), `--skip-verify` (save without checking, for offline setup). In CI, skip this step: every platform command reads `PLUNE_TOKEN` from the environment first, and the saved login only when it is not set. |
+| `plune login` | Save a [Plune platform](https://plune.ai/platform) API token so `sync` and `ingest` can reach it. The token is **checked against the API before it is saved**, so a wrong one fails here rather than two commands later. Get one at `https://app.plune.ai` → Account → API tokens. Flags: `--token <token>` (omit to paste it or pipe it via stdin), `--skip-verify` (save without checking, for offline setup). In CI, skip this step: every platform command reads `PLUNE_TOKEN` from the environment first, and the saved login only when it is not set. |
 | `plune logout` | Remove the saved token. |
 | `plune mcp serve` | Serve the Plune tools to an AI agent (Claude Code, Codex, any MCP client) over **MCP stdio**. See [Plune tools for AI agents](#plune-tools-for-ai-agents-plune-mcp). Flags: `--project <id>` (default `PLUNE_PROJECT`), `--read-only` (offer only the read tools), `--disable-tool <name>` (switch one tool off; repeatable). |
 | `plune mcp check` | Check that **any** MCP server starts and answers: handshake, protocol version, capabilities, the lists, `ping`. See [Is the server alive](#is-the-server-alive-plune-mcp-check). Flags: `--check-timeout <duration>`, `--wait <duration>`, `--smoke` (with `--smoke-limit`, `--smoke-timeout`, `--budget`, `--allow-write-calls`), `--out [<format>=]<path>` (repeatable), `--reporter junit-xml`, `--format human\|json\|github\|markdown`, and the connection flags. Exit `0` healthy, `1` a check failed, `2` the server did not start, could not be reached or wants credentials, or a flag is wrong, `3` something could not be measured. |
@@ -737,8 +737,9 @@ plune push --dry-run # what a push would change, before it changes anything
 ```
 
 The token is stored at `~/.config/plune/credentials.json` (mode `0600`, honours `XDG_CONFIG_HOME`)
-and is never printed or logged. `PLUNE_API_URL` points `sync`, `pull` and `push` at a different server —
-useful for a self-hosted backend. The Markdown format `pull` writes and `push` reads is documented at
+and is never printed or logged. Every platform command talks to `https://api.plune.ai` unless `PLUNE_API_URL` names a different server:
+a self-hosted backend, or `https://beta-api.plune.ai` for a beta account (a token works only at the
+address that issued it). The Markdown format `pull` writes and `push` reads is documented at
 [docs.plune.ai/platform/cases/markdown](https://docs.plune.ai/platform/cases/markdown/).
 
 ### Plune tools for AI agents: `plune mcp`

@@ -16,7 +16,7 @@ import * as path from 'node:path';
 import { createClient, type PlatformClient } from '../../reporter-core/client.js';
 import { UPLOAD_RETRIES } from '../../reporter-core/env.js';
 import { fileSender, type Upload } from '../../reporter-core/session.js';
-import { resolveApiUrl } from '../api-url.js';
+import { resolveApiUrl, tokenRefusedBy } from '../api-url.js';
 import { loadToken } from '../credentials.js';
 import {
   findLatestCairnRun,
@@ -43,8 +43,8 @@ export class IngestNotLoggedInError extends Error {
 
 /** The token was present but the server rejected it (401). (exit 2) */
 export class IngestTokenRejectedError extends Error {
-  constructor() {
-    super('Your API token was rejected (401). Run "plune login" again with a fresh token.');
+  constructor(apiUrl: string = resolveApiUrl()) {
+    super(`Your API token was rejected (401). Run "plune login" again with a fresh token. ${tokenRefusedBy(apiUrl)}`);
     this.name = 'IngestTokenRejectedError';
   }
 }
@@ -331,7 +331,7 @@ export async function handleIngest(deps: IngestDeps): Promise<IngestResult> {
 
     if (!res.ok) {
       const detail = await safeErrorDetail(res);
-      if (res.status === 401) throw new IngestTokenRejectedError();
+      if (res.status === 401) throw new IngestTokenRejectedError(apiUrl);
       throw new IngestHttpError(res.status, detail);
     }
 

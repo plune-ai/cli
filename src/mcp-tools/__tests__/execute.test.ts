@@ -670,6 +670,16 @@ describe('errors', () => {
     const out = await executor(() => ({ status: 401, body: { error: 'invalid or revoked token' } })).exec.execute('plune_mission_get', { missionId: 'm1' });
     expect(out.ok).toBe(false);
     if (!out.ok) expect(out.error).toMatchObject({ status: 401, code: 'token_rejected' });
+    // A host that serves the tools itself gives no hint, and the message says nothing about addresses.
+    if (!out.ok) expect(out.error.message).toBe('Plune rejected the token (401): invalid or revoked token. Run `plune login` or set PLUNE_TOKEN to a live token.');
+  });
+
+  it('ends a rejected token with the hint of the host that gave one', async () => {
+    const platform = fakePlatform(() => ({ status: 401, body: { error: 'invalid or revoked token' } }));
+    const exec = createPluneToolExecutor({ token: 't', apiUrl: 'https://api.test', fetchImpl: platform.fetchImpl, tokenRejectedHint: 'Ask at the door.' });
+    const out = await exec.execute('plune_mission_get', { missionId: 'm1' });
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.error.message).toBe('Plune rejected the token (401): invalid or revoked token. Run `plune login` or set PLUNE_TOKEN to a live token. Ask at the door.');
   });
 
   it('says the platform is unreachable on a network failure', async () => {

@@ -374,6 +374,7 @@ describe('CLI · mcp snapshot · push · nothing goes up unasked, and every fail
     const r = await push({ push: true, serverName: 'Notes MCP' }, fake);
     expect(r.code).toBe(2);
     expect(r.err).toMatch(/token was rejected \(401\)/);
+    expect(r.err).toContain('The address that refused it is https://api.test.');
   });
 
   it("a refused body is exit 2 with the platform's reason, and a token the platform echoed is not printed", async () => {
