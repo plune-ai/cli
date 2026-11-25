@@ -104,15 +104,15 @@ export interface MockServer {
   close(): Promise<void>;
 }
 
-const MASK = '[masked]';
+export const MASK = '[masked]';
 // By name, not by a list of known providers: any header or query parameter that looks like a credential.
 // It errs on the side of masking: `code` also hides a harmless `x-error-code`.
-const SECRET_NAME =
+export const SECRET_NAME =
   /auth|key|token|secret|cookie|password|passwd|pwd|credential|sig|jwt|session|csrf|otp|code|assertion/i;
-const SCOPE_NAME = /^(?!\.{1,2}$)[A-Za-z0-9._-]+$/;
+export const SCOPE_NAME = /^(?!\.{1,2}$)[A-Za-z0-9._-]+$/;
 // `.` and `..`, also percent-encoded: a client or a proxy on the way may resolve them.
-const DOT_SEGMENT = /^(\.|%2e){1,2}$/i;
-const MAX_BODY_BYTES = 16 * 1024 * 1024;
+export const DOT_SEGMENT = /^(\.|%2e){1,2}$/i;
+export const MAX_BODY_BYTES = 16 * 1024 * 1024;
 
 interface LiveStub {
   stub: Stub;
@@ -199,7 +199,7 @@ function maskedQuery(params: URLSearchParams): string {
     .join('&');
 }
 
-function renderBody(response: StubResponse): { type?: string; body: Buffer } {
+export function renderBody(response: StubResponse): { type?: string; body: Buffer } {
   if (response.sse !== undefined) {
     const events = response.sse.map((chunk) => {
       const { event, data } = typeof chunk === 'string' ? { event: undefined, data: chunk } : chunk;

@@ -1538,6 +1538,64 @@ export function createProgram(): Command {
       },
     );
 
+  program
+    .command('mock')
+    .description(
+      'Serve a stub file from a local stub server (127.0.0.1 only, no network), or with --record write one from the answers of a real HTTP API',
+    )
+    .argument('<file>', 'The stub file: served as it is, or written with --record (inside the current folder only)')
+    .option('--record', 'Forward each request to --target and write the answers into <file>', false)
+    .option('--target <origin>', 'With --record: where requests go, an http: or https: origin with no path. Nothing in a request changes it')
+    .option('--force', 'With --record: replace <file> if it exists', false)
+    .option('--scope <name>', 'The first path segment of the base URL', 'default')
+    .option(
+      '--port <n>',
+      'The port on 127.0.0.1 (default: a free one, printed at the start)',
+      (v: string) => {
+        if (!/^\d+$/.test(v) || Number(v) > 65_535) throw new InvalidArgumentError('a whole number from 0 to 65535.');
+        return Number(v);
+      },
+      0,
+    )
+    .addHelpText(
+      'after',
+      '\nA recording holds the prompts and the answers as they were sent and received: they may hold personal or confidential text. It is never uploaded. Credentials are not written: no request header, no query string, of the response headers only content-type and retry-after, and a credential the request carried in a header or the query is replaced by [masked] wherever it shows up in a body or the path. Redirects are passed back, not followed. Not recorded, with a warning: a body over 8 MiB, a body that is not UTF-8 text, a compressed body, a redirect, a failed upstream (answered 502). Timing is not recorded. The same request recorded several times is replayed in the order recorded. Ctrl+C stops; the file is complete after every exchange.',
+    )
+    .action(
+      async (
+        file: string,
+        options: { record: boolean; target?: string; force: boolean; scope: string; port: number },
+        command: Command,
+      ) => {
+        const verbose = verboseOf(command);
+        const { handleMock, MockUsageError } = await import('./cli/commands/mock.js');
+        const stop = new AbortController();
+        const onSignal = (): void => stop.abort();
+        process.once('SIGINT', onSignal);
+        process.once('SIGTERM', onSignal);
+        try {
+          await handleMock(
+            { file, ...options },
+            {
+              stdout: (text) => process.stdout.write(text),
+              stderr: (text) => process.stderr.write(text),
+              signal: stop.signal,
+            },
+          );
+        } catch (err) {
+          if (err instanceof MockUsageError) {
+            process.stderr.write(err.message + '\n');
+            process.exitCode = 2;
+            return;
+          }
+          failUnexpected(err, verbose);
+        } finally {
+          process.off('SIGINT', onSignal);
+          process.off('SIGTERM', onSignal);
+        }
+      },
+    );
+
   // Unknown command → exit 2 (CLI_SPEC §4.2). Registering a `command:*` listener makes commander
   // emit this event instead of its default "unknown command" error (which would exit 1).
   program.on('command:*', (operands: string[]) => {

@@ -1653,6 +1653,84 @@ The SARIF file carries a place (file, line) for every result; a finding with no 
 run property `omittedResults` and in a notification, not dropped silently. No format prints the value of a secret or
 the text of a description: a finding names the rule, the server and the position.
 
+## `plune mock`
+
+Runs a local stub server on `127.0.0.1` that answers like an HTTP API from a **stub file**, or, with
+`--record`, writes such a file from the answers of the real API. A recorded file is replayed with no
+network: point the client at the local address instead of the API.
+
+```bash
+# 1. Record: requests go on to the target, the answers are written into the file.
+plune mock chat.stubs.yaml --record --target https://api.example.com --port 4010
+#    In another terminal, run the client with its base URL set to the local address:
+curl http://127.0.0.1:4010/default/v1/chat/completions \
+  -H "authorization: Bearer $API_KEY" -H "content-type: application/json" \
+  -d '{"model":"m","messages":[{"role":"user","content":"Say hello"}]}'
+#    Ctrl+C stops the recorder.
+
+# 2. Replay: the same file, no --record. Nothing leaves the machine, and no key is needed.
+plune mock chat.stubs.yaml --port 4010
+curl http://127.0.0.1:4010/default/v1/chat/completions \
+  -H "content-type: application/json" \
+  -d '{"model":"m","messages":[{"role":"user","content":"Say hello"}]}'
+```
+
+The first path segment (`default`, or `--scope`) is the scope of the stub server; the rest of the path and
+the query go to the target as they are. For a client library, the base URL is
+`http://127.0.0.1:4010/default` plus whatever the library expects after the host, such as `/v1`.
+
+**Where a request goes.** Only to the origin given in `--target`. The `Host` header, `X-Forwarded-*` and
+`Forwarded` take no part and are not sent on, an absolute URL as the request target is refused with a
+`400`, and a redirect from the target is passed back to the client, not followed. The server listens on
+`127.0.0.1` only. Without `--record` the command makes no outbound request at all.
+
+**What a recording holds.** The file is a stub file of version 1 (JSON, which is also YAML, under three
+comment lines: the date and the origin, a warning, and what is left out). **The prompts and the answers are
+stored as they were sent and received and may hold personal or confidential text.** It is written inside
+the current folder only, never uploaded, and not replaced without `--force`. Each exchange is one stub:
+
+| Stored | Not stored |
+|--------|------------|
+| Method and path | The query string |
+| The request body, as the JSON subset a replay matches on | Any request header; keys of the body whose name looks like a credential (`api_key`, `token`, also `max_tokens`), with their values |
+| Status, `content-type`, `retry-after` | Every other response header, `set-cookie` included |
+| The response body: JSON, text, or the events of an event stream | Timing: a replayed stream arrives at once |
+
+A credential the request carried in a header or the query (found by the name of the header or parameter:
+`authorization`, `x-api-key`, `cookie`, `api_key` and the like) is also searched for by value in everything
+written, and replaced by `[masked]` (by `*` in a path) wherever the target echoed it. Values under 8
+characters are not searched for, nor is a value the target sent back re-encoded or split over several
+events.
+
+**Replay.** A request is matched by its method, its path and the stored body; the query and the headers
+take no part. A replayed body is the recorded one byte for byte, except where a credential was masked.
+The same request recorded several times is answered in the order recorded, and its last answer serves
+every later repeat. A request that was not recorded gets a `404` of type `mock_no_stub`.
+
+**Not recorded**, passed through to the client with a warning that names the method and the status only:
+a response body over 8 MiB, a body that is not UTF-8 text, a compressed body (the target is asked for
+none), a redirect. When the target cannot be reached, resets, fails TLS or times out, the client gets a
+`502` of type `mock_upstream_failed` and nothing is recorded. The file is complete after every exchange,
+so stopping loses nothing.
+
+### Options
+
+| Option | Meaning |
+|--------|---------|
+| `<file>` | The stub file: served as it is, or written with `--record`. |
+| `--record` | Forward each request to `--target` and write the answers into `<file>`. |
+| `--target <origin>` | With `--record`: `http://host[:port]` or `https://host[:port]`, with no path, query or user name. |
+| `--force` | With `--record`: replace `<file>` if it exists. |
+| `--scope <name>` | The first path segment of the base URL (default `default`). |
+| `--port <n>` | The port on `127.0.0.1` (default: a free one, printed at the start). |
+
+### Exit codes
+
+| Exit | Meaning |
+|------|---------|
+| `0` | Stopped with Ctrl+C. |
+| `2` | A usage error: `--record` without `--target` or the reverse, a target that is not an http(s) origin, a path outside the current folder, a file that exists without `--force`, a stub file that is missing or invalid, a port that is taken. |
+
 ## Report formats of `plune mcp lint`, `check` and `diff`
 
 The three commands that test a server share one set of report flags and five formats, built from one
