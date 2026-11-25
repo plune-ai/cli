@@ -11,6 +11,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.40.1] - 2026-11-25
+
 ### Fixed
 
 - **The stub server and the recorder of `plune mock` refuse a request a browser marks as sent from another origin, also when it has no `Origin`.** Until now only an `Origin` of another site was refused, and a browser adds none to a plain `GET` (an image, a link): such a request from a web page was served, and with `--record` forwarded to the target and written into the file, though the page could not read the answer. Now a request whose `Sec-Fetch-Site` is `cross-site` or `same-site` gets a `403`, in `plune run` with stubs and in both modes of `plune mock`; it is not forwarded and not recorded. `same-origin`, `none`, and a request with no such header (`curl`, a client library) are served as before. The sentence of 0.40.0 that a web page can no longer reach the server said more than the check did; the check rests on the headers the browser sends, and a plain `GET` from a browser that sends no `Sec-Fetch-Site` is still served, as is a request the browser marks `none` (an address the user opened directly, including one that redirects to the server).
