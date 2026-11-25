@@ -11,6 +11,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.39.15] - 2026-11-25
+
 ### Added
 
 - **An experimental judge for `llm-judge`: `provider: { type: jev, model: jev-1.14.0 }`.** The check is then judged by Jev, a decision model of TypeSafe, which answers one yes-or-no question with a probability. That probability is the check's `score`, `pass_threshold` applies to it, and the `reason` says the judge gives none; the run result names it in `judge_model` as `jev/<model>`, so `plune judge-check` measures it like any judge. The request, the answer and the criterion go to `api.typesafe.ai` with the key from `TYPESAFE_API_KEY`; a check over 16,000 characters, or a run with no key, errors the row and sends nothing. `jev` is a judge only: it cannot be the provider of a config or an eval, takes no `temperature` or `max_tokens`, and the model is always named. The cost is added to the row at USD 0.042 per million input tokens (indicative). `plune run` says once per run that the option is experimental. In our own measurements it matched the Claude judges where an answer is clearly right or wrong and fell well behind on open, ambiguous criteria; the figures and their limits are in the [assertions guide](docs/guide/assertions.md#an-experimental-judge-jev).
