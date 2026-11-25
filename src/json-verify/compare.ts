@@ -12,6 +12,12 @@
 // an expected object: one that has either must be exactly a marker, or it is an error of the expected value.
 // Data that really has such a key is written inside {"$literal": <data>}: what is under `$literal` is compared
 // as plain data, with no marker read anywhere in it.
+//
+// A string of the expected value can be a check on the actual value instead of a text to equal:
+// `@isString() @minLength(3)`. The rule for which strings are checks, and the escape `@@`, are in functions.ts.
+// Under `$literal` no string is a check.
+
+import { CheckSyntaxError, firstFailedCheck, parseExpectedString } from './functions.js';
 
 export const COMPARE_MODES = ['exact', 'unordered', 'contains'] as const;
 export type CompareMode = (typeof COMPARE_MODES)[number];
@@ -21,6 +27,7 @@ export type MismatchReason =
   | 'extra-key'
   | 'type'
   | 'value'
+  | 'function'
   | 'missing-element'
   | 'extra-element'
   | 'no-match'
@@ -42,7 +49,7 @@ export interface ExpectedIssue {
   message: string;
 }
 
-/** The expected value itself is wrong (a broken marker). An error of the config, never a failed check. */
+/** The expected value itself is wrong (a broken marker or check). An error of the config, never a failed check. */
 export class ExpectedJsonError extends Error {
   constructor(
     readonly path: string,
@@ -103,6 +110,13 @@ export function validateExpected(expected: unknown): ExpectedIssue[] {
       if (typeof marker === 'string') issues.push({ path, message: marker });
       else if (marker === undefined) for (const key of Object.keys(exp)) visit(exp[key], keyPath(path, key));
       else if (!marker.literal) visit(marker.value, path);
+    } else if (typeof exp === 'string') {
+      try {
+        parseExpectedString(exp);
+      } catch (err) {
+        if (!(err instanceof CheckSyntaxError)) throw err;
+        issues.push({ path, message: err.message });
+      }
     }
   };
   visit(expected, '$');
@@ -124,6 +138,22 @@ function walk(exp: unknown, act: unknown, mode: CompareMode, path: string, sink:
       walk(marker.value, act, marker.mode ?? mode, path, sink, marker.literal);
       return;
     }
+  }
+  if (!literal && typeof exp === 'string') {
+    const parsed = parseExpectedString(exp);
+    if ('checks' in parsed) {
+      const failed = firstFailedCheck(parsed.checks, act);
+      if (failed !== undefined)
+        sink.list.push({
+          path,
+          reason: 'function',
+          expected: exp,
+          actual: act,
+          detail: failed.note === undefined ? failed.check.text : `${failed.check.text}: ${failed.note}`,
+        });
+      return;
+    }
+    exp = parsed.literal;
   }
   if (typeOf(exp) !== typeOf(act)) {
     sink.list.push({ path, reason: 'type', expected: exp, actual: act });
@@ -170,8 +200,14 @@ function walkInOrder(
     sink.list.push({ path: `${path}[${i}]`, reason: 'extra-element', actual: act[i] });
 }
 
-/** A scalar that can only match an equal scalar: every element that is not an array or an object. */
 const isScalar = (v: unknown): boolean => typeof v !== 'object' || v === null;
+/** An expected element that can only match an equal scalar, as that scalar; `undefined` for any other. */
+function plainScalar(e: unknown, literal: boolean): { value: unknown } | undefined {
+  if (!isScalar(e)) return undefined;
+  if (literal || typeof e !== 'string') return { value: e };
+  const parsed = parseExpectedString(e);
+  return 'literal' in parsed ? { value: parsed.literal } : undefined;
+}
 const scalarKey = (v: unknown): string => `${typeOf(v)}:${String(v)}`;
 
 /**
@@ -179,7 +215,7 @@ const scalarKey = (v: unknown): string => `${typeOf(v)}:${String(v)}`;
  *
  * 1. Expected scalars are paired with equal scalars of the answer through a map, in linear time. Equal
  *    scalars are interchangeable for every other expected element, so pairing them first never costs a pair.
- * 2. The rest (objects, arrays, marked nodes) is a bipartite matching, solved with augmenting paths: an
+ * 2. The rest (objects, arrays, marked nodes, checks) is a bipartite matching, solved with augmenting paths: an
  *    element that fits several places gives its place up when another element has nowhere else to go.
  *    First-fit is wrong here: {a:1} would take {a:1,b:2} and leave an expected {a:1,b:2} with nothing.
  */
@@ -204,8 +240,9 @@ function walkAnyOrder(
     else at.push(j);
   }
   exp.forEach((e, i) => {
-    if (!isScalar(e)) return rest.push(i);
-    const j = scalars.get(scalarKey(e))?.pop();
+    const plain = plainScalar(e, literal);
+    if (plain === undefined) return rest.push(i);
+    const j = scalars.get(scalarKey(plain.value))?.pop();
     if (j === undefined) return unmatched.push(i);
     taken[j] = 1;
   });
@@ -268,7 +305,7 @@ export interface CompareOptions {
  * Every mismatch between `expected` and `actual`, in a stable order: depth first, the expected keys in their
  * order, then the keys only the answer has. An empty list means they match.
  *
- * @throws ExpectedJsonError when `expected` holds a broken marker; `validateExpected` finds those ahead.
+ * @throws ExpectedJsonError when `expected` holds a broken marker or check; `validateExpected` finds those ahead.
  */
 export function compareJson(expected: unknown, actual: unknown, options: CompareOptions = {}): Mismatch[] {
   const issue = validateExpected(expected)[0];
