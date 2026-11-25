@@ -16,6 +16,8 @@ import { handleMock, MockUsageError, type MockFlags } from '../mock.js';
 const KEY = 'sk-test-9f8e7d6c5b4a3210';
 // What is left of the key in any encoding of it.
 const KEY_CORE = '9f8e7d6c5b4a';
+// A second key, carried in a field of the request body only.
+const BODY_KEY = 'body-only-7c6b5a4f3e2d1c0b';
 
 let guard: NetGuard;
 let dir: string;
@@ -28,8 +30,10 @@ beforeAll(async () => {
   // Echoes the credentials it was sent, in the body and in headers, as a careless API might.
   upstream = http.createServer((req, res) => {
     upstreamCalls += 1;
-    req.resume();
+    let sent = '';
+    req.on('data', (c: Buffer) => (sent += c.toString('utf8')));
     req.on('end', () => {
+      const bodyKey = String((JSON.parse(sent) as { api_key?: unknown }).api_key);
       res.writeHead(200, {
         'content-type': 'application/json',
         'x-echo-key': String(req.headers['x-api-key']),
@@ -40,6 +44,7 @@ beforeAll(async () => {
           id: 'chat-1',
           choices: [{ message: { role: 'assistant', content: 'Hello, John Doe' } }],
           debug: { authorization: req.headers.authorization, url: req.url },
+          forms: [bodyKey, bodyKey.toUpperCase(), Buffer.from(bodyKey).toString('base64')],
         }),
       );
     });
@@ -58,7 +63,11 @@ beforeEach(() => {
   guard.seen.length = 0;
   upstreamCalls = 0;
 });
-afterEach(() => {
+const open: Array<() => void> = [];
+afterEach(async () => {
+  vi.restoreAllMocks();
+  for (const stop of open.splice(0)) stop();
+  await new Promise((resolve) => setTimeout(resolve, 20));
   fs.rmSync(dir, { recursive: true, force: true });
   expect(guard.refused.splice(0)).toEqual([]);
 });
@@ -76,7 +85,8 @@ interface Running {
   url: string;
   out: string[];
   err: string[];
-  stop(): Promise<void>;
+  /** Resolves with the exit code. */
+  stop(): Promise<number>;
 }
 
 /** Starts the command and waits until it listens; `stop` is what Ctrl+C does. */
@@ -96,13 +106,14 @@ async function run(f: MockFlags, outbound?: Outbound): Promise<Running> {
     ...(outbound === undefined ? {} : { outbound }),
   });
   const url = await Promise.race([listening, done.then(() => '')]);
+  open.push(() => stopper.abort());
   return {
     url,
     out,
     err,
     stop: async () => {
       stopper.abort();
-      await done;
+      return done;
     },
   };
 }
@@ -117,6 +128,7 @@ const ask = (url: string) =>
     },
     body: JSON.stringify({
       model: 'm',
+      api_key: BODY_KEY,
       messages: [{ role: 'user', content: 'Say hello to John Doe' }],
     }),
   });
@@ -143,8 +155,14 @@ describe('CLI · mock · record then replay', () => {
     const written = everythingWritten(dir);
     const printed = [...recording.out, ...recording.err].join('');
     expect(written).toContain('Hello, John Doe');
-    expect(written).not.toContain(KEY_CORE);
-    expect(printed).not.toContain(KEY_CORE);
+    expect(liveBody).toContain(BODY_KEY);
+    for (const text of [written, printed]) {
+      expect(text).not.toContain(KEY_CORE);
+      const lower = text.toLowerCase();
+      expect(lower).not.toContain(BODY_KEY);
+      expect(lower).not.toContain(Buffer.from(BODY_KEY).toString('base64').toLowerCase());
+    }
+    expect(printed).toMatch(/not found: a value under 8 characters/);
     expect(printed).toContain('recorded: POST 200\n');
     expect(printed).toContain('Stopped. Exchanges recorded: 1.\n');
     expect(printed).toMatch(/may hold personal or confidential text/);
@@ -173,6 +191,7 @@ describe('CLI · mock · record then replay', () => {
       authorization: '[masked]',
       url: '/v1/chat/completions?api_key=[masked]',
     });
+    expect((body as { forms?: unknown }).forms).toEqual(['[masked]', '[masked]', '[masked]']);
     expect(await second.json()).toEqual(body);
     await serving.stop();
 
@@ -192,8 +211,26 @@ describe('CLI · mock · record then replay', () => {
     await recording.stop();
     const again = await run(flags({ record: true, target: origin, port, force: true }));
     expect(new URL(again.url).port).toBe(String(port));
-    await again.stop();
+    expect(await again.stop()).toBe(0);
   });
+
+  it('ends with exit 1 and says how many exchanges it could not write', async () => {
+    const recording = await run(flags({ record: true, target: origin }));
+    await (await ask(recording.url)).text();
+    await vi.waitFor(() => expect(recording.out.join('')).toContain('recorded: POST 200'));
+    vi.spyOn(fs.promises, 'rename').mockRejectedValue(
+      Object.assign(new Error('EPERM'), { code: 'EPERM' }),
+    );
+    await (await ask(recording.url)).text();
+    await (await ask(recording.url)).text();
+    expect(await recording.stop()).toBe(1);
+    const err = recording.err.join('');
+    expect(err).toContain(
+      'Exchanges that could not be written to the file and are lost: 2. The file holds the 1 before them.\n',
+    );
+    expect(err).not.toContain(KEY_CORE);
+    expect(fs.readdirSync(dir)).toEqual(['chat.stubs.yaml']);
+  }, 15_000);
 });
 
 describe('CLI · mock · what it refuses', () => {
@@ -273,6 +310,13 @@ describe('CLI · mock · help', () => {
       /prompts and the answers as they were sent and received: they may hold personal or confidential text/,
     );
     expect(help).toMatch(/never uploaded/);
+    // The limits of the masking, one plain sentence each.
+    expect(help).toContain(
+      'A credential value under 8 characters is not searched for and stays as it came.',
+    );
+    expect(help).toContain(
+      'A credential value in a form other than plain, URL-encoded, JSON-escaped, base64 or hex is not found and stays as it came.',
+    );
     expect(help).toMatch(/Redirects are passed back, not followed/);
     expect(help).toMatch(/Timing is not recorded/);
   });

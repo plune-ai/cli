@@ -1,15 +1,22 @@
 // The recording proxy from the client's side. Every upstream is a fake server on 127.0.0.1, and a guard
 // on the sockets of this process fails any connection to an address that is not loopback.
 
+import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import * as fs from 'node:fs';
 import * as http from 'node:http';
-import { connect, type AddressInfo } from 'node:net';
+import { connect, createServer, type AddressInfo, type Socket } from 'node:net';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadStubFile } from '../schema.js';
-import { parseTarget, startRecorder, type Recorder, type RecordOptions } from '../record.js';
+import {
+  isSecretBodyKey,
+  parseTarget,
+  startRecorder,
+  type Recorder,
+  type RecordOptions,
+} from '../record.js';
 import { start } from '../server.js';
 import { guardNetwork, type NetGuard } from './net-guard.js';
 
@@ -86,6 +93,7 @@ beforeEach(() => {
   guard.seen.length = 0;
 });
 afterEach(async () => {
+  vi.restoreAllMocks();
   await Promise.all(open.splice(0).map((o) => o.close()));
   fs.rmSync(dir, { recursive: true, force: true });
   // No test of this file may have tried the real network.
@@ -96,6 +104,18 @@ async function upstream(answer: Answer): Promise<Fake> {
   const f = await fake(answer);
   open.push(f);
   return f;
+}
+
+/** An upstream that is no HTTP server: it answers each connection's first bytes as `reply` says. */
+async function rawUpstream(reply: (socket: Socket) => void): Promise<string> {
+  const server = createServer((socket) => {
+    socket.on('error', () => undefined);
+    socket.once('data', () => reply(socket));
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  open.push({ close: () => new Promise((resolve) => server.close(() => resolve())) });
+  return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
 
 async function recorder(target: string, more: Partial<RecordOptions> = {}): Promise<Recorder> {
@@ -120,6 +140,18 @@ const post = (url: string, body: unknown, headers: Record<string, string> = {}) 
   });
 
 const bytes = async (res: Response): Promise<Buffer> => Buffer.from(await res.arrayBuffer());
+
+/** One request written byte for byte, and everything that came back. */
+async function rawRequest(port: number, target: string, headers: string[] = []): Promise<string> {
+  const socket = connect(port, '127.0.0.1');
+  let text = '';
+  socket.on('data', (c: Buffer) => (text += c.toString('utf8')));
+  const head = [`GET ${target} HTTP/1.1`, ...headers, 'connection: close', '', ''];
+  if (!headers.some((h) => h.startsWith('host:'))) head.splice(1, 0, `host: 127.0.0.1:${port}`);
+  socket.write(head.join('\r\n'));
+  await once(socket, 'close');
+  return text;
+}
 
 /** Stops the recorder and serves what it wrote from the stub server, with the scope `default`. */
 async function replay(r: Recorder): Promise<string> {
@@ -159,33 +191,54 @@ describe('mock · record · where a request goes', () => {
     expect(r.url).toBe(`http://127.0.0.1:${r.port}/default`);
   });
 
-  it('takes nothing from Host, X-Forwarded-* or Forwarded, and sends none of them on', async () => {
+  it('takes nothing from X-Forwarded-* or Forwarded, and sends none of them on', async () => {
     const up = await upstream(json({ ok: true }));
     const r = await recorder(up.origin);
-    const req = http.request({
-      host: '127.0.0.1',
-      port: r.port,
-      method: 'POST',
-      path: '/default/v1/chat',
-      headers: {
-        host: 'evil.example',
+    const res = await post(
+      `${r.url}/v1/chat`,
+      {},
+      {
         'x-forwarded-host': 'evil.example',
         'x-forwarded-proto': 'https',
         'x-forwarded-for': '10.0.0.1',
         forwarded: 'host=evil.example;proto=https',
       },
-    });
-    req.end('{}');
-    const [res] = (await once(req, 'response')) as [http.IncomingMessage];
-    res.resume();
-    await once(res, 'end');
-    expect(res.statusCode).toBe(200);
+    );
+    expect(res.status).toBe(200);
     expect(up.seen).toHaveLength(1);
-    const names = Object.keys(up.seen[0]!.headers);
     expect(up.seen[0]!.headers.host).toBe(`127.0.0.1:${up.port}`);
-    expect(names.filter((n) => /forwarded/.test(n))).toEqual([]);
+    expect(Object.keys(up.seen[0]!.headers).filter((n) => /forwarded/.test(n))).toEqual([]);
     // Only the client's connection to the recorder and the recorder's to the fake.
     expect(new Set(guard.seen)).toEqual(new Set([`127.0.0.1:${r.port}`, `127.0.0.1:${up.port}`]));
+  });
+
+  it.each([
+    ['a Host that is another name', (port: number) => [`host: evil.example:${port}`]],
+    ['a Host with another port', (port: number) => [`host: 127.0.0.1:${port + 1}`]],
+    ['an Origin of another site', () => ['origin: https://evil.example']],
+    ['an opaque Origin', () => ['origin: null']],
+  ])('refuses %s with a 403, forwards nothing and records nothing', async (_name, headers) => {
+    const up = await upstream(json({ ok: true }));
+    const r = await recorder(up.origin);
+    const text = await rawRequest(r.port, '/default/v1/chat', headers(r.port));
+    expect(text).toMatch(/^HTTP\/1\.1 403 /);
+    expect(text).toContain('mock_not_local');
+    expect(text.toLowerCase()).not.toContain('access-control');
+    expect(up.seen).toEqual([]);
+    expect(guard.seen).toEqual([`127.0.0.1:${r.port}`]);
+    await r.close();
+    expect((await loadStubFile(r.file)).stubs).toEqual([]);
+  });
+
+  it('serves a request addressed to localhost, and one a page of its own origin sent', async () => {
+    const up = await upstream(json({ ok: true }));
+    const r = await recorder(up.origin);
+    const text = await rawRequest(r.port, '/default/v1/chat', [
+      `host: localhost:${r.port}`,
+      `origin: http://127.0.0.1:${r.port}`,
+    ]);
+    expect(text).toMatch(/^HTTP\/1\.1 200 /);
+    expect(text.toLowerCase()).not.toContain('access-control');
   });
 
   it.each([
@@ -197,11 +250,7 @@ describe('mock · record · where a request goes', () => {
   ])('refuses %s with a 400 and forwards nothing', async (_name, target) => {
     const up = await upstream(json({ ok: true }));
     const r = await recorder(up.origin);
-    const socket = connect(r.port, '127.0.0.1');
-    let text = '';
-    socket.on('data', (c: Buffer) => (text += c.toString('utf8')));
-    socket.write(`GET ${target} HTTP/1.1\r\nhost: evil.example\r\nconnection: close\r\n\r\n`);
-    await once(socket, 'close');
+    const text = await rawRequest(r.port, target);
     expect(text).toMatch(/^HTTP\/1\.1 400 /);
     expect(text).toContain('mock_bad_target');
     expect(text).not.toContain('evil');
@@ -212,27 +261,29 @@ describe('mock · record · where a request goes', () => {
   it('keeps a path that looks like another host on the target', async () => {
     const up = await upstream(json({ ok: true }));
     const r = await recorder(up.origin);
-    const socket = connect(r.port, '127.0.0.1');
-    socket.resume();
-    socket.write('GET /default//evil.example/x HTTP/1.1\r\nhost: a\r\nconnection: close\r\n\r\n');
-    await once(socket, 'close');
+    await rawRequest(r.port, '/default//evil.example/x');
     expect(up.seen.map((s) => s.url)).toEqual(['//evil.example/x']);
   });
 
   it('passes a redirect back to the client, does not follow it and does not record it', async () => {
     const elsewhere = await upstream(json({ followed: true }));
-    const up = await upstream((_s, res) => {
-      res.writeHead(302, { location: `${elsewhere.origin}/v1/moved` });
+    const up = await upstream((seen, res) => {
+      if (seen.url === '/v1/same') res.writeHead(304);
+      else res.writeHead(302, { location: `${elsewhere.origin}/v1/moved` });
       res.end();
     });
     const r = await recorder(up.origin);
     const res = await post(`${r.url}/v1/chat`, {});
     expect(res.status).toBe(302);
     expect(res.headers.get('location')).toBe(`${elsewhere.origin}/v1/moved`);
+    expect((await post(`${r.url}/v1/same`, {})).status).toBe(304);
     expect(elsewhere.seen).toEqual([]);
     await r.close();
     expect((await loadStubFile(r.file)).stubs).toEqual([]);
-    expect(warnings).toEqual(['not recorded: POST 302 (a redirect is passed back, not followed)']);
+    expect(warnings).toEqual([
+      'not recorded: POST 302 (a redirect is passed back, not followed)',
+      'not recorded: POST 304 (a 304 has no body to replay)',
+    ]);
   });
 
   it.each([
@@ -254,7 +305,27 @@ describe('mock · record · where a request goes', () => {
     const up = await upstream(json({ ok: true }));
     const r = await recorder(up.origin);
     expect(new URL(r.url).hostname).toBe('127.0.0.1');
-    expect(Object.keys({ ...({} as RecordOptions) })).not.toContain('host');
+  });
+
+  it.each([
+    ['a status under 100', 'HTTP/1.1 099 Odd\r\ncontent-length: 0\r\n\r\n'],
+    ['a status over 599', 'HTTP/1.1 600 Odd\r\ncontent-length: 0\r\n\r\n'],
+    ['a 101', 'HTTP/1.1 101 Switching Protocols\r\nupgrade: x\r\nconnection: upgrade\r\n\r\n'],
+    ['a 103 and nothing after it', 'HTTP/1.1 103 Early Hints\r\nlink: </a>\r\n\r\n'],
+  ])('answers %s from the target with a 502, records nothing and goes on', async (_name, reply) => {
+    const origin = await rawUpstream((socket) => socket.write(reply));
+    const good = await upstream(json({ ok: true }));
+    const r = await recorder(origin, { upstreamTimeoutMs: 3000 });
+    const res = await post(`${r.url}/v1/chat`, {});
+    expect(res.status).toBe(502);
+    expect(((await res.json()) as { error: { type: string } }).error.type).toBe(
+      'mock_upstream_failed',
+    );
+    await r.close();
+    expect((await loadStubFile(r.file)).stubs).toEqual([]);
+    // The process is alive: another recorder serves a request.
+    const again = await recorder(good.origin, { file: 'again.yaml' });
+    expect((await post(`${again.url}/v1/chat`, {})).status).toBe(200);
   });
 });
 
@@ -299,9 +370,15 @@ describe('mock · record · what is written', () => {
     const [stub] = (await loadStubFile(r.file)).stubs;
     expect(stub).toEqual({
       method: 'POST',
-      path: '/v1/keys/*/chat',
-      // `api_key` and `max_tokens` look like credentials by name and are left out; the query is not stored.
-      body: { model: 'm', messages: [{ role: 'user', content: 'my key is [masked]' }] },
+      path: '/v1/keys/[masked]/chat',
+      // The query is not stored; `api_key` is there with the mask for its value; `max_tokens` is no secret.
+      body: {
+        model: 'm',
+        api_key: '[masked]',
+        max_tokens: 5,
+        messages: [{ role: 'user', content: 'my key is [masked]' }],
+      },
+      match: 'exact',
       times: 'always',
       response: {
         status: 200,
@@ -316,7 +393,61 @@ describe('mock · record · what is written', () => {
     });
   });
 
-  it('finds a credential in its URL-encoded and JSON-escaped forms, and one learnt from a later request', async () => {
+  // One credential per place a request can carry one; each is echoed back in every form below.
+  const CARRIED = {
+    header: 'hdr-Kq7+Zx/9f8e7d6c5b4a=A',
+    query: 'qry-Kq7+Zx/9f8e7d6c5b4a=B',
+    cookie: 'cke-Kq7+Zx/9f8e7d6c5b4a-C',
+    bodyField: 'bdy-Kq7+Zx/9f8e7d6c5b4a=D',
+    nestedField: 'nst-Kq7+Zx/9f8e7d6c5b4a=E',
+  };
+  const formsOf = (v: string): Record<string, string> => ({
+    plain: v,
+    upper: v.toUpperCase(),
+    lower: v.toLowerCase(),
+    url: encodeURIComponent(v),
+    json: JSON.stringify(v).slice(1, -1),
+    base64: Buffer.from(v).toString('base64'),
+    base64url: Buffer.from(v).toString('base64url'),
+    hex: Buffer.from(v).toString('hex'),
+    hexUpper: Buffer.from(v).toString('hex').toUpperCase(),
+  });
+
+  it('masks a credential from a header, the query, a cookie and a body field at any depth, in every form it comes back in', async () => {
+    const echo = Object.fromEntries(Object.entries(CARRIED).map(([k, v]) => [k, formsOf(v)]));
+    const up = await upstream(json({ echo, answer: 'kept' }));
+    const r = await recorder(up.origin);
+    await (
+      await post(
+        `${r.url}/v1/chat/${encodeURIComponent(CARRIED.bodyField)}?access_token=${encodeURIComponent(CARRIED.query)}`,
+        {
+          model: 'm',
+          api_key: CARRIED.bodyField,
+          options: { login: { clientSecret: CARRIED.nestedField } },
+        },
+        { 'x-api-key': CARRIED.header, cookie: `theme=dark; sid=${CARRIED.cookie}` },
+      )
+    ).text();
+    await r.close();
+    const text = fs.readFileSync(r.file, 'utf8').toLowerCase();
+    for (const [place, value] of Object.entries(CARRIED))
+      for (const [form, written] of Object.entries(formsOf(value)))
+        expect(text.includes(written.toLowerCase()), `${place} as ${form}`).toBe(false);
+    const [stub] = (await loadStubFile(r.file)).stubs;
+    expect(stub!.path).toBe('/v1/chat/[masked]');
+    expect(stub!.body).toEqual({
+      model: 'm',
+      api_key: '[masked]',
+      options: { login: { clientSecret: '[masked]' } },
+    });
+    const masked = Object.fromEntries(Object.keys(formsOf('')).map((form) => [form, '[masked]']));
+    expect(stub!.response?.json).toEqual({
+      echo: Object.fromEntries(Object.keys(CARRIED).map((k) => [k, masked])),
+      answer: 'kept',
+    });
+  });
+
+  it('finds a credential in its JSON-escaped form, and one learnt from a later request', async () => {
     const odd = `K1"x\\y+z/${KEY_CORE}`;
     const up = await upstream((seen, res) => {
       res.writeHead(200, { 'content-type': 'text/plain' });
@@ -327,6 +458,7 @@ describe('mock · record · what is written', () => {
     const r = await recorder(up.origin);
     // The first exchange is in the file before the proxy has seen the credential in a header.
     await (await post(`${r.url}/v1/a`, {})).text();
+    await vi.waitFor(() => expect(r.recorded).toBe(1));
     await (await post(`${r.url}/v1/b`, {}, { 'x-api-key': odd })).text();
     await r.close();
     const text = fs.readFileSync(r.file, 'utf8');
@@ -335,6 +467,56 @@ describe('mock · record · what is written', () => {
       'raw [masked] url [masked] json "[masked]" n=5',
       'raw [masked] url [masked] json "[masked]" n=5',
     ]);
+  });
+
+  it('does not record a stream that sends a credential back split over its events', async () => {
+    const half = Math.floor(KEY.length / 2);
+    const events = [KEY.slice(0, half), KEY.slice(half)]
+      .map(
+        (delta) =>
+          `data: ${JSON.stringify({ id: 'c1', choices: [{ delta: { content: delta } }] })}\n\n`,
+      )
+      .join('');
+    const up = await upstream((seen, res) => {
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      res.end(seen.url === '/v1/split' ? events : 'data: {"delta":"fine"}\n\n');
+    });
+    const r = await recorder(up.origin);
+    const headers = { authorization: `Bearer ${KEY}` };
+    expect(await (await post(`${r.url}/v1/split`, {}, headers)).text()).toBe(events);
+    await (await post(`${r.url}/v1/whole`, {}, headers)).text();
+    await r.close();
+    expect(warnings).toEqual([
+      'not recorded: POST 200 (a credential is split over the events of the stream)',
+    ]);
+    expect((await loadStubFile(r.file)).stubs.map((s) => s.path)).toEqual(['/v1/whole']);
+    expect(fs.readFileSync(r.file, 'utf8')).not.toContain(KEY.slice(half));
+  });
+
+  it.each([
+    ['api_key', true],
+    ['apiKey', true],
+    ['x-api-key', true],
+    ['key', true],
+    ['auth', true],
+    ['token', true],
+    ['access_token', true],
+    ['refreshToken', true],
+    ['client_secret', true],
+    ['password', true],
+    ['authorization', true],
+    ['session_id', true],
+    ['max_tokens', false],
+    ['max_completion_tokens', false],
+    ['prompt_tokens', false],
+    ['tokenizer', false],
+    ['author', false],
+    ['keywords', false],
+    ['monkey', false],
+    ['code', false],
+    ['model', false],
+  ])('takes the body key %s as a secret: %s', (name, secret) => {
+    expect(isSecretBodyKey(name)).toBe(secret);
   });
 
   it('keeps of the response headers only content-type and retry-after', async () => {
@@ -357,15 +539,19 @@ describe('mock · record · what is written', () => {
     });
   });
 
-  it('starts the file with the date and the origin, and says what it holds', async () => {
+  it('starts the file with the date and the origin, what it holds, and the limits of the masking', async () => {
     const up = await upstream(json({ ok: true }));
     const r = await recorder(up.origin);
     await post(`${r.url}/v1/chat?q=1`, {});
     await r.close();
     const lines = fs.readFileSync(r.file, 'utf8').split('\n');
-    expect(lines[0]).toBe(`# Recorded by \`plune mock --record\` on 2026-01-02 from ${up.origin}`);
-    expect(lines[1]).toMatch(/may hold personal or confidential text/);
-    expect(lines[2]).toMatch(/Keep this file local/);
+    expect(lines.slice(0, 5)).toEqual([
+      `# Recorded by \`plune mock --record\` on 2026-01-02 from ${up.origin}`,
+      '# Prompts and answers are stored as they were sent and received: they may hold personal or confidential text.',
+      '# A credential the request carried in a header, the query, a cookie or a body field is replaced by [masked] wherever its value was found.',
+      '# Not found: a value under 8 characters, and a value in a form other than plain, URL-encoded, JSON-escaped, base64 or hex.',
+      '# Request headers, query strings and timing are not stored. Keep this file local.',
+    ]);
   });
 });
 
@@ -382,18 +568,125 @@ describe('mock · record · the file', () => {
     }
   });
 
-  it('replaces the file by renaming a temp file beside it', async () => {
+  it('replaces the file by renaming a temp file beside it, with a name nobody can guess', async () => {
     const up = await upstream(json({ ok: true }));
     const r = await recorder(up.origin);
     const rename = vi.spyOn(fs.promises, 'rename');
-    try {
+    const write = vi.spyOn(fs.promises, 'writeFile');
+    await (await post(`${r.url}/v1/chat`, { n: 1 })).text();
+    await vi.waitFor(() => expect(r.recorded).toBe(1));
+    await (await post(`${r.url}/v1/chat`, { n: 2 })).text();
+    await r.close();
+    const temps = rename.mock.calls.map(([from, to]) => {
+      expect(to).toBe(r.file);
+      return String(from);
+    });
+    expect(temps).toHaveLength(2);
+    for (const temp of temps) expect(temp.slice(r.file.length)).toMatch(/^\.[0-9a-f]{32}\.tmp$/);
+    expect(new Set(temps).size).toBe(2);
+    // Created anew and for the owner only: nobody else on a shared machine reads prompts from it.
+    for (const [, , options] of write.mock.calls)
+      expect(options).toEqual({ flag: 'wx', mode: 0o600 });
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'keeps the recording readable by its owner only',
+    async () => {
+      const up = await upstream(json({ ok: true }));
+      const r = await recorder(up.origin);
+      expect(fs.statSync(r.file).mode & 0o777).toBe(0o600);
       await (await post(`${r.url}/v1/chat`, {})).text();
       await r.close();
-      expect(rename.mock.calls).toEqual([[`${r.file}.${process.pid}.tmp`, r.file]]);
-    } finally {
-      rename.mockRestore();
-    }
+      expect(fs.statSync(r.file).mode & 0o777).toBe(0o600);
+    },
+  );
+
+  it('writes an exchange again when the rename is refused, as when another program reads the file', async () => {
+    const up = await upstream(json({ ok: true }));
+    const r = await recorder(up.origin);
+    const real = fs.promises.rename.bind(fs.promises);
+    let refusals = 3;
+    vi.spyOn(fs.promises, 'rename').mockImplementation((from, to) => {
+      if (refusals === 0) return real(from, to);
+      refusals -= 1;
+      return Promise.reject(Object.assign(new Error('EPERM'), { code: 'EPERM' }));
+    });
+    await (await post(`${r.url}/v1/chat`, { n: 1 })).text();
+    await r.close();
+    expect(r.unwritten).toBe(0);
+    expect(warnings).toEqual([]);
+    expect((await loadStubFile(r.file)).stubs).toHaveLength(1);
+    expect(fs.readdirSync(dir)).toEqual(['stubs.yaml']);
   });
+
+  it('loses no exchange while another program keeps reading the file', async () => {
+    const up = await upstream(json({ ok: true }));
+    const r = await recorder(up.origin);
+    // Another process, as an editor or an indexer is: it reads the file every 3 ms.
+    const loop =
+      'const f=process.argv[1],w=new Int32Array(new SharedArrayBuffer(4));process.stdout.write("r");' +
+      'for(;;){try{require("fs").readFileSync(f)}catch{}Atomics.wait(w,0,0,3)}';
+    const reader = spawn(process.execPath, ['-e', loop, r.file]);
+    try {
+      await once(reader.stdout, 'data');
+      for (let i = 0; i < 40; i += 1) await (await post(`${r.url}/v1/chat`, { i })).text();
+      await r.close();
+    } finally {
+      reader.kill();
+      await once(reader, 'exit');
+    }
+    expect(warnings.join(' | ')).toBe('');
+    expect(r.unwritten).toBe(0);
+    expect((await loadStubFile(r.file)).stubs).toHaveLength(40);
+  });
+
+  it('keeps what it could not write and says how many when it stops', async () => {
+    const up = await upstream(json({ ok: true }));
+    const r = await recorder(up.origin);
+    await (await post(`${r.url}/v1/chat`, { n: 1 })).text();
+    await vi.waitFor(() => expect(r.recorded).toBe(1));
+    const rename = vi.spyOn(fs.promises, 'rename');
+    rename.mockRejectedValue(Object.assign(new Error('EPERM'), { code: 'EPERM' }));
+    await (await post(`${r.url}/v1/chat`, { n: 2 })).text();
+    await (await post(`${r.url}/v1/chat`, { n: 3 })).text();
+    await vi.waitFor(() => expect(warnings.length).toBeGreaterThan(0), { timeout: 5000 });
+    expect(r.unwritten).toBe(2);
+    // The next write carries everything that waited.
+    rename.mockRestore();
+    await (await post(`${r.url}/v1/chat`, { n: 4 })).text();
+    await r.close();
+    expect(r.unwritten).toBe(0);
+    expect((await loadStubFile(r.file)).stubs.map((s) => s.body)).toEqual([
+      { n: 1 },
+      { n: 2 },
+      { n: 3 },
+      { n: 4 },
+    ]);
+    expect(warnings[0]).toMatch(/^the file could not be written \(EPERM\): \d exchanges? wait/);
+    expect(fs.readdirSync(dir)).toEqual(['stubs.yaml']);
+  }, 15_000);
+
+  it('writes 1,000 exchanges of 10 KiB in under 15 seconds', async () => {
+    const text = 'x'.repeat(10 * 1024);
+    const up = await upstream((seen, res) => json({ for: seen.body, text })(seen, res));
+    const r = await recorder(up.origin);
+    const started = performance.now();
+    let next = 0;
+    await Promise.all(
+      Array.from({ length: 8 }, async () => {
+        while (next < 1000) {
+          const i = (next += 1);
+          await (await post(`${r.url}/v1/chat`, { i })).arrayBuffer();
+        }
+      }),
+    );
+    await r.close();
+    const elapsed = performance.now() - started;
+    expect(r.recorded).toBe(1000);
+    expect(r.unwritten).toBe(0);
+    expect((await loadStubFile(r.file)).stubs).toHaveLength(1000);
+    expect(elapsed).toBeLessThan(15_000);
+  }, 60_000);
 
   it('refuses a path outside the project folder, also through a link', async () => {
     const up = await upstream(json({ ok: true }));
@@ -427,21 +720,56 @@ describe('mock · record · the file', () => {
 
   it('does not replace a file that exists unless asked', async () => {
     const up = await upstream(json({ ok: true }));
-    fs.writeFileSync(path.join(dir, 'stubs.yaml'), 'mine');
+    const old = 'version: 1\nstubs:\n  - path: /old\n    response: { text: old }\n';
+    fs.writeFileSync(path.join(dir, 'stubs.yaml'), old);
     await expect(
       startRecorder({ target: up.origin, file: 'stubs.yaml', cwd: dir }),
     ).rejects.toThrow(/exists already.*--force/);
-    expect(fs.readFileSync(path.join(dir, 'stubs.yaml'), 'utf8')).toBe('mine');
+    expect(fs.readFileSync(path.join(dir, 'stubs.yaml'), 'utf8')).toBe(old);
     const r = await recorder(up.origin, { force: true });
     expect((await loadStubFile(r.file)).stubs).toEqual([]);
   });
 
-  it('leaves no file behind when the port is taken', async () => {
+  it('replaces with --force only a stub file or an empty file, and never a folder', async () => {
+    const up = await upstream(json({ ok: true }));
+    const config = 'version: 1\nprovider:\n  type: mock\nevals: []\n';
+    fs.writeFileSync(path.join(dir, 'plune.yaml'), config);
+    fs.writeFileSync(path.join(dir, 'notes.txt'), 'mine');
+    fs.writeFileSync(path.join(dir, 'empty.yaml'), ' \n');
+    fs.mkdirSync(path.join(dir, 'folder'));
+    const forced = (file: string) =>
+      startRecorder({ target: up.origin, file, cwd: dir, force: true });
+    await expect(forced('plune.yaml')).rejects.toThrow(/only a stub file or an empty file/);
+    await expect(forced('notes.txt')).rejects.toThrow(/only a stub file or an empty file/);
+    await expect(forced('folder')).rejects.toThrow(/is a folder/);
+    await expect(startRecorder({ target: up.origin, file: 'folder', cwd: dir })).rejects.toThrow(
+      /is a folder/,
+    );
+    expect(fs.readFileSync(path.join(dir, 'plune.yaml'), 'utf8')).toBe(config);
+    expect(fs.readFileSync(path.join(dir, 'notes.txt'), 'utf8')).toBe('mine');
+    const r = await recorder(up.origin, { file: 'empty.yaml', force: true });
+    expect((await loadStubFile(r.file)).stubs).toEqual([]);
+  });
+
+  it('claims the port before the file: a taken port leaves no new file and an old one as it was', async () => {
     const up = await upstream(json({ ok: true }));
     await expect(
       startRecorder({ target: up.origin, file: 'stubs.yaml', cwd: dir, port: up.port }),
     ).rejects.toThrow(/Cannot listen on 127\.0\.0\.1: EADDRINUSE/);
     expect(fs.readdirSync(dir)).toEqual([]);
+    const old = 'version: 1\nstubs:\n  - path: /old\n    response: { text: old }\n';
+    fs.writeFileSync(path.join(dir, 'stubs.yaml'), old);
+    await expect(
+      startRecorder({
+        target: up.origin,
+        file: 'stubs.yaml',
+        cwd: dir,
+        port: up.port,
+        force: true,
+      }),
+    ).rejects.toThrow(/Cannot listen on 127\.0\.0\.1: EADDRINUSE/);
+    expect(fs.readFileSync(path.join(dir, 'stubs.yaml'), 'utf8')).toBe(old);
+    expect(fs.readdirSync(dir)).toEqual(['stubs.yaml']);
   });
 });
 
@@ -525,23 +853,63 @@ describe('mock · record · replay with no network', () => {
     expect(await res.text()).toBe(odd);
   });
 
-  it('matches by method, path and the stored body, whatever the credential-looking keys hold', async () => {
+  const echoBody: Answer = (seen, res) =>
+    json({ for: JSON.parse(seen.body) as unknown })(seen, res);
+  const answerOf = async (url: string, body: unknown): Promise<unknown> => {
+    const res = await post(url, body);
+    return res.status === 200 ? ((await res.json()) as { for: unknown }).for : res.status;
+  };
+
+  it('replays to each request its own answer when one body holds the other', async () => {
+    const up = await upstream(echoBody);
+    const r = await recorder(up.origin);
+    const plain = { model: 'm', messages: [{ role: 'user', content: 'hi' }] };
+    const stream = { ...plain, stream: true };
+    await answerOf(`${r.url}/c2`, plain);
+    await answerOf(`${r.url}/c2`, stream);
+    const url = await replay(r);
+    expect(await answerOf(`${url}/c2`, stream)).toEqual(stream);
+    expect(await answerOf(`${url}/c2`, plain)).toEqual(plain);
+    expect(await answerOf(`${url}/c2`, { ...plain, stream: false })).toBe(404);
+  });
+
+  it('stores max_tokens, and does not answer another request with its recording', async () => {
+    const up = await upstream(echoBody);
+    const r = await recorder(up.origin);
+    await answerOf(`${r.url}/c3`, { max_tokens: 1 });
+    const url = await replay(r);
+    expect((await loadStubFile(r.file)).stubs[0]!.body).toEqual({ max_tokens: 1 });
+    expect(await answerOf(`${url}/c3`, { model: 'zzz' })).toBe(404);
+    expect(await answerOf(`${url}/c3`, { max_tokens: 2 })).toBe(404);
+    expect(await answerOf(`${url}/c3`, { max_tokens: 1 })).toEqual({ max_tokens: 1 });
+  });
+
+  it('matches a secret-named body key as present, whatever it holds', async () => {
     const up = await upstream((seen, res) =>
       json({ for: (JSON.parse(seen.body) as { q: string }).q })(seen, res),
     );
     const r = await recorder(up.origin);
-    await (await post(`${r.url}/v1/chat`, { q: 'one', max_tokens: 5, api_key: KEY })).text();
-    await (await post(`${r.url}/v1/chat`, { q: 'two', max_tokens: 5 })).text();
+    await answerOf(`${r.url}/v1/chat`, { q: 'with key', api_key: KEY });
+    await answerOf(`${r.url}/v1/chat`, { q: 'without key' });
     const url = await replay(r);
-    expect(await (await post(`${url}/v1/chat`, { q: 'two', max_tokens: 99 })).json()).toEqual({
-      for: 'two',
-    });
-    expect(await (await post(`${url}/v1/chat`, { q: 'one', api_key: 'another' })).json()).toEqual({
-      for: 'one',
-    });
-    expect((await post(`${url}/v1/chat`, { q: 'three' })).status).toBe(404);
-    expect((await post(`${url}/v1/other`, { q: 'one' })).status).toBe(404);
+    expect(await answerOf(`${url}/v1/chat`, { q: 'with key', api_key: 'another' })).toBe(
+      'with key',
+    );
+    expect(await answerOf(`${url}/v1/chat`, { q: 'with key' })).toBe(404);
+    expect(await answerOf(`${url}/v1/chat`, { q: 'without key' })).toBe('without key');
+    expect(await answerOf(`${url}/v1/chat`, { q: 'without key', api_key: 'x' })).toBe(404);
+    expect(await answerOf(`${url}/v1/other`, { q: 'without key' })).toBe(404);
     expect((await fetch(`${url}/v1/chat`)).status).toBe(404);
+  });
+
+  it('replays a path with * in it for that path only', async () => {
+    const up = await upstream(json({ ok: true }));
+    const r = await recorder(up.origin);
+    await (await post(`${r.url}/v1/files/*/x`, {})).text();
+    const url = await replay(r);
+    expect((await loadStubFile(r.file)).stubs[0]!.path).toBe('/v1/files/*/x');
+    expect((await post(`${url}/v1/files/abc/x`, {})).status).toBe(404);
+    expect((await post(`${url}/v1/files/*/x`, {})).status).toBe(200);
   });
 
   it('replays a repeated request in the order recorded, and the last answer for every later repeat', async () => {
@@ -628,7 +996,7 @@ describe('mock · record · what is not recorded', () => {
       );
       expect(res.status).toBe(502);
       const text = await res.text();
-      const body = JSON.parse(text) as { error: { type: string; message: string; method: string } };
+      const body = JSON.parse(text) as { error: { type: string; message: string } };
       expect(body.error.type).toBe('mock_upstream_failed');
       expect(body.error.message).toMatch(
         /^The target did not answer this POST request \([A-Z0-9_ a-z]+\); nothing was recorded$/,
@@ -651,6 +1019,25 @@ describe('mock · record · what is not recorded', () => {
     await expect(post(`${r.url}/v1/chat`, {}).then((res) => res.text())).rejects.toThrow();
     await r.close();
     expect((await loadStubFile(r.file)).stubs).toEqual([]);
+  });
+
+  it('does not record a body with no declared length that the target cut with a reset', async () => {
+    const head = 'HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\nconnection: close\r\n\r\n';
+    const cut = await rawUpstream((socket) =>
+      socket.write(`${head}half of the ans`, () => setTimeout(() => socket.resetAndDestroy(), 50)),
+    );
+    const whole = await rawUpstream((socket) => socket.end(`${head}the whole answer`));
+    const r = await recorder(cut);
+    await post(`${r.url}/v1/chat`, {})
+      .then((res) => res.text())
+      .catch(() => undefined);
+    await r.close();
+    expect((await loadStubFile(r.file)).stubs).toEqual([]);
+    // The same body ended by the target in good order is an answer, and is recorded.
+    const ok = await recorder(whole, { file: 'whole.yaml' });
+    expect(await (await post(`${ok.url}/v1/chat`, {})).text()).toBe('the whole answer');
+    await ok.close();
+    expect((await loadStubFile(ok.file)).stubs[0]!.response?.text).toBe('the whole answer');
   });
 });
 

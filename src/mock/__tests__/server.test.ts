@@ -1,11 +1,13 @@
 // The stub server from the client's side: every test talks to it over a real socket with Node's own `fetch`.
 
 import { once } from 'node:events';
+import { request } from 'node:http';
 import { connect } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   JOURNAL_MAX_ENTRIES,
   MAX_CONNECTIONS,
+  maskedTextMatches,
   matchesSubset,
   pathMatcher,
   start,
@@ -50,7 +52,9 @@ function raw(port: number, target: string, method = 'GET'): Promise<RawAnswer> {
         reject(new Error(`not an HTTP answer with a JSON body: ${JSON.stringify(text)}`));
       }
     });
-    socket.write(`${method} ${target} HTTP/1.1\r\nhost: local\r\nconnection: close\r\n\r\n`);
+    socket.write(
+      `${method} ${target} HTTP/1.1\r\nhost: 127.0.0.1:${port}\r\nconnection: close\r\n\r\n`,
+    );
   });
 }
 
@@ -76,7 +80,9 @@ describe('mock · server · start and close', () => {
     const closing = await start();
     const socket = connect(closing.port, '127.0.0.1');
     await once(socket, 'connect');
-    socket.write('POST /a/v1/x HTTP/1.1\r\nhost: local\r\ncontent-length: 10\r\n\r\nhalf');
+    socket.write(
+      `POST /a/v1/x HTTP/1.1\r\nhost: 127.0.0.1:${closing.port}\r\ncontent-length: 10\r\n\r\nhalf`,
+    );
     // The server has the socket once it has read the head; the body never completes.
     await new Promise((resolve) => setTimeout(resolve, 50));
     const closed = once(socket, 'close');
@@ -604,5 +610,148 @@ describe('mock · server · journal', () => {
     });
     expect(res.status).toBe(413);
     expect(scope.journal).toEqual([]);
+  });
+});
+
+describe('mock · server · exact stubs', () => {
+  const answerOf = async (url: string, body: unknown): Promise<unknown> => {
+    const res = await post(url, body);
+    return res.status === 200 ? ((await res.json()) as { is: string }).is : res.status;
+  };
+
+  it('matches the whole body: a request with one more key is another request', async () => {
+    server = await start();
+    const scope = server.scope('s', [
+      { path: '/c', match: 'exact', body: { model: 'm' }, response: { json: { is: 'plain' } } },
+      {
+        path: '/c',
+        match: 'exact',
+        body: { model: 'm', stream: true },
+        response: { json: { is: 'stream' } },
+      },
+      { path: '/c', match: 'exact', body: {}, response: { json: { is: 'empty' } } },
+      { path: '/c', match: 'exact', response: { json: { is: 'no json' } } },
+    ]);
+    expect(await answerOf(`${scope.url}/c`, { model: 'm', stream: true })).toBe('stream');
+    expect(await answerOf(`${scope.url}/c`, { model: 'm' })).toBe('plain');
+    expect(await answerOf(`${scope.url}/c`, {})).toBe('empty');
+    expect(await answerOf(`${scope.url}/c`, { model: 'zzz' })).toBe(404);
+    expect(await answerOf(`${scope.url}/c`, { model: 'm', stream: false })).toBe(404);
+    const bare = await fetch(`${scope.url}/c`, { method: 'POST', body: 'not json' });
+    expect(((await bare.json()) as { is: string }).is).toBe('no json');
+  });
+
+  it('reads [masked] as any text in a string or the path, and alone as any value that is there', async () => {
+    server = await start();
+    const scope = server.scope('s', [
+      {
+        path: '/keys/[masked]/chat',
+        match: 'exact',
+        body: { api_key: '[masked]', note: 'my key is [masked], keep it', n: [1, 2] },
+        response: { json: { is: 'masked' } },
+      },
+    ]);
+    const url = `${scope.url}/keys/abc/chat`;
+    const note = 'my key is k1, keep it';
+    expect(await answerOf(url, { api_key: 'k1', note, n: [1, 2] })).toBe('masked');
+    expect(await answerOf(url, { api_key: 7, note: 'my key is , keep it', n: [1, 2] })).toBe(
+      'masked',
+    );
+    expect(await answerOf(url, { note, n: [1, 2] })).toBe(404);
+    expect(await answerOf(url, { api_key: 'k1', note: 'my key was k1, keep it', n: [1, 2] })).toBe(
+      404,
+    );
+    expect(await answerOf(url, { api_key: 'k1', note, n: [1] })).toBe(404);
+    expect(await answerOf(`${scope.url}/keys/abc/other`, { api_key: 'k1', note, n: [1, 2] })).toBe(
+      404,
+    );
+  });
+
+  it('takes * in the path of an exact stub as a character', async () => {
+    server = await start();
+    const scope = server.scope('s', [
+      { path: '/files/*/x', match: 'exact', body: {}, response: { json: { is: 'star' } } },
+    ]);
+    expect(await answerOf(`${scope.url}/files/abc/x`, {})).toBe(404);
+    expect(await answerOf(`${scope.url}/files/*/x`, {})).toBe('star');
+  });
+
+  it.each([
+    ['a[masked]c', 'abc', true],
+    ['a[masked]c', 'ac', true],
+    ['a[masked]c', 'abd', false],
+    ['[masked]', '', true],
+    ['a[masked]b[masked]c', 'a1b2c', true],
+    ['a[masked]b[masked]c', 'a1c', false],
+    ['ab[masked]ba', 'aba', false],
+    ['plain', 'plain', true],
+    ['plain', 'plain2', false],
+  ])('maskedTextMatches(%j, %j) is %s', (expected, actual, result) => {
+    expect(maskedTextMatches(expected, actual)).toBe(result);
+  });
+});
+
+describe('mock · server · only local requests', () => {
+  const stubs = [{ method: 'GET', path: '/x', response: { json: { ok: true } } }];
+  interface Got {
+    status: number;
+    headers: Record<string, unknown>;
+    body: string;
+  }
+  const get = (port: number, headers: Record<string, string>) =>
+    new Promise<Got>((resolve, reject) => {
+      const req = request(
+        { host: '127.0.0.1', port, path: '/s/x', method: 'GET', headers, agent: false },
+        (res) => {
+          let body = '';
+          res.on('data', (c: Buffer) => (body += c.toString('utf8')));
+          res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body }));
+        },
+      );
+      req.on('error', reject);
+      req.end();
+    });
+
+  it('serves a request addressed by a loopback name and the port of the server', async () => {
+    server = await start();
+    const { port } = server;
+    server.scope('s', stubs);
+    for (const name of ['127.0.0.1', 'localhost', '[::1]', 'LOCALHOST'])
+      expect((await get(port, { host: `${name}:${port}` })).status).toBe(200);
+    const sameOrigin = { host: `127.0.0.1:${port}`, origin: `http://localhost:${port}` };
+    expect((await get(port, sameOrigin)).status).toBe(200);
+  });
+
+  it.each([
+    ['another name', (port: number) => ({ host: `evil.example:${port}` })],
+    ['another port', (port: number) => ({ host: `127.0.0.1:${port + 1}` })],
+    ['no port', () => ({ host: '127.0.0.1' })],
+    [
+      'a page of another origin',
+      (port: number) => ({ host: `127.0.0.1:${port}`, origin: 'https://evil.example' }),
+    ],
+    ['an opaque origin', (port: number) => ({ host: `127.0.0.1:${port}`, origin: 'null' })],
+  ])('refuses %s with a 403, and no journal sees it', async (_name, headers) => {
+    server = await start();
+    const scope = server.scope('s', stubs);
+    const answer = await get(server.port, headers(server.port));
+    expect(answer.status).toBe(403);
+    expect(answer.body).toContain('mock_not_local');
+    expect(answer.body).not.toContain('evil');
+    expect(scope.journal).toEqual([]);
+    expect(server.unrouted).toEqual([]);
+  });
+
+  it('sends no CORS header, on an answer or on a refusal', async () => {
+    server = await start();
+    const { port } = server;
+    server.scope('s', stubs);
+    const answers = [
+      await get(port, { host: `127.0.0.1:${port}`, origin: `http://127.0.0.1:${port}` }),
+      await get(port, { host: `127.0.0.1:${port}`, origin: 'https://evil.example' }),
+    ];
+    expect(answers.map((a) => a.status)).toEqual([200, 403]);
+    for (const answer of answers)
+      expect(Object.keys(answer.headers).filter((n) => n.startsWith('access-control'))).toEqual([]);
   });
 });

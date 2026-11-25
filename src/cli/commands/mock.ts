@@ -5,7 +5,7 @@
 // Everything the command prints goes through `io`, so a test can read every byte of it.
 
 import { loadStubFile, StubFileError } from '../../mock/schema.js';
-import { RecordError, startRecorder, type Outbound } from '../../mock/record.js';
+import { MIN_SECRET_LENGTH, RecordError, startRecorder, type Outbound } from '../../mock/record.js';
 import { start } from '../../mock/server.js';
 import * as path from 'node:path';
 
@@ -47,8 +47,11 @@ const stopped = (signal: AbortSignal): Promise<void> =>
     else signal.addEventListener('abort', () => resolve(), { once: true });
   });
 
-/** Runs until `io.signal` aborts, then closes the server and resolves. */
-export async function handleMock(flags: MockFlags, io: MockIo): Promise<void> {
+/**
+ * Runs until `io.signal` aborts, then closes the server and resolves with the exit code: 0, or 1 when a
+ * recording ends with exchanges that could not be written to the file.
+ */
+export async function handleMock(flags: MockFlags, io: MockIo): Promise<number> {
   const cwd = io.cwd ?? process.cwd();
   if (flags.record !== (flags.target !== undefined))
     throw new MockUsageError(
@@ -78,14 +81,19 @@ export async function handleMock(flags: MockFlags, io: MockIo): Promise<void> {
     }
     io.stdout(
       `Recording at ${recorder.url}: point the base URL of the client there.\n` +
-        'Prompts and answers are stored as they are and may hold personal or confidential text; credentials are masked. The file stays on this machine.\n' +
+        'Prompts and answers are stored as they are and may hold personal or confidential text. The file stays on this machine.\n' +
+        `A credential the request carried is masked wherever its value is found; not found: a value under ${MIN_SECRET_LENGTH} characters, and a value in a form other than plain, URL-encoded, JSON-escaped, base64 or hex.\n` +
         'Ctrl+C stops.\n',
     );
     io.onReady?.(recorder.url);
     await stopped(io.signal);
     await recorder.close();
     io.stdout(`Stopped. Exchanges recorded: ${recorder.recorded}.\n`);
-    return;
+    if (recorder.unwritten === 0) return 0;
+    io.stderr(
+      `Exchanges that could not be written to the file and are lost: ${recorder.unwritten}. The file holds the ${recorder.recorded} before them.\n`,
+    );
+    return 1;
   }
 
   if (flags.force) throw new MockUsageError('--force goes with --record');
@@ -117,4 +125,5 @@ export async function handleMock(flags: MockFlags, io: MockIo): Promise<void> {
   const unused = scope.close().length;
   await server.close();
   io.stdout(`Stopped. Stubs never called: ${unused}.\n`);
+  return 0;
 }

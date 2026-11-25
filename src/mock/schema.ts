@@ -98,6 +98,12 @@ export const stubSchema = z
     // A JSON subset of the request body: every key given here must be in the request with a matching value,
     // other keys of the request are ignored. Arrays match whole: same length, each item by the same rule.
     body: z.unknown().optional(),
+    // How `path` and `body` are compared. Left out, or `subset`: as said above. `exact`: the path is compared
+    // as written, so `*` is a character, and `body` is the whole JSON body of the request, with the same
+    // keys and values and nothing more; a stub without `body` then matches a request with no JSON body.
+    // In an exact stub `[masked]` inside the path or a string of the body stands for any text, and a value
+    // that is `[masked]` and nothing else for any value that is there. A recording is written this way.
+    match: z.enum(['subset', 'exact']).optional(),
     // How many requests the stub answers, failures included; a used-up stub lets the next matching one
     // answer.
     times: z

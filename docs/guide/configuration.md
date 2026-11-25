@@ -426,6 +426,7 @@ request answers it.
 | `path` | required | The path of the request. `*` stands for any characters inside one segment, `**` for anything. The query string takes no part. |
 | `method` | `POST` | The HTTP method. |
 | `body` | none | A JSON subset of the request body: every key given must be in the request with a matching value; an array matches whole. |
+| `match` | `subset` | How `path` and `body` are compared. `exact`: the path as written (`*` is a character), and `body` as the whole JSON body of the request, the same keys and values and nothing more; without `body`, a request with no JSON body. In an exact stub `[masked]` inside the path or a string stands for any text, and a value that is `[masked]` alone for any value that is there. [`plune mock --record`](./cli.md#plune-mock) writes stubs this way. |
 | `times` | `always` | How many requests the stub answers: `always`, `once` or a number. Failed calls count. A used-up stub lets the next matching one answer. |
 | `response` | none | `status` (default `200`), `headers`, and one body: `json`, `text`, or `sse` (a list of server-sent events). |
 | `failure` | none | A failure in place of the response: `type`, and `first: N` to fail only the first N calls and answer with `response` after that. |

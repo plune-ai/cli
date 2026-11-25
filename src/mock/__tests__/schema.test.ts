@@ -46,6 +46,18 @@ function issuesOf(text: string): string[] {
 }
 
 describe('mock · stub file', () => {
+  it('reads `match`, leaves it out where the file does, and refuses another word', () => {
+    const file = (match: string): string =>
+      `version: 1\nstubs:\n  - path: /a\n    response: {}\n  - path: /b\n    ${match}\n    response: {}\n`;
+    expect(parseStubFile(file('match: exact')).stubs.map((s) => s.match)).toEqual([
+      undefined,
+      'exact',
+    ]);
+    expect(parseStubFile(file('match: subset')).stubs[1]!.match).toBe('subset');
+    expect(Object.keys(parseStubFile(file('match: subset')).stubs[0]!)).not.toContain('match');
+    expect(() => parseStubFile(file('match: loose'))).toThrow(/stubs\.1\.match/);
+  });
+
   it('reads a YAML file and fills the defaults', async () => {
     const file = join(dir, 'case.stubs.yaml');
     await writeFile(file, YAML_FILE);

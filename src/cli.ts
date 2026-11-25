@@ -1553,7 +1553,7 @@ export function createProgram(): Command {
     .argument('<file>', 'The stub file: served as it is, or written with --record (inside the current folder only)')
     .option('--record', 'Forward each request to --target and write the answers into <file>', false)
     .option('--target <origin>', 'With --record: where requests go, an http: or https: origin with no path. Nothing in a request changes it')
-    .option('--force', 'With --record: replace <file> if it exists', false)
+    .option('--force', 'With --record: replace <file> if it is a stub file or empty', false)
     .option('--scope <name>', 'The first path segment of the base URL', 'default')
     .option(
       '--port <n>',
@@ -1566,7 +1566,7 @@ export function createProgram(): Command {
     )
     .addHelpText(
       'after',
-      '\nA recording holds the prompts and the answers as they were sent and received: they may hold personal or confidential text. It is never uploaded. Credentials are not written: no request header, no query string, of the response headers only content-type and retry-after, and a credential the request carried in a header or the query is replaced by [masked] wherever it shows up in a body or the path. Redirects are passed back, not followed. Not recorded, with a warning: a body over 8 MiB, a body that is not UTF-8 text, a compressed body, a redirect, a failed upstream (answered 502). Timing is not recorded. The same request recorded several times is replayed in the order recorded. Ctrl+C stops; the file is complete after every exchange.',
+      '\nA recording holds the prompts and the answers as they were sent and received: they may hold personal or confidential text. It is never uploaded. Never written: request headers, the query string, and response headers other than content-type and retry-after. A credential the request carried in a header, the query, a cookie or a body field is replaced by [masked] wherever its value is found in what is written. A credential value under 8 characters is not searched for and stays as it came. A credential value in a form other than plain, URL-encoded, JSON-escaped, base64 or hex is not found and stays as it came. A stream that sends a credential back in pieces is not recorded. Redirects are passed back, not followed. Not recorded, with a warning: a body over 8 MiB, a body that is not UTF-8 text, a compressed body, a redirect, a 304. A failed upstream is answered 502 and not recorded. Timing is not recorded. A replay matches the method, the path and the whole JSON body; the same request recorded several times is replayed in the order recorded. The server answers only a request addressed to 127.0.0.1, localhost or [::1] with its port, and none that a web page of another origin sent. Ctrl+C stops; the exit code is 1 if exchanges could not be written to the file.',
     )
     .action(
       async (
@@ -1581,7 +1581,7 @@ export function createProgram(): Command {
         process.once('SIGINT', onSignal);
         process.once('SIGTERM', onSignal);
         try {
-          await handleMock(
+          process.exitCode = await handleMock(
             { file, ...options },
             {
               stdout: (text) => process.stdout.write(text),

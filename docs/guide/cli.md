@@ -1684,34 +1684,55 @@ the query go to the target as they are. For a client library, the base URL is
 `400`, and a redirect from the target is passed back to the client, not followed. The server listens on
 `127.0.0.1` only. Without `--record` the command makes no outbound request at all.
 
-**What a recording holds.** The file is a stub file of version 1 (JSON, which is also YAML, under three
-comment lines: the date and the origin, a warning, and what is left out). **The prompts and the answers are
-stored as they were sent and received and may hold personal or confidential text.** It is written inside
-the current folder only, never uploaded, and not replaced without `--force`. Each exchange is one stub:
+**Who may call it.** In both modes the server answers only a request whose `Host` is `127.0.0.1`,
+`localhost` or `[::1]` with the server's port, and refuses with a `403` any request that carries an
+`Origin` other than those. It sends no CORS header. So a web page open in a browser on the same machine
+can neither drive the recorder nor read a replayed answer.
+
+**What a recording holds.** The file is a stub file of version 1 (JSON, which is also YAML, under five
+comment lines: the date and the origin, a warning, and what the masking does and does not find). **The
+prompts and the answers are stored as they were sent and received and may hold personal or confidential
+text.** It is written inside the current folder only, never uploaded, and created for its owner only.
+`--force` replaces a file only if it is a stub file or empty. Each exchange is one stub with `match: exact`:
 
 | Stored | Not stored |
 |--------|------------|
 | Method and path | The query string |
-| The request body, as the JSON subset a replay matches on | Any request header; keys of the body whose name looks like a credential (`api_key`, `token`, also `max_tokens`), with their values |
+| The whole JSON body of the request | Any request header; the value of a body field whose name is a secret's (`[masked]` is stored in its place) |
 | Status, `content-type`, `retry-after` | Every other response header, `set-cookie` included |
 | The response body: JSON, text, or the events of an event stream | Timing: a replayed stream arrives at once |
 
-A credential the request carried in a header or the query (found by the name of the header or parameter:
-`authorization`, `x-api-key`, `cookie`, `api_key` and the like) is also searched for by value in everything
-written, and replaced by `[masked]` (by `*` in a path) wherever the target echoed it. Values under 8
-characters are not searched for, nor is a value the target sent back re-encoded or split over several
-events.
+**Credentials.** A value is taken for a credential when the request carried it in a header or a query
+parameter whose name looks like one (`authorization`, `x-api-key`, `api_key` and the like), in a cookie, or
+in a field of the JSON body, at any depth, whose name without case and separators is `key` or `auth` or
+ends with `apikey`, `accesskey`, `secretkey`, `privatekey`, `secret`, `password`, `passwd`, `passphrase`,
+`pwd`, `token`, `authorization`, `credential`, `credentials`, `cookie`, `jwt`, `signature` or `sessionid`
+(so `api_key`, `clientSecret` and `access_token` are, and `max_tokens` is not). Every such value is then
+searched for in everything written, the path included, whatever the letter case, as it is and
+URL-encoded, JSON-escaped, in base64, base64url and hex, and each find is replaced by `[masked]`.
+A stream that sends a credential back in pieces, under the same key of event after event, is not
+recorded. The limits: a value under 8 characters is not searched for; a value in any other form (inside a
+longer base64 text, compressed, hashed) is not found; a credential the request carried somewhere else,
+such as a path segment or a body field with another name, is not known to the recorder.
 
-**Replay.** A request is matched by its method, its path and the stored body; the query and the headers
-take no part. A replayed body is the recorded one byte for byte, except where a credential was masked.
-The same request recorded several times is answered in the order recorded, and its last answer serves
-every later repeat. A request that was not recorded gets a `404` of type `mock_no_stub`.
+**Replay.** A request is matched by its method, its path as written (`*` is a character there) and its
+whole JSON body: the same keys and values, nothing more and nothing less. The query and the headers take
+no part. Where the file holds `[masked]`, any text matches inside a path or a string, and any value under
+a masked field, as long as the field is there. A replayed body is the recorded one byte for byte, except
+where a credential was masked. The same request recorded several times is answered in the order recorded,
+and its last answer serves every later repeat. A request that was not recorded gets a `404` of type
+`mock_no_stub`.
 
 **Not recorded**, passed through to the client with a warning that names the method and the status only:
 a response body over 8 MiB, a body that is not UTF-8 text, a compressed body (the target is asked for
-none), a redirect. When the target cannot be reached, resets, fails TLS or times out, the client gets a
-`502` of type `mock_upstream_failed` and nothing is recorded. The file is complete after every exchange,
-so stopping loses nothing.
+none), a redirect, a `304`. When the target cannot be reached, resets, fails TLS, times out, cuts its
+answer or answers with a status outside `200`–`599`, nothing is recorded, and the client gets a `502` of
+type `mock_upstream_failed` unless part of the answer was already sent on.
+
+**The file on disk.** It is whole after every exchange: each write goes to a temp file beside it, which
+is renamed over it. When the rename is refused (on Windows, while another program has the file open) it
+is tried again for about a second, and exchanges whose write failed stay in memory and go out with the
+next write. If some are still unwritten when the recorder stops, it says how many and exits `1`.
 
 ### Options
 
@@ -1720,7 +1741,7 @@ so stopping loses nothing.
 | `<file>` | The stub file: served as it is, or written with `--record`. |
 | `--record` | Forward each request to `--target` and write the answers into `<file>`. |
 | `--target <origin>` | With `--record`: `http://host[:port]` or `https://host[:port]`, with no path, query or user name. |
-| `--force` | With `--record`: replace `<file>` if it exists. |
+| `--force` | With `--record`: replace `<file>` if it is a stub file or empty. |
 | `--scope <name>` | The first path segment of the base URL (default `default`). |
 | `--port <n>` | The port on `127.0.0.1` (default: a free one, printed at the start). |
 
@@ -1729,7 +1750,8 @@ so stopping loses nothing.
 | Exit | Meaning |
 |------|---------|
 | `0` | Stopped with Ctrl+C. |
-| `2` | A usage error: `--record` without `--target` or the reverse, a target that is not an http(s) origin, a path outside the current folder, a file that exists without `--force`, a stub file that is missing or invalid, a port that is taken. |
+| `1` | A recording stopped with exchanges it could not write to the file; the message says how many. |
+| `2` | A usage error: `--record` without `--target` or the reverse, a target that is not an http(s) origin, a path outside the current folder, a path that is a folder, a file that exists without `--force` or that `--force` may not replace, a stub file that is missing or invalid, a port that is taken. |
 
 ## Report formats of `plune mcp lint`, `check` and `diff`
 
