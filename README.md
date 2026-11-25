@@ -115,6 +115,43 @@ the last resort, used only when `PLUNE_TOKEN` is set nowhere else. Nothing write
 | `answer-relevance`    | output actually answers the `question` (RAG)                     |
 | `context-precision`   | `context` is relevant to the `question` (RAG)                    |
 
+### A provider that fails on purpose: `stubs`
+
+An eval with `stubs: <file>` gets its model calls answered by a local server from that file, in place of
+the provider: a canned answer, or a failure (`timeout`, `reset`, `http_429`, `http_500`, `slow_stream`,
+`truncated_json`), on every call or on the first N.
+
+```yaml
+# plune.yaml: one eval
+  - id: refund-survives-500
+    stubs: stubs/refund.stubs.yaml
+    prompt: "Can order {{order}} be refunded?"
+    dataset: { examples: [{ vars: { order: 1042 } }] }
+    assertions:
+      - type: contains
+        value: "Refund approved"
+```
+
+```yaml
+# stubs/refund.stubs.yaml
+version: 1
+stubs:
+  - path: /v1/messages
+    failure: { type: http_500, first: 2 }
+    response:
+      json:
+        type: message
+        role: assistant
+        content: [{ type: text, text: "Refund approved for order 1042." }]
+        stop_reason: end_turn
+        usage: { input_tokens: 12, output_tokens: 8 }
+```
+
+The call fails twice, is retried, and the row passes on the third answer. The server lives for the run
+only, every row gets the stubs fresh, the completion cache is not used, and judge calls still go to the
+real provider. A bad stub file is exit `2` before any model call. See the
+[configuration guide](docs/guide/configuration.md#stubs-a-provider-that-fails-on-purpose-stubs).
+
 ## Commands
 
 | Command | Summary |

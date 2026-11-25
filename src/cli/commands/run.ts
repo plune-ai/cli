@@ -22,7 +22,8 @@ import {
 import type { Cache } from '../../cache/index.js';
 import type { Config, JevJudgeConfig } from '../../types/config.js';
 import { jevBaseUrl, jevCost, makeJevJudge, warnJevExperimental } from '../../judge/jev.js';
-import type { AgentRecord, RunResult } from '../../types/results.js';
+import { baseEvalId, type AgentRecord, type RunResult } from '../../types/results.js';
+import { start as startStubServer, type MockServer } from '../../mock/server.js';
 
 // Used for --dry-run so the run never opens/creates the cache file (FR-8).
 const NOOP_CACHE: Cache = { get: () => undefined, set: () => {}, delete: () => {}, clear: () => {}, close: () => {} };
@@ -140,7 +141,7 @@ function resolveProviderFor(config: Config, dryRun: boolean): RunDeps['resolvePr
   }
   // A dry run prices a call and never makes one (FR-8), so it has no use for a provider key (#49).
   if (dryRun) return (cfg) => makeEstimateProvider(cfg, config.pricing);
-  return (cfg) => getProvider(cfg, process.env, config.pricing);
+  return (cfg, stubOrigin) => getProvider(cfg, process.env, config.pricing, stubOrigin);
 }
 
 function buildRealDeps(config: Config, baseDir: string, dryRun: boolean): RunDeps {
@@ -178,6 +179,26 @@ function persist(result: RunResult, baseDir: string): void {
   fs.writeFileSync(path.join(dir, 'last-run.json'), JSON.stringify(result, null, 2));
 }
 
+/** One line per eval for each thing its stubs did not do: a stub never called, a request no stub answered. */
+export function stubWarnings(config: Config, result: RunResult): string[] {
+  return result.evals.flatMap((ev) => {
+    if (ev.stubs === undefined) return [];
+    const { never_called: never, unmatched } = ev.stubs;
+    const file = config.evals.find((e) => e.id === baseEvalId(ev))?.stubs ?? 'its stub file';
+    return [
+      ...(never.length > 0
+        ? [`${never.map((i) => `stubs.${i}`).join(', ')} of ${file} ${never.length === 1 ? 'was' : 'were'} never called`]
+        : []),
+      ...(unmatched.length > 0
+        ? [
+            `${unmatched.length} request${unmatched.length === 1 ? '' : 's'} matched no stub: ` +
+              unmatched.map((u) => `${u.method} in ${u.scope}`).join(', '),
+          ]
+        : []),
+    ].map((line) => `eval "${ev.id}": ${line}`);
+  });
+}
+
 /** Throws a config error when the config has a `jev` judge and the environment points it outside typesafe.ai. */
 export function jevAddressCheck(config: Config, env: NodeJS.ProcessEnv): void {
   const checks = [...(config.defaults?.assertions ?? []), ...config.evals.flatMap((ev) => ev.assertions)];
@@ -211,7 +232,13 @@ export async function handleRun(
       ? parseToolDescriptions(options.toolDescription)
       : undefined;
   const factory = depsFactory ?? ((c, d) => buildRealDeps(c, d, options.dryRun));
-  const deps = factory(config, baseDir);
+  const given = factory(config, baseDir);
+  // One stub server for the run, started when the first row of an eval with `stubs` asks for it.
+  let stubServer: Promise<MockServer> | undefined;
+  const deps: RunDeps = {
+    ...given,
+    stubServer: () => (stubServer ??= (given.stubServer ?? startStubServer)()),
+  };
   try {
     // Once per run, on stderr so a --format json report on stdout stays clean.
     const stale = deps.cache.staleEntries ?? 0;
@@ -247,6 +274,7 @@ export async function handleRun(
           `warning: --tool-description ${tool}: no row offered a tool of that name, nothing was replaced\n`,
         );
     }
+    for (const warning of stubWarnings(config, result)) process.stderr.write(`warning: ${warning}\n`);
     if (options.dryRun) {
       const agentic = new Set(config.evals.filter((ev) => ev.mcp !== undefined).map((ev) => ev.id));
       if (result.evals.some((ev) => agentic.has(ev.id)))
@@ -260,5 +288,7 @@ export async function handleRun(
     return result;
   } finally {
     deps.cache.close();
+    // However the run ended: a listening server would keep the process from exiting.
+    if (stubServer !== undefined) await stubServer.then((server) => server.close(), () => undefined);
   }
 }

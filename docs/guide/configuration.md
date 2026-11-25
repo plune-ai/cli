@@ -123,6 +123,7 @@ provider:
 | `runs` | no | Overrides the top-level `runs` for this eval. |
 | `pass_threshold` | no | Overrides the top-level `pass_threshold` for this eval. |
 | `mcp` | no | The MCP server this eval's model may use. See [An eval's `mcp`](#an-evals-mcp). |
+| `stubs` | no | A stub file: a local server answers this eval's model calls from it. See [Stubs](#stubs-a-provider-that-fails-on-purpose-stubs). |
 
 \* Provide **either** `prompt` **or** `prompt_file`.
 
@@ -368,6 +369,106 @@ contains `authorization`, `token`, `key`, `secret` or `password` (any case) and 
 `${`, `plune run` prints `warning: mcp.servers.<name>.headers.Authorization looks like a secret
 written into plune.yaml; …` on stderr, naming the key and never the value. The exit code is the one
 the run would have without it.
+
+## Stubs: a provider that fails on purpose (`stubs`)
+
+A product built on a model provider breaks on more than a wrong answer: a server error, a rate limit, a
+connection that drops, a body cut in the middle. An eval with `stubs` names a **stub file**, and during
+`plune run` a local server answers that eval's model calls from the file in place of the provider. The
+provider is not called for them, so the case costs nothing and gives the same result every time.
+
+```yaml
+# plune.yaml
+version: 1
+provider:
+  type: anthropic
+  model: claude-sonnet-5-5
+evals:
+  - id: refund-survives-500
+    stubs: stubs/refund.stubs.yaml   # relative to the folder of plune.yaml
+    prompt: "Can order {{order}} be refunded?"
+    dataset:
+      examples:
+        - vars: { order: 1042 }
+    assertions:
+      - type: contains
+        value: "Refund approved"
+```
+
+```yaml
+# stubs/refund.stubs.yaml
+version: 1
+stubs:
+  - path: /v1/messages
+    failure:
+      type: http_500
+      first: 2                       # the first two calls fail, the third gets the response
+    response:
+      json:
+        type: message
+        role: assistant
+        content:
+          - type: text
+            text: "Refund approved for order 1042."
+        stop_reason: end_turn
+        usage: { input_tokens: 12, output_tokens: 8 }
+```
+
+The model call fails twice with a 500, is retried, and the third attempt gets the answer: the row passes.
+With `max_retries: 0` on the provider the same eval ends as an errored row (exit `2`), and without
+`stubs` it asks the real provider.
+
+**The stub file** is YAML or JSON with `version: 1` and a list of `stubs`. The first stub that matches a
+request answers it.
+
+| Field | Default | Meaning |
+|-------|---------|---------|
+| `path` | required | The path of the request. `*` stands for any characters inside one segment, `**` for anything. The query string takes no part. |
+| `method` | `POST` | The HTTP method. |
+| `body` | none | A JSON subset of the request body: every key given must be in the request with a matching value; an array matches whole. |
+| `times` | `always` | How many requests the stub answers: `always`, `once` or a number. Failed calls count. A used-up stub lets the next matching one answer. |
+| `response` | none | `status` (default `200`), `headers`, and one body: `json`, `text`, or `sse` (a list of server-sent events). |
+| `failure` | none | A failure in place of the response: `type`, and `first: N` to fail only the first N calls and answer with `response` after that. |
+
+The failure types: `timeout` (the request is never answered), `reset` (the connection is reset),
+`http_429` (with `retry_after_seconds`, default `1`), `http_500`, `slow_stream` (the response at
+`bytes_per_sec`), and `truncated_json` (half of `response.json`; `content_length` is `full`, the default,
+for a connection that drops, or `cut` for a body that arrives whole and does not parse).
+
+**The path to write** is the one the provider's own API has:
+
+| `provider.type` | `path` |
+|-----------------|--------|
+| `anthropic` | `/v1/messages` |
+| `openai` | `/v1/chat/completions` |
+| `openrouter` | `/api/v1/chat/completions` |
+
+What a run does with an eval that has `stubs`:
+
+- **One server per run**, on `127.0.0.1` and a free port, started when the first such row runs and
+  stopped when the run ends, also when the run fails. `--dry-run` starts none.
+- **Every run of every row gets the stubs fresh.** `times` and `failure.first` count from zero for each
+  row, and for each repeat of a row under `runs`, so rows that run in parallel do not share them.
+- **The file is checked before any model call.** A file that is missing, does not parse or has a wrong
+  field ends the run with exit `2` and the place of the field, such as `stubs.0.failure.type`.
+- **Retries are the provider client's own**: a `429`, a `5xx` and a dropped connection are tried again up
+  to `provider.max_retries` times (default `2`), with a pause that grows from half a second. For `timeout`
+  set `provider.timeout`, or the call waits as long as the provider's SDK does by default.
+- **Only the eval's own model call is stubbed.** The judge of `llm-judge`, `faithfulness`,
+  `answer-relevance` and `context-precision` still asks the real provider, also when it is the eval's
+  own model.
+- **The completion cache is not used**: a stubbed answer is neither stored nor read, and
+  `--cache-strict` with such an eval is a configuration error (exit `2`).
+- **The key variable must still be set** (`ANTHROPIC_API_KEY` and the like). The stub server does not
+  check it, and keeps header values that look like a credential out of its record of requests.
+- **What did not happen is said.** A stub no request of the eval reached, and a request no stub answered,
+  are each a `warning:` line on stderr, and both are in the JSON report under the eval:
+  `"stubs": { "never_called": [1], "unmatched": [{ "scope": "refund-survives-500.row1", "method": "POST" }] }`.
+  `never_called` holds places in the file, from `0`. A request no stub answers gets a `404` from the
+  stub server, so its row is errored. Neither the path nor the body of a request is printed.
+
+`stubs` does not combine with `mcp` on one eval (a configuration error). A CLI older than this field
+ignores it and would ask the real provider.
 
 ## Datasets
 

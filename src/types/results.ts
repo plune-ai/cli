@@ -316,6 +316,12 @@ export interface EvalResult {
    * `<eval id>@<model>`; absent for a single model, whose id is the eval id. Optional and additive.
    */
   provider?: { type: string; model: string };
+  /**
+   * Only on an eval with `stubs` that ran. `never_called`: the places in the stub file (from 0) of the stubs
+   * no request of this eval reached. `unmatched`: one entry per request no stub answered, with the scope it
+   * was sent in (`<eval id>.row<n>`, and `.run<k>` with repeats) and its method. Optional and additive.
+   */
+  stubs?: { never_called: number[]; unmatched: { scope: string; method: string }[] };
 }
 
 /** The eval id of a cell result: the result id without its `@<model>` suffix. */

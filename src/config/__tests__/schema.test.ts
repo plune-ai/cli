@@ -339,4 +339,30 @@ describe('pluneConfigSchema', () => {
       expect(result.success).toBe(false);
     });
   });
+
+  describe('CLI · config · stubs on an eval', () => {
+    const withEval = (extra: Record<string, unknown>, root: Record<string, unknown> = {}) =>
+      pluneConfigSchema.safeParse({ ...validBase, ...root, evals: [{ ...validBase.evals[0], ...extra }] });
+    const issues = (result: ReturnType<typeof withEval>) =>
+      result.success ? [] : result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`);
+
+    it('CLI · config · stubs · a path is kept as written', () => {
+      const result = withEval({ stubs: 'stubs/refund.stubs.yaml' });
+      expect(issues(result)).toEqual([]);
+      expect(result.data!.evals[0]!.stubs).toBe('stubs/refund.stubs.yaml');
+    });
+
+    it('CLI · config · stubs · an empty path and a value that is not a path are refused at evals.0.stubs', () => {
+      for (const stubs of ['', 7, ['a.yaml']]) expect(issues(withEval({ stubs }))[0]).toMatch(/^evals\.0\.stubs: /);
+    });
+
+    it('CLI · config · stubs · stubs and mcp on one eval are refused', () => {
+      const mcp = { servers: { everything: { command: 'node' } } };
+      const result = withEval({ stubs: 'a.stubs.yaml', mcp: { server: 'everything' } }, { mcp });
+      expect(issues(result)).toEqual([
+        'evals.0.stubs: eval "eval-1" has both stubs and mcp: stubs answer the model call of an eval without mcp',
+      ]);
+      expect(issues(withEval({ mcp: { server: 'everything' } }, { mcp }))).toEqual([]);
+    });
+  });
 });

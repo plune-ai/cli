@@ -212,6 +212,7 @@ interface GoldenEvalResult {
   passed: boolean;
   measured?: { runs: number; rows: number; rows_hash: string; assertions_hash: string; model?: string };
   provider?: { type: string; model: string };
+  stubs?: { never_called: number[]; unmatched: { scope: string; method: string }[] };
 }
 interface GoldenRunResult {
   schemaVersion: 1;

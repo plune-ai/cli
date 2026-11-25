@@ -11,11 +11,22 @@ export type ProviderFactory = (
   config: ProviderConfig,
   env: NodeJS.ProcessEnv,
   pricing?: PricingMap,
+  /**
+   * `http://host:port/<scope>` of a local stub server: the provider's client is pointed there in place of
+   * the provider's own host and keeps the provider's own path after it.
+   */
+  stubOrigin?: string,
 ) => Provider;
 
 export interface ProviderRegistry {
   register(name: string, factory: ProviderFactory): void;
-  resolve(name: string, config: ProviderConfig, env: NodeJS.ProcessEnv, pricing?: PricingMap): Provider;
+  resolve(
+    name: string,
+    config: ProviderConfig,
+    env: NodeJS.ProcessEnv,
+    pricing?: PricingMap,
+    stubOrigin?: string,
+  ): Provider;
   has(name: string): boolean;
 }
 
@@ -30,13 +41,13 @@ export function createProviderRegistry(): ProviderRegistry {
       factories.set(name, factory);
     },
 
-    resolve(name, config, env, pricing) {
+    resolve(name, config, env, pricing, stubOrigin) {
       const factory = factories.get(name);
       if (factory === undefined) {
         const known = [...factories.keys()].join(', ') || '(none)';
         throw new Error(`Unknown provider type "${name}". Registered providers: ${known}.`);
       }
-      return factory(config, env, pricing);
+      return factory(config, env, pricing, stubOrigin);
     },
 
     has(name) {
@@ -63,6 +74,7 @@ export function getProvider(
   config: ProviderConfig,
   env: NodeJS.ProcessEnv,
   pricing?: PricingMap,
+  stubOrigin?: string,
 ): Provider {
-  return createDefaultRegistry().resolve(config.type, config, env, pricing);
+  return createDefaultRegistry().resolve(config.type, config, env, pricing, stubOrigin);
 }

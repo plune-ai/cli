@@ -45,6 +45,9 @@ import type { Cache } from '../cache/cache.js';
 import { MAX_RUNS } from '../config/schema.js';
 import { mcpLimits } from '../config/mcp.js';
 import { runAgentRow, type AgentConnect, type AgentRowParams } from './agent.js';
+import { parseStubFile, type Stub } from '../mock/schema.js';
+import type { MockServer } from '../mock/server.js';
+import { inStubScope, nothingSeen } from './stubs.js';
 
 const DEFAULT_MAX_TOKENS = 1024;
 const PLUNE_VERSION = '0.1.0';
@@ -64,6 +67,11 @@ export interface RowParams {
   row: DatasetRow;
   providerConfig: ProviderConfig;
   provider: Provider;
+  /**
+   * The provider a judge asks where `provider` is not the one to ask: on an eval with stubs `provider` is
+   * pointed at the stub server, and a judge call is not the eval's own call.
+   */
+  judgeProvider?: Provider;
   embedder: Embedder;
   cache: Cache;
   now: () => number;
@@ -162,7 +170,10 @@ export function dryRunRow(vars: DatasetRow['vars'], usage: Usage): RowResult {
  * new caller cannot leave the judge without it by accident (plune-ai/cli#374).
  */
 export async function assess(
-  p: Pick<RowParams, 'assertions' | 'row' | 'provider' | 'providerConfig' | 'embedder' | 'resolveJudge' | 'jevJudge'>,
+  p: Pick<
+    RowParams,
+    'assertions' | 'row' | 'provider' | 'judgeProvider' | 'providerConfig' | 'embedder' | 'resolveJudge' | 'jevJudge'
+  >,
   output: string,
   input: string | undefined,
   transcript?: AgentTranscript,
@@ -206,7 +217,7 @@ export async function assess(
           },
         };
       }
-      let provider = p.provider;
+      let provider = p.judgeProvider ?? p.provider;
       if (own !== undefined) {
         if (p.resolveJudge === undefined)
           throw new Error('this run cannot build the judge named by the provider of an llm-judge check');
@@ -533,7 +544,13 @@ export interface RunOptions {
 }
 
 export interface RunDeps {
-  resolveProvider(cfg: ProviderConfig): Provider;
+  /** With `stubOrigin` (a scope of the stub server), the provider's client is pointed there, not at the provider. */
+  resolveProvider(cfg: ProviderConfig, stubOrigin?: string): Provider;
+  /**
+   * The stub server of the run, started on the first call and the same one on every call after it; whoever
+   * gives it closes it. Called only when a row of an eval with `stubs` runs, so never on a dry run.
+   */
+  stubServer?: () => Promise<MockServer>;
   embedder: Embedder;
   cache: Cache;
   now: () => number;
@@ -566,6 +583,32 @@ function resolveTemplate(ev: EvalConfig, baseDir: string): string {
     }
   }
   throw new RunConfigError(`Eval "${ev.id}" has neither prompt nor prompt_file`);
+}
+
+/** The stubs of an eval's stub file, read and checked; a config error when the run cannot use them. */
+function resolveStubs(ev: EvalConfig, deps: RunDeps, cacheStrict: boolean): Stub[] | undefined {
+  const file = ev.stubs;
+  if (file === undefined) return undefined;
+  let text: string;
+  try {
+    text = fs.readFileSync(path.resolve(deps.baseDir, file), 'utf8');
+  } catch {
+    throw new RunConfigError(`Eval "${ev.id}": stubs file not found: ${file}`);
+  }
+  let stubs: Stub[];
+  try {
+    ({ stubs } = parseStubFile(text, file));
+  } catch (err) {
+    // The parser's own text: the file, and the place of each wrong field.
+    throw new RunConfigError(`Eval "${ev.id}": ${(err as Error).message}`);
+  }
+  if (cacheStrict)
+    throw new RunConfigError(
+      `Eval "${ev.id}" has stubs: a stubbed answer is never cached, so --cache-strict cannot answer it`,
+    );
+  if (deps.stubServer === undefined)
+    throw new RunConfigError(`Eval "${ev.id}" has stubs, and this run cannot start a stub server`);
+  return stubs;
 }
 
 /**
@@ -663,6 +706,7 @@ export async function runOrchestration(
   const models = config.providers ?? [config.provider];
   const prepared = selectEvals(config.evals, options.only).map((ev) => {
     const template = resolveTemplate(ev, deps.baseDir);
+    const stubs = resolveStubs(ev, deps, cacheStrict);
     const rows = deps.loadDataset(ev.dataset, deps.baseDir);
     for (const row of rows) {
       resolvePrompt(template, row.vars);
@@ -678,7 +722,7 @@ export async function runOrchestration(
           : agenticProvider(ev, providerConfig, deps, cacheStrict);
       return { providerConfig, agentic };
     });
-    return { ev, template, rows, cells };
+    return { ev, template, rows, cells, stubs };
   });
 
   // One provider per distinct judge config for the whole run, not one per row (plune-ai/cli#373).
@@ -698,9 +742,11 @@ export async function runOrchestration(
       '--tool-description needs an eval with mcp in this run: no tool is offered otherwise',
     );
 
-  cellLoop: for (const { ev, template, rows, cells } of prepared) {
+  cellLoop: for (const { ev, template, rows, cells, stubs } of prepared) {
     for (const { providerConfig, agentic } of cells) {
       const provider = agentic ?? deps.resolveProvider(providerConfig);
+      // What the stub server saw of this cell. A dry run calls nothing, so it has nothing to say.
+      const seen = stubs === undefined || dryRun ? undefined : nothingSeen(stubs);
       // Agentic rows call one server whose state they may share: one at a time unless asked otherwise.
       const limit =
         options.concurrency ?? providerConfig.concurrency ?? (ev.mcp !== undefined ? 1 : 4);
@@ -710,7 +756,7 @@ export async function runOrchestration(
       // `defaults.assertions` apply to every eval, ahead of its own.
       const assertions = [...(config.defaults?.assertions ?? []), ...ev.assertions];
 
-      const rowResults = await mapLimit(rows, limit, (row) => {
+      const rowResults = await mapLimit(rows, limit, (row, rowIndex) => {
         const params: RowParams = {
           template,
           assertions,
@@ -728,6 +774,25 @@ export async function runOrchestration(
           cacheStrict,
           ...(options.cacheMaxAgeMs !== undefined ? { cacheMaxAgeMs: options.cacheMaxAgeMs } : {}),
         };
+        if (stubs !== undefined && seen !== undefined) {
+          // Each run of the row in a scope of its own, with a client of its own pointed at it. The cache is
+          // left out both ways: a stubbed answer is not the provider's. Judges keep the provider itself.
+          return runRepeats(params, runs, passThreshold, async (p) =>
+            inStubScope(
+              await deps.stubServer!(),
+              `${ev.id}.row${rowIndex + 1}${p.attempt === undefined ? '' : `.run${p.attempt + 1}`}`,
+              stubs,
+              seen,
+              (origin) =>
+                runRow({
+                  ...p,
+                  provider: deps.resolveProvider(providerConfig, origin),
+                  judgeProvider: p.provider,
+                  noCache: true,
+                }),
+            ),
+          );
+        }
         if (ev.mcp === undefined) return runRepeats(params, runs, passThreshold);
         const agentParams: AgentRowParams = {
           ...params,
@@ -760,6 +825,7 @@ export async function runOrchestration(
         passed,
         measured,
         ...(models.length > 1 ? { provider: { type: providerConfig.type, model: providerConfig.model } } : {}),
+        ...(seen !== undefined ? { stubs: seen } : {}),
       });
       // `--bail` stops on an eval that did not pass; on a dry run none failed, and every eval is priced.
       if (options.bail === true && !dryRun && !passed) break cellLoop;
