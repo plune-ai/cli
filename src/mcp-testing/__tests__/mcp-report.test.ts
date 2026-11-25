@@ -771,12 +771,14 @@ describe('CLI · mcp report · safety', () => {
     const pkg = JSON.parse(
       readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'),
     ) as Record<string, Record<string, string> | undefined>;
-    const names = Object.keys({
-      ...pkg['dependencies'],
-      ...pkg['devDependencies'],
-      ...pkg['optionalDependencies'],
-    });
-    expect(names.filter((n) => /xml|junit/i.test(n))).toEqual([]);
+    const xmlOrJunit = (deps: Record<string, string> | undefined): string[] =>
+      Object.keys(deps ?? {}).filter((n) => /xml|junit/i.test(n));
+    // What a user installs: none. The reports are written by this repo's own code.
+    expect(xmlOrJunit(pkg['dependencies'])).toEqual([]);
+    expect(xmlOrJunit(pkg['optionalDependencies'])).toEqual([]);
+    // A list of one: the validator that checks the JUnit file of `plune run` against its XSD in a test.
+    // A test-only validator never reaches a user's install; anything else here still fails.
+    expect(xmlOrJunit(pkg['devDependencies'])).toEqual(['xmllint-wasm']);
   });
 });
 
