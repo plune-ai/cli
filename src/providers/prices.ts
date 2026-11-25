@@ -4,6 +4,9 @@ import type { PricingMap } from '../types/config.js';
 // These are defaults, not a source of truth — override per model via `pricing` in plune.yaml,
 // and verify against each provider's official pricing page. Unknown models report cost_usd = 0.
 export const PRICE_TABLE: PricingMap = {
+  // TypeSafe Jev, the experimental judge of `llm-judge`: input tokens only, its output is not billed.
+  // Source: docs.typesafe.ai, read on 2026-11-24 (USD 0.042 per million input tokens).
+  'jev-1.14.0': { input_per_1k_usd: 0.000042, output_per_1k_usd: 0 },
   // Anthropic, current models. Source: platform.claude.com/docs/en/about-claude/pricing — base
   // input and output tokens per million, read on 2026-09-29, kept here per thousand.
   'claude-fable-5-1': { input_per_1k_usd: 0.01, output_per_1k_usd: 0.05 },

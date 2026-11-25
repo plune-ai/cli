@@ -35,7 +35,7 @@ export const llmJudge: Assertion<LlmJudgeAssertion> = {
     // A decision judge (the experimental `jev`) answers with a probability and nothing else: the score is that
     // probability, and the reason says so rather than invent one.
     if (ctx.judge.decide !== undefined) {
-      const p = await ctx.judge.decide({
+      const { probability: p } = await ctx.judge.decide({
         criteria,
         output: ctx.output,
         ...(ctx.input !== undefined ? { input: ctx.input } : {}),

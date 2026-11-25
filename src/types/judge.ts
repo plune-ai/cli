@@ -9,6 +9,12 @@ export interface DecisionQuestion {
   input?: string;
 }
 
+/** A decision judge's answer: the probability of "yes", and the exact model version that gave it. */
+export interface DecisionAnswer {
+  probability: number;
+  model: string;
+}
+
 export interface Judge {
   /** Ask the judge LLM a prompt and return its raw text response. */
   ask(prompt: string): Promise<string>;
@@ -16,5 +22,5 @@ export interface Judge {
    * Only a decision model has it (the experimental `jev` judge of an `llm-judge` check): the probability, 0 to 1,
    * that the answer meets the criteria. Such a judge gives no reason, and its `ask` throws.
    */
-  decide?(question: DecisionQuestion): Promise<number>;
+  decide?(question: DecisionQuestion): Promise<DecisionAnswer>;
 }
