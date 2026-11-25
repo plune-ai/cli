@@ -167,11 +167,13 @@ own, which reads each character of the value once and takes the same time whatev
 literals, `.`, `\d \w \s \D \W \S`, `\n \r \t \f \v \0`, a backslash before a character that is not a letter
 or a digit, classes `[a-z]` and `[^…]`, groups `( )` and `(?: )`, `|`, `* + ? {n} {n,} {n,m}`, and the anchors
 `^ $ \b \B`. It does **not** read backreferences (`\1`), lookahead and lookbehind, named groups, `\p{…}`,
-`\x41` or `A`: a pattern with one of these is a config error that names the place in the pattern. Limits:
+`\x41` or `\u0041`: a pattern with one of these is a config error that names the place in the pattern. Limits:
 a pattern is at most 500 characters and at most 2,000 parts once its counted repeats are written out (`a{50}`
-is 50 parts), and it is not run on a value over 10,000 characters: the check fails and says so. With `i`, a
-character matches its upper and lower case; characters outside the Basic Multilingual Plane are two units, as
-in a JavaScript pattern without the `u` flag.
+is 50 parts, and each alternative of `|` is a part), and it is not run on a value over 10,000 characters: the
+check fails and says so. `i` folds case exactly as a JavaScript pattern without the `u` flag does: `k` matches
+`K` but not the Kelvin sign, `σ` matches `ς`. Characters outside the Basic Multilingual Plane are two units.
+A flag is given at most once; `\0` before a digit, and a repeat with nothing to repeat (`{3}`, `a{2}{3}`), are
+config errors.
 
 **Another mode for one part.** `{ $mode: <mode>, $value: <value> }` in place of a value compares that value,
 and everything under it, in that mode. The keys `$mode` and `$literal` are reserved in `expected`: for data

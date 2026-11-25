@@ -72,7 +72,7 @@ function regexArgs(args: CheckArg[]): string | undefined {
   const [pattern, flags = ''] = args;
   if (args.length < 1 || args.length > 2 || typeof pattern !== 'string' || typeof flags !== 'string')
     return 'takes a pattern in quotes and, optionally, flags in quotes';
-  if (!/^[ims]*$/.test(flags)) return `takes only the flags i, m and s; got "${flags}"`;
+  if (!/^(?!.*(.).*\1)[ims]*$/.test(flags)) return `takes the flags i, m and s, each at most once; got "${flags}"`;
   if (pattern.length > MAX_REGEX_PATTERN)
     return `takes a pattern of at most ${MAX_REGEX_PATTERN} characters; got ${pattern.length}`;
   try {

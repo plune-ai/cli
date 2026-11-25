@@ -98,7 +98,8 @@ const jsonSchemaAssertionSchema = z.object({
 const jsonVerifyAssertionSchema = z
   .strictObject({
     type: z.literal('json-verify'),
-    expected: z.any(),
+    // Optional to the parser so that a missing one gets the message below, not "Invalid input".
+    expected: z.any().optional(),
     mode: z.enum(COMPARE_MODES).optional(),
     extract: z.enum(['auto', 'strict']).optional(),
   })

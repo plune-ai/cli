@@ -74,6 +74,9 @@ const PATTERNS: [string, string?][] = [
   ['\\(a\\)'],
   ['\\n'],
   ['a\\tb'],
+  ['a\\0'],
+  ['\\0b'],
+  ['[\\0]'],
   ['[ab]'],
   ['[^ab]'],
   ['[a-c1-2]+'],
@@ -117,6 +120,69 @@ describe('json-verify · regex · the same verdict as RegExp', () => {
   it('a compiled pattern can be asked again and again', () => {
     const match = compileRegex('^a+$');
     expect([match('aa'), match('ab'), match('aa'), match('')]).toEqual([true, false, true, false]);
+  });
+});
+
+describe('json-verify · regex · the i flag folds case as RegExp does', () => {
+  // Characters whose upper or lower case is another letter's, an ASCII letter's, or two letters.
+  const LETTERS = [
+    'k', 'K', 'K', 's', 'S', 'ſ', 'i', 'I', 'ı', 'İ', 'ß', 'ẞ',
+    'σ', 'ς', 'Σ', 'μ', 'µ', 'Μ', 'a', 'z', 'A', 'Z', 'é', 'É', 'і', 'І', '1', '_',
+  ];
+
+  it.each<[string, string]>([
+    ['k', 'K'],
+    ['S', 'ſ'],
+    ['I', 'ı'],
+    ['ß', 'ẞ'],
+    ['[a-z]', 'K'],
+    ['σ', 'ς'],
+    ['μ', 'µ'],
+    ['[^k]', 'K'],
+    ['[^σ]', 'ς'],
+    ['[α-ω]', 'µ'],
+    ['\\w', 'ſ'],
+    ['[\\w]', 'K'],
+    ['[^\\W]', 'K'],
+  ])('%s against %s', (pattern, text) => {
+    expect(compileRegex(pattern, 'i')(text)).toBe(new RegExp(pattern, 'i').test(text));
+  });
+
+  it('2,400 generated patterns agree with RegExp on every text', () => {
+    const rand = rng(7);
+    const letter = (): string => LETTERS[Math.floor(rand() * LETTERS.length)]!;
+    const range = (): string => {
+      const [low, high] = [letter(), letter()].sort((x, y) => x.charCodeAt(0) - y.charCodeAt(0));
+      return `${low}-${high}`;
+    };
+    const atom = (): string => {
+      const kinds = [
+        letter,
+        () => `[${letter()}${letter()}]`,
+        () => `[^${letter()}]`,
+        () => `[${range()}]`,
+        () => `[^${range()}${letter()}]`,
+        () => '[a-z]',
+        () => '[^A-Z]',
+        () => '\\w',
+        () => '[^\\W\\d]',
+        () => '.',
+      ];
+      return kinds[Math.floor(rand() * kinds.length)]!() + ['', '', '?', '*', '+'][Math.floor(rand() * 5)]!;
+    };
+    const texts = [...LETTERS, ''];
+    for (let n = 0; n < 40; n++) texts.push(Array.from({ length: 2 + Math.floor(rand() * 2) }, letter).join(''));
+    const disagreements: string[] = [];
+    for (let n = 0; n < 2400; n++) {
+      const body = Array.from({ length: 1 + Math.floor(rand() * 3) }, atom).join('');
+      const pattern = rand() < 0.5 ? `^${body}$` : body;
+      const flags = rand() < 0.2 ? 'im' : 'i';
+      const native = new RegExp(pattern, flags);
+      const match = compileRegex(pattern, flags);
+      for (const text of texts)
+        if (match(text) !== native.test(text)) disagreements.push(`/${pattern}/${flags} on ${JSON.stringify(text)}`);
+    }
+    expect(disagreements).toEqual([]);
   });
 });
 
@@ -168,6 +234,13 @@ describe('json-verify · regex · what it refuses, with the place', () => {
     ['^*', 'an anchor cannot be repeated (character 2 of the pattern)'],
     ['\\b+', 'an anchor cannot be repeated (character 3 of the pattern)'],
     ['a{2,1}', 'a repeat has its numbers out of order (character 6 of the pattern)'],
+    ['{3}', 'nothing to repeat (character 1 of the pattern)'],
+    ['a{2}{3}', 'nothing to repeat (character 5 of the pattern)'],
+    ['a?{2}', 'nothing to repeat (character 3 of the pattern)'],
+    ['a|{2,}', 'nothing to repeat (character 3 of the pattern)'],
+    ['\\01', '\\0 before a digit is not supported (character 2 of the pattern)'],
+    ['a\\00', '\\0 before a digit is not supported (character 3 of the pattern)'],
+    ['[\\07]', '\\0 before a digit is not supported (character 3 of the pattern)'],
   ])('%s', (pattern, message) => {
     expect(errorOf(pattern)).toBe(message);
   });
@@ -182,6 +255,20 @@ describe('json-verify · regex · what it refuses, with the place', () => {
       expect(Date.now() - started).toBeLessThan(250);
     },
   );
+
+  it('alternatives count toward the size: 480 of them repeated 1,990 times are refused at once', () => {
+    const pattern = `(${'|'.repeat(480)}){1990}b`;
+    expect(pattern).toHaveLength(489);
+    const started = Date.now();
+    expect(errorOf(pattern)).toBe(
+      `the pattern is too large once its repeats are written out (over ${MAX_REGEX_NODES} parts)`,
+    );
+    expect(Date.now() - started).toBeLessThan(100);
+    expect(errorOf(`(?:${'a|'.repeat(60)}b){40}`)).toBe(
+      `the pattern is too large once its repeats are written out (over ${MAX_REGEX_NODES} parts)`,
+    );
+    expect(errorOf(`(?:${'a|'.repeat(60)}b){10}`)).toBe('(no error)');
+  });
 
   it('a pattern just under that size is run', () => {
     expect(errorOf(`a{${MAX_REGEX_NODES - 10}}`)).toBe('(no error)');

@@ -191,9 +191,11 @@ describe('pluneConfigSchema', () => {
       expect(issuesOf({ type: 'json-verify', expected })).toEqual([]);
     });
 
-    it('needs expected', () => {
-      expect(issuesOf({ type: 'json-verify' })).toHaveLength(1);
-      expect(issuesOf({ type: 'json-verify' })[0]).toMatch(/^evals\.0\.assertions\.0\.expected: /);
+    it('needs expected, and says so in its own words', () => {
+      const required = ['evals.0.assertions.0.expected: expected is required (null is written as null)'];
+      expect(issuesOf({ type: 'json-verify' })).toEqual(required);
+      expect(issuesOf({ type: 'json-verify', mode: 'contains' })).toEqual(required);
+      expect(issuesOf(parseYaml('type: json-verify\nexpected:\n'))).toEqual([]);
     });
 
     it('rejects a mode it does not have', () => {

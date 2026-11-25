@@ -33,20 +33,43 @@ const SIMPLE_REPEAT: Record<string, [number, number]> = { '*': [0, Infinity], '+
 const LINE_ENDS = new Set([10, 13, 0x2028, 0x2029]);
 const QUANTIFIER = /[*+?]|\{(\d+)(?:(,)(\d*))?\}/y;
 
+/**
+ * The case class of a code unit, as a pattern with `i` and without `u` has it: its upper case when that is
+ * one code unit, except that a character outside ASCII never folds to one inside (U+212A is not `K`, U+017F
+ * is not `S`). Two characters match under `i` when this is equal for both.
+ */
+function caseClass(code: number): number {
+  const upper = String.fromCharCode(code).toUpperCase();
+  if (upper.length !== 1) return code;
+  const folded = upper.charCodeAt(0);
+  return code >= 128 && folded < 128 ? code : folded;
+}
+
+/** Case class to its members, for the classes of two or more; built once, on the first pattern with `i`. */
+let caseClasses: Map<number, number[]> | undefined;
+
+/** Every code unit that matches `code` under `i`, itself included. */
+function sameCase(code: number): number[] {
+  if (caseClasses === undefined) {
+    const all = new Map<number, number[]>();
+    for (let c = 0; c < 0x10000; c++) {
+      const key = caseClass(c);
+      const members = all.get(key);
+      if (members === undefined) all.set(key, [c]);
+      else members.push(c);
+    }
+    caseClasses = new Map([...all].filter(([, members]) => members.length > 1));
+  }
+  return caseClasses.get(caseClass(code)) ?? [code];
+}
+
 function parse(pattern: string, flags: string): Node[][] {
   let i = 0;
   const fail = (what: string): Error => new Error(`${what} (character ${i} of the pattern)`);
   const ignoreCase = flags.includes('i');
 
-  /** With `i`, a character matches when it or its upper or lower case does. */
-  const fold = (test: CharTest): CharTest => {
-    if (!ignoreCase) return test;
-    return (code) => {
-      const ch = String.fromCharCode(code);
-      // A case that is two characters long (the upper case of U+00DF) is no case of one character.
-      return [ch, ch.toUpperCase(), ch.toLowerCase()].some((v) => v.length === 1 && test(v.charCodeAt(0)));
-    };
-  };
+  /** With `i`, a character matches when any character of the same case class does. */
+  const fold = (test: CharTest): CharTest => (ignoreCase ? (code) => sameCase(code).some(test) : test);
   const literal = (code: number): CharTest => fold((c) => c === code);
 
   const shorthand = (e: string): CharTest | undefined => {
@@ -58,6 +81,8 @@ function parse(pattern: string, flags: string): Node[][] {
   /** The character after a backslash, as the code it stands for. */
   const escaped = (e: string | undefined): number => {
     if (e === undefined) throw fail('a backslash ends the pattern');
+    // To RegExp `\01` is an octal escape and `\00` another: neither is the NUL this would read.
+    if (e === '0' && /\d/.test(pattern[i] ?? '')) throw fail('\\0 before a digit is not supported');
     const control = CONTROL[e];
     if (control !== undefined) return control;
     if (/[A-Za-z0-9]/.test(e)) throw fail(`\\${e} is not supported`);
@@ -106,7 +131,9 @@ function parse(pattern: string, flags: string): Node[][] {
     if (ch === '[') return { t: 'char', test: parseClass() };
     if (ch === '.') return { t: 'char', test: flags.includes('s') ? () => true : (c) => !LINE_ENDS.has(c) };
     if (ch === '^' || ch === '$') return { t: 'anchor', kind: ch };
-    if (ch === '*' || ch === '+' || ch === '?') throw fail('nothing to repeat');
+    // A repeat with nothing before it, or straight after another repeat: `*a`, `{3}`, `a{2}{3}`.
+    QUANTIFIER.lastIndex = i - 1;
+    if (QUANTIFIER.test(pattern)) throw fail('nothing to repeat');
     if (ch !== '\\') return { t: 'char', test: literal(ch.charCodeAt(0)) };
     const e = pattern[i++];
     if (e === 'b' || e === 'B') return { t: 'anchor', kind: e };
@@ -171,12 +198,18 @@ export function compileRegex(pattern: string, flags = ''): (text: string) => boo
   const multiline = flags.includes('m');
 
   const states: State[] = [{ kind: MATCH, next: 0, other: 0 }];
-  const add = (state: State): number => states.push(state) - 1;
+  const tooLarge = (): Error =>
+    new Error(`the pattern is too large once its repeats are written out (over ${MAX_REGEX_NODES} parts)`);
+  // Every state counts, the branches of `|` and of a repeat too: the time of a match is per state.
+  const add = (state: State): number => {
+    if (states.length > MAX_REGEX_NODES) throw tooLarge();
+    return states.push(state) - 1;
+  };
   let built = 0;
   // Each returns the state to enter; `next` is where to go once the node has matched.
   const build = (node: Node, next: number): number => {
-    if (++built > MAX_REGEX_NODES)
-      throw new Error(`the pattern is too large once its repeats are written out (over ${MAX_REGEX_NODES} parts)`);
+    // Counted apart from the states: a repeat of an empty group makes no state and would loop for its count.
+    if (++built > MAX_REGEX_NODES) throw tooLarge();
     if (node.t === 'char') return add({ kind: CHAR, next, other: 0, test: node.test });
     if (node.t === 'anchor') return add({ kind: ANCHOR, next, other: 0, anchor: node.kind });
     if (node.t === 'group') return buildOptions(node.options, next);

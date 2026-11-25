@@ -121,8 +121,10 @@ describe('json-verify · functions · a broken check is an error, never a litera
     ['@matchesRegex(1)', '@matchesRegex takes a pattern in quotes and, optionally, flags in quotes; got @matchesRegex(1)'],
     ['@matchesRegex("a", 1)', '@matchesRegex takes a pattern in quotes and, optionally, flags in quotes; got @matchesRegex("a", 1)'],
     ['@matchesRegex("a", "i", "m")', '@matchesRegex takes a pattern in quotes and, optionally, flags in quotes; got @matchesRegex("a", "i", "m")'],
-    ['@matchesRegex("a", "g")', '@matchesRegex takes only the flags i, m and s; got "g"; got @matchesRegex("a", "g")'],
-    ['@matchesRegex("a", "u")', '@matchesRegex takes only the flags i, m and s; got "u"; got @matchesRegex("a", "u")'],
+    ['@matchesRegex("a", "g")', '@matchesRegex takes the flags i, m and s, each at most once; got "g"; got @matchesRegex("a", "g")'],
+    ['@matchesRegex("a", "ii")', '@matchesRegex takes the flags i, m and s, each at most once; got "ii"; got @matchesRegex("a", "ii")'],
+    ['@matchesRegex("a", "imi")', '@matchesRegex takes the flags i, m and s, each at most once; got "imi"; got @matchesRegex("a", "imi")'],
+    ['@matchesRegex("a", "u")', '@matchesRegex takes the flags i, m and s, each at most once; got "u"; got @matchesRegex("a", "u")'],
   ])('%j', (s, message) => {
     expect(errorOf(s)).toBe(message);
   });
@@ -247,6 +249,10 @@ describe('json-verify · functions · a pattern that would take RegExp minutes',
     const started = Date.now();
     expect(passes(`@matchesRegex("${pattern}")`, text)).toBe(false);
     expect(Date.now() - started).toBeLessThan(250);
+  });
+
+  it('all three flags together are taken', () => {
+    expect(passes('@matchesRegex("^A.b$", "smi")', 'a\nB')).toBe(true);
   });
 
   it('a repeat inside a repeat is an ordinary pattern', () => {
