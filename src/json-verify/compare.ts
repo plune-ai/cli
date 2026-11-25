@@ -66,8 +66,8 @@ export class ExpectedJsonError extends Error {
  * map and cost nothing. Past the limit the whole comparison is one `too-large` mismatch.
  */
 export const MAX_MATCH_STEPS = 2_000_000;
-/** How many elements in a row may each give up their place for one new element; it is the depth of a recursion. */
-export const MAX_MATCH_DEPTH = 1000;
+/** For how many distinct keys the elements of one array of the answer are indexed by the value under the key. */
+const MAX_INDEXED_KEYS = 50;
 
 type JsonObject = Record<string, unknown>;
 
@@ -210,7 +210,11 @@ function walkObject(
   sink: Sink,
   literal: boolean,
 ): void {
-  for (const key of Object.keys(exp)) {
+  const keys = Object.keys(exp);
+  // A probe asks only whether the two match, so it looks at the cheap values first: whether `id` is written
+  // before or after a nested list must not decide how much work a mismatch costs.
+  if (sink.limit === 1) keys.sort((a, b) => Number(!isScalar(exp[a])) - Number(!isScalar(exp[b])));
+  for (const key of keys) {
     if (done(sink)) return;
     const at = keyPath(path, key);
     if (own(act, key)) walk(exp[key], act[key], mode, at, sink, literal);
@@ -300,29 +304,7 @@ function walkAnyOrder(
       const at = e * open.length + c;
       let known = fits.get(at);
       if (known === undefined) {
-        const probe: Sink = { list: [], limit: 1, budget };
-        walk(exp[rest[e]!], act[open[c]!], mode, path, probe, literal);
-        known = probe.list.length === 0;
-        fits.set(at, known);
-      }
-      return known;
-    };
-    const holder = new Int32Array(open.length).fill(-1);
-    // seen[c] === round: candidate c was already tried for the element of this round.
-    const seen = new Int32Array(open.length).fill(-1);
-    const place = (e: number, round: number, depth: number): boolean => {
-      if (depth > MAX_MATCH_DEPTH) {
-        budget.spent = {
-          path,
-          reason: 'too-large',
-          detail: `matching arrays in any order moved more than ${MAX_MATCH_DEPTH} elements for one`,
-        };
-        return false;
-      }
-      // From the element's own position on: arrays that are already in order match in one try each.
-      for (let n = 0; n < open.length; n++) {
-        const c = (e + n) % open.length;
-        if (seen[c] === round) continue;
+        // Charged here, once per pair: asking again while elements are moved is a lookup.
         if (--budget.steps < 0) {
           budget.spent = {
             path,
@@ -331,18 +313,96 @@ function walkAnyOrder(
           };
           return false;
         }
-        if (!fit(e, c) || budget.spent !== undefined) continue;
-        seen[c] = round;
-        if (holder[c] === -1 || place(holder[c]!, round, depth + 1)) {
-          holder[c] = e;
-          return true;
+        const probe: Sink = { list: [], limit: 1, budget };
+        walk(exp[rest[e]!], act[open[c]!], mode, path, probe, literal);
+        known = probe.list.length === 0;
+        fits.set(at, known);
+      }
+      return known;
+    };
+
+    // Which candidates an element is tried against. An expected object with a plain scalar under a key can
+    // only fit an object of the answer with the equal scalar under that key, so the candidates are indexed by
+    // key and value, and the element takes the smallest list any of its keys gives: `id` whether it is written
+    // first or last. Anything else (an array, a marked node, an object of checks and nested values only) is
+    // tried against all.
+    const all = open.map((_, c) => c);
+    const index = new Map<string, Map<string, number[]>>();
+    const withValue = (key: string, value: string): number[] | undefined => {
+      let byValue = index.get(key);
+      if (byValue === undefined) {
+        // A bound on the passes over the answer; past it an element is tried against all, which is still right.
+        if (index.size === MAX_INDEXED_KEYS) return undefined;
+        byValue = new Map();
+        for (let c = 0; c < open.length; c++) {
+          const a = act[open[c]!];
+          if (!isObject(a) || !own(a, key) || !isScalar(a[key])) continue;
+          const list = byValue.get(scalarKey(a[key]));
+          if (list === undefined) byValue.set(scalarKey(a[key]), [c]);
+          else list.push(c);
         }
-        if (budget.spent !== undefined) return false;
+        index.set(key, byValue);
+      }
+      return byValue.get(value) ?? [];
+    };
+    const lists = new Map<number, number[]>();
+    const candidates = (e: number): number[] => {
+      let best = lists.get(e);
+      if (best !== undefined) return best;
+      best = all;
+      const x = exp[rest[e]!];
+      if (isObject(x) && (literal || readMarker(x) === undefined))
+        for (const key of Object.keys(x)) {
+          const plain = plainScalar(x[key], literal);
+          const list = plain === undefined ? undefined : withValue(key, scalarKey(plain.value));
+          if (list !== undefined && list.length < best.length) best = list;
+        }
+      lists.set(e, best);
+      return best;
+    };
+
+    const holder = new Int32Array(open.length).fill(-1);
+    // seen[c] === round: candidate c was already tried in the round of this element.
+    const seen = new Int32Array(open.length).fill(-1);
+    // Augmenting path, depth first, on a stack of its own: a chain of elements that each give up their place
+    // can be as long as the array. Frame k is element `elements[k]`, which has tried `tried[k]` of its
+    // candidates and now reaches for `reached[k]`, the place the element of frame k + 1 holds.
+    const place = (root: number): boolean => {
+      const elements = [root];
+      const tried = [0];
+      const reached: number[] = [];
+      while (elements.length > 0) {
+        const top = elements.length - 1;
+        const e = elements[top]!;
+        const list = candidates(e);
+        let deeper = false;
+        while (!deeper && tried[top]! < list.length) {
+          // From the element's own position on: arrays that are already in order match in one try each.
+          const c = list[(e + tried[top]!++) % list.length]!;
+          if (seen[c] === root) continue;
+          if (!fit(e, c)) {
+            if (budget.spent !== undefined) return false;
+            continue;
+          }
+          seen[c] = root;
+          reached[top] = c;
+          if (holder[c] === -1) {
+            for (let k = top; k >= 0; k--) holder[reached[k]!] = elements[k]!;
+            return true;
+          }
+          elements.push(holder[c]!);
+          tried.push(0);
+          deeper = true;
+        }
+        if (!deeper) {
+          elements.pop();
+          tried.pop();
+        }
       }
       return false;
     };
     for (let e = 0; e < rest.length; e++) {
-      const placed = place(e, e, 0);
+      const placed = place(e);
       if (budget.spent !== undefined) return;
       if (placed) continue;
       unmatched.push(rest[e]!);

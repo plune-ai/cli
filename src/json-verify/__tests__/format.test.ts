@@ -85,7 +85,7 @@ describe('json-verify · format · the mismatch text', () => {
     expect(text('@matchesRegex("^a+$")', long).split('\n')[1]).toBe(
       '    $: function not satisfied: @matchesRegex("^a+$"): the value is 10001 characters long and a pattern is not run on more than 10000',
     );
-    const rows = Array.from({ length: 2100 }, (_, id) => ({ id }));
+    const rows = Array.from({ length: 2100 }, (_, id) => ({ at: [id] }));
     expect(text(rows, [...rows].reverse(), 'unordered')).toBe(
       [
         '1 mismatch',

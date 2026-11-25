@@ -202,11 +202,14 @@ reason, as in `json-schema`.
 **Arrays in any order.** In `unordered` and `contains`, each expected element needs an element of its own in
 the answer, and the pairing is the best there is: `{ sku: A }` does not take the only element that
 `{ sku: A, qty: 2 }` could match. Numbers, strings, booleans and `null` are paired at any size. Objects,
-arrays and checks are paired by trying an expected element against an element of the answer, and one check
-may make 2,000,000 such tries over all its arrays, nested ones included; arrays already in the expected order
-take one try per element. Past the limit, or when more than 1,000 elements in a row would each have to give
-up their place for one, the check fails with the single reason `too large`, and lists no other difference.
-`exact` has no such limit.
+arrays and checks are paired by comparing an expected element with an element of the answer, and one check
+may compare 2,000,000 such pairs over all its arrays, nested ones included (a pair is counted once). An
+expected object with a plain value under a key (`id: 7`, `sku: A-100`) is compared only with the objects of
+the answer that have that value under that key, wherever the key is written, so thousands of rows with an id
+cost one comparison each; arrays already in the expected order cost one per element too. The limit is reached
+by large arrays of objects that differ only in nested values or are told apart only by checks: about 2,000
+such rows in the reverse order. Past it the check fails with the single reason `too large`, and lists no other
+difference. `exact` has no such limit.
 
 **Numbers.** A number is compared as JavaScript reads it, a 64-bit float: integers past 2^53 that differ only
 in their last digits are equal (`9007199254740993` and `9007199254740992`), and so are `1` and `1.0`. Compare

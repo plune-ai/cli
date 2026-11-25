@@ -4,7 +4,6 @@ import {
   ExpectedJsonError,
   validateExpected,
   MAX_EXPECTED_DEPTH,
-  MAX_MATCH_DEPTH,
   MAX_MATCH_STEPS,
 } from '../compare.js';
 import type { CompareMode, Mismatch } from '../compare.js';
@@ -289,39 +288,107 @@ describe('json-verify · compare · matching of elements that fit more than one 
   });
 
   it('the work of matching has one limit for the whole comparison, and past it the reason is too-large', () => {
-    // Every row fits its mirror only: each level alone is far under the limit, all of them together are over it.
+    // Rows that differ only in a nested value: nothing cheap tells them apart, so every pair is compared.
+    // Each array alone is far under the limit, all of them together are over it.
     const side = Math.ceil(Math.sqrt(MAX_MATCH_STEPS / 8));
-    const rows = (k: number): unknown[] => Array.from({ length: side }, (_, i) => ({ id: `${k}-${i}` }));
-    const expected = Array.from({ length: 16 }, (_, k) => rows(k));
+    const rows = (k: number): unknown[] => Array.from({ length: side }, (_, i) => ({ kind: 'row', at: [k, i] }));
+    const expected = Array.from({ length: 20 }, (_, k) => rows(k));
     const started = Date.now();
-    const got = compareJson({ data: expected }, { data: expected.map((r) => [...r].reverse()).reverse() }, { mode: 'unordered' });
+    const got = compareJson({ data: expected }, { data: expected.map((r) => [...r].reverse()) }, { mode: 'unordered' });
     expect(got).toEqual([
       {
-        path: expect.stringMatching(/^\$\.data/) as string,
+        path: '$.data',
         reason: 'too-large',
         detail: `matching arrays in any order took more than ${MAX_MATCH_STEPS} comparisons of elements`,
       },
     ]);
-    expect(Date.now() - started).toBeLessThan(3000);
+    // About a second and a half plain; several times that when the run is instrumented for coverage.
+    expect(Date.now() - started).toBeLessThan(15_000);
     // One such array alone is within the limit, and the same data in order is an exact comparison with none.
     expect(compareJson(rows(0), [...rows(0)].reverse(), { mode: 'unordered' })).toEqual([]);
     expect(compareJson({ data: expected }, { data: expected }, { mode: 'exact' })).toEqual([]);
   });
 
-  it('a long chain of elements that each must give up their place is refused, not run out of stack', () => {
+  it('a pair is charged once: asking again about it while elements are moved costs nothing', () => {
+    // 1,500 rows that every candidate fits, so each new row asks about every taken place before a free one.
+    const n = 1500;
+    expect(n * n).toBeGreaterThan(MAX_MATCH_STEPS);
+    const expected = Array.from({ length: n }, () => ({ tags: ['a'] }));
+    const actual = Array.from({ length: n }, (_, i) => ({ tags: ['a'], i }));
+    expect(compareJson(expected, actual, { mode: 'contains' })).toEqual([]);
+  });
+
+  it.each(['unordered', 'contains'] as const)(
+    '%s: 300 shuffled objects with 12 nested objects each are equal, whatever the order of the keys',
+    (mode) => {
+      const rand = rng(11);
+      const item = (i: number, j: number): unknown => ({ parts: [{ p: 1 }, { p: 2 }, { p: 3 }], qty: j, sku: `s${i}-${j}` });
+      const order = (i: number, idFirst: boolean): unknown => {
+        const items = Array.from({ length: 12 }, (_, j) => item(i, j));
+        return idFirst ? { id: i, items } : { items, id: i };
+      };
+      for (const idFirst of [true, false]) {
+        const expected = Array.from({ length: 300 }, (_, i) => order(i, idFirst));
+        const started = Date.now();
+        expect(compareJson(expected, shuffled(expected, rand), { mode }), `id first: ${idFirst}`).toEqual([]);
+        expect(Date.now() - started).toBeLessThan(2000);
+      }
+    },
+  );
+
+  it.each([2000, 2100, 6000])('%i flat shuffled objects of 10 keys are equal, in both orders of the keys', (n) => {
+    const rand = rng(12);
+    const row = (i: number, reversed: boolean): unknown => {
+      const entries: [string, unknown][] = [['type', 'row'], ['ok', true], ['id', i], ['name', `n${i % 7}`]];
+      for (let k = 0; k < 6; k++) entries.push([`f${k}`, (i + k) % 3]);
+      return Object.fromEntries(reversed ? entries.reverse() : entries);
+    };
+    for (const reversed of [false, true]) {
+      const expected = Array.from({ length: n }, (_, i) => row(i, reversed));
+      const actual = shuffled(Array.from({ length: n }, (_, i) => row(i, !reversed)), rand);
+      const started = Date.now();
+      expect(compareJson(expected, actual, { mode: 'unordered' }), `reversed: ${reversed}`).toEqual([]);
+      expect(Date.now() - started).toBeLessThan(2000);
+    }
+  });
+
+  it('one shuffled row that differs is the only mismatch among thousands', () => {
+    const rand = rng(13);
+    const rows = Array.from({ length: 3000 }, (_, i) => ({ type: 'row', id: i, v: [i] }));
+    const actual = shuffled(rows.map((r) => (r.id === 1234 ? { ...r, v: [0] } : r)), rand) as { id: number }[];
+    expect(summary(compareJson(rows, actual, { mode: 'unordered' }))).toEqual([
+      '$[1234] no-match',
+      `$[${actual.findIndex((r) => r.id === 1234)}] extra-element`,
+    ]);
+  });
+
+  it('a long chain of elements that each must give up their place is matched, at any length', () => {
     // Row i fits answer i and answer i + 1; the last expected element fits answer 0 only, so every row moves up one.
     const chain = (n: number): [unknown[], unknown[]] => [
       [...Array.from({ length: n }, (_, i) => ({ [`k${i}`]: 1 })), { z: 1 }],
       Array.from({ length: n + 1 }, (_, j) => ({ [`k${j}`]: 1, ...(j === 0 ? { z: 1 } : { [`k${j - 1}`]: 1 }) })),
     ];
-    expect(compareJson(...chain(MAX_MATCH_DEPTH - 10), { mode: 'contains' })).toEqual([]);
-    expect(compareJson(...chain(MAX_MATCH_DEPTH * 3), { mode: 'contains' })).toEqual([
-      {
-        path: '$',
-        reason: 'too-large',
-        detail: `matching arrays in any order moved more than ${MAX_MATCH_DEPTH} elements for one`,
-      },
-    ]);
+    for (const n of [10, 1100, 20_000]) expect(compareJson(...chain(n), { mode: 'contains' }), String(n)).toEqual([]);
+    // The same chain with no free place at its end: every row is tried, and one is left over.
+    const [expected, actual] = chain(1100);
+    expect(summary(compareJson(expected, actual.slice(0, -1), { mode: 'contains' }))).toHaveLength(1);
+  });
+
+  it('elements that cheap fields cannot tell apart are still matched: checks, markers, nested values only', () => {
+    expect(equal([{ a: '@gt(1)' }, { a: '@gt(5)' }], [{ a: 9 }, { a: 2 }], 'unordered')).toBe(true);
+    expect(equal([{ $mode: 'contains', $value: { a: 1 } }, { a: 1, b: 2 }], [{ a: 1, b: 2 }, { a: 1, c: 3 }], 'unordered')).toBe(true);
+    expect(equal([{ $literal: { a: '@x' } }, { a: '@@x', b: 1 }], [{ a: '@x', b: 1 }, { a: '@x' }], 'unordered')).toBe(true);
+    expect(equal([{ v: [1] }, { v: [2] }], [{ v: [2] }, { v: [1] }], 'unordered')).toBe(true);
+    expect(equal([{ a: 1 }, { a: '1' }, { a: null }], [{ a: null }, { a: 1 }, { a: '1' }], 'unordered')).toBe(true);
+    expect(equal([{ a: 1 }], [[1]], 'contains')).toBe(false);
+    expect(equal([{ a: 1 }], [{ a: { b: 1 } }], 'contains')).toBe(false);
+  });
+
+  it('rows told apart by more distinct keys than are indexed are still matched', () => {
+    const expected = Array.from({ length: 120 }, (_, i) => ({ [`key${i}`]: i }));
+    const actual = [...expected].reverse().map((row, i) => ({ ...row, extra: i }));
+    expect(compareJson(expected, actual, { mode: 'contains' })).toEqual([]);
+    expect(summary(compareJson(expected, actual.slice(1), { mode: 'contains' }))).toEqual(['$[119] no-match']);
   });
 
   it('scalars do not count toward the limit', () => {
