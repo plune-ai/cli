@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "runId": "d0546c6d-56c9-4c4d-9072-2f13f722cdc1-variants",
+  "runId": "4d9c3d82-3c74-4309-9436-684ad37adba9-variants",
   "url": "plune.yaml",
   "mode": "design",
   "testCases": [
@@ -71,7 +71,7 @@
         "Move eval \"refund-answer-truncated-json\" from plune.failures.proposed.yaml into plune.yaml and copy stubs/refund-answer-truncated-json.stubs.yaml to the same path next to plune.yaml.",
         "Run: plune run --only refund-answer-truncated-json"
       ],
-      "expected": "The row is errored and plune run exits 2: a cut body is not tried again by plune 0.40. Keep the variant only to pin that the eval reports the failure, not a pass.",
+      "expected": "The row is errored and plune run exits 2: every call gets half of the recorded answer, so no attempt gets a whole one. Keep the variant only to pin that the eval reports the failure, not a pass.",
       "rationale": "Variant of eval \"refund-answer\": the same prompt, data and checks, but half of the provider's answer arrives and the connection ends. The answer after the failure is the one recorded from the provider; none was generated. It shows how the eval's own model call survives the failure, not how your product does."
     }
   ],

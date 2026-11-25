@@ -466,6 +466,7 @@ async function defaultReadEvidence(dir: string): Promise<EvidenceRecord[] | unde
 function casesFromDesign(report: Record<string, unknown>, notes: string[]): CairnIngestCase[] {
   const list = Array.isArray(report['testCases']) ? report['testCases'] : [];
   const refused = new Map<string, number>();
+  let cut = 0;
   const cases = list.map((raw) => {
     const c = asRecord(raw);
     const steps = (Array.isArray(c['steps']) ? c['steps'] : [])
@@ -474,6 +475,8 @@ function casesFromDesign(report: Record<string, unknown>, notes: string[]): Cair
     const title = str(c['title'], 'untitled case');
     const why = own(c, 'rationale');
     const rationale = typeof why === 'string' ? why.trim() : '';
+    // A text past the platform's limit refuses the whole ingest there: it is sent cut, and the cut is said once.
+    if (rationale.length > RATIONALE_MAX) cut += 1;
     const link = own(c, 'traceUrl') ?? undefined;
     const said: string[] = [];
     const traceUrl = traceUrlOf(link, title, said);
@@ -491,14 +494,14 @@ function casesFromDesign(report: Record<string, unknown>, notes: string[]): Cair
       expected: str(c['expected'], '(no expected result recorded)'),
       ...(typeof c['technique'] === 'string' ? { technique: c['technique'] } : {}),
       ...(typeof c['priority'] === 'string' ? { priority: c['priority'] } : {}),
-      // A text past the platform's limit refuses the whole ingest there, so it is left out, not cut.
-      ...(rationale !== '' && rationale.length <= RATIONALE_MAX ? { rationale } : {}),
+      ...(rationale !== '' ? { rationale: clip(rationale, RATIONALE_MAX) } : {}),
       ...(traceUrl !== undefined ? { traceUrl } : {}),
     };
   });
   for (const times of refused.values()) {
     if (times > 1) notes.push(`plune: ${times - 1} more case(s) carry the same trace link — sent without it.`);
   }
+  if (cut > 0) notes.push(`plune: ${cut} case(s) carry an explanation over ${RATIONALE_MAX} characters — sent cut to ${RATIONALE_MAX}.`);
   return cases;
 }
 
@@ -608,7 +611,7 @@ export interface CairnSessionFile {
 /** The platform's limits on a declaration: a value past one refuses the whole ingest, so here a title is clipped and anything else is left out. */
 const DECLARED = { text: 500, name: 200, chapters: 200, perCase: 20 };
 /** A title cut to the platform's limit, counted as it counts (UTF-16 units), never ending on half of a surrogate pair. */
-const clip = (s: string): string => s.slice(0, DECLARED.text).replace(/[\uD800-\uDBFF]$/, '');
+const clip = (s: string, max: number = DECLARED.text): string => s.slice(0, max).replace(/[\uD800-\uDBFF]$/, '');
 
 /** A run's recordings (`--screencast`): each case's video and trace files, by its `stableId`. */
 export interface CairnSessionFiles {
