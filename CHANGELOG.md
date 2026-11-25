@@ -25,6 +25,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 - **The assertions guide recommends a judge model.** A new part of the [`llm-judge` section](docs/guide/assertions.md#choosing-the-judge-model) says to give the check a judge of its own and, for an Anthropic judge, to start with `claude-haiku-5-5`: in our measurements it agreed with labels as well as `claude-sonnet-5-5` at about a twentieth of the price. No default changed: a check without a `provider` is still judged by the eval's model.
 - **The exit codes of `plune run` are written out as a table, and a test pins each.** `README.md` and the [CLI guide](docs/guide/cli.md#exit-codes) now say for each code when `plune run` returns it: `0`, `1`, `2` and `5`, with `2` named for both a configuration or usage error and a run where rows errored and none failed. No exit code changed.
 
+### Fixed
+
+- **An option a command does not have, or an option without its value, now exits `2`, not `1`.** `plune run --no-such-flag` and `plune run --format` ended with exit code `1`, the code of a failed row, so a mistyped flag in CI read as a failed check. Everything the option parser refuses (an unknown option, an option given without its value, a missing argument) is now a usage error with exit `2` and the parser's own message, on every command: `1` stays the code of a failed row, a regression or a failed gate. A command group typed without a subcommand (`plune mcp`, `plune requirements`, `plune plan`, or `plune` alone) prints its help and exits `2` where it exited `1`. `--help` and `--version` still exit `0`. **A CI script that tests for exit `1` on these paths needs `2` now.**
+
 ## [0.39.14] - 2026-11-24
 
 ### Added

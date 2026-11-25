@@ -128,7 +128,12 @@ export function createProgram(): Command {
   program
     .name('plune')
     .description('Plune — AI-powered assertion testing CLI')
-    .version(pkg.version);
+    .version(pkg.version)
+    // What the option parser refuses (an unknown option, an option without its value, a missing argument)
+    // is a usage error: exit 2, with the parser's own message. Exit 1 means a failed row, a regression or a
+    // failed gate, and a mistyped flag in CI must not read as that. Set before any command is added: each
+    // command takes it from its parent when it is created. `--help` and `--version` stay 0.
+    .exitOverride((err) => process.exit(err.exitCode === 0 ? 0 : 2));
 
   // Global flags (ADR-S10-01): defined on the root program so every subcommand can read them
   // via `command.optsWithGlobals()`. `--no-color` is parsed by commander as `color: false`.
@@ -697,8 +702,6 @@ export function createProgram(): Command {
     .option('--check <n>', 'The check to compare, by its position in a row from 1 (default: the one check a model judges)')
     .option('--min-kappa <k>', "Exit 1 when an eval's kappa is below k or has no value")
     .option('--max-interval-width <w>', 'Warn when the 95% interval of kappa is wider than w (default 0.4)')
-    // Exit 1 means "kappa below --min-kappa": a mistyped flag in CI must not read as that.
-    .exitOverride((err) => process.exit(err.exitCode === 0 ? 0 : 2))
     .action(async (labels: string, options: Record<string, unknown>, command: Command) => {
       const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
       const [{ handleJudgeCheck }, { JudgeCheckError }] = await Promise.all([

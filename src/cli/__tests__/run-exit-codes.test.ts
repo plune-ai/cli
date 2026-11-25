@@ -183,12 +183,39 @@ describe('CLI · run · exit code when the run did not start', () => {
     expect(stderr).toContain('This one is on us.');
   });
 
-  // The option parser's own errors exit 1, not the 2 of the usage errors above.
+  // The option parser's own errors are usage errors: 2 with the parser's message, on every command.
   it.each<[string, string[]]>([
     ['an option the command does not have', ['--no-such-flag']],
     ['an option with its value missing', ['--format']],
-  ])('%s → 1, from the option parser', async (_name, flags) => {
-    expect(await codeOf(...flags)).toBe(1);
+  ])('%s → 2, with the option parser’s message', async (_name, flags) => {
+    expect(await codeOf(...flags)).toBe(2);
     expect(stderr).toMatch(/^error: /);
+  });
+});
+
+describe('CLI · every command · exit code of the option parser', () => {
+  const codeOfArgv = async (...argv: string[]): Promise<unknown> => {
+    await createProgram().parseAsync(['node', 'plune', ...argv]);
+    return exits.length > 0 ? exits[0] : (process.exitCode ?? 0);
+  };
+
+  it.each<[string, string[], RegExp]>([
+    ['report · an unknown option', ['report', '--no-such-flag'], /^error: unknown option '--no-such-flag'/],
+    ['diff · a missing argument', ['diff', 'baseline.json'], /^error: missing required argument 'current'/],
+    ['run import · an unknown option', ['run', 'import', 'report.xml', '--no-such-flag'], /^error: unknown option/],
+    ['mcp check · an unknown option', ['mcp', 'check', '--no-such-flag'], /^error: unknown option/],
+    ['mcp · a command group without a subcommand prints its help', ['mcp'], /^Usage: plune mcp/],
+    ['no command at all prints the help', [], /^Usage: plune/],
+  ])('%s → 2', async (_name, argv, message) => {
+    expect(await codeOfArgv(...argv)).toBe(2);
+    expect(stderr).toMatch(message);
+  });
+
+  it.each<[string, string[]]>([
+    ['--help', ['--help']],
+    ['run --help', ['run', '--help']],
+    ['--version', ['--version']],
+  ])('%s → 0', async (_name, argv) => {
+    expect(await codeOfArgv(...argv)).toBe(0);
   });
 });
