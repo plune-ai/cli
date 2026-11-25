@@ -3,7 +3,15 @@
 import { once } from 'node:events';
 import { connect } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
-import { matchesSubset, start, withServer, type MockServer } from '../server.js';
+import {
+  JOURNAL_MAX_ENTRIES,
+  MAX_CONNECTIONS,
+  matchesSubset,
+  pathMatcher,
+  start,
+  withServer,
+  type MockServer,
+} from '../server.js';
 
 let server: MockServer | undefined;
 afterEach(async () => {
@@ -17,6 +25,34 @@ const post = (url: string, body: unknown, headers: Record<string, string> = {}) 
     headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify(body),
   });
+
+interface RawAnswer {
+  status: number;
+  json: unknown;
+  text: string;
+}
+
+/** One request written byte for byte, as no HTTP client would send it, and all the server sent back. */
+function raw(port: number, target: string, method = 'GET'): Promise<RawAnswer> {
+  return new Promise((resolve, reject) => {
+    const socket = connect(port, '127.0.0.1');
+    let text = '';
+    socket.on('data', (chunk: Buffer) => (text += chunk.toString('utf8')));
+    socket.on('error', reject);
+    socket.on('close', () => {
+      try {
+        resolve({
+          status: Number(/^HTTP\/1\.1 (\d+)/.exec(text)?.[1]),
+          json: JSON.parse(text.slice(text.indexOf('\r\n\r\n') + 4)),
+          text,
+        });
+      } catch {
+        reject(new Error(`not an HTTP answer with a JSON body: ${JSON.stringify(text)}`));
+      }
+    });
+    socket.write(`${method} ${target} HTTP/1.1\r\nhost: local\r\nconnection: close\r\n\r\n`);
+  });
+}
 
 describe('mock · server · start and close', () => {
   it('listens on 127.0.0.1 and an ephemeral port by default', async () => {
@@ -204,6 +240,48 @@ describe('mock · server · matching', () => {
       /response\.text: give one body/,
     );
   });
+
+  it('refuses a header Node would not send when the stub is added, not at the first request', async () => {
+    server = await start();
+    const scope = server.scope('s');
+    expect(() =>
+      scope.add({ path: '/x', response: { headers: { 'x-a': 'v\r\nset-cookie: z=1' } } }),
+    ).toThrow(/response\.headers\.x-a: not a valid header value/);
+    expect(() => scope.add({ path: '/x', response: { headers: { 'bad name': 'v' } } })).toThrow(
+      /response\.headers\.bad name: not a valid header name/,
+    );
+    expect((await post(`${scope.url}/x`, {})).status).toBe(404);
+  });
+
+  it.each([
+    ['/v1/chat/completions', '/v1/chat/completions', true],
+    ['/v1/chat/completions', '/v1/chat/completions/extra', false],
+    ['/deployments/*/chat', '/deployments/my-model/chat', true],
+    ['/deployments/*/chat', '/deployments//chat', true],
+    ['/deployments/*/chat', '/deployments/a/b/chat', false],
+    ['/models/*:generate', '/models/small-1.5:generate', true],
+    ['/models/*:generate', '/models/a/b:generate', false],
+    ['/v1/**', '/v1/', true],
+    ['/v1/**', '/v1/a/b/c', true],
+    ['/v1/**', '/v1', false],
+    ['/**/x', '/a/b/x', true],
+    ['/**/x', '/x', false],
+    ['/a.b', '/aXb', false],
+    ['/a+(b)[c]{d}|^$', '/a+(b)[c]{d}|^$', true],
+    ['/***', '/a/b', true],
+    ['/*', '/', true],
+    ['/*', '/a/b', false],
+  ])('pattern %s against %s: %s', (pattern, path, expected) => {
+    expect(pathMatcher(pattern)(path)).toBe(expected);
+  });
+
+  it('matches in time linear in the path, whatever the pattern', () => {
+    const matches = pathMatcher(`/${'**/'.repeat(12)}x`);
+    const startedAt = performance.now();
+    expect(matches(`/${'a/'.repeat(40)}y`)).toBe(false);
+    expect(matches(`/${'a/'.repeat(40)}x`)).toBe(true);
+    expect(performance.now() - startedAt).toBeLessThan(1000);
+  });
 });
 
 describe('mock · server · scopes', () => {
@@ -251,13 +329,20 @@ describe('mock · server · scopes', () => {
     server = await start();
     server.scope('s');
     expect(() => server!.scope('s')).toThrow(/already open/);
-    expect(() => server!.scope('a/b')).toThrow(/Bad scope name/);
-    expect(() => server!.scope('')).toThrow(/Bad scope name/);
+    for (const name of ['a/b', '', '.', '..', 'a%2fb', 'a?b', 'a#b', 'a b'])
+      expect(() => server!.scope(name), name).toThrow(/Bad scope name/);
+    expect(server.scope('v1.2_a-b').name).toBe('v1.2_a-b');
+  });
+
+  it('refuses a new scope once the server is closed', async () => {
+    const closed = await start();
+    await closed.close();
+    expect(() => closed.scope('s')).toThrow(/closed/);
   });
 });
 
 describe('mock · server · a request no stub matches', () => {
-  it('gets a 404 JSON answer naming the method, the path and the scope, and is recorded', async () => {
+  it('gets a 404 JSON answer naming the method and the scope, and is recorded', async () => {
     server = await start();
     const scope = server.scope('case-1', [{ path: '/v1/messages', response: { json: {} } }]);
     const res = await post(`${scope.url}/v1/other?x=1`, { q: 1 });
@@ -266,9 +351,9 @@ describe('mock · server · a request no stub matches', () => {
     expect(await res.json()).toEqual({
       error: {
         type: 'mock_no_stub',
-        message: 'No stub matches POST /v1/other in scope "case-1"',
+        message:
+          'No stub matches this POST request in scope "case-1": compare its path and body in the journal of the scope with the stubs',
         method: 'POST',
-        path: '/v1/other',
         scope: 'case-1',
       },
     });
@@ -282,9 +367,13 @@ describe('mock · server · a request no stub matches', () => {
     for (const path of ['/nobody/v1/messages', '/']) {
       const res = await fetch(`${server.url}${path}`);
       expect(res.status).toBe(404);
-      expect(((await res.json()) as { error: { message: string } }).error.message).toMatch(
-        /No open scope/,
-      );
+      expect(await res.json()).toEqual({
+        error: {
+          type: 'mock_no_stub',
+          message: 'No open scope for this GET request: the first path segment names the scope',
+          method: 'GET',
+        },
+      });
     }
     expect(server.unrouted.map((e) => [e.scope, e.method, e.path])).toEqual([
       ['nobody', 'GET', '/v1/messages'],
@@ -293,7 +382,167 @@ describe('mock · server · a request no stub matches', () => {
   });
 });
 
+describe('mock · server · a malformed request', () => {
+  it('answers 400 to a target no URL parser accepts, records it and stays up', async () => {
+    server = await start();
+    const scope = server.scope('s', [{ method: 'get', path: '/x', response: { json: {} } }]);
+    const bad = await raw(server.port, '//[');
+    expect(bad.status).toBe(400);
+    expect(bad.json).toEqual({
+      error: {
+        type: 'mock_bad_target',
+        message: 'Bad request target: it starts with "/<scope>" and holds no "." or ".." segment',
+        method: 'GET',
+      },
+    });
+    expect(server.unrouted).toMatchObject([{ scope: '', method: 'GET', matched: false }]);
+    expect((await fetch(`${scope.url}/x`)).status).toBe(200);
+  });
+
+  it.each([
+    '/a/../b/x',
+    '//evil/b/x',
+    '//b/x',
+    '/b/./x',
+    '/b/x/..',
+    '/b/%2e%2e/x',
+    '/b/x/%2E',
+    '/./b/x',
+    '/../b/x',
+    'http://local/b/x',
+    '/b/../x?q=1',
+  ])('refuses %s instead of taking it to another scope', async (target) => {
+    server = await start();
+    const a = server.scope('a', [{ method: 'get', path: '/**', response: { json: {} } }]);
+    const b = server.scope('b', [{ method: 'get', path: '/**', response: { json: {} } }]);
+    expect((await raw(server.port, target)).status).toBe(400);
+    expect([a.journal.length, b.journal.length, server.unrouted.length]).toEqual([0, 0, 1]);
+    // The scope is read from the target as written.
+    expect((await raw(server.port, '/b/x')).status).toBe(200);
+    expect((await raw(server.port, '/b//x')).status).toBe(200);
+    expect([a.journal.length, b.journal.length]).toEqual([0, 2]);
+  });
+});
+
+describe('mock · server · limits', () => {
+  it('keeps the newest entries of a journal and counts the dropped ones', async () => {
+    server = await start();
+    const scope = server.scope('s', [{ method: 'get', path: '/x', response: { json: {} } }]);
+    expect([scope.dropped, server.unroutedDropped]).toEqual([0, 0]);
+    for (let i = 0; i < JOURNAL_MAX_ENTRIES + 5; i += 1) {
+      await (await fetch(`${scope.url}/x?i=${i}`)).arrayBuffer();
+      if (i < JOURNAL_MAX_ENTRIES + 3)
+        await (await fetch(`${server.url}/gone?i=${i}`)).arrayBuffer();
+    }
+    expect(JOURNAL_MAX_ENTRIES).toBe(1000);
+    expect(scope.journal).toHaveLength(JOURNAL_MAX_ENTRIES);
+    expect(scope.dropped).toBe(5);
+    expect(scope.journal[0]!.query).toBe('i=5');
+    expect(scope.journal.at(-1)!.query).toBe(`i=${JOURNAL_MAX_ENTRIES + 4}`);
+    expect(server.unrouted).toHaveLength(JOURNAL_MAX_ENTRIES);
+    expect(server.unroutedDropped).toBe(3);
+    expect(server.unrouted[0]!.query).toBe('i=3');
+  }, 60_000);
+
+  it('drops a connection over the limit and takes one again when another closes', async () => {
+    server = await start();
+    expect(MAX_CONNECTIONS).toBe(256);
+    // One after another: a burst of this many at once can overrun the listen queue of the system.
+    const sockets = [];
+    for (let i = 0; i < MAX_CONNECTIONS; i += 1) {
+      const socket = connect(server.port, '127.0.0.1');
+      await once(socket, 'connect');
+      socket.on('error', () => undefined);
+      sockets.push(socket);
+    }
+    const extra = connect(server.port, '127.0.0.1');
+    extra.on('error', () => undefined);
+    await once(extra, 'close');
+    expect(sockets.every((s) => !s.destroyed)).toBe(true);
+    for (const socket of sockets.slice(0, 8)) {
+      socket.destroy();
+      await once(socket, 'close');
+    }
+    expect((await fetch(`${server.url}/nobody`)).status).toBe(404);
+    for (const socket of sockets) socket.destroy();
+  });
+});
+
 describe('mock · server · journal', () => {
+  // Header names real services use for a credential or a signed request, and query names of the same kind.
+  const SECRET_HEADERS = [
+    'authorization',
+    'proxy-authorization',
+    'x-api-key',
+    'api-key',
+    'cookie',
+    'x-auth-token',
+    'x-amz-security-token',
+    'x-amz-signature',
+    'X-Amz-Signature',
+    'x-goog-signature',
+    'x-hub-signature-256',
+    'x-jwt-assertion',
+    'x-session-id',
+    'x-csrf-token',
+    'x-xsrf-sig',
+    'x-otp',
+    'x-passwd',
+    'x-pwd',
+    'x-client-secret',
+    'x-access-code',
+  ];
+  const SECRET_QUERY = [
+    'key',
+    'api_key',
+    'access_token',
+    'sig',
+    'signature',
+    'X-Amz-Signature',
+    'jwt',
+    'session',
+    'csrf',
+    'passwd',
+    'pwd',
+    'otp',
+    'code',
+    'client_assertion',
+  ];
+
+  it.each(SECRET_HEADERS)('masks the header %s', async (name) => {
+    server = await start();
+    const scope = server.scope('s', [{ path: '/x', response: { json: {} } }]);
+    await post(`${scope.url}/x`, {}, { [name]: 'SECRET-0123456789', 'x-request-id': 'visible' });
+    await post(`${server.url}/gone/x`, {}, { [name]: 'SECRET-0123456789' });
+    expect(scope.journal[0]!.headers).toMatchObject({
+      [name.toLowerCase()]: '[masked]',
+      'x-request-id': 'visible',
+      'content-type': 'application/json',
+    });
+    expect(server.unrouted[0]!.headers[name.toLowerCase()]).toBe('[masked]');
+  });
+
+  it.each(SECRET_QUERY)('masks the query parameter %s', async (name) => {
+    server = await start();
+    const scope = server.scope('s', [{ path: '/x', response: { json: {} } }]);
+    await post(`${scope.url}/x?${name}=SECRET-0123456789&v=2`, {});
+    expect(scope.journal[0]!.query).toBe(`${name}=[masked]&v=2`);
+  });
+
+  it('echoes nothing of the request target in an answer to a request it cannot serve', async () => {
+    server = await start();
+    const scope = server.scope('s', [{ path: '/v1/messages', response: { json: {} } }]);
+    const texts = [
+      await (await post(`${scope.url}/v1/SECRET-in-path?note=SECRET-in-query`, {})).text(),
+      await (await post(`${server.url}/SECRET-scope/v1/SECRET-in-path?note=SECRET`, {})).text(),
+      (await raw(server.port, '/s/../SECRET-in-path?note=SECRET')).text,
+    ];
+    expect(texts.join(' ')).not.toContain('SECRET');
+    expect(texts.join(' ')).not.toContain('note');
+    // The journal is where the path is: it keeps paths and bodies as they came.
+    expect(scope.journal[0]).toMatchObject({ path: '/v1/SECRET-in-path', matched: false });
+  });
+
   it('never keeps a secret sent in a header or in the query, nor shows it in an error', async () => {
     server = await start();
     const scope = server.scope('s', [{ path: '/v1/messages', response: { json: {} } }]);

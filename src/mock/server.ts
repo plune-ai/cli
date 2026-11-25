@@ -4,6 +4,19 @@
 // carries it in its base URL and the product under test needs no change: point the SDK at `scope.url` plus
 // whatever the SDK expects after the host (`<scope.url>/v1` where the base URL holds the version, bare
 // `scope.url` where the SDK adds `/v1/...` itself). A stub's `path` is written without the scope.
+//
+// The scope is read from the request target as it was written, with nothing decoded or normalised: a
+// target with a `.` or `..` segment, or with nothing where the scope goes, is refused with a 400.
+//
+// What the journal keeps: header and query VALUES are masked where the name looks like a credential; the
+// path and the body are kept as they came, unmasked. Do not send a real secret in a path or a body to this
+// server and then print the journal. An answer to a request the server cannot serve repeats nothing of
+// the target: the path is in the journal, not in the 404.
+//
+// Limits, so that a client in a loop cannot take the process down: each journal keeps its newest
+// `JOURNAL_MAX_ENTRIES` entries and counts the rest in `dropped`; the server holds at most
+// `MAX_CONNECTIONS` connections at once, a held `timeout` included, and drops a new one over that. With
+// the default body cap a full journal is at most 1,000 x 64 KiB = 64 MiB of body bytes per scope.
 
 import * as http from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -30,6 +43,11 @@ export interface JournalEntry {
   /** Whether a stub answered. */
   matched: boolean;
 }
+
+/** Entries one journal keeps (each scope, and the unrouted list); the oldest go first. */
+export const JOURNAL_MAX_ENTRIES = 1000;
+/** Connections open at once; one more is dropped by the server without an answer. */
+export const MAX_CONNECTIONS = 256;
 
 export interface StartOptions {
   /** `127.0.0.1` unless asked otherwise. */
@@ -61,8 +79,10 @@ export interface MockScope {
   readonly name: string;
   /** `<server.url>/<name>`: what a provider SDK's base URL starts with. */
   readonly url: string;
-  /** Every request that named this scope, in arrival order. */
+  /** The newest `JOURNAL_MAX_ENTRIES` requests that named this scope, in arrival order. */
   readonly journal: readonly JournalEntry[];
+  /** How many older entries the journal has let go. */
+  readonly dropped: number;
   add(...stubs: StubInput[]): void;
   /**
    * Removes the scope and its stubs, ends the requests it still holds (a `timeout`, a `slow_stream`) by
@@ -74,8 +94,11 @@ export interface MockScope {
 export interface MockServer {
   readonly url: string;
   readonly port: number;
-  /** Requests whose path named no open scope. */
+  /** The newest `JOURNAL_MAX_ENTRIES` requests whose target named no open scope or was refused. */
   readonly unrouted: readonly JournalEntry[];
+  /** How many older entries `unrouted` has let go. */
+  readonly unroutedDropped: number;
+  /** Throws on a name that is taken or cannot be a path segment, and once the server is closed. */
   scope(name: string, stubs?: StubInput[]): MockScope;
   /** Always resolves, destroys open sockets, safe to call twice. */
   close(): Promise<void>;
@@ -83,34 +106,59 @@ export interface MockServer {
 
 const MASK = '[masked]';
 // By name, not by a list of known providers: any header or query parameter that looks like a credential.
-const SECRET_NAME = /auth|key|token|secret|cookie|password|credential/i;
-const SCOPE_NAME = /^[A-Za-z0-9._-]+$/;
+// It errs on the side of masking: `code` also hides a harmless `x-error-code`.
+const SECRET_NAME =
+  /auth|key|token|secret|cookie|password|passwd|pwd|credential|sig|jwt|session|csrf|otp|code|assertion/i;
+const SCOPE_NAME = /^(?!\.{1,2}$)[A-Za-z0-9._-]+$/;
+// `.` and `..`, also percent-encoded: a client or a proxy on the way may resolve them.
+const DOT_SEGMENT = /^(\.|%2e){1,2}$/i;
 const MAX_BODY_BYTES = 16 * 1024 * 1024;
 
 interface LiveStub {
   stub: Stub;
-  pattern: RegExp;
+  matches: (path: string) => boolean;
   calls: number;
 }
 
 interface ScopeState {
   stubs: LiveStub[];
   journal: JournalEntry[];
+  dropped: number;
   /** One function per response still held open; calling it destroys the socket. */
   held: Set<() => void>;
 }
 
-function pathPattern(path: string): RegExp {
-  const source = path
-    .split('**')
-    .map((part) =>
-      part
-        .split('*')
-        .map((literal) => literal.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
-        .join('[^/]*'),
-    )
-    .join('.*');
-  return new RegExp(`^${source}$`);
+/**
+ * A stub path as a matcher: `*` is any run of characters without a slash, `**` any run at all. It follows
+ * every way to match at once (`at[i]`: the first i tokens match what was read so far), so the time is the
+ * pattern length times the path length whatever the pattern; a backtracking regular expression is not.
+ */
+export function pathMatcher(pattern: string): (path: string) => boolean {
+  const tokens = pattern.match(/\*\*|[^]/g) ?? [];
+  const n = tokens.length;
+  // A wildcard may also match nothing.
+  const skipWildcards = (at: Uint8Array): void => {
+    for (let i = 0; i < n; i += 1)
+      if (at[i] && (tokens[i] === '*' || tokens[i] === '**')) at[i + 1] = 1;
+  };
+  return (path) => {
+    let at = new Uint8Array(n + 1);
+    at[0] = 1;
+    skipWildcards(at);
+    for (let c = 0; c < path.length; c += 1) {
+      const ch = path[c];
+      const next = new Uint8Array(n + 1);
+      for (let i = 0; i < n; i += 1) {
+        if (!at[i]) continue;
+        const token = tokens[i];
+        if (token === '**' || (token === '*' && ch !== '/')) next[i] = 1;
+        else if (token !== '*' && token === ch) next[i + 1] = 1;
+      }
+      skipWildcards(next);
+      at = next;
+    }
+    return at[n] === 1;
+  };
 }
 
 /** Whether `actual` holds everything `expected` asks for. */
@@ -227,6 +275,7 @@ function writeSlowly(
       res.end();
       return;
     }
+    // The schema keeps the rate at one byte a second or more, so no wait is over a second.
     const nextAt = startedAt + (Math.min(body.length, sent + step) * 1000) / bytesPerSec;
     handle = timers.setTimeout(tick, Math.max(1, Math.ceil(nextAt - timers.now())));
   };
@@ -240,43 +289,74 @@ export async function start(options: StartOptions = {}): Promise<MockServer> {
   const timers = options.timers ?? REAL_TIMERS;
   const scopes = new Map<string, ScopeState>();
   const unrouted: JournalEntry[] = [];
+  let unroutedDropped = 0;
+  let closing: Promise<void> | undefined;
+
+  /** Adds to a journal and says how many entries fell off its far end. */
+  const record = (journal: JournalEntry[], entry: JournalEntry): number => {
+    journal.push(entry);
+    if (journal.length <= JOURNAL_MAX_ENTRIES) return 0;
+    journal.shift();
+    return 1;
+  };
 
   function answer(req: http.IncomingMessage, res: http.ServerResponse, body: Buffer): void {
-    const url = new URL(req.url ?? '/', 'http://local');
-    const [, name = '', rest] = /^\/([^/]*)(.*)$/.exec(url.pathname) ?? [];
+    // The target is taken apart by hand and as written: a URL parser throws on some targets and resolves
+    // `..` and `//` in others, which would take a request into a scope its first segment does not name.
+    const target = req.url ?? '';
+    const queryAt = target.indexOf('?');
+    const rawPath = queryAt === -1 ? target : target.slice(0, queryAt);
+    const segments = rawPath.split('/');
+    const badTarget =
+      segments[0] !== '' ||
+      segments.length < 2 ||
+      (segments[1] === '' && segments.length > 2) ||
+      segments.some((segment) => DOT_SEGMENT.test(segment));
+    const name = badTarget ? '' : segments[1]!;
     const method = req.method ?? 'GET';
-    const path = rest === undefined || rest === '' ? '/' : rest;
+    const path = badTarget ? rawPath : rawPath.slice(name.length + 1) || '/';
     const entry: JournalEntry = {
       scope: name,
       method,
       path,
-      query: maskedQuery(url.searchParams),
+      query: maskedQuery(new URLSearchParams(queryAt === -1 ? '' : target.slice(queryAt + 1))),
       headers: maskedHeaders(req.headers),
       body: body.subarray(0, journalBodyCap).toString('utf8'),
       bodyTruncated: body.length > journalBodyCap,
       matched: false,
     };
-    // The refusal names the method, the path and the scope and nothing else of the request, so no header or
-    // query value can leak into an error text.
-    const refuse = (message: string): void =>
-      sendJson(res, 404, { error: { type: 'mock_no_stub', message, method, path, scope: name } });
+    // A refusal names the method, and the scope when it is an open one, and nothing else of the request:
+    // no path, query or header value can leak into an error text.
+    const refuse = (status: number, type: string, message: string, open?: string): void =>
+      sendJson(res, status, {
+        error: { type, message, method, ...(open === undefined ? {} : { scope: open }) },
+      });
 
-    const scope = scopes.get(name);
+    const scope = badTarget ? undefined : scopes.get(name);
     if (scope === undefined) {
-      unrouted.push(entry);
-      refuse(
-        `No open scope "${name}" for ${method} ${url.pathname}: the first path segment names the scope`,
-      );
+      unroutedDropped += record(unrouted, entry);
+      if (badTarget)
+        refuse(
+          400,
+          'mock_bad_target',
+          'Bad request target: it starts with "/<scope>" and holds no "." or ".." segment',
+        );
+      else
+        refuse(
+          404,
+          'mock_no_stub',
+          `No open scope for this ${method} request: the first path segment names the scope`,
+        );
       return;
     }
-    scope.journal.push(entry);
+    scope.dropped += record(scope.journal, entry);
 
     let json: unknown;
     let parsed = false;
-    const live = scope.stubs.find(({ stub, pattern, calls }) => {
+    const live = scope.stubs.find(({ stub, matches, calls }) => {
       if (stub.times !== 'always' && calls >= (stub.times === 'once' ? 1 : stub.times))
         return false;
-      if (stub.method !== method || !pattern.test(path)) return false;
+      if (stub.method !== method || !matches(path)) return false;
       if (stub.body === undefined) return true;
       if (!parsed) {
         parsed = true;
@@ -289,7 +369,12 @@ export async function start(options: StartOptions = {}): Promise<MockServer> {
       return matchesSubset(stub.body, json);
     });
     if (live === undefined) {
-      refuse(`No stub matches ${method} ${path} in scope "${name}"`);
+      refuse(
+        404,
+        'mock_no_stub',
+        `No stub matches this ${method} request in scope "${name}": compare its path and body in the journal of the scope with the stubs`,
+        name,
+      );
       return;
     }
     entry.matched = true;
@@ -372,13 +457,25 @@ export async function start(options: StartOptions = {}): Promise<MockServer> {
       else chunks.length = 0;
     });
     req.on('end', () => {
-      if (size <= MAX_BODY_BYTES) answer(req, res, Buffer.concat(chunks));
-      else
+      if (size > MAX_BODY_BYTES) {
         sendJson(res, 413, {
           error: { type: 'mock_body_too_large', message: 'Request body over 16 MiB' },
         });
+        return;
+      }
+      // Nothing a request holds may take the process down: whatever `answer` did not foresee ends here.
+      try {
+        answer(req, res, Buffer.concat(chunks));
+      } catch {
+        if (res.headersSent) res.destroy();
+        else
+          sendJson(res, 500, {
+            error: { type: 'mock_internal', message: 'The stub server failed on this request' },
+          });
+      }
     });
   });
+  server.maxConnections = MAX_CONNECTIONS;
 
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
@@ -390,22 +487,29 @@ export async function start(options: StartOptions = {}): Promise<MockServer> {
   const { port } = server.address() as AddressInfo;
   const url = `http://${host.includes(':') ? `[${host}]` : host}:${port}`;
 
-  let closing: Promise<void> | undefined;
-
   return {
     url,
     port,
     unrouted,
+    get unroutedDropped() {
+      return unroutedDropped;
+    },
     scope(name, stubs = []) {
+      if (closing !== undefined) throw new Error('The server is closed: it takes no new scope');
       if (!SCOPE_NAME.test(name))
-        throw new Error(`Bad scope name "${name}": letters, digits, ".", "_" and "-" only`);
+        throw new Error(
+          `Bad scope name "${name}": letters, digits, ".", "_" and "-" only, and not "." or ".."`,
+        );
       if (scopes.has(name)) throw new Error(`Scope "${name}" is already open`);
-      const state: ScopeState = { stubs: [], journal: [], held: new Set() };
+      const state: ScopeState = { stubs: [], journal: [], dropped: 0, held: new Set() };
       scopes.set(name, state);
       const scope: MockScope = {
         name,
         url: `${url}/${name}`,
         journal: state.journal,
+        get dropped() {
+          return state.dropped;
+        },
         add(...inputs) {
           for (const input of inputs) {
             const result = stubSchema.safeParse(input);
@@ -413,7 +517,7 @@ export async function start(options: StartOptions = {}): Promise<MockServer> {
               throw new Error(`Invalid stub: ${formatIssues(result.error).join('; ')}`);
             state.stubs.push({
               stub: result.data,
-              pattern: pathPattern(result.data.path),
+              matches: pathMatcher(result.data.path),
               calls: 0,
             });
           }

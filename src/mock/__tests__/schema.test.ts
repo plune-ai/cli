@@ -182,10 +182,116 @@ ${failures}`).stubs.map((s) => s.failure);
     ['{ path: /a, failure: { type: slow_stream, bytes_per_sec: 5 } }', 'stubs.0.response'],
     ['{ path: /a, failure: { type: http_500, first: 2 } }', 'stubs.0.response'],
     ['{ path: /a }', 'stubs.0.response'],
+    // A rate a timer can keep: whole bytes, one a second or more.
+    [
+      '{ path: /a, failure: { type: slow_stream, bytes_per_sec: 0.5 }, response: { text: x } }',
+      'stubs.0.failure.bytes_per_sec',
+    ],
+    [
+      '{ path: /a, failure: { type: slow_stream, bytes_per_sec: 1.5 }, response: { text: x } }',
+      'stubs.0.failure.bytes_per_sec',
+    ],
+    [
+      '{ path: /a, failure: { type: slow_stream, bytes_per_sec: 1e-7 }, response: { text: x } }',
+      'stubs.0.failure.bytes_per_sec',
+    ],
+    // `times` counts the failed calls, so it has to leave room for the response after them.
+    [
+      '{ path: /a, times: 2, failure: { type: http_500, first: 3 }, response: { json: {} } }',
+      'stubs.0.times',
+    ],
+    [
+      '{ path: /a, times: 3, failure: { type: reset, first: 3 }, response: { json: {} } }',
+      'stubs.0.times',
+    ],
+    [
+      '{ path: /a, times: once, failure: { type: timeout, first: 1 }, response: { json: {} } }',
+      'stubs.0.times',
+    ],
+    [
+      '{ path: /a, times: 1, failure: { type: truncated_json, first: 1 }, response: { json: {} } }',
+      'stubs.0.times',
+    ],
+    // A response beside a failure that happens on every call and has a body of its own would never go out.
+    ['{ path: /a, failure: { type: timeout }, response: { text: x } }', 'stubs.0.response'],
+    ['{ path: /a, failure: { type: reset }, response: { text: x } }', 'stubs.0.response'],
+    ['{ path: /a, failure: { type: http_429 }, response: { text: x } }', 'stubs.0.response'],
+    ['{ path: /a, failure: { type: http_500 }, response: { json: {} } }', 'stubs.0.response'],
+    // A path is a path: the query string takes no part in a match, so it cannot be written into one.
+    ['{ path: "/a?b=1", response: { text: x } }', 'stubs.0.path'],
+    ['{ path: "/a#b", response: { text: x } }', 'stubs.0.path'],
+    ['{ path: "/a b", response: { text: x } }', 'stubs.0.path'],
+    ['{ path: "a/b", response: { text: x } }', 'stubs.0.path'],
+    // Headers Node refuses to send.
+    [
+      '{ path: /a, response: { headers: { x-a: "v\\r\\nset-cookie: z=1" } } }',
+      'stubs.0.response.headers.x-a',
+    ],
+    ['{ path: /a, response: { headers: { "bad name": v } } }', 'stubs.0.response.headers.bad name'],
   ])('refuses %s at %s', (stub, path) => {
     const issues = issuesOf(`version: 1
 stubs:
   - ${stub}`);
     expect(issues.map((i) => i.slice(0, i.indexOf(':')))).toEqual([path]);
+  });
+});
+
+describe('mock · stub file · only what JSON can hold', () => {
+  const file = (json: string) => `version: 1
+stubs:
+  - path: /x
+    response:
+      json: ${json}
+`;
+  const jsonOf = (text: string) => parseStubFile(text).stubs[0]!.response!.json;
+
+  it('keeps a retry stub whose `times` leaves room for the response', () => {
+    const { stubs } = parseStubFile(`version: 1
+stubs:
+  - { path: /a, times: 2, failure: { type: reset, first: 1 }, response: { text: ok } }
+  - { path: /a, failure: { type: http_500, first: 3 }, response: { text: ok } }
+`);
+    expect(stubs.map((s) => s.times)).toEqual([2, 'always']);
+  });
+
+  it.each([
+    ['a binary tag', '!!binary aGVsbG8='],
+    ['a set tag', '!!set { a, b }'],
+    ['a tag of its own', '!secret value'],
+    ['a tag of its own on a map', '!thing { a: 1 }'],
+    ['infinity', '.inf'],
+    ['not a number', '.nan'],
+    ['a list that holds itself', '&a [*a]'],
+  ])('refuses %s', (_, json) => {
+    expect(() => parseStubFile(file(json), 'case.stubs.yaml')).toThrow(StubFileError);
+  });
+
+  it('reads plain values as JSON would, whatever version the file declares', () => {
+    expect(jsonOf(file('{ a: [1, 2.5, true, null, text], b: { c: "1" } }'))).toEqual({
+      a: [1, 2.5, true, null, 'text'],
+      b: { c: '1' },
+    });
+    expect(jsonOf(`%YAML 1.1\n---\n${file('[2001-01-01, yes, 0o17]')}`)).toEqual([
+      '2001-01-01',
+      'yes',
+      15,
+    ]);
+    // An anchor used twice is the same plain value twice.
+    expect(jsonOf(file('[&m { a: 1 }, *m]'))).toEqual([{ a: 1 }, { a: 1 }]);
+  });
+
+  it('says where the text does not parse without printing the line', () => {
+    const text = 'version: 1\nstubs:\n  - path: /x\n    key: [sk-SECRET-0123456789\n';
+    let message = '';
+    try {
+      parseStubFile(text, 'bad.yaml');
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toMatch(/^Cannot parse bad\.yaml: [A-Z_]+ at line \d+, column \d+$/);
+    expect(message).not.toContain('SECRET');
+    expect(() => parseStubFile(file('!secret sk-SECRET-0123456789'), 'bad.yaml')).toThrow(
+      /^Cannot parse bad\.yaml: TAG_RESOLVE_FAILED at line 5, column 13$/,
+    );
   });
 });
