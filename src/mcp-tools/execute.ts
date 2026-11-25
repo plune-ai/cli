@@ -38,6 +38,12 @@ export interface PluneToolExecutorOptions {
   disabledTools?: readonly string[] | undefined;
   fetchImpl?: typeof fetch | undefined;
   userAgent?: string | undefined;
+  /**
+   * Sentences added to the message of a rejected token (401). The host writes them, because only the host knows what
+   * its person can do next: `plune mcp serve` names the address and how to reach another one, a host that serves the
+   * tools itself gives none.
+   */
+  tokenRejectedHint?: string | undefined;
   now?: (() => number) | undefined;
   /**
    * The client's tool list never changes: discover_tools switches nothing on and describes the hidden tools with their
@@ -94,10 +100,10 @@ function detailLines(body: unknown): string {
   return lines.length === 0 ? '' : '\n' + lines.join('\n');
 }
 
-function errorOf(err: unknown): ToolError {
+function errorOf(err: unknown, tokenRejectedHint?: string): ToolError {
   if (err instanceof PluneApiError) {
     if (err.status === 401)
-      return { status: 401, code: 'token_rejected', message: `Plune rejected the token (401): ${err.message}. Run \`plune login\` or set PLUNE_TOKEN to a live token.` };
+      return { status: 401, code: 'token_rejected', message: `Plune rejected the token (401): ${err.message}. Run \`plune login\` or set PLUNE_TOKEN to a live token.${tokenRejectedHint === undefined ? '' : ` ${tokenRejectedHint}`}` };
     if (err.status === 403 && err.message === READ_ONLY_REFUSAL)
       return { status: 403, code: 'read_only_token', message: `Plune refused (403): ${readScopeMessage('it cannot write')}` };
     // #2988: a quota 429 carries a `quota` object and no code; a 403 is a missing right. The agent is told which, in words:
@@ -187,7 +193,7 @@ export function createPluneToolExecutor(opts: PluneToolExecutorOptions): PluneTo
         const res = await call(req);
         results.push(withoutUndefined({ ok: true, status: res.status, id: idOf(res.body, i) }));
       } catch (err) {
-        const e = errorOf(err);
+        const e = errorOf(err, opts.tokenRejectedHint);
         if (e.code === 'token_rejected' || e.code === 'read_only_token' || e.code === 'network') throw err;
         results.push(withoutUndefined({ ok: false, status: e.status, error: e.message, code: e.code }));
       }
@@ -503,7 +509,7 @@ export function createPluneToolExecutor(opts: PluneToolExecutorOptions): PluneTo
         const out = await handler(args);
         return 'ok' in out && typeof out['ok'] === 'boolean' && ('error' in out || 'data' in out) ? (out as ToolOutcome) : { ok: true, data: out };
       } catch (err) {
-        return { ok: false, error: errorOf(err) };
+        return { ok: false, error: errorOf(err, opts.tokenRejectedHint) };
       }
     },
   };

@@ -31,7 +31,22 @@ describe('plune mcp serve', () => {
   it('serves with the token, the API URL without a trailing slash and the CLI version', async () => {
     const { serve, calls } = capture();
     await handleMcpServe({}, { loadToken: () => 'tok', apiUrl: 'https://beta-api.plune.ai/', serve, version: '1.2.3' });
-    expect(calls).toEqual([{ token: 'tok', apiUrl: 'https://beta-api.plune.ai', version: '1.2.3' }]);
+    expect(calls).toEqual([
+      {
+        token: 'tok',
+        apiUrl: 'https://beta-api.plune.ai',
+        version: '1.2.3',
+        tokenRejectedHint: 'The address that refused it is https://beta-api.plune.ai.',
+      },
+    ]);
+  });
+
+  it('on production, hands the server the two ways on for a token of a beta account', async () => {
+    const { serve, calls } = capture();
+    await handleMcpServe({}, { loadToken: () => 'tok', apiUrl: 'https://api.plune.ai', serve, version: '1.2.3' });
+    expect((calls[0] as { tokenRejectedHint?: string }).tokenRejectedHint).toContain(
+      'or set PLUNE_API_URL=https://beta-api.plune.ai to keep using the beta account.',
+    );
   });
 
   it('takes the project from --project first, then PLUNE_PROJECT', async () => {

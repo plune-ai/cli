@@ -146,6 +146,7 @@ describe('handlePull', () => {
     await expect(
       handlePull({ ...base, fetchImpl: stubFetch(401, '{}').fn }),
     ).rejects.toBeInstanceOf(TokenRejectedError);
+    await expect(handlePull({ ...base, fetchImpl: stubFetch(401, '{}').fn })).rejects.toThrow('The address that refused it is https://api.test.');
     const err = await handlePull({
       ...base,
       fetchImpl: stubFetch(404, JSON.stringify({ error: 'suite not found' })).fn,
@@ -213,6 +214,7 @@ describe('handlePush', () => {
     await expect(
       handlePush({ ...base, fetchImpl: stubFetch(401, '{}').fn }),
     ).rejects.toBeInstanceOf(TokenRejectedError);
+    await expect(handlePush({ ...base, fetchImpl: stubFetch(401, '{}').fn })).rejects.toThrow('The address that refused it is https://api.test.');
     await expect(
       handlePush({
         ...base,

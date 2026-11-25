@@ -509,7 +509,7 @@ export async function sendAutomation(
     error?: unknown;
     code?: unknown;
   };
-  if (res.status === 401) throw new TokenRejectedError();
+  if (res.status === 401) throw new TokenRejectedError(apiUrl);
   if (!res.ok) {
     throw new ProposalRefusedError(
       res.status,

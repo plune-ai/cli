@@ -6,7 +6,7 @@
 
 export interface PluneApiOptions {
   token: string;
-  /** The api base, e.g. `https://beta-api.plune.ai`; a trailing slash is trimmed. */
+  /** The api base, e.g. `https://api.plune.ai`; a trailing slash is trimmed. */
   apiUrl: string;
   /** `X-Plune-Project`; a token minted in a project is held there whatever this says. */
   projectId?: string | undefined;

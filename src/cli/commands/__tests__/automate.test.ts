@@ -362,6 +362,7 @@ describe('plune automate --send', () => {
     expect(lines.pop()).toBe('The platform refused the proposal — HTTP 400: validation failed — snapshot: not in caseFile.\n');
 
     expect(reportAutomateFailure(await send(recordingFetch(401, { error: 'no' })).catch((e: unknown) => e), w)).toBe(2);
+    expect(lines.pop()).toContain('The address that refused it is https://api.test.');
     expect(reportAutomateFailure(new ProposalBoundsError(['x']), w)).toBe(2);
     expect(reportAutomateFailure(new NoTestCallError(), w)).toBe(1);
     expect(lines.join('')).not.toContain(TOKEN);

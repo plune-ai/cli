@@ -8,7 +8,7 @@
 // else entirely — and by then the person has also run their evals. One request at the moment the
 // token is pasted turns that into "this token is wrong, here is where to get a right one".
 
-import { resolveApiUrl, whereToGetAToken } from '../api-url.js';
+import { resolveApiUrl, tokenRefusedBy, whereToGetAToken } from '../api-url.js';
 import { saveToken } from '../credentials.js';
 
 /** A pasted token that was empty/blank — the CLI maps this to a clean exit, not a stack trace. */
@@ -24,7 +24,9 @@ export class EmptyTokenError extends Error {
 /** The server said no. Nothing was saved. (exit 2) */
 export class TokenRejectedError extends Error {
   constructor(apiUrl: string = resolveApiUrl()) {
-    super(`That API token was rejected (401). Nothing was saved. ${whereToGetAToken(apiUrl)}`);
+    super(
+      `That API token was rejected (401). Nothing was saved. ${whereToGetAToken(apiUrl)} ${tokenRefusedBy(apiUrl)}`,
+    );
     this.name = 'TokenRejectedError';
   }
 }

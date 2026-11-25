@@ -115,7 +115,7 @@ export async function handlePull(
   }
   if (!res.ok) {
     const detail = await safeErrorDetail(res);
-    if (res.status === 401) throw new TokenRejectedError();
+    if (res.status === 401) throw new TokenRejectedError(apiUrl);
     throw new SyncHttpError(res.status, detail);
   }
   const text = await res.text();
@@ -153,7 +153,7 @@ export async function handlePush(deps: CasesDeps & { dryRun?: boolean } = {}): P
   }
   if (!res.ok) {
     const detail = await safeErrorDetail(res);
-    if (res.status === 401) throw new TokenRejectedError();
+    if (res.status === 401) throw new TokenRejectedError(apiUrl);
     throw new SyncHttpError(res.status, detail);
   }
   return (await res.json()) as PushReport;

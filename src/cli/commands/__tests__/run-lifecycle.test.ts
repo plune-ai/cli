@@ -767,3 +767,49 @@ describe('plune run delete', () => {
     expect(seen, 'a request went out with no credential').toEqual([]);
   });
 });
+
+describe('a token refused by a run command', () => {
+  const refusing = (status: number) => platform(() => ({ status, body: { error: 'nope' } })).fetchImpl;
+  const HINT =
+    'The address that refused it is https://api.plune.ai. A token from a beta account works only on the beta: ' +
+    'run "plune login" with a token from https://app.plune.ai, or set PLUNE_API_URL=https://beta-api.plune.ai ' +
+    'to keep using the beta account.';
+  const ADDRESS = 'The address that refused it is https://api.test.';
+
+  it('run start on production names the address and the two ways on', async () => {
+    // A token of a beta account meets production here first: the start is the first request of a run.
+    const fetchImpl = (async () =>
+      new Response(JSON.stringify({ error: 'nope' }), {
+        status: 401,
+        headers: { 'content-type': 'application/json' },
+      })) as unknown as typeof fetch;
+    const err = await handleRunStart({ ...deps(fetchImpl), apiUrl: 'https://api.plune.ai' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RunCommandError);
+    expect((err as Error).message).toBe(`Could not start the run — nope. ${HINT}`);
+  });
+
+  it('run start, finish and delete name the address that answered 401', async () => {
+    await expect(handleRunStart(deps(refusing(401)))).rejects.toThrow(ADDRESS);
+    await expect(handleRunFinish('r-1', deps(refusing(401)))).rejects.toThrow(ADDRESS);
+    await expect(handleRunDelete('r-1', deps(refusing(401)))).rejects.toThrow(ADDRESS);
+  });
+
+  it('run report names it on the line of the batch that was refused', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plune-refused-'));
+    const file = path.join(dir, 'pending.jsonl');
+    const one = { testCaseId: 'tc-1', status: 'passed', rawStatus: 'passed', idempotencyKey: 'k-1' };
+    fs.writeFileSync(file, JSON.stringify({ runId: 'r-9', externalKey: null, results: [one] }) + '\n');
+    try {
+      const out = await handleRunReport({ ...deps(refusing(401)), file });
+      expect(out).toMatchObject({ sent: 0, failed: 1 });
+      expect(lines.join('\n')).toContain(ADDRESS);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('a 403 is a missing right, not a wrong address: nothing is added', async () => {
+    const err = await handleRunStart(deps(refusing(403))).catch((e: unknown) => e);
+    expect((err as Error).message).toBe('Could not start the run — nope.');
+  });
+});

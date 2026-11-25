@@ -9,7 +9,7 @@
 // The client is the one every command uses (`reporter-core/client.ts`): retries, the `Retry-After` pause, the
 // classification of an answer, and the token scrubbed out of anything the far side says back.
 
-import { resolveApiUrl } from '../api-url.js';
+import { resolveApiUrl, tokenRefusedBy } from '../api-url.js';
 import { loadToken } from '../credentials.js';
 import {
   createClient,
@@ -185,6 +185,7 @@ export function pushToken(deps: PushDeps): string {
 function failure(
   out: Extract<ClientOutcome<unknown>, { ok: false }>,
   what: string,
+  apiUrl: string,
 ): SnapshotPushError {
   // The platform's sentences end in a full stop, and so do ours.
   const said = out.detail === '' ? '' : `: ${out.detail.replace(/\.$/, '')}`;
@@ -193,7 +194,7 @@ function failure(
       return new SnapshotPushError(
         'auth',
         out.status === 401
-          ? 'Your API token was rejected (401). Run "plune login" again with a fresh token.'
+          ? `Your API token was rejected (401). Run "plune login" again with a fresh token. ${tokenRefusedBy(apiUrl)}`
           : `The platform refused ${what} (${out.status})${said}. Writing the MCP catalog needs a token that may write.`,
       );
     case 'invalid':
@@ -237,8 +238,9 @@ export async function pushSnapshot(
   token: string,
   deps: PushDeps = {},
 ): Promise<PushResult> {
+  const apiUrl = resolveApiUrl(deps.apiUrl);
   const client: PlatformClient = createClient({
-    apiUrl: resolveApiUrl(deps.apiUrl),
+    apiUrl,
     token,
     ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}),
     ...(deps.wait !== undefined ? { wait: deps.wait } : {}),
@@ -250,7 +252,7 @@ export async function pushSnapshot(
     const name = (target.serverName ?? '').trim();
     const find = async (): Promise<string | undefined> => {
       const listed = await client.get<{ servers?: unknown }>('/v1/mcp-servers');
-      if (!listed.ok) throw failure(listed, 'the list of MCP servers');
+      if (!listed.ok) throw failure(listed, 'the list of MCP servers', apiUrl);
       const rows = Array.isArray(listed.body.servers)
         ? listed.body.servers.filter(isServerRow)
         : [];
@@ -272,7 +274,7 @@ export async function pushSnapshot(
       } else if (!made.ok && made.kind === 'conflict') {
         // Another push made it between our look and our create: it is there now.
         serverId = await find();
-      } else if (!made.ok) throw failure(made, 'to add the MCP server');
+      } else if (!made.ok) throw failure(made, 'to add the MCP server', apiUrl);
       if (serverId === undefined)
         throw new SnapshotPushError('other', 'The platform did not name the MCP server it made.');
     }
@@ -291,6 +293,7 @@ export async function pushSnapshot(
     throw failure(
       sent,
       target.serverId !== undefined ? `MCP server '${serverId}'` : 'the snapshot',
+      apiUrl,
     );
   const { number, hash, tools } = sent.body;
   if (typeof number !== 'number' || !Number.isInteger(number) || typeof hash !== 'string') {

@@ -14,14 +14,13 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { parseRunResult, traceUrlProblem, type ParsedRunResult } from '../../types/run-result-schema.js';
 import { stubbedEvals } from '../../types/results.js';
-import { resolveApiUrl } from '../api-url.js';
+import { resolveApiUrl, tokenRefusedBy } from '../api-url.js';
 import { loadToken } from '../credentials.js';
 import { gateExit, type Verdict } from '../gate.js';
 import { JobReporter } from './job-reporter.js';
 
-// ponytail: alpha points at beta — the only live, token-issuing surface today. Flip to
-// https://api.plune.ai once prod is deployed and the alpha graduates. `PLUNE_API_URL` overrides
-// it for testers / self-hosters, so the default is a convenience, not a lock-in.
+// The default address is production (see `api-url.ts`). `PLUNE_API_URL` overrides it for the beta
+// and for self-hosters, so the default is a convenience, not a lock-in.
 
 /** No saved token — the user must `plune login` before syncing. (exit 2) */
 export class NotLoggedInError extends Error {
@@ -33,9 +32,9 @@ export class NotLoggedInError extends Error {
 
 /** The token was present but the server rejected it (401 — revoked or invalid). (exit 2) */
 export class TokenRejectedError extends Error {
-  constructor() {
+  constructor(apiUrl: string = resolveApiUrl()) {
     super(
-      'Your API token was rejected (revoked or invalid). Run "plune login" with a fresh token.',
+      `Your API token was rejected (revoked or invalid). Run "plune login" with a fresh token. ${tokenRefusedBy(apiUrl)}`,
     );
     this.name = 'TokenRejectedError';
   }
@@ -75,7 +74,7 @@ export interface SyncDeps {
   cwd?: string;
   /** Explicit run JSON to sync instead of `<cwd>/.plune/last-run.json`. */
   file?: string;
-  /** Override the API base URL. Falls back to `PLUNE_API_URL`, then the beta default. */
+  /** Override the API base URL. Falls back to `PLUNE_API_URL`, then the production default. */
   apiUrl?: string;
   /** Token source (injected in tests). Defaults to the real credentials store. */
   loadToken?: () => string | null;
@@ -219,7 +218,7 @@ export async function handleSync(deps: SyncDeps = {}): Promise<SyncResult> {
       // leaves undici's socket half-open, which blocks a clean process exit and — on Windows — trips a
       // libuv teardown assertion (UV_HANDLE_CLOSING) when the CLI exits. Reading it releases the socket.
       const detail = await safeErrorDetail(res);
-      if (res.status === 401) throw new TokenRejectedError();
+      if (res.status === 401) throw new TokenRejectedError(apiUrl);
       throw new SyncHttpError(res.status, detail);
     }
 

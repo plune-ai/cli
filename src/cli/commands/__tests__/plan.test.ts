@@ -124,6 +124,7 @@ describe('handlePlanGrep (C8)', () => {
     await expect(handlePlanGrep({ ...deps(stubFetch(401, '{}').fn), planId: 'p' })).rejects.toBeInstanceOf(
       TokenRejectedError,
     );
+    await expect(handlePlanGrep({ ...deps(stubFetch(401, '{}').fn), planId: 'p' })).rejects.toThrow('The address that refused it is https://api.test.');
     const notFound = handlePlanGrep({ ...deps(stubFetch(404, JSON.stringify({ error: "plan 'p' not found" })).fn), planId: 'p' });
     await expect(notFound).rejects.toBeInstanceOf(SyncHttpError);
     await expect(notFound).rejects.toThrow("plan 'p' not found");

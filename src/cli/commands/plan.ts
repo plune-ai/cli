@@ -90,7 +90,7 @@ export function platformGet(deps: Omit<PlanGrepDeps, 'planId'>): <T>(path: strin
     }
     if (!res.ok) {
       const detail = await safeErrorDetail(res);
-      if (res.status === 401) throw new TokenRejectedError();
+      if (res.status === 401) throw new TokenRejectedError(apiUrl);
       throw new SyncHttpError(res.status, detail);
     }
     return (await res.json()) as T;

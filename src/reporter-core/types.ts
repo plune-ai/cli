@@ -396,7 +396,7 @@ export interface RunStats extends SubmitCounts {
 
 /** Everything the core needs to talk to a deployment. */
 export interface ReporterConfig {
-  /** Base URL. Falls back to `PLUNE_API_URL`, then beta — the same resolution `sync` uses. */
+  /** Base URL. Falls back to `PLUNE_API_URL`, then production — the same resolution `sync` uses. */
   apiUrl?: string;
   /** Bearer token. Falls back to the store `plune login` writes. */
   token?: string;

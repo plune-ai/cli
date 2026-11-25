@@ -129,7 +129,7 @@ Playwright знає перелік тестів у `onBegin`. Адаптер в�
 
 ```ts
 export interface ReporterConfig {
-  apiUrl?: string;          // → resolveApiUrl(), тобто PLUNE_API_URL, інакше бета
+  apiUrl?: string;          // → resolveApiUrl(), тобто PLUNE_API_URL, інакше прод
   token?: string;           // → loadToken() зі сховища plune login
   externalKey?: string;     // ключ спільного прогону; немає → прогін не приєднується
   kind?: RunKind;           // 'automated'
