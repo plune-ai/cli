@@ -1545,6 +1545,64 @@ export function createProgram(): Command {
       },
     );
 
+  program
+    .command('mock')
+    .description(
+      'Serve a stub file from a local stub server (127.0.0.1 only, no network), or with --record write one from the answers of a real HTTP API',
+    )
+    .argument('<file>', 'The stub file: served as it is, or written with --record (inside the current folder only)')
+    .option('--record', 'Forward each request to --target and write the answers into <file>', false)
+    .option('--target <origin>', 'With --record: where requests go, an http: or https: origin with no path. Nothing in a request changes it')
+    .option('--force', 'With --record: replace <file> if it is a stub file or empty', false)
+    .option('--scope <name>', 'The first path segment of the base URL', 'default')
+    .option(
+      '--port <n>',
+      'The port on 127.0.0.1 (default: a free one, printed at the start)',
+      (v: string) => {
+        if (!/^\d+$/.test(v) || Number(v) > 65_535) throw new InvalidArgumentError('a whole number from 0 to 65535.');
+        return Number(v);
+      },
+      0,
+    )
+    .addHelpText(
+      'after',
+      '\nA recording holds the prompts and the answers as they were sent and received: they may hold personal or confidential text. It is never uploaded. Never written: request headers, the query string, and response headers other than content-type and retry-after. A field with a secret\'s name holds [masked] in place of its value: in the JSON body of a request whatever the value is, in the JSON of an answer only a string of 16 characters or more with no whitespace that is not letters only. A credential value is also replaced wherever it is found, if it came in a header, the query or a cookie and has 8 characters or more, or in a body field and has 16 or more with no whitespace. Not searched for: a value of letters only, and a value in a form other than plain, URL-encoded, JSON-escaped, base64 or hex; a value over 4096 characters is found by its first 4096. A credential in a path segment, or under an ordinary header, query or body-field name, is not known to the recorder. An answer that sends a searched value back in pieces is not recorded. A recording over 1 MiB is not read by `plune run`. Redirects are passed back, not followed. Not recorded, with a warning: a body over 8 MiB, a body that is not UTF-8 text, a compressed body, a redirect, a 304. A failed upstream is answered 502 and not recorded. Timing is not recorded. A replay matches the method, the path and the whole JSON body; the same request recorded several times is replayed in the order recorded. The server answers only a request addressed to 127.0.0.1, localhost or [::1] with its port, and none that a web page of another origin sent. Ctrl+C stops; the exit code is 1 if exchanges could not be written to the file.',
+    )
+    .action(
+      async (
+        file: string,
+        options: { record: boolean; target?: string; force: boolean; scope: string; port: number },
+        command: Command,
+      ) => {
+        const verbose = verboseOf(command);
+        const { handleMock, MockUsageError } = await import('./cli/commands/mock.js');
+        const stop = new AbortController();
+        const onSignal = (): void => stop.abort();
+        process.once('SIGINT', onSignal);
+        process.once('SIGTERM', onSignal);
+        try {
+          process.exitCode = await handleMock(
+            { file, ...options },
+            {
+              stdout: (text) => process.stdout.write(text),
+              stderr: (text) => process.stderr.write(text),
+              signal: stop.signal,
+            },
+          );
+        } catch (err) {
+          if (err instanceof MockUsageError) {
+            process.stderr.write(err.message + '\n');
+            process.exitCode = 2;
+            return;
+          }
+          failUnexpected(err, verbose);
+        } finally {
+          process.off('SIGINT', onSignal);
+          process.off('SIGTERM', onSignal);
+        }
+      },
+    );
+
   // Unknown command → exit 2 (CLI_SPEC §4.2). Registering a `command:*` listener makes commander
   // emit this event instead of its default "unknown command" error (which would exit 1).
   program.on('command:*', (operands: string[]) => {

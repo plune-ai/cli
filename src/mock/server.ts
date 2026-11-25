@@ -104,15 +104,15 @@ export interface MockServer {
   close(): Promise<void>;
 }
 
-const MASK = '[masked]';
+export const MASK = '[masked]';
 // By name, not by a list of known providers: any header or query parameter that looks like a credential.
 // It errs on the side of masking: `code` also hides a harmless `x-error-code`.
-const SECRET_NAME =
+export const SECRET_NAME =
   /auth|key|token|secret|cookie|password|passwd|pwd|credential|sig|jwt|session|csrf|otp|code|assertion/i;
-const SCOPE_NAME = /^(?!\.{1,2}$)[A-Za-z0-9._-]+$/;
+export const SCOPE_NAME = /^(?!\.{1,2}$)[A-Za-z0-9._-]+$/;
 // `.` and `..`, also percent-encoded: a client or a proxy on the way may resolve them.
-const DOT_SEGMENT = /^(\.|%2e){1,2}$/i;
-const MAX_BODY_BYTES = 16 * 1024 * 1024;
+export const DOT_SEGMENT = /^(\.|%2e){1,2}$/i;
+export const MAX_BODY_BYTES = 16 * 1024 * 1024;
 
 interface LiveStub {
   stub: Stub;
@@ -182,6 +182,73 @@ export function matchesSubset(expected: unknown, actual: unknown): boolean {
   return expected === actual;
 }
 
+/** Whether `actual` is `expected`, where each `[masked]` in `expected` stands for any text. */
+export function maskedTextMatches(expected: string, actual: string): boolean {
+  const parts = expected.split(MASK);
+  const first = parts[0]!;
+  const last = parts[parts.length - 1]!;
+  if (parts.length === 1) return expected === actual;
+  if (actual.length < first.length + last.length) return false;
+  if (!actual.startsWith(first) || !actual.endsWith(last)) return false;
+  // The parts in between, each at the first place it fits after the one before: enough for "any text".
+  const end = actual.length - last.length;
+  let at = first.length;
+  for (const part of parts.slice(1, -1)) {
+    const found = actual.indexOf(part, at);
+    if (found === -1 || found + part.length > end) return false;
+    at = found + part.length;
+  }
+  return true;
+}
+
+/**
+ * Whether `actual` is the whole of `expected`: the same keys, the same items, the same values. A value of
+ * `expected` that is `[masked]` and nothing else matches any value that is there.
+ */
+export function matchesExact(expected: unknown, actual: unknown): boolean {
+  if (expected === MASK) return actual !== undefined;
+  if (typeof expected === 'string')
+    return typeof actual === 'string' && maskedTextMatches(expected, actual);
+  if (Array.isArray(expected))
+    return (
+      Array.isArray(actual) &&
+      actual.length === expected.length &&
+      expected.every((item, i) => matchesExact(item, actual[i]))
+    );
+  if (expected !== null && typeof expected === 'object')
+    return (
+      actual !== null &&
+      typeof actual === 'object' &&
+      !Array.isArray(actual) &&
+      Object.keys(actual).length === Object.keys(expected).length &&
+      Object.entries(expected).every(
+        ([k, v]) =>
+          Object.hasOwn(actual, k) && matchesExact(v, (actual as Record<string, unknown>)[k]),
+      )
+    );
+  return expected === actual;
+}
+
+/**
+ * Why a request is not served, or nothing. Only a request addressed to the server by a loopback name and
+ * its own port is: a name that merely resolves to this machine is how a web page elsewhere reaches a local
+ * server (DNS rebinding). A request a browser sent for a page of another origin is refused too, and no
+ * answer of the server carries a CORS header, so no page can read one.
+ */
+export function notLocal(req: http.IncomingMessage, port: number, bound = '127.0.0.1'): boolean {
+  const names = ['127.0.0.1', 'localhost', '[::1]', bound.includes(':') ? `[${bound}]` : bound];
+  const hosts = names.flatMap((name) => (port === 80 ? [name, `${name}:80`] : [`${name}:${port}`]));
+  const host = (req.headers.host ?? '').toLowerCase();
+  const { origin } = req.headers;
+  return (
+    !hosts.includes(host) ||
+    (origin !== undefined && !hosts.some((h) => origin.toLowerCase() === `http://${h}`))
+  );
+}
+
+export const NOT_LOCAL_MESSAGE =
+  'This server answers only a request addressed to 127.0.0.1, localhost or [::1] with its own port, and none a web page of another origin sent';
+
 function maskedHeaders(headers: http.IncomingHttpHeaders): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [name, value] of Object.entries(headers)) {
@@ -199,7 +266,7 @@ function maskedQuery(params: URLSearchParams): string {
     .join('&');
 }
 
-function renderBody(response: StubResponse): { type?: string; body: Buffer } {
+export function renderBody(response: StubResponse): { type?: string; body: Buffer } {
   if (response.sse !== undefined) {
     const events = response.sse.map((chunk) => {
       const { event, data } = typeof chunk === 'string' ? { event: undefined, data: chunk } : chunk;
@@ -357,7 +424,8 @@ export async function start(options: StartOptions = {}): Promise<MockServer> {
       if (stub.times !== 'always' && calls >= (stub.times === 'once' ? 1 : stub.times))
         return false;
       if (stub.method !== method || !matches(path)) return false;
-      if (stub.body === undefined) return true;
+      const exact = stub.match === 'exact';
+      if (stub.body === undefined && !exact) return true;
       if (!parsed) {
         parsed = true;
         try {
@@ -366,7 +434,8 @@ export async function start(options: StartOptions = {}): Promise<MockServer> {
           json = undefined;
         }
       }
-      return matchesSubset(stub.body, json);
+      if (!exact) return matchesSubset(stub.body, json);
+      return stub.body === undefined ? json === undefined : matchesExact(stub.body, json);
     });
     if (live === undefined) {
       refuse(
@@ -446,7 +515,13 @@ export async function start(options: StartOptions = {}): Promise<MockServer> {
     }
   }
 
+  let port = 0;
   const server = http.createServer((req, res) => {
+    if (notLocal(req, port, host)) {
+      req.resume();
+      sendJson(res, 403, { error: { type: 'mock_not_local', message: NOT_LOCAL_MESSAGE } });
+      return;
+    }
     const chunks: Buffer[] = [];
     let size = 0;
     req.on('error', () => undefined);
@@ -484,7 +559,7 @@ export async function start(options: StartOptions = {}): Promise<MockServer> {
       resolve();
     });
   });
-  const { port } = server.address() as AddressInfo;
+  ({ port } = server.address() as AddressInfo);
   const url = `http://${host.includes(':') ? `[${host}]` : host}:${port}`;
 
   return {
@@ -517,7 +592,10 @@ export async function start(options: StartOptions = {}): Promise<MockServer> {
               throw new Error(`Invalid stub: ${formatIssues(result.error).join('; ')}`);
             state.stubs.push({
               stub: result.data,
-              matches: pathMatcher(result.data.path),
+              matches:
+                result.data.match === 'exact'
+                  ? (path) => maskedTextMatches(result.data.path, path)
+                  : pathMatcher(result.data.path),
               calls: 0,
             });
           }
