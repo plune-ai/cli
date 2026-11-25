@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { createPluneApi, PluneApiError, PluneNetworkError, type ApiRequest, type ApiResponse } from './client.js';
+import { apiBase, createPluneApi, PluneApiError, PluneNetworkError, type ApiRequest, type ApiResponse } from './client.js';
 import { PLUNE_TOOLS, defaultVisibleTools, isPluneToolName, pluneTool, type PluneToolName } from './contract.js';
 import { fileSource, linkSource } from './schemas.js';
 
@@ -94,10 +94,11 @@ function detailLines(body: unknown): string {
   return lines.length === 0 ? '' : '\n' + lines.join('\n');
 }
 
-function errorOf(err: unknown): ToolError {
+function errorOf(err: unknown, apiUrl: string): ToolError {
   if (err instanceof PluneApiError) {
+    // The address is named because a token works only where it was issued: one from another deployment is refused here.
     if (err.status === 401)
-      return { status: 401, code: 'token_rejected', message: `Plune rejected the token (401): ${err.message}. Run \`plune login\` or set PLUNE_TOKEN to a live token.` };
+      return { status: 401, code: 'token_rejected', message: `Plune at ${apiBase(apiUrl)} rejected the token (401): ${err.message}. Run \`plune login\` or set PLUNE_TOKEN to a live token of that address; PLUNE_API_URL names another address.` };
     if (err.status === 403 && err.message === READ_ONLY_REFUSAL)
       return { status: 403, code: 'read_only_token', message: `Plune refused (403): ${readScopeMessage('it cannot write')}` };
     // #2988: a quota 429 carries a `quota` object and no code; a 403 is a missing right. The agent is told which, in words:
@@ -187,7 +188,7 @@ export function createPluneToolExecutor(opts: PluneToolExecutorOptions): PluneTo
         const res = await call(req);
         results.push(withoutUndefined({ ok: true, status: res.status, id: idOf(res.body, i) }));
       } catch (err) {
-        const e = errorOf(err);
+        const e = errorOf(err, opts.apiUrl);
         if (e.code === 'token_rejected' || e.code === 'read_only_token' || e.code === 'network') throw err;
         results.push(withoutUndefined({ ok: false, status: e.status, error: e.message, code: e.code }));
       }
@@ -503,7 +504,7 @@ export function createPluneToolExecutor(opts: PluneToolExecutorOptions): PluneTo
         const out = await handler(args);
         return 'ok' in out && typeof out['ok'] === 'boolean' && ('error' in out || 'data' in out) ? (out as ToolOutcome) : { ok: true, data: out };
       } catch (err) {
-        return { ok: false, error: errorOf(err) };
+        return { ok: false, error: errorOf(err, opts.apiUrl) };
       }
     },
   };

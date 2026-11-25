@@ -670,6 +670,8 @@ describe('errors', () => {
     const out = await executor(() => ({ status: 401, body: { error: 'invalid or revoked token' } })).exec.execute('plune_mission_get', { missionId: 'm1' });
     expect(out.ok).toBe(false);
     if (!out.ok) expect(out.error).toMatchObject({ status: 401, code: 'token_rejected' });
+    // The address is in the message: a token of another deployment is refused, and the agent's person has to see by whom.
+    if (!out.ok) expect(out.error.message).toContain('Plune at https://api.test rejected the token (401)');
   });
 
   it('says the platform is unreachable on a network failure', async () => {

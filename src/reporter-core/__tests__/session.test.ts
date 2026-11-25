@@ -1246,6 +1246,8 @@ describe('a refused token stops the asking (AC-06)', () => {
     await run.finish();
 
     expect(logOf(cfg).filter((l) => l.includes('plune login'))).toHaveLength(1);
+    // The line names the address that refused: a token works only where it was issued.
+    expect(logOf(cfg).find((l) => l.includes('plune login'))).toContain('The address that refused it is https://api.test.');
     expect(seen.events).toHaveLength(0);
   });
 });

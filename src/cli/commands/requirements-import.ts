@@ -17,7 +17,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createClient, type ClientOutcome } from '../../reporter-core/client.js';
-import { resolveApiUrl, whereToGetAToken } from '../api-url.js';
+import { resolveApiUrl, tokenRefusedBy, whereToGetAToken } from '../api-url.js';
 import { loadToken } from '../credentials.js';
 
 /** The platform reads at most this much Markdown (`limits.markdownBytes`); refused here before a byte is sent. */
@@ -297,7 +297,7 @@ export function refusal(out: Extract<ClientOutcome<unknown>, { ok: false }>, api
     case null:
       return new RequirementsImportError(`Could not reach the Plune API at ${apiUrl}. Check your connection (or PLUNE_API_URL) and try again.`, 1);
     case 401:
-      return new RequirementsImportError(`Your API token was rejected (revoked or invalid). ${whereToGetAToken(apiUrl)} Then run "plune login".`, 2);
+      return new RequirementsImportError(`Your API token was rejected (revoked or invalid). ${whereToGetAToken(apiUrl)} Then run "plune login". ${tokenRefusedBy(apiUrl)}`, 2);
     case 403:
       return new RequirementsImportError(`The platform refused: ${d || 'read-only member'}. Importing needs an owner or a member of the project.`, 1);
     case 404:

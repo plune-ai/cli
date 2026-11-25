@@ -11,7 +11,7 @@ import { defineConfig } from '@playwright/test';
 const apiUrl = process.env['PLUNE_STUB_URL'];
 if (apiUrl === undefined || apiUrl === '') {
   // Without this the core would resolve its default base URL and the fixture would post a fake
-  // run to the real beta deployment. A test must not be one missing variable away from that.
+  // run to the real production deployment. A test must not be one missing variable away from that.
   throw new Error('PLUNE_STUB_URL must be set — this fixture must never reach a real deployment');
 }
 

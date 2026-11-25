@@ -33,7 +33,7 @@ That is the whole setup. Options, if you want them:
   externalKey: `${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT ?? '1'}`, // several processes → one run
   batchSize: 100,                          // results per request (max 500)
   fallbackPath: '.plune/pending-results.jsonl',
-  apiUrl: 'https://beta-api.plune.ai',     // or PLUNE_API_URL
+  apiUrl: 'https://api.plune.ai',          // the default; or PLUNE_API_URL
 }]
 ```
 
@@ -51,7 +51,7 @@ fills in what you left out. Anything set in the config file wins.
 | `PLUNE_TOKEN` | the API token — so a CI job need not run `plune login` |
 | `PLUNE_RUN` | the shared run key: every process with the same value lands in one run |
 | `PLUNE_CONFIGURATION` | the combination this job runs, `Browser=Chrome;Operating system=Windows`: its results land under that combination of the run (see [A matrix](#a-matrix-one-run-a-combination-per-job)) |
-| `PLUNE_API_URL` | the deployment to report to |
+| `PLUNE_API_URL` | the deployment to report to; without it, production (`https://api.plune.ai`) |
 | `PLUNE_SHARED_RUN` | this process is one of several — do not close the run |
 | `PLUNE_SHARD` | `k/N`: this process is shard k of N; it reports itself done and the run closes when all N have (implies `PLUNE_SHARED_RUN`) |
 | `PLUNE_PROCEED` | the job closes the run itself, later |

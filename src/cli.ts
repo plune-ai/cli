@@ -112,7 +112,7 @@ async function readTokenFromStdin(): Promise<string> {
   if (process.stdin.isTTY === true) {
     // Where the token comes from, said at the moment someone is looking for one — not only in the
     // error they get for guessing wrong. Derived, so a self-hosted deployment is not sent to
-    // our beta.
+    // ours.
     const { resolveApiUrl, whereToGetAToken } = await import('./cli/api-url.js');
     process.stderr.write(`${whereToGetAToken(resolveApiUrl())}\n`);
     process.stderr.write('Paste your API token, then press Enter:\n');

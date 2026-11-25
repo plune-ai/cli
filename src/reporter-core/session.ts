@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { promises as disk } from 'node:fs';
 import { basename, extname } from 'node:path';
 import { TextDecoder } from 'node:util';
-import { resolveApiUrl } from '../cli/api-url.js';
+import { resolveApiUrl, tokenRefusedBy } from '../cli/api-url.js';
 import { loadToken } from '../cli/credentials.js';
 import { createClient, type ClientOutcome, type PlatformClient } from './client.js';
 import { defaultRunTitle, readEnv, UPLOAD_CONCURRENCY, UPLOAD_RETRIES } from './env.js';
@@ -965,8 +965,9 @@ export async function startRun(
   /** Files in flight at once: with a round trip per file, this is what a suite of screenshots waits on. */
   const uploadsAtOnce = Math.min(Math.max(Math.floor(cfg.uploadConcurrency ?? UPLOAD_CONCURRENCY.default), UPLOAD_CONCURRENCY.min), UPLOAD_CONCURRENCY.max);
   const uploadRetries = Math.min(Math.max(Math.floor(cfg.uploadRetries ?? UPLOAD_RETRIES.default), UPLOAD_RETRIES.min), UPLOAD_RETRIES.max);
+  const apiUrl = resolveApiUrl(cfg.apiUrl);
   const client: PlatformClient = createClient({
-    apiUrl: resolveApiUrl(cfg.apiUrl),
+    apiUrl,
     token,
     uploadRetries,
     onRetry: () => files.onRetry(),
@@ -1483,7 +1484,7 @@ export async function startRun(
       if (out.ok) {
         log('plune: could not send results (the answer carried no counts).');
       } else if (out.kind === 'auth') {
-        log('plune: the API token was refused — run "plune login" with a fresh one.');
+        log(`plune: the API token was refused — run "plune login" with a fresh one. ${tokenRefusedBy(apiUrl)}`);
         offline = true;
       } else if (out.kind === 'conflict') {
         // Two processes closed one run. Retrying would not help and hiding it would leave someone

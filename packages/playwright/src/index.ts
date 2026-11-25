@@ -40,7 +40,7 @@ import { FINDINGS_TYPE, toWire } from './findings.js';
 const SOURCE = 'playwright';
 
 export interface PluneReporterOptions {
-  /** Platform base URL. Defaults to `PLUNE_API_URL`, then beta. */
+  /** Platform base URL. Defaults to `PLUNE_API_URL`, then production. */
   apiUrl?: string;
   /** API token. Defaults to whatever `plune login` saved. */
   token?: string;
