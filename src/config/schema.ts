@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { COMPARE_MODES, validateExpected } from '../json-verify/compare.js';
 import { MAX_TIMER_MS } from '../util/duration.js';
 
 // --- Provider ---
@@ -57,7 +58,7 @@ const datasetRefSchema = z.union([
   z.object({ examples: z.array(datasetRowSchema).min(1) }),
 ]);
 
-// --- Assertion kinds (discriminated union — 10 types) ---
+// --- Assertion kinds (discriminated union — 11 types on the output) ---
 
 const exactMatchAssertionSchema = z.object({
   type: z.literal('exact-match'),
@@ -89,6 +90,26 @@ const jsonSchemaAssertionSchema = z.object({
   schema: z.record(z.string(), z.unknown()),
   extract: z.enum(['auto', 'strict']).optional(),
 });
+
+// A broken marker or check inside `expected` is refused here, with its JSON path: before any model call.
+// `expected` is taken as it was parsed and checked by `validateExpected`, not by `z.json()`: that one drops a
+// key `__proto__` without a word, and the check would then pass on an answer that has no such key.
+// Strict, unlike the older types: a mistyped `mode` would otherwise leave the check on `exact` without a word.
+const jsonVerifyAssertionSchema = z
+  .strictObject({
+    type: z.literal('json-verify'),
+    // Optional to the parser so that a missing one gets the message below, not "Invalid input".
+    expected: z.any().optional(),
+    mode: z.enum(COMPARE_MODES).optional(),
+    extract: z.enum(['auto', 'strict']).optional(),
+  })
+  .superRefine((a, ctx) => {
+    if (a.expected === undefined)
+      ctx.addIssue({ code: 'custom', path: ['expected'], message: 'expected is required (null is written as null)' });
+    else
+      for (const issue of validateExpected(a.expected))
+      ctx.addIssue({ code: 'custom', path: ['expected'], message: `${issue.path}: ${issue.message}` });
+  });
 
 const jevJudgeSchema = z.strictObject({
   type: z.literal('jev'),
@@ -213,6 +234,7 @@ export const assertionConfigSchema = z.discriminatedUnion('type', [
   containsAnyAssertionSchema,
   containsAllAssertionSchema,
   jsonSchemaAssertionSchema,
+  jsonVerifyAssertionSchema,
   llmJudgeAssertionSchema,
   semanticSimilarityAssertionSchema,
   faithfulnessAssertionSchema,

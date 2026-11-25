@@ -21,6 +21,7 @@ export type {
   ContainsAnyAssertion,
   ContainsAllAssertion,
   JsonSchemaAssertion,
+  JsonVerifyAssertion,
   LlmJudgeAssertion,
   SemanticSimilarityAssertion,
   FaithfulnessAssertion,

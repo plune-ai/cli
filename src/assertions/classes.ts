@@ -13,6 +13,7 @@ export const ASSERTION_CLASSES: Record<AssertionKind, AssertionClass> = {
   'contains-any': 'deterministic',
   'contains-all': 'deterministic',
   'json-schema': 'deterministic',
+  'json-verify': 'deterministic',
   // A score against the author's threshold. They decide the row as they always have.
   'semantic-similarity': 'measure',
   'llm-judge': 'measure',

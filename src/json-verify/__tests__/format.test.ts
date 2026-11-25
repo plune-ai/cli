@@ -1,0 +1,190 @@
+import { describe, expect, it } from 'vitest';
+import { compareJson } from '../compare.js';
+import { formatMismatches, MAX_FRAGMENT, MAX_FRAGMENT_DEPTH, MAX_LISTED } from '../format.js';
+
+const text = (expected: unknown, actual: unknown, mode: 'exact' | 'unordered' | 'contains' = 'exact'): string =>
+  formatMismatches(compareJson(expected, actual, { mode }));
+
+describe('json-verify · format · the mismatch text', () => {
+  it('no mismatch is an empty text', () => {
+    expect(text({ a: 1 }, { a: 1 })).toBe('');
+  });
+
+  it('one of every reason, in the order the comparison found them', () => {
+    const expected = {
+      id: '@isNumber() @gt(0)',
+      name: 'John Doe',
+      email: '@matchesRegex("@plune\\.ai$")',
+      age: 30,
+      address: { city: 'Kyiv' },
+      roles: ['admin', 'editor'],
+      tags: { $mode: 'unordered', $value: ['a', { k: 1 }] },
+    };
+    const actual = {
+      id: 0,
+      name: 'John',
+      email: 'user@plune.ai',
+      age: '30',
+      roles: ['admin', 'viewer', 'guest'],
+      tags: ['a', { k: 2 }],
+      debug: true,
+    };
+    expect(text(expected, actual)).toBe(
+      [
+        '9 mismatches',
+        '    $.id: function not satisfied: @gt(0)',
+        '      expected: "@isNumber() @gt(0)"',
+        '      actual:   0',
+        '    $.name: value differs',
+        '      expected: "John Doe"',
+        '      actual:   "John"',
+        '    $.age: type differs: expected number, got string',
+        '      expected: 30',
+        '      actual:   "30"',
+        '    $.address: missing key',
+        '      expected: {"city":"Kyiv"}',
+        '    $.roles[1]: value differs',
+        '      expected: "editor"',
+        '      actual:   "viewer"',
+        '    $.roles[2]: extra element',
+        '      actual:   "guest"',
+        '    $.tags[1]: no match for an array element',
+        '      expected: {"k":1}',
+        '    $.tags[1]: extra element',
+        '      actual:   {"k":2}',
+        '    $.debug: extra key',
+        '      actual:   true',
+      ].join('\n'),
+    );
+  });
+
+  it('an extra key, a missing element and the types of null and an array', () => {
+    expect(text({ a: [1, 2], b: null, c: [] }, { a: [1], b: {}, c: null, d: 0 })).toBe(
+      [
+        '4 mismatches',
+        '    $.a[1]: missing element',
+        '      expected: 2',
+        '    $.b: type differs: expected null, got object',
+        '      expected: null',
+        '      actual:   {}',
+        '    $.c: type differs: expected array, got null',
+        '      expected: []',
+        '      actual:   null',
+        '    $.d: extra key',
+        '      actual:   0',
+      ].join('\n'),
+    );
+  });
+
+  it('one mismatch is counted in the singular', () => {
+    expect(text(1, 2)).toBe(['1 mismatch', '    $: value differs', '      expected: 1', '      actual:   2'].join('\n'));
+  });
+
+  it('a check that gave a note carries it, and an array over the matching limit says so', () => {
+    const long = 'a'.repeat(10_001);
+    expect(text('@matchesRegex("^a+$")', long).split('\n')[1]).toBe(
+      '    $: function not satisfied: @matchesRegex("^a+$"): the value is 10001 characters long and a pattern is not run on more than 10000',
+    );
+    const rows = Array.from({ length: 2100 }, (_, id) => ({ at: [id] }));
+    expect(text(rows, [...rows].reverse(), 'unordered')).toBe(
+      [
+        '1 mismatch',
+        '    $: too large: matching arrays in any order took more than 2000000 comparisons of elements',
+      ].join('\n'),
+    );
+  });
+
+  it(`a fragment is cut at ${MAX_FRAGMENT} characters`, () => {
+    const long = 'x'.repeat(300);
+    const lines = text({ a: long }, { a: [long] }).split('\n');
+    expect(lines[2]).toBe(`      expected: "${'x'.repeat(MAX_FRAGMENT - 1)}...`);
+    expect(lines[3]).toBe(`      actual:   ["${'x'.repeat(MAX_FRAGMENT - 2)}...`);
+    const fits = 'y'.repeat(MAX_FRAGMENT - 2);
+    expect(text(fits, '').split('\n')[2]).toBe(`      expected: "${fits}"`);
+  });
+
+  it('a cut never splits a character written as two code units', () => {
+    const emoji = '\u{1F600}';
+    // The quote takes one unit, so the 60th emoji would be cut in half at 120.
+    const lines = text(emoji.repeat(100), '').split('\n');
+    expect(lines[2]).toBe(`      expected: "${emoji.repeat(59)}...`);
+  });
+
+  it('a fragment is written out as JSON while it is short and shallow', () => {
+    const value = { a: [1, 'two', null, true, { b: [] }], 'c d': {}, e: -0.5 };
+    expect(text(0, value).split('\n')[3]).toBe(`      actual:   ${JSON.stringify(value)}`);
+  });
+
+  it(`below ${MAX_FRAGMENT_DEPTH} levels a fragment is cut to "..."`, () => {
+    expect(text(0, { a: [[[[[[[1]]]]]]], b: [[[[[[]]]]]], c: 2 }).split('\n')[3]).toBe(
+      '      actual:   {"a":[[[[[...]]]]],"b":[[[[[...]]]]],"c":2}',
+    );
+  });
+
+  it.each([5000, 50_000])('an answer nested %i deep is reported, whatever the reason, and nothing throws', (depth) => {
+    let deep: unknown = [];
+    for (let n = 0; n < depth; n++) deep = [deep];
+    const shown = `${'['.repeat(MAX_FRAGMENT_DEPTH)}...${']'.repeat(MAX_FRAGMENT_DEPTH)}`;
+    expect(text({ a: 1 }, deep)).toBe(
+      ['1 mismatch', '    $: type differs: expected object, got array', '      expected: {"a":1}', `      actual:   ${shown}`].join('\n'),
+    );
+    expect(text({ a: 1 }, { a: 1, b: deep }).split('\n').slice(1)).toEqual(['    $.b: extra key', `      actual:   ${shown}`]);
+    expect(text({ a: '@isString()' }, { a: deep }).split('\n')[1]).toBe('    $.a: function not satisfied: @isString()');
+    expect(text({ a: [[1]] }, { a: deep }).split('\n')[1]).toBe('    $.a[0][0]: type differs: expected number, got array');
+    expect(text([1, [2]], [deep, 1], 'unordered').split('\n')[1]).toBe('    $[1]: no match for an array element');
+    // Where the expected value does not look, the depth of the answer does not matter at all.
+    expect(text({ a: 1 }, { a: 1, b: deep }, 'contains')).toBe('');
+    expect(text({ b: '@isArray() @minLength(1)' }, { b: deep })).toBe('');
+  });
+
+  it('a very large fragment is not written out before it is cut', () => {
+    const rows = Array.from({ length: 300_000 }, (_, i) => ({ id: i, name: 'John Doe' }));
+    const started = Date.now();
+    expect(text(1, rows).split('\n')[3]).toMatch(/^ {6}actual: {3}\[\{"id":0,"name":"John Doe"\},.{60,}\.\.\.$/);
+    expect(text(1, 'x'.repeat(5_000_000)).split('\n')[3]).toBe(`      actual:   "${'x'.repeat(MAX_FRAGMENT - 1)}...`);
+    expect(Date.now() - started).toBeLessThan(250);
+  });
+
+  it('a line break or a control character of the answer stays on its line', () => {
+    const lines = text('a', 'line one\nline two\u001b[31m\r::error::x').split('\n');
+    expect(lines).toHaveLength(4);
+    expect(lines[3]).toBe('      actual:   "line one\\nline two\\u001b[31m\\r::error::x"');
+  });
+
+  it(`at most ${MAX_LISTED} mismatches are listed, and the rest are counted`, () => {
+    const expected = Array.from({ length: MAX_LISTED + 7 }, (_, i) => i);
+    const lines = text(expected, expected.map((i) => -i - 1)).split('\n');
+    expect(lines[0]).toBe(`${MAX_LISTED + 7} mismatches`);
+    expect(lines).toHaveLength(1 + MAX_LISTED * 3 + 1);
+    expect(lines[lines.length - 2]).toBe(`      actual:   ${-MAX_LISTED}`);
+    expect(lines[lines.length - 1]).toBe('    and 7 more');
+    // Exactly at the cap nothing is counted as more.
+    const atCap = text(expected.slice(0, MAX_LISTED), expected.slice(0, MAX_LISTED).map((i) => -i - 1));
+    expect(atCap.split('\n')).toHaveLength(1 + MAX_LISTED * 3);
+    expect(atCap).not.toContain('more');
+  });
+
+  it('the text is the same on every call', () => {
+    const expected = { b: [{ x: 1 }, { y: 2 }], a: '@isString()' };
+    const actual = { a: 1, b: [{ y: 3 }, { x: 2 }], c: null };
+    expect(text(expected, actual, 'unordered')).toBe(text(expected, actual, 'unordered'));
+    expect(text(expected, actual, 'unordered')).toBe(
+      [
+        '6 mismatches',
+        '    $.b[0]: no match for an array element',
+        '      expected: {"x":1}',
+        '    $.b[1]: no match for an array element',
+        '      expected: {"y":2}',
+        '    $.b[0]: extra element',
+        '      actual:   {"y":3}',
+        '    $.b[1]: extra element',
+        '      actual:   {"x":2}',
+        '    $.a: function not satisfied: @isString()',
+        '      expected: "@isString()"',
+        '      actual:   1',
+        '    $.c: extra key',
+        '      actual:   null',
+      ].join('\n'),
+    );
+  });
+});

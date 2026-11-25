@@ -107,6 +107,24 @@ describe('write only after the answer is usable', () => {
     expect(cache.get(cacheKey(KEY_INPUTS))).toBeUndefined();
   });
 
+  it('does not cache an answer that is not JSON for a json-verify check either', async () => {
+    const cache = open(tmpFile());
+    const assertions: AssertionConfig[] = [{ type: 'json-verify', expected: { a: 1 }, extract: 'strict' }];
+    const fp = provider({ output: 'Here: {"a":1}' });
+    await runRow(params(cache, fp.p, { assertions }));
+    await runRow(params(cache, fp.p, { assertions }));
+    expect(fp.complete).toHaveBeenCalledTimes(2);
+    expect(cache.get(cacheKey(KEY_INPUTS))).toBeUndefined();
+  });
+
+  it('keeps a JSON answer that a json-verify check fails', async () => {
+    const cache = open(tmpFile());
+    const assertions: AssertionConfig[] = [{ type: 'json-verify', expected: { a: 1 } }];
+    const r = await runRow(params(cache, provider({ output: '{"a":2}' }).p, { assertions }));
+    expect(r.assertions[0]?.passed).toBe(false);
+    expect(cache.get(cacheKey(KEY_INPUTS))?.output).toBe('{"a":2}');
+  });
+
   it('keeps a well-formed answer whose content check fails', async () => {
     const cache = open(tmpFile());
     const assertions: AssertionConfig[] = [
