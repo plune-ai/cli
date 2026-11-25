@@ -38,7 +38,24 @@ export interface StartOptions {
   port?: number;
   /** Bytes of a request body kept in the journal. Default 64 KiB. */
   journalBodyCap?: number;
+  /** The clock and timer a slow stream is paced by. Default: the real ones. */
+  timers?: MockTimers;
 }
+
+export interface MockTimers {
+  /** Milliseconds on a clock that never goes back. */
+  now(): number;
+  setTimeout(fn: () => void, ms: number): unknown;
+  clearTimeout(handle: unknown): void;
+}
+
+const REAL_TIMERS: MockTimers = {
+  now: () => performance.now(),
+  setTimeout: (fn, ms) => setTimeout(fn, ms),
+  clearTimeout: (handle) => clearTimeout(handle as NodeJS.Timeout),
+};
+// A slow stream is written in pieces of about this much time each.
+const SLOW_STREAM_STEP_MS = 50;
 
 export interface MockScope {
   readonly name: string;
@@ -47,7 +64,10 @@ export interface MockScope {
   /** Every request that named this scope, in arrival order. */
   readonly journal: readonly JournalEntry[];
   add(...stubs: StubInput[]): void;
-  /** Removes the scope and its stubs; returns the stubs that were never called. */
+  /**
+   * Removes the scope and its stubs, ends the requests it still holds (a `timeout`, a `slow_stream`) by
+   * destroying their sockets, and returns the stubs that were never called.
+   */
   close(): Stub[];
 }
 
@@ -76,6 +96,8 @@ interface LiveStub {
 interface ScopeState {
   stubs: LiveStub[];
   journal: JournalEntry[];
+  /** One function per response still held open; calling it destroys the socket. */
+  held: Set<() => void>;
 }
 
 function pathPattern(path: string): RegExp {
@@ -155,18 +177,67 @@ function responseHeaders(response: StubResponse, type: string | undefined, lengt
   return headers;
 }
 
-function sendJson(res: http.ServerResponse, status: number, body: unknown): void {
+function sendJson(
+  res: http.ServerResponse,
+  status: number,
+  body: unknown,
+  headers: Record<string, string> = {},
+): void {
   const text = JSON.stringify(body);
   res.writeHead(status, {
     'content-type': 'application/json',
     'content-length': Buffer.byteLength(text),
+    ...headers,
   });
   res.end(text);
+}
+
+// One body that reads as an error to clients of either common shape: `error.type` and `error.message`
+// under a top-level `type: "error"`, and `error.code`.
+const providerError = (type: string, code: string, message: string) => ({
+  type: 'error',
+  error: { type, code, message },
+});
+
+/**
+ * Writes `body` so that by any moment `bytesPerSec` times the seconds passed have been sent, never more.
+ * The amount due is read from the clock at each step, so a late timer does not slow the stream down.
+ * Returns the function that stops it.
+ */
+function writeSlowly(
+  res: http.ServerResponse,
+  body: Buffer,
+  bytesPerSec: number,
+  timers: MockTimers,
+): () => void {
+  const startedAt = timers.now();
+  const step = Math.max(1, Math.round((bytesPerSec * SLOW_STREAM_STEP_MS) / 1000));
+  let sent = 0;
+  let handle: unknown;
+  const tick = (): void => {
+    const due = Math.min(
+      body.length,
+      Math.floor(((timers.now() - startedAt) * bytesPerSec) / 1000),
+    );
+    if (due > sent) {
+      res.write(body.subarray(sent, due));
+      sent = due;
+    }
+    if (sent >= body.length) {
+      res.end();
+      return;
+    }
+    const nextAt = startedAt + (Math.min(body.length, sent + step) * 1000) / bytesPerSec;
+    handle = timers.setTimeout(tick, Math.max(1, Math.ceil(nextAt - timers.now())));
+  };
+  tick();
+  return () => timers.clearTimeout(handle);
 }
 
 export async function start(options: StartOptions = {}): Promise<MockServer> {
   const host = options.host ?? '127.0.0.1';
   const journalBodyCap = options.journalBodyCap ?? 64 * 1024;
+  const timers = options.timers ?? REAL_TIMERS;
   const scopes = new Map<string, ScopeState>();
   const unrouted: JournalEntry[] = [];
 
@@ -224,10 +295,70 @@ export async function start(options: StartOptions = {}): Promise<MockServer> {
     entry.matched = true;
     live.calls += 1;
 
-    const { response } = live.stub;
+    // The schema gives every stub the response its failure needs; the fallback is for the types only.
+    const response = live.stub.response ?? { status: 200, headers: {} };
     const rendered = renderBody(response);
-    res.writeHead(response.status, responseHeaders(response, rendered.type, rendered.body.length));
-    res.end(rendered.body);
+    const head = (length: number): void => {
+      res.writeHead(response.status, responseHeaders(response, rendered.type, length));
+    };
+    const { failure } = live.stub;
+    if (failure === undefined || (failure.first !== undefined && live.calls > failure.first)) {
+      head(rendered.body.length);
+      res.end(rendered.body);
+      return;
+    }
+
+    // A response left open belongs to the scope until its socket closes, whoever closes it.
+    const hold = (stop: () => void = () => undefined): void => {
+      const abort = (): void => {
+        stop();
+        res.destroy();
+      };
+      scope.held.add(abort);
+      res.on('close', () => {
+        stop();
+        scope.held.delete(abort);
+      });
+    };
+    switch (failure.type) {
+      case 'timeout':
+        hold();
+        return;
+      case 'reset':
+        req.socket.resetAndDestroy();
+        return;
+      case 'http_429':
+        sendJson(
+          res,
+          429,
+          providerError('rate_limit_error', 'rate_limit_exceeded', 'Rate limit exceeded (stub)'),
+          { 'retry-after': String(failure.retry_after_seconds) },
+        );
+        return;
+      case 'http_500':
+        sendJson(
+          res,
+          500,
+          providerError('api_error', 'internal_error', 'Internal server error (stub)'),
+        );
+        return;
+      case 'slow_stream':
+        head(rendered.body.length);
+        res.flushHeaders();
+        hold(writeSlowly(res, rendered.body, failure.bytes_per_sec, timers));
+        return;
+      case 'truncated_json': {
+        const cut = rendered.body.subarray(0, Math.floor(rendered.body.length / 2));
+        if (failure.content_length === 'cut') {
+          head(cut.length);
+          res.end(cut);
+        } else {
+          head(rendered.body.length);
+          res.write(cut, () => res.destroy());
+        }
+        return;
+      }
+    }
   }
 
   const server = http.createServer((req, res) => {
@@ -269,7 +400,7 @@ export async function start(options: StartOptions = {}): Promise<MockServer> {
       if (!SCOPE_NAME.test(name))
         throw new Error(`Bad scope name "${name}": letters, digits, ".", "_" and "-" only`);
       if (scopes.has(name)) throw new Error(`Scope "${name}" is already open`);
-      const state: ScopeState = { stubs: [], journal: [] };
+      const state: ScopeState = { stubs: [], journal: [], held: new Set() };
       scopes.set(name, state);
       const scope: MockScope = {
         name,
@@ -291,6 +422,7 @@ export async function start(options: StartOptions = {}): Promise<MockServer> {
           if (scopes.get(name) === state) scopes.delete(name);
           const unused = state.stubs.filter((s) => s.calls === 0).map((s) => s.stub);
           state.stubs = [];
+          for (const abort of [...state.held]) abort();
           return unused;
         },
       };
@@ -299,6 +431,7 @@ export async function start(options: StartOptions = {}): Promise<MockServer> {
     },
     close() {
       closing ??= new Promise<void>((resolve) => {
+        for (const state of scopes.values()) for (const abort of [...state.held]) abort();
         scopes.clear();
         server.close(() => resolve());
         server.closeAllConnections();

@@ -119,3 +119,73 @@ stubs:
     await expect(loadStubFile(missing)).rejects.toBeInstanceOf(StubFileError);
   });
 });
+
+describe('mock · stub file · failures', () => {
+  const stubsOf = (failures: string) =>
+    parseStubFile(`version: 1
+stubs:
+${failures}`).stubs.map((s) => s.failure);
+
+  it('reads the six failure types and fills their defaults', () => {
+    expect(
+      stubsOf(`
+  - { path: /a, failure: { type: timeout } }
+  - { path: /b, failure: { type: reset, first: 1 }, response: { text: ok } }
+  - { path: /c, failure: { type: http_429 } }
+  - { path: /c, failure: { type: http_429, retry_after_seconds: 30 } }
+  - { path: /d, failure: { type: http_500, first: 2 }, response: { json: {} } }
+  - { path: /e, failure: { type: slow_stream, bytes_per_sec: 512 }, response: { sse: [a] } }
+  - { path: /f, failure: { type: truncated_json }, response: { json: { a: 1 } } }
+  - { path: /f, failure: { type: truncated_json, content_length: cut }, response: { json: [] } }
+`),
+    ).toEqual([
+      { type: 'timeout' },
+      { type: 'reset', first: 1 },
+      { type: 'http_429', retry_after_seconds: 1 },
+      { type: 'http_429', retry_after_seconds: 30 },
+      { type: 'http_500', first: 2 },
+      { type: 'slow_stream', bytes_per_sec: 512 },
+      { type: 'truncated_json', content_length: 'full' },
+      { type: 'truncated_json', content_length: 'cut' },
+    ]);
+  });
+
+  it.each([
+    [
+      '{ path: /a, failure: { type: slow_stream }, response: { text: x } }',
+      'stubs.0.failure.bytes_per_sec',
+    ],
+    [
+      '{ path: /a, failure: { type: slow_stream, bytes_per_sec: 0 }, response: { text: x } }',
+      'stubs.0.failure.bytes_per_sec',
+    ],
+    [
+      '{ path: /a, failure: { type: http_429, retry_after_seconds: soon } }',
+      'stubs.0.failure.retry_after_seconds',
+    ],
+    ['{ path: /a, failure: { type: http_503 } }', 'stubs.0.failure.type'],
+    [
+      '{ path: /a, failure: { type: timeout, first: 0 }, response: { text: x } }',
+      'stubs.0.failure.first',
+    ],
+    ['{ path: /a, failure: { type: timeout, bytes_per_sec: 5 } }', 'stubs.0.failure'],
+    [
+      '{ path: /a, failure: { type: truncated_json, content_length: none }, response: { json: 1 } }',
+      'stubs.0.failure.content_length',
+    ],
+    // What a failure needs from the response beside it.
+    [
+      '{ path: /a, failure: { type: truncated_json }, response: { text: x } }',
+      'stubs.0.response.json',
+    ],
+    ['{ path: /a, failure: { type: truncated_json } }', 'stubs.0.response.json'],
+    ['{ path: /a, failure: { type: slow_stream, bytes_per_sec: 5 } }', 'stubs.0.response'],
+    ['{ path: /a, failure: { type: http_500, first: 2 } }', 'stubs.0.response'],
+    ['{ path: /a }', 'stubs.0.response'],
+  ])('refuses %s at %s', (stub, path) => {
+    const issues = issuesOf(`version: 1
+stubs:
+  - ${stub}`);
+    expect(issues.map((i) => i.slice(0, i.indexOf(':')))).toEqual([path]);
+  });
+});
