@@ -32,6 +32,21 @@ export const llmJudge: Assertion<LlmJudgeAssertion> = {
     const criteria = interpolate(ctx.params.criteria, ctx);
     const threshold = ctx.params.pass_threshold ?? DEFAULT_PASS_THRESHOLD;
 
+    // A decision judge (the experimental `jev`) answers with a probability and nothing else: the score is that
+    // probability, and the reason says so rather than invent one.
+    if (ctx.judge.decide !== undefined) {
+      const p = await ctx.judge.decide({
+        criteria,
+        output: ctx.output,
+        ...(ctx.input !== undefined ? { input: ctx.input } : {}),
+      });
+      return {
+        passed: p >= threshold,
+        score: p,
+        reason: `probability ${p.toFixed(3)} that the answer meets the criteria vs threshold ${threshold}; this judge gives no reason`,
+      };
+    }
+
     const { score, reason } = parseScored(
       await askJson(ctx.judge, prompt(criteria, ctx.output, ctx.input)),
     );

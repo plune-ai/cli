@@ -58,10 +58,21 @@ export interface JsonSchemaAssertion {
   extract?: 'auto' | 'strict';
 }
 
+/**
+ * The experimental Jev judge of an `llm-judge` check. A decision model, not a text model: it cannot be an eval's
+ * provider, takes none of the eval provider's fields, and its model is always named.
+ */
+export interface JevJudgeConfig {
+  type: 'jev';
+  model: string;
+  /** Milliseconds for one request (default 30 000). */
+  timeout?: number;
+}
+
 export interface LlmJudgeAssertion {
   type: 'llm-judge';
   criteria: string;
-  provider?: Partial<ProviderConfig>;
+  provider?: Partial<ProviderConfig> | JevJudgeConfig;
   /** The minimum judge score (0–1). Not the eval's `pass_threshold`, which is a share of runs. */
   pass_threshold?: number;
 }

@@ -131,7 +131,7 @@ An LLM scores how well the output meets a free-text `criteria`.
 |-------|----------|---------|---------|
 | `criteria` | yes | — | What "good" means, in plain language. |
 | `pass_threshold` | no | `0.5` | Minimum score (0–1) to pass. Not the eval's `pass_threshold`, which is the share of [repeated runs](./configuration.md#repeats-runs-and-pass_threshold) that must pass. |
-| `provider` | no | (eval's provider) | The judge: the eval's provider with these fields over it. Every field you leave out (`type`, `model`, `temperature`, `max_tokens`, `timeout`, ...) is the eval's, so `{ model: ... }` alone changes only the model and keeps the eval's `type`; with several models of different types, set `type` too. Settings the judge model may refuse are inherited as well (`temperature`, `reasoning_effort`); set them on the check when they differ. A `type` other than the eval's is another provider, and the run needs that provider's API key. |
+| `provider` | no | (eval's provider) | The judge: the eval's provider with these fields over it (or the experimental [`jev`](#an-experimental-judge-jev) judge). Every field you leave out (`type`, `model`, `temperature`, `max_tokens`, `timeout`, ...) is the eval's, so `{ model: ... }` alone changes only the model and keeps the eval's `type`; with several models of different types, set `type` too. Settings the judge model may refuse are inherited as well (`temperature`, `reasoning_effort`); set them on the check when they differ. A `type` other than the eval's is another provider, and the run needs that provider's API key. |
 
 ```yaml
 - type: llm-judge
@@ -153,6 +153,78 @@ what the prompt does not hold, such as a reference answer:
 - type: llm-judge
   criteria: "The answer means the same as: {{expected}}"
 ```
+
+#### Choosing the judge model
+
+Without a `provider` on the check, the judge is the model that wrote the answer. A judge of its own is usually
+both cheaper and fairer (a model grading its own answer favours it):
+
+```yaml
+- type: llm-judge
+  criteria: "The answer is factually correct."
+  provider: { type: anthropic, model: claude-haiku-5-5 }
+```
+
+For an Anthropic judge, start with `claude-haiku-5-5`. In our own measurements in November 2026 it agreed with
+labels as well as `claude-sonnet-5-5` did, at about a twentieth of the list price:
+
+| Set | Rows (fail) | Labels | `claude-haiku-5-5` kappa | `claude-sonnet-5-5` kappa |
+|---|---|---|---|---|
+| Arithmetic, simple facts, false premises, questions on a document | 271 (39) | one person, blind | 0.94 (0.87–0.99) | 0.91 (0.82–0.97) |
+| False premises, unanswerable questions, open explanations | 279 (34) | three models, unanimous | 0.86 (0.76–0.94) | 0.83 (0.73–0.92) |
+
+These are our measurements on our own test sets, short English answers, one criterion about facts; they are not
+the vendor's figures, and your criteria may behave differently. Measure the judge you pick on your own rows with
+[`plune judge-check`](./cli.md#plune-judge-check).
+
+#### An experimental judge: `jev`
+
+`provider: { type: jev, model: jev-1.14.0 }` has the check judged by Jev, a decision model of TypeSafe, instead of
+a text model. It is **experimental**: the option may change or go away, and `plune run` says so once per run.
+
+```yaml
+- type: llm-judge
+  criteria: "The answer is factually correct."
+  provider: { type: jev, model: jev-1.14.0 }
+```
+
+| Field | Required | Meaning |
+|-------|----------|---------|
+| `type` | yes | `jev`. |
+| `model` | yes | The Jev version, named in full. None is picked for you. |
+| `timeout` | no | Milliseconds for one request (default `30000`). |
+
+How it differs from a text judge:
+
+- **A probability, not a reason.** Jev is asked one yes-or-no question (does the answer meet the criterion?) and
+  answers with a probability. That probability is the check's `score`, `pass_threshold` (default `0.5`) applies
+  to it, and the `reason` says that this judge gives none. The probability is not a calibrated confidence: in our
+  runs Jev's wrong verdicts were as sure as its right ones, so raising the threshold does not filter them out.
+- **Where the text goes.** The request, the answer and the criterion are sent to `api.typesafe.ai`, and to no
+  other address. The key is read from `TYPESAFE_API_KEY`; without it the row errors and nothing is sent.
+- **A size limit.** Request, answer and criterion together may be 16,000 characters. A longer check errors the
+  row; nothing is cut and nothing is sent.
+- **A judge only.** `jev` cannot be the `provider` of a config or of an eval, takes none of a text model's
+  settings (`temperature`, `max_tokens`), and judges `llm-judge` alone: `faithfulness`, `answer-relevance` and
+  `context-precision` keep the eval's model.
+- **Cost.** Priced from the tokens Jev reports at USD 0.042 per million input tokens (indicative, read on
+  2026-11-24) and added to the row like any judge call. One retry on `429` and `5xx`.
+
+When it fits, by our measurements of `jev-1.14.0` in November 2026 (kappa against labels, 95% interval):
+
+| Kind of check | Rows (fail) | Labels | `jev-1.14.0` | `claude-haiku-5-5` | `claude-sonnet-5-5` |
+|---|---|---|---|---|---|
+| Arithmetic, simple facts, false premises, questions on a document | 271 (39) | one person, blind | 0.92 (0.84–0.98) | 0.94 (0.87–0.99) | 0.91 (0.82–0.97) |
+| False premises, unanswerable questions, open explanations | 279 (34) | three models, unanimous | 0.92 (0.84–0.98) | 0.86 (0.76–0.94) | 0.83 (0.73–0.92) |
+| Open and ambiguous questions with a mixed criterion (facts and length) | 99 (9) | one person, 59 of them confirmed suggestions | 0.35 (−0.03–0.65) | not run | 0.86 (0.64–1.00) |
+
+- **Use it** where an answer is clearly right or wrong: a fact, a calculation, a false premise the answer must
+  catch, a question that has no answer.
+- **Do not use it** for a criterion that needs judgment (tone, completeness, "is this a good explanation"), for
+  one that mixes several demands, or where you need the reason for a verdict. Of 34 explanations with one
+  planted factual error it passed 3; the two Claude judges passed none.
+- These are our measurements on our own test sets, with small numbers of failing rows; they are not the vendor's
+  figures. Check it on your rows with [`plune judge-check`](./cli.md#plune-judge-check) before you rely on it.
 
 ### `faithfulness` (RAG)
 Of the factual claims in the output, what fraction is supported by the provided `context`? Catches

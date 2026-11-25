@@ -40,6 +40,7 @@ import type {
 import type { Provider } from '../types/provider.js';
 import type { Embedder } from '../types/embedder.js';
 import type { Judge } from '../types/judge.js';
+import type { JevJudgeConfig } from '../types/config.js';
 import type { Cache } from '../cache/cache.js';
 import { MAX_RUNS } from '../config/schema.js';
 import { mcpLimits } from '../config/mcp.js';
@@ -81,6 +82,8 @@ export interface RowParams {
    * (plune-ai/cli#373). Without it such a check errors the row rather than be judged by the wrong model.
    */
   resolveJudge?: (cfg: ProviderConfig) => Provider;
+  /** Builds the experimental `jev` judge of an `llm-judge` check; `onCost` is charged to the row. Without it such a check errors the row. */
+  jevJudge?: (cfg: JevJudgeConfig, onCost: (usd: number) => void) => Judge;
 }
 
 /** The code on a row left unanswered by `--cache-strict`; the CLI turns these into its own exit code. */
@@ -156,7 +159,7 @@ export function dryRunRow(vars: DatasetRow['vars'], usage: Usage): RowResult {
  * new caller cannot leave the judge without it by accident (plune-ai/cli#374).
  */
 export async function assess(
-  p: Pick<RowParams, 'assertions' | 'row' | 'provider' | 'providerConfig' | 'embedder' | 'resolveJudge'>,
+  p: Pick<RowParams, 'assertions' | 'row' | 'provider' | 'providerConfig' | 'embedder' | 'resolveJudge' | 'jevJudge'>,
   output: string,
   input: string | undefined,
   transcript?: AgentTranscript,
@@ -178,10 +181,25 @@ export async function assess(
     // An llm-judge with a `provider` of its own is judged by it; the fields it leaves out come from the
     // eval's provider (plune-ai/cli#373). Every other check is judged by the eval's model.
     const own = assertion.type === 'llm-judge' ? assertion.provider : undefined;
-    const judgeCfg: ProviderConfig = own === undefined ? p.providerConfig : { ...p.providerConfig, ...own };
+    const jev = own?.type === 'jev' ? own : undefined;
+    const judgeCfg: ProviderConfig =
+      own === undefined || own.type === 'jev' ? p.providerConfig : { ...p.providerConfig, ...own };
     // Set once the check asks its judge: only a check a model judged records which model that was.
     let judgedBy: string | undefined;
     const judge = (): Judge => {
+      if (jev !== undefined) {
+        if (p.jevJudge === undefined) throw new Error('this run cannot build the jev judge of an llm-judge check');
+        const inner = p.jevJudge(jev, (usd) => {
+          judgeCost += usd;
+        });
+        return {
+          ask: (q) => inner.ask(q),
+          decide: (q) => {
+            judgedBy = `jev/${jev.model}`;
+            return inner.decide!(q);
+          },
+        };
+      }
       let provider = p.provider;
       if (own !== undefined) {
         if (p.resolveJudge === undefined)
@@ -507,6 +525,8 @@ export interface RunDeps {
   baseDir: string;
   /** Opens a session with an `mcp.servers` entry, one per agentic row. Needed only by an eval with `mcp`. */
   connectMcp?: AgentConnect;
+  /** Builds the experimental `jev` judge of an `llm-judge` check. A run without it errors the rows of such a check. */
+  jevJudge?: RowParams['jevJudge'];
 }
 
 function selectEvals(evals: EvalConfig[], only: string[] | undefined): EvalConfig[] {
@@ -680,6 +700,7 @@ export async function runOrchestration(
           providerConfig,
           provider,
           resolveJudge,
+          ...(deps.jevJudge !== undefined ? { jevJudge: deps.jevJudge } : {}),
           embedder: deps.embedder,
           cache: deps.cache,
           now: deps.now,
