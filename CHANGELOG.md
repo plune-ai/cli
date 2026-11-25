@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Added
+
+- **Groundwork for a local stub server of a model provider (`src/mock`), with no command yet.** The module starts an HTTP server on `127.0.0.1` that answers from stubs (a method, a path with `*` and `**`, an optional JSON subset of the body) and never forwards a request. Stubs belong to a scope named by the first path segment, so a provider SDK carries it in its base URL; each scope keeps a journal of its requests with credential-looking headers and query parameters masked, and reports the stubs never called when it closes. A stub can fail on purpose instead of answering: `timeout`, `reset`, `http_429`, `http_500`, `slow_stream` and `truncated_json`, on every call or on the first N only. Stubs are read from a YAML or JSON file with `version: 1`. Nothing in `plune run` uses it yet and the package does not export it.
+
 ## [0.39.15] - 2026-11-25
 
 ### Added

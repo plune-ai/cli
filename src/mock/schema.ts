@@ -2,8 +2,9 @@
 // case, YAML or JSON, and is read whole and validated before a server takes it.
 //
 // Deliberately not in the format: regular expressions in a path, matching on headers or on the query string,
-// answers computed from the request, delays on a normal answer, binary bodies, and any state beyond the order
-// of the stubs and `times`.
+// answers computed from the request, delays on a normal answer, binary bodies, a body of one's own for the
+// 429 and 500 failures (a plain `response` with that status does it), and any state beyond the order of the
+// stubs, `times` and `failure.first`.
 
 import * as fs from 'node:fs/promises';
 import { parse } from 'yaml';
@@ -36,24 +37,69 @@ const responseSchema = z
       });
   });
 
-export const stubSchema = z.strictObject({
-  method: z
-    .string()
-    .min(1)
-    .default('POST')
-    .transform((m) => m.toUpperCase()),
-  // Exact, or with wildcards: `*` stands for any characters inside one path segment, `**` for anything,
-  // slashes included. The query string takes no part in the match.
-  path: z.string().startsWith('/', 'must start with "/"'),
-  // A JSON subset of the request body: every key given here must be in the request with a matching value,
-  // other keys of the request are ignored. Arrays match whole: same length, each item by the same rule.
-  body: z.unknown().optional(),
-  // How many requests the stub answers; a used-up stub lets the next matching one answer.
-  times: z
-    .union([z.literal('always'), z.literal('once'), z.number().int().positive()])
-    .default('always'),
-  response: responseSchema,
-});
+// With `first: N` the failure happens on the first N calls of the stub and its `response` answers after
+// that; without it, on every call.
+const first = z.number().int().positive().optional();
+
+const failureSchema = z.discriminatedUnion('type', [
+  // The request is read and never answered, until the client gives up or the scope closes.
+  z.strictObject({ type: z.literal('timeout'), first }),
+  // The connection is reset once the request is read; no response at all.
+  z.strictObject({ type: z.literal('reset'), first }),
+  z.strictObject({
+    type: z.literal('http_429'),
+    first,
+    retry_after_seconds: z.number().int().min(0).default(1),
+  }),
+  z.strictObject({ type: z.literal('http_500'), first }),
+  // The stub's `response`, complete and correct, at this many bytes per second.
+  z.strictObject({ type: z.literal('slow_stream'), first, bytes_per_sec: z.number().positive() }),
+  // The first half of the bytes of `response.json`. `full` declares the length of the whole body and closes
+  // the connection after the half, as when a provider's connection drops: the client's read of the body
+  // fails. `cut` declares the length of the half, as when something in between cut the body and re-framed
+  // it: the response arrives whole and only parsing it fails.
+  z.strictObject({
+    type: z.literal('truncated_json'),
+    first,
+    content_length: z.enum(['full', 'cut']).default('full'),
+  }),
+]);
+
+export const stubSchema = z
+  .strictObject({
+    method: z
+      .string()
+      .min(1)
+      .default('POST')
+      .transform((m) => m.toUpperCase()),
+    // Exact, or with wildcards: `*` stands for any characters inside one path segment, `**` for anything,
+    // slashes included. The query string takes no part in the match.
+    path: z.string().startsWith('/', 'must start with "/"'),
+    // A JSON subset of the request body: every key given here must be in the request with a matching value,
+    // other keys of the request are ignored. Arrays match whole: same length, each item by the same rule.
+    body: z.unknown().optional(),
+    // How many requests the stub answers, failures included; a used-up stub lets the next matching one
+    // answer.
+    times: z
+      .union([z.literal('always'), z.literal('once'), z.number().int().positive()])
+      .default('always'),
+    response: responseSchema.optional(),
+    failure: failureSchema.optional(),
+  })
+  .superRefine((stub, ctx) => {
+    const { response, failure } = stub;
+    const need = (message: string, ...path: string[]): void =>
+      ctx.addIssue({ code: 'custom', message, path: ['response', ...path] });
+    if (failure === undefined) {
+      if (response === undefined) need('give a response or a failure');
+    } else if (failure.type === 'truncated_json') {
+      if (response?.json === undefined) need('truncated_json cuts this body: give it', 'json');
+    } else if (response === undefined) {
+      if (failure.type === 'slow_stream') need('slow_stream sends this response slowly: give it');
+      else if (failure.first !== undefined)
+        need(`after the first ${failure.first} failed calls this response answers: give it`);
+    }
+  });
 
 export const stubFileSchema = z.strictObject({
   version: z.literal(STUB_FILE_VERSION),
@@ -62,7 +108,8 @@ export const stubFileSchema = z.strictObject({
 
 export type Stub = z.output<typeof stubSchema>;
 export type StubInput = z.input<typeof stubSchema>;
-export type StubResponse = Stub['response'];
+export type StubResponse = NonNullable<Stub['response']>;
+export type StubFailure = NonNullable<Stub['failure']>;
 export type StubFile = z.output<typeof stubFileSchema>;
 
 export class StubFileError extends Error {
