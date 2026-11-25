@@ -105,6 +105,47 @@ describe('CLI · run · llm-judge provider', () => {
     expect(calls).toEqual([]);
   });
 
+  it('a jev judge is built for the check alone: no provider is resolved for it, and its cost goes to the row', async () => {
+    const { calls, resolved, deps } = setup();
+    const asked: unknown[] = [];
+    const r = await runOrchestration(
+      config([{ type: 'llm-judge', criteria: 'answers', provider: { type: 'jev', model: 'jev-1.14.0' } }]),
+      {},
+      {
+        ...deps,
+        jevJudge: (cfg, onCost) => ({
+          ask: async () => {
+            throw new Error('ask must not be called');
+          },
+          decide: async (q) => {
+            asked.push({ cfg, q });
+            onCost(0.5);
+            return 0.8;
+          },
+        }),
+      },
+    );
+    // The eval's model answered; nothing else was resolved or called.
+    expect(calls.map((c) => c.model)).toEqual(['model-a']);
+    expect(resolved).toEqual([A]);
+    expect(asked).toEqual([{ cfg: { type: 'jev', model: 'jev-1.14.0' }, q: { criteria: 'answers', output: expect.any(String), input: 'Q: q0' } }]);
+    const row = r.evals[0]!.rows[0]!;
+    expect(row.assertions[0]).toMatchObject({ type: 'llm-judge', passed: true, score: 0.8, judge_model: 'jev/jev-1.14.0' });
+    expect(row.usage!.cost_usd).toBeCloseTo(20 * 0.001 + 0.5, 10);
+    expect(parseRunResult(r).evals[0]!.rows[0]!.assertions[0]!.judge_model).toBe('jev/jev-1.14.0');
+  });
+
+  it('a run that cannot build the jev judge errors the row, and the eval model does not judge instead', async () => {
+    const { calls, deps } = setup();
+    const r = await runOrchestration(
+      config([{ type: 'llm-judge', criteria: 'answers', provider: { type: 'jev', model: 'jev-1.14.0' } }]),
+      {},
+      deps,
+    );
+    expect(r.evals[0]!.rows[0]!.error?.message).toContain('cannot build the jev judge');
+    expect(calls.map((c) => c.model)).toEqual(['model-a']);
+  });
+
   it('only a check a model judged records the judge model; the run result keeps it, and parses without it', async () => {
     const { deps } = setup();
     const r = await runOrchestration(

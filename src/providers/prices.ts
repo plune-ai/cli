@@ -9,6 +9,8 @@ export const PRICE_TABLE: PricingMap = {
   'claude-fable-5-1': { input_per_1k_usd: 0.01, output_per_1k_usd: 0.05 },
   'claude-opus-5-5': { input_per_1k_usd: 0.004, output_per_1k_usd: 0.02 },
   'claude-sonnet-5-5': { input_per_1k_usd: 0.002, output_per_1k_usd: 0.01 },
+  // Read on 2026-11-24 from https://openrouter.ai/api/v1/models, which passes Anthropic's list price through.
+  'claude-haiku-5-5': { input_per_1k_usd: 0.0001, output_per_1k_usd: 0.0005 },
   'claude-haiku-4-5': { input_per_1k_usd: 0.001, output_per_1k_usd: 0.005 },
   // The dated id of the same model; a config may name either.
   'claude-haiku-4-5-20251001': { input_per_1k_usd: 0.001, output_per_1k_usd: 0.005 },

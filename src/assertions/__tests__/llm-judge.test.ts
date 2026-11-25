@@ -87,4 +87,33 @@ describe('llm-judge (ADR-SR02)', () => {
       ProviderError,
     );
   });
+
+  describe('a decision judge (the experimental jev)', () => {
+    const deciding = (p: number, seen: unknown[] = []): Judge => ({
+      ask: async () => {
+        throw new Error('ask must not be called');
+      },
+      decide: async (q) => {
+        seen.push(q);
+        return p;
+      },
+    });
+
+    it('takes the probability as the score and passes at the threshold, 0.5 by default', async () => {
+      expect(await llmJudge.run(ctx('out', { criteria: 'c' }, deciding(0.5)))).toMatchObject({ passed: true, score: 0.5 });
+      expect(await llmJudge.run(ctx('out', { criteria: 'c' }, deciding(0.49)))).toMatchObject({ passed: false, score: 0.49 });
+      expect(await llmJudge.run(ctx('out', { criteria: 'c', pass_threshold: 0.9 }, deciding(0.8)))).toMatchObject({ passed: false });
+    });
+
+    it('says that the judge gives no reason instead of inventing one', async () => {
+      const r = await llmJudge.run(ctx('out', { criteria: 'c' }, deciding(0.731)));
+      expect(r.reason).toBe('probability 0.731 that the answer meets the criteria vs threshold 0.5; this judge gives no reason');
+    });
+
+    it('is asked with the interpolated criteria, the output and the input', async () => {
+      const seen: unknown[] = [];
+      await llmJudge.run({ ...ctx('Paris', { criteria: 'means {{expected}}' }, deciding(1, seen)), row: { vars: {}, expected: 'Paris' }, input: 'Capital?' });
+      expect(seen).toEqual([{ criteria: 'means Paris', output: 'Paris', input: 'Capital?' }]);
+    });
+  });
 });

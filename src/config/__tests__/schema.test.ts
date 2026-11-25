@@ -169,6 +169,41 @@ describe('pluneConfigSchema', () => {
     });
   });
 
+  describe('llm-judge provider: the experimental jev judge', () => {
+    const withJudge = (provider: unknown) =>
+      pluneConfigSchema.safeParse({
+        ...validBase,
+        evals: [{ ...validBase.evals[0], assertions: [{ type: 'llm-judge', criteria: 'c', provider }] }],
+      });
+    const messages = (r: ReturnType<typeof withJudge>) => (r.success ? [] : r.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`));
+
+    it('accepts jev with a named model, and a timeout', () => {
+      expect(withJudge({ type: 'jev', model: 'jev-1.14.0' }).success).toBe(true);
+      expect(withJudge({ type: 'jev', model: 'jev-1.14.0', timeout: 5000 }).success).toBe(true);
+    });
+
+    it('needs the model named: no version is picked silently', () => {
+      expect(messages(withJudge({ type: 'jev' })).join('\n')).toContain('provider.model');
+    });
+
+    it('takes none of a text model\'s settings', () => {
+      expect(withJudge({ type: 'jev', model: 'jev-1.14.0', temperature: 0 }).success).toBe(false);
+      expect(withJudge({ type: 'jev', model: 'jev-1.14.0', max_tokens: 10 }).success).toBe(false);
+    });
+
+    it('still accepts a partial provider, and still reports its wrong field by name', () => {
+      expect(withJudge({ model: 'claude-haiku-5-5' }).success).toBe(true);
+      expect(messages(withJudge({ type: 'nope' })).join('\n')).toContain('provider.type');
+    });
+
+    it('is a judge only: jev cannot be the provider of a config or of an eval', () => {
+      expect(pluneConfigSchema.safeParse({ ...validBase, provider: { type: 'jev', model: 'jev-1.14.0' } }).success).toBe(false);
+      expect(
+        pluneConfigSchema.safeParse({ ...validBase, evals: [{ ...validBase.evals[0], provider: { type: 'jev', model: 'jev-1.14.0' } }] }).success,
+      ).toBe(false);
+    });
+  });
+
   describe('error collection — all errors reported together (AC-5)', () => {
     it('reports multiple validation errors in a single result', () => {
       const result = pluneConfigSchema.safeParse({

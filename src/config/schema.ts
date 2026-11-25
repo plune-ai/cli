@@ -90,10 +90,27 @@ const jsonSchemaAssertionSchema = z.object({
   extract: z.enum(['auto', 'strict']).optional(),
 });
 
+const jevJudgeSchema = z.strictObject({
+  type: z.literal('jev'),
+  model: z.string().min(1),
+  timeout: providerTimeoutSchema.optional(),
+});
+const partialProviderSchema = providerConfigSchema.partial();
+// Checked by hand rather than as a union so a wrong field reports itself (`provider.model: ...`), not "invalid union".
+const llmJudgeProviderField = z.any().transform((value, ctx) => {
+  const jev = typeof value === 'object' && value !== null && (value as { type?: unknown }).type === 'jev';
+  const r = (jev ? jevJudgeSchema : partialProviderSchema).safeParse(value);
+  if (r.success) return r.data;
+  for (const issue of r.error.issues) ctx.addIssue({ code: 'custom', message: issue.message, path: issue.path });
+  return z.NEVER;
+});
+
 const llmJudgeAssertionSchema = z.object({
   type: z.literal('llm-judge'),
   criteria: z.string().min(1),
-  provider: providerConfigSchema.partial().optional(),
+  // `type: jev` is a judge of another kind (a decision model) with fields of its own; anything else is the eval's
+  // provider with these fields over it.
+  provider: llmJudgeProviderField.optional(),
   // The judge's score floor, not the eval's share of passing runs (that one is `evalRepeatsShape`).
   pass_threshold: z
     .number()

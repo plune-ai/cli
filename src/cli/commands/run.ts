@@ -20,7 +20,8 @@ import {
   type RunDeps,
 } from '../../orchestrator/index.js';
 import type { Cache } from '../../cache/index.js';
-import type { Config } from '../../types/config.js';
+import type { Config, JevJudgeConfig } from '../../types/config.js';
+import { makeJevJudge, warnJevExperimental } from '../../judge/jev.js';
 import type { AgentRecord, RunResult } from '../../types/results.js';
 
 // Used for --dry-run so the run never opens/creates the cache file (FR-8).
@@ -153,6 +154,15 @@ function buildRealDeps(config: Config, baseDir: string, dryRun: boolean): RunDep
     loadDataset,
     baseDir,
     connectMcp: makeMcpConnect(config, baseDir, process.env),
+    // A dry run stops before any check, so it never builds this judge. Mock mode sends nothing: no jev judge there.
+    ...(isMockMode(process.env)
+      ? {}
+      : {
+          jevJudge: (cfg: JevJudgeConfig, onCost: (usd: number) => void) => {
+            warnJevExperimental();
+            return makeJevJudge(cfg, { env: process.env, fetchFn: fetch, onCost });
+          },
+        }),
   };
 }
 
