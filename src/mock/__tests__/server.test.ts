@@ -721,7 +721,7 @@ describe('mock · server · only local requests', () => {
     const sameOrigin = { host: `127.0.0.1:${port}`, origin: `http://localhost:${port}` };
     expect((await get(port, sameOrigin)).status).toBe(200);
     // What a browser sends for a request of the page itself, and for an address typed by the user.
-    for (const site of ['same-origin', 'none'])
+    for (const site of ['same-origin', 'none', 'Same-Origin', 'None'])
       expect((await get(port, { host: `127.0.0.1:${port}`, 'sec-fetch-site': site })).status).toBe(
         200,
       );
@@ -746,6 +746,10 @@ describe('mock · server · only local requests', () => {
       (port: number) => ({ host: `127.0.0.1:${port}`, 'sec-fetch-site': 'Same-Site' }),
     ],
     [
+      'an empty Sec-Fetch-Site',
+      (port: number) => ({ host: `127.0.0.1:${port}`, 'sec-fetch-site': '' }),
+    ],
+    [
       'a Sec-Fetch-Site value that is not one of the four',
       (port: number) => ({ host: `127.0.0.1:${port}`, 'sec-fetch-site': 'cross-site, none' }),
     ],
@@ -755,6 +759,7 @@ describe('mock · server · only local requests', () => {
     const answer = await get(server.port, headers(server.port));
     expect(answer.status).toBe(403);
     expect(answer.body).toContain('mock_not_local');
+    expect(answer.body).toContain('none a browser marks as sent from another origin');
     expect(answer.body).not.toContain('evil');
     expect(scope.journal).toEqual([]);
     expect(server.unrouted).toEqual([]);

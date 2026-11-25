@@ -345,9 +345,9 @@ describe('CLI · mock · help', () => {
       'A credential in a path segment, or under an ordinary header, query or body-field name, is not known to the recorder.',
     ]);
     expect(help).toMatch(/Redirects are passed back, not followed/);
-    // The folder limit is the recording's, and a browser's request from another site is named as refused.
+    // The folder limit is the recording's, and a browser's request from another origin is named as refused.
     expect(help).toContain('a recording is written inside the current folder only');
-    expect(help).toContain('none that a browser marks as sent from another site');
+    expect(help).toContain('none that a browser marks as sent from another origin');
     expect(help).toMatch(/Timing is not recorded/);
   });
 });

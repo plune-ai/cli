@@ -1693,7 +1693,8 @@ sends no CORS header, so a page cannot read an answer either. A program that is 
 neither header, so a request from `curl` or a client library with a local `Host` is served: that is the
 case the command is for. The check rests on what the browser sends: a plain `GET` from a browser that
 sends no `Sec-Fetch-Site` looks like one from a program and is served, and the page still cannot read
-the answer.
+the answer. A request the browser marks `none` is served too: that is an address the user opened
+directly, including one that redirects to the server.
 
 **What a recording holds.** The file is a stub file of version 1 (JSON, which is also YAML, under seven
 comment lines: the date and the origin, a warning, and what the masking does and does not find). **The
@@ -1792,7 +1793,7 @@ one once they are a minute old.
 |------|---------|
 | `0` | Stopped with Ctrl+C. |
 | `1` | A recording stopped with exchanges it could not write to the file; the message says how many. |
-| `2` | A usage error: `--record` without `--target` or the reverse, a target that is not an http(s) origin, with `--record` a path outside the current folder, a path that is a folder, a file that exists without `--force` or that `--force` may not replace, a file another recorder is writing, a stub file that is missing or invalid, a port that is taken. |
+| `2` | A usage error. In both modes: `--record` without `--target` or the reverse, a bad `--scope`, a port that is taken. Without `--record`: `--force`, a stub file that is missing or invalid. With `--record` only: a target that is not an http(s) origin, a path outside the current folder, a path that is a folder, a file that exists without `--force` or that `--force` may not replace, a file another recorder is writing. |
 
 ## Report formats of `plune mcp lint`, `check` and `diff`
 

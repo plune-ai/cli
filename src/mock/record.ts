@@ -8,7 +8,7 @@
 // sent on), not an absolute-form request target (refused), not a redirect (an upstream 3xx is passed back
 // to the client as it is, never followed, and not recorded). Like the stub server, the recorder serves
 // only a request addressed to it by a loopback name and its own port, and none that a browser marks as
-// sent from another site (`Origin`, `Sec-Fetch-Site`): such a request is not forwarded and not recorded.
+// sent from another origin (`Origin`, `Sec-Fetch-Site`): such a request is not forwarded and not recorded.
 //
 // What is written. For each exchange one stub with `match: exact`: the method, the path, the whole JSON
 // body of the request, the status, the `content-type` and `retry-after` response headers, and the response

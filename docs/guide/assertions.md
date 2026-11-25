@@ -169,7 +169,7 @@ or a digit, classes `[a-z]` and `[^…]`, groups `( )` and `(?: )`, `|`, `* + ? 
 `^ $ \b \B`. It does **not** read backreferences (`\1`), lookahead and lookbehind, named groups, `\p{…}`,
 `\x41` or `\u0041`: a pattern with one of these is a config error that names the place in the pattern. Limits:
 a pattern is at most 500 characters and at most 2,000 parts once its counted repeats are written out (`a{50}`
-is 50 parts, and each alternative of `|` is a part), and it is not run on a value over 10,000 characters: the
+is 51 parts, the repeat itself and its 50 copies, and each alternative of `|` is a part), and it is not run on a value over 10,000 characters: the
 check fails and says so. `i` folds case exactly as a JavaScript pattern without the `u` flag does: `k` matches
 `K` but not the Kelvin sign, `σ` matches `ς`. Characters outside the Basic Multilingual Plane are two units.
 A flag is given at most once; `\0` before a digit, and a repeat with nothing to repeat (`{3}`, `a{2}{3}`), are

@@ -238,7 +238,7 @@ describe('mock · record · where a request goes', () => {
     expect((await loadStubFile(r.file)).stubs).toEqual([]);
   });
 
-  it('serves a request addressed to localhost, and one a page of its own origin sent', async () => {
+  it('serves a request addressed to localhost with an Origin of another loopback name and no Sec-Fetch-Site', async () => {
     const up = await upstream(json({ ok: true }));
     const r = await recorder(up.origin);
     const text = await rawRequest(r.port, '/default/v1/chat', [
@@ -247,6 +247,20 @@ describe('mock · record · where a request goes', () => {
     ]);
     expect(text).toMatch(/^HTTP\/1\.1 200 /);
     expect(text.toLowerCase()).not.toContain('access-control');
+  });
+
+  it('refuses the same request once it says Sec-Fetch-Site cross-site, as a browser sends it', async () => {
+    const up = await upstream(json({ ok: true }));
+    const r = await recorder(up.origin);
+    const text = await rawRequest(r.port, '/default/v1/chat', [
+      `host: localhost:${r.port}`,
+      `origin: http://127.0.0.1:${r.port}`,
+      'sec-fetch-site: cross-site',
+    ]);
+    expect(text).toMatch(/^HTTP\/1\.1 403 /);
+    expect(up.seen).toEqual([]);
+    await r.close();
+    expect((await loadStubFile(r.file)).stubs).toEqual([]);
   });
 
   it('serves a client that says nothing of where it came from, and a request a browser marked as its own', async () => {
