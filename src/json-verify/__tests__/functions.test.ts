@@ -4,7 +4,6 @@ import {
   CheckSyntaxError,
   MAX_REGEX_INPUT,
   MAX_REGEX_PATTERN,
-  hasNestedRepeat,
   parseExpectedString,
 } from '../functions.js';
 import { compareJson, ExpectedJsonError, validateExpected } from '../compare.js';
@@ -111,13 +110,10 @@ describe('json-verify · functions · a broken check is an error, never a litera
     ['@matchesRegex(1)', '@matchesRegex takes a pattern in quotes and, optionally, flags in quotes; got @matchesRegex(1)'],
     ['@matchesRegex("a", 1)', '@matchesRegex takes a pattern in quotes and, optionally, flags in quotes; got @matchesRegex("a", 1)'],
     ['@matchesRegex("a", "i", "m")', '@matchesRegex takes a pattern in quotes and, optionally, flags in quotes; got @matchesRegex("a", "i", "m")'],
-    ['@matchesRegex("a", "g")', '@matchesRegex takes only the flags i, m, s and u; got "g"; got @matchesRegex("a", "g")'],
+    ['@matchesRegex("a", "g")', '@matchesRegex takes only the flags i, m and s; got "g"; got @matchesRegex("a", "g")'],
+    ['@matchesRegex("a", "u")', '@matchesRegex takes only the flags i, m and s; got "u"; got @matchesRegex("a", "u")'],
   ])('%j', (s, message) => {
     expect(errorOf(s)).toBe(message);
-  });
-
-  it('an invalid pattern is an error that names the function', () => {
-    expect(errorOf('@matchesRegex("(")')).toMatch(/^@matchesRegex has an invalid pattern: /);
   });
 
   it('the error carries the path of the string in the expected value', () => {
@@ -229,7 +225,25 @@ describe('json-verify · functions · inside a comparison', () => {
   });
 });
 
-describe('json-verify · functions · a pattern that could run for minutes', () => {
+describe('json-verify · functions · a pattern that would take RegExp minutes', () => {
+  // The three a review timed with RegExp: 14.8 s, 82 s and 0.75 s (four times more per two characters).
+  it.each<[string, string]>([
+    ['^(a+){20}$', `${'a'.repeat(32)}!`],
+    [String.raw`^\d+\d+\d+\d+\d+x`, '7'.repeat(400)],
+    ['^(a|a)*b', 'a'.repeat(28)],
+  ])('%s is accepted and answered at once', (pattern, text) => {
+    expect(errorOf(`@matchesRegex("${pattern}")`)).toBe('(no error)');
+    const started = Date.now();
+    expect(passes(`@matchesRegex("${pattern}")`, text)).toBe(false);
+    expect(Date.now() - started).toBeLessThan(250);
+  });
+
+  it('a repeat inside a repeat is an ordinary pattern', () => {
+    expect(passes(String.raw`@matchesRegex("^(\d+,)*\d+$")`, '1,22,333')).toBe(true);
+    expect(passes(String.raw`@matchesRegex("^(\w+\s?)+$")`, 'John Doe')).toBe(true);
+    expect(passes('@matchesRegex("^(a+)+$")', `${'a'.repeat(MAX_REGEX_INPUT - 1)}!`)).toBe(false);
+  });
+
   it('a value over the length cap fails the check with a note, and the pattern is not run', () => {
     const long = 'a'.repeat(MAX_REGEX_INPUT + 1);
     expect(passes('@matchesRegex("^a+$")', long.slice(1))).toBe(true);
@@ -244,44 +258,13 @@ describe('json-verify · functions · a pattern that could run for minutes', () 
     ]);
   });
 
-  it.each([
-    '(a+)+$',
-    '(a*)*',
-    '(\\w+\\s?)+$',
-    '((ab)+c)*',
-    '(a{2,})+',
-    '(a+){2,}',
-    '(a{1,9}){1,9}',
-    '(?:x|(y+))*',
-    '^(\\d+,)*\\d+$',
-  ])('a repeat of a group that repeats inside is refused before any run: %s', (pattern) => {
-    expect(hasNestedRepeat(pattern)).toBe(true);
-    expect(errorOf(`@matchesRegex("${pattern}")`)).toBe(
-      `@matchesRegex has a pattern that repeats a group which already repeats inside, as (a+)+ does: it can take exponential time, write it without the nested repeat; got @matchesRegex("${pattern}")`,
+  it('what the matcher does not read is an error that names the function and the place in the pattern', () => {
+    expect(errorOf(String.raw`@matchesRegex("(a)\1")`)).toBe(
+      String.raw`@matchesRegex has a pattern it cannot run: \1 is not supported (character 5 of the pattern); got @matchesRegex("(a)\1")`,
     );
-  });
-
-  it.each([
-    '^\\d+$',
-    '(ab)+',
-    'a+b*c{2,}',
-    '(a|b)+',
-    '(a+)(b+)',
-    '(a+)?',
-    '(\\d{1,3}\\.){3}\\d{1,3}',
-    '[(+]+x',
-    '\\(a+\\)+',
-    '[\\]+)]+',
-    'a{2}',
-    'a)+',
-  ])('a pattern without that shape is not refused for it: %s', (pattern) => {
-    expect(hasNestedRepeat(pattern)).toBe(false);
-  });
-
-  it('the refused shape is the one that hangs: the same text is answered at once without it', () => {
-    const started = Date.now();
-    expect(passes('@matchesRegex("^a+$")', `${'a'.repeat(MAX_REGEX_INPUT - 1)}!`)).toBe(false);
-    expect(Date.now() - started).toBeLessThan(1000);
+    expect(errorOf('@matchesRegex("a(?=b)")')).toMatch(/^@matchesRegex has a pattern it cannot run: lookahead, /);
+    expect(errorOf('@matchesRegex("(")')).toMatch(/^@matchesRegex has a pattern it cannot run: a group is not closed /);
+    expect(errorOf('@matchesRegex("a{5000}")')).toMatch(/^@matchesRegex has a pattern it cannot run: the pattern is too large /);
   });
 
   it('a pattern over the length cap is an error', () => {
@@ -290,5 +273,10 @@ describe('json-verify · functions · a pattern that could run for minutes', () 
       `@matchesRegex takes a pattern of at most ${MAX_REGEX_PATTERN} characters; got ${MAX_REGEX_PATTERN + 1}; got @matchesRegex("${pattern}")`,
     );
     expect(errorOf(`@matchesRegex("${pattern.slice(1)}")`)).toBe('(no error)');
+  });
+
+  it('many different patterns in one run are each compiled and answered', () => {
+    for (let n = 0; n < 250; n++) expect(passes(`@matchesRegex("^a{${n}}$")`, 'a'.repeat(n)), String(n)).toBe(true);
+    expect(passes('@matchesRegex("^a{3}$")', 'aa')).toBe(false);
   });
 });

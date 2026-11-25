@@ -81,9 +81,9 @@ describe('json-verify · format · the mismatch text', () => {
   });
 
   it('a check that gave a note carries it, and an array over the matching limit says so', () => {
-    const long = 'a'.repeat(2001);
+    const long = 'a'.repeat(10_001);
     expect(text('@matchesRegex("^a+$")', long).split('\n')[1]).toBe(
-      '    $: function not satisfied: @matchesRegex("^a+$"): the value is 2001 characters long and a pattern is not run on more than 2000',
+      '    $: function not satisfied: @matchesRegex("^a+$"): the value is 10001 characters long and a pattern is not run on more than 10000',
     );
     const rows = Array.from({ length: 501 }, (_, id) => ({ id }));
     expect(text(rows, rows, 'unordered')).toBe(

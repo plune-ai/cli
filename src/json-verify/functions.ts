@@ -16,6 +16,8 @@
 // Inside the quotes a backslash before the same quote gives the quote, and every other backslash stays as it
 // is written, so a pattern reads as it does in a regular expression: `@matchesRegex("^\d+$")`.
 
+import { compileRegex } from './regex.js';
+
 export type CheckArg = string | number | boolean | null;
 
 export interface Check {
@@ -27,8 +29,11 @@ export interface Check {
 
 export type ExpectedString = { checks: Check[] } | { literal: string };
 
-/** `@matchesRegex` does not run on a longer value: the check fails and says so. */
-export const MAX_REGEX_INPUT = 2000;
+/**
+ * `@matchesRegex` does not run on a longer value: the check fails and says so. With the limit on the size of a
+ * compiled pattern (regex.ts) it bounds one check to a fixed number of steps, whatever the pattern.
+ */
+export const MAX_REGEX_INPUT = 10_000;
 /** A longer pattern is an error of the expected value. */
 export const MAX_REGEX_PATTERN = 500;
 
@@ -50,47 +55,31 @@ const lengthOf = (v: unknown): number | undefined =>
   typeof v === 'string' || Array.isArray(v) ? v.length : undefined;
 const is = (test: (v: unknown) => boolean): CheckFunction => ({ args: none, test });
 
-/**
- * A repeat applied to a group that already holds a repeat, as in `(a+)+`: the shape that makes a
- * backtracking engine take exponential time. Refused by shape, so a safe pattern of that shape is refused too.
- */
-export function hasNestedRepeat(pattern: string): boolean {
-  // One entry per open group: does it hold an unbounded repeat?
-  const groups: boolean[] = [false];
-  let closed: boolean | undefined;
-  for (let i = 0; i < pattern.length; i++) {
-    const ch = pattern[i]!;
-    const justClosed = closed;
-    closed = undefined;
-    if (ch === '\\') i++;
-    else if (ch === '[') {
-      for (i++; i < pattern.length && pattern[i] !== ']'; i++) if (pattern[i] === '\\') i++;
-    } else if (ch === '(') groups.push(false);
-    else if (ch === ')') {
-      closed = groups.length > 1 ? groups.pop()! : false;
-      if (closed) groups[groups.length - 1] = true;
-    } else if (ch === '*' || ch === '+' || (ch === '{' && /^\{\d+,\d*\}/.test(pattern.slice(i)))) {
-      if (justClosed === true) return true;
-      groups[groups.length - 1] = true;
-    }
+/** Compiled patterns: a check inside an array is asked about many elements. */
+const matchers = new Map<string, (text: string) => boolean>();
+function matcher(pattern: string, flags: string): (text: string) => boolean {
+  const key = `${flags}/${pattern}`;
+  let compiled = matchers.get(key);
+  if (compiled === undefined) {
+    compiled = compileRegex(pattern, flags);
+    if (matchers.size >= 100) matchers.clear();
+    matchers.set(key, compiled);
   }
-  return false;
+  return compiled;
 }
 
 function regexArgs(args: CheckArg[]): string | undefined {
   const [pattern, flags = ''] = args;
   if (args.length < 1 || args.length > 2 || typeof pattern !== 'string' || typeof flags !== 'string')
     return 'takes a pattern in quotes and, optionally, flags in quotes';
-  if (!/^[imsu]*$/.test(flags)) return `takes only the flags i, m, s and u; got "${flags}"`;
+  if (!/^[ims]*$/.test(flags)) return `takes only the flags i, m and s; got "${flags}"`;
   if (pattern.length > MAX_REGEX_PATTERN)
     return `takes a pattern of at most ${MAX_REGEX_PATTERN} characters; got ${pattern.length}`;
   try {
-    new RegExp(pattern, flags);
+    matcher(pattern, flags);
   } catch (err) {
-    return `has an invalid pattern: ${(err as Error).message}`;
+    return `has a pattern it cannot run: ${(err as Error).message}`;
   }
-  if (hasNestedRepeat(pattern))
-    return 'has a pattern that repeats a group which already repeats inside, as (a+)+ does: it can take exponential time, write it without the nested repeat';
   return undefined;
 }
 
@@ -108,7 +97,7 @@ export const CHECK_FUNCTIONS: Readonly<Record<string, CheckFunction>> = {
       if (typeof v !== 'string') return false;
       if (v.length > MAX_REGEX_INPUT)
         return `the value is ${v.length} characters long and a pattern is not run on more than ${MAX_REGEX_INPUT}`;
-      return new RegExp(pattern as string, (flags as string | undefined) ?? '').test(v);
+      return matcher(pattern as string, (flags as string | undefined) ?? '')(v);
     },
   },
   minLength: { args: oneLength, test: (v, [n]) => (lengthOf(v) ?? -1) >= (n as number) },

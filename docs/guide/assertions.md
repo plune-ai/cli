@@ -141,7 +141,7 @@ checks on the actual value, separated by spaces, and all must hold.
 |-------|------------------------|
 | `@isNotNull()` | is not `null` (the key must still be there) |
 | `@isString()`, `@isNumber()`, `@isBoolean()`, `@isArray()`, `@isObject()` | is of that type |
-| `@matchesRegex("pattern")`, `@matchesRegex("pattern", "i")` | is a string the pattern finds a match in (anchor it with `^` and `$` for the whole string); the flags are `i`, `m`, `s`, `u` |
+| `@matchesRegex("pattern")`, `@matchesRegex("pattern", "i")` | is a string the pattern finds a match in (anchor it with `^` and `$` for the whole string); the flags are `i`, `m`, `s` |
 | `@minLength(n)`, `@maxLength(n)` | is a string or an array of at least, at most, `n` in length |
 | `@gt(n)`, `@lt(n)` | is a number over, under, `n` |
 | `@oneOf(a, b, …)` | is one of the listed numbers, strings, `true`, `false` or `null` |
@@ -155,11 +155,17 @@ like a check, double the first `@`: `'@@isString()'` expects the text `@isString
 arguments or a forgotten `()` after a check's name stops the run as a config error (exit `2`) before any model
 call, with the place: `evals.0.assertions.0.expected: $.email: @matchesRegexp is not a check function`.
 
-**A pattern that could run for minutes.** `@matchesRegex` refuses, as a config error, a pattern that repeats a
-group which already repeats inside, such as `(a+)+` or `(\w+\s?)+`: that shape can take exponential time on a
-short text. The rule goes by shape, so a safe pattern of that shape is refused too; write it without the nested
-repeat. A pattern is at most 500 characters, and it is not run on a value over 2,000 characters: the check
-fails and says so. Other slow patterns (two alternatives that match the same text, repeated) are not detected.
+**A pattern cannot run long.** A pattern in a config meets text a model wrote, and the regular expressions of
+JavaScript can take minutes on a short text (`(a+)+$`, `^(a|a)*b`). So `@matchesRegex` has a matcher of its
+own, which reads each character of the value once and takes the same time whatever the pattern is. It reads:
+literals, `.`, `\d \w \s \D \W \S`, `\n \r \t \f \v \0`, a backslash before a character that is not a letter
+or a digit, classes `[a-z]` and `[^…]`, groups `( )` and `(?: )`, `|`, `* + ? {n} {n,} {n,m}`, and the anchors
+`^ $ \b \B`. It does **not** read backreferences (`\1`), lookahead and lookbehind, named groups, `\p{…}`,
+`\x41` or `A`: a pattern with one of these is a config error that names the place in the pattern. Limits:
+a pattern is at most 500 characters and at most 2,000 parts once its counted repeats are written out (`a{50}`
+is 50 parts), and it is not run on a value over 10,000 characters: the check fails and says so. With `i`, a
+character matches its upper and lower case; characters outside the Basic Multilingual Plane are two units, as
+in a JavaScript pattern without the `u` flag.
 
 **Another mode for one part.** `{ $mode: <mode>, $value: <value> }` in place of a value compares that value,
 and everything under it, in that mode. The keys `$mode` and `$literal` are reserved in `expected`: for data
