@@ -107,6 +107,7 @@ export function makeAnthropicProvider(
   config: ProviderConfig,
   env: NodeJS.ProcessEnv,
   pricing?: PricingMap,
+  stubOrigin?: string,
 ): Provider {
   const apiKey = env[ENV_VAR];
   if (apiKey === undefined || apiKey.trim() === '') {
@@ -120,6 +121,8 @@ export function makeAnthropicProvider(
   const client = new Anthropic({
     apiKey,
     maxRetries: 0,
+    // The client adds `/v1/messages` itself.
+    ...(stubOrigin !== undefined ? { baseURL: stubOrigin } : {}),
     ...(config.timeout !== undefined ? { timeout: config.timeout } : {}),
   });
   const maxRetries = config.max_retries ?? DEFAULT_MAX_RETRIES;

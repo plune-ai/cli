@@ -115,6 +115,45 @@ the last resort, used only when `PLUNE_TOKEN` is set nowhere else. Nothing write
 | `answer-relevance`    | output actually answers the `question` (RAG)                     |
 | `context-precision`   | `context` is relevant to the `question` (RAG)                    |
 
+### A provider that fails on purpose: `stubs`
+
+An eval with `stubs: <file>` gets its model calls answered by a local server from that file, in place of
+the provider: a canned answer, or a failure (`timeout`, `reset`, `http_429`, `http_500`, `slow_stream`,
+`truncated_json`), on every call or on the first N.
+
+```yaml
+# plune.yaml: one eval
+  - id: refund-survives-500
+    stubs: stubs/refund.stubs.yaml
+    prompt: "Can order {{order}} be refunded?"
+    dataset: { examples: [{ vars: { order: 1042 } }] }
+    assertions:
+      - type: contains
+        value: "Refund approved"
+```
+
+```yaml
+# stubs/refund.stubs.yaml
+version: 1
+stubs:
+  - path: /v1/messages
+    failure: { type: http_500, first: 2 }
+    response:
+      json:
+        type: message
+        role: assistant
+        content: [{ type: text, text: "Refund approved for order 1042." }]
+        stop_reason: end_turn
+        usage: { input_tokens: 12, output_tokens: 8 }
+```
+
+The call fails twice, is retried, and the row passes on the third answer. The server lives for the run
+only, every row gets the stubs fresh, the completion cache is not used, a stubbed call costs `0`, and
+judge calls still go to the real provider at their price. A bad stub file is exit `2` before any model
+call, and so is a `timeout` stub without `provider.timeout`. A run that holds a stubbed eval is marked,
+`plune report` and `plune diff` say so, and `plune sync` refuses to upload it (exit `2`). See the
+[configuration guide](docs/guide/configuration.md#stubs-a-provider-that-fails-on-purpose-stubs).
+
 ## Commands
 
 | Command | Summary |
@@ -174,7 +213,7 @@ Global flags: `-c, --config <path>` · `-v, --verbose` · `--no-color`.
 - **Policy version.** `CACHE_POLICY_VERSION` is part of the key. When it is raised, older entries stop answering, are dropped, and the run says `cache policy changed, N entries are stale` once on stderr.
 - **`--cache-strict`.** Every row must be in the cache; the model is not called for completions (judge assertions such as `llm-judge` still call it). A miss ends the run with exit code `5` and lists the rows with no entry. Not combinable with `--no-cache` (exit `2`), and neither is `--cache-max-age`. An entry with the wrong format is left in place in this mode (there is no retry).
 - **`--cache-max-age <duration>`.** `90s`, `15m`, `12h`, `7d` or milliseconds. An older entry is a miss; a fresh one is a hit.
-- **Summary.** The console report and the JSON (`summary.cache`) show rows `from_cache`, `from_model`, `missed` and `errored` (the provider failed; the four add up to the rows run), and the tokens and cost the cache saved (`saved`, the sum of each row's `cache_saved`).
+- **Summary.** The console report and the JSON (`summary.cache`) show rows `from_cache`, `from_model`, `missed` and `errored` (the provider failed; the four add up to the rows run, rows of an eval with `stubs` aside: those are counted in `stubbed`), and the tokens and cost the cache saved (`saved`, the sum of each row's `cache_saved`).
 
 Design: `docs/features/C7-completion-cache/adr/0001-completion-cache-hardening.md`.
 

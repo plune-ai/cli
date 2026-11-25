@@ -25,8 +25,16 @@ export interface CacheSummary {
   from_cache: number;
   from_model: number;
   missed: number;
-  /** Rows the provider failed on: answered by neither, so the four counts add up to `total` (dry-run rows aside). */
+  /**
+   * Rows the provider failed on: answered by neither, so the four counts add up to `total` (dry-run rows and
+   * `stubbed` rows aside).
+   */
   errored: number;
+  /**
+   * Rows of evals with `stubs`: answered by the stub server, or errored there. They are in none of the four
+   * counts above. Optional and additive: written only when there are such rows.
+   */
+  stubbed?: number;
   saved: { input_tokens: number; output_tokens: number; cost_usd: number };
 }
 
@@ -143,6 +151,11 @@ export interface RowResult {
   vars: Record<string, unknown>;
   output: string | null;
   cached: boolean;
+  /**
+   * `true` on a row of an eval with `stubs`: its answer, if it has one, came from the stub server and not from
+   * a model, and the model call in its `usage` costs 0. Optional and additive.
+   */
+  stubbed?: boolean;
   usage?: Usage;
   latency_ms?: number;
   error?: RunError;
@@ -316,6 +329,28 @@ export interface EvalResult {
    * `<eval id>@<model>`; absent for a single model, whose id is the eval id. Optional and additive.
    */
   provider?: { type: string; model: string };
+  /**
+   * Only on an eval with `stubs` that ran. `never_called`: the places in the stub file (from 0) of the stubs
+   * no request of this eval reached. `unmatched`: one entry per request no stub answered, with the scope it
+   * was sent in (`<eval id>.row<n>`, and `.run<k>` with repeats) and its method. Optional and additive.
+   */
+  stubs?: { never_called: number[]; unmatched: { scope: string; method: string }[] };
+}
+
+/** The ids of the evals of a run that answered from stubs, not by a model: the eval is marked, or a row of it is. */
+export function stubbedEvals(run: {
+  evals: { id: string; stubs?: unknown; rows: { stubbed?: boolean | undefined }[] }[];
+}): string[] {
+  return run.evals
+    .filter((ev) => ev.stubs !== undefined || ev.rows.some((row) => row.stubbed === true))
+    .map((ev) => ev.id);
+}
+
+/** One line for whoever reads a saved run that holds such evals; `side` says which run of two it is. */
+export function stubbedNote(run: Parameters<typeof stubbedEvals>[0], side?: string): string | undefined {
+  const ids = stubbedEvals(run);
+  if (ids.length === 0) return undefined;
+  return `note: ${side === undefined ? '' : `${side}: `}answered from stubs, not by a model: ${ids.join(', ')}`;
 }
 
 /** The eval id of a cell result: the result id without its `@<model>` suffix. */

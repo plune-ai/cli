@@ -249,6 +249,11 @@ export interface EvalConfig {
   pass_threshold?: number;
   /** The MCP server this eval's model may use, from the root `mcp.servers`. */
   mcp?: EvalMcpConfig;
+  /**
+   * A stub file, relative to the folder of the config: during the run a local server answers this eval's
+   * model calls from it, in place of the provider. Not with `mcp`.
+   */
+  stubs?: string;
 }
 
 // --- MCP (agentic evals) ---

@@ -212,12 +212,14 @@ export function makeOpenAiProvider(
   config: ProviderConfig,
   env: NodeJS.ProcessEnv,
   pricing?: PricingMap,
+  stubOrigin?: string,
 ): Provider {
   return makeOpenAiCompatibleProvider({
     config,
     env,
     pricing,
     apiKeyEnv: 'OPENAI_API_KEY',
+    ...(stubOrigin !== undefined ? { baseURL: `${stubOrigin}/v1` } : {}),
     maxCompletionTokens: true,
     sendsReasoningEffort: true,
   });
