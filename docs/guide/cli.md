@@ -177,7 +177,7 @@ models it covers.
 | `2` | The run **could not start or could not finish**: a configuration or usage error (no `plune.yaml`, YAML that does not parse, a config that does not validate, a missing provider key, an unknown prompt variable, `--runs` out of range, a bad `--tool-description`, flags that do not go together, an option `run` does not have, an option given without its value, a word after `run` that is no subcommand, a `--format` that is not one of the four, a file or folder that cannot be read or written), **or** a run where rows **errored** (a provider outage) and none failed. |
 | `5` | `--cache-strict` found rows with no cache entry. It wins over `1` and `2`: the run is incomplete. |
 
-`--bail` and `--format` do not change the code. `plune run` returns no other code.
+`--bail` does not change the code, and neither does the `--format` chosen among the four; a `--format` that is not one of them is the usage error above, `2`. `plune run` returns no other code.
 
 The split between `1` and `2` is deliberate: a model outage (`errored`) is infrastructure, not a
 regression in your prompt, so it doesn't masquerade as a `1`. See
