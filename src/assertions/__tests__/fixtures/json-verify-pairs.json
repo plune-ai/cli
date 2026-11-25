@@ -1,0 +1,563 @@
+[
+  {
+    "name": "classification: the answer is the expected JSON as written",
+    "kind": "llm-variation",
+    "mode": "exact",
+    "expected": { "label": "bug", "confidence": 0.9, "tags": ["billing", "urgent"] },
+    "actual": "{\"label\":\"bug\",\"confidence\":0.9,\"tags\":[\"billing\",\"urgent\"]}",
+    "verdict": "pass"
+  },
+  {
+    "name": "classification: keys in another order",
+    "kind": "llm-variation",
+    "mode": "exact",
+    "expected": { "label": "bug", "confidence": 0.9, "tags": ["billing", "urgent"] },
+    "actual": "{\"tags\":[\"billing\",\"urgent\"],\"confidence\":0.9,\"label\":\"bug\"}",
+    "verdict": "pass"
+  },
+  {
+    "name": "classification: printed over several lines with indents",
+    "kind": "llm-variation",
+    "mode": "exact",
+    "expected": { "label": "bug", "confidence": 0.9, "tags": ["billing", "urgent"] },
+    "actual": "{\n  \"label\": \"bug\",\n  \"confidence\": 0.9,\n  \"tags\": [\n    \"billing\",\n    \"urgent\"\n  ]\n}\n",
+    "verdict": "pass"
+  },
+  {
+    "name": "classification: a sentence before the JSON and one after",
+    "kind": "llm-variation",
+    "mode": "exact",
+    "expected": { "label": "bug", "confidence": 0.9, "tags": ["billing", "urgent"] },
+    "actual": "Here is the classification you asked for: {\"label\":\"bug\",\"confidence\":0.9,\"tags\":[\"billing\",\"urgent\"]} Let me know if you need anything else.",
+    "verdict": "pass"
+  },
+  {
+    "name": "classification: a fenced json block with a comment after it",
+    "kind": "llm-variation",
+    "mode": "exact",
+    "expected": { "label": "bug", "confidence": 0.9, "tags": ["billing", "urgent"] },
+    "actual": "```json\n{\"label\":\"bug\",\"confidence\":0.9,\"tags\":[\"billing\",\"urgent\"]}\n```\nI chose \"bug\" because the user reports a crash.",
+    "verdict": "pass"
+  },
+  {
+    "name": "classification: a fenced block with no language",
+    "kind": "llm-variation",
+    "mode": "exact",
+    "expected": { "label": "bug", "confidence": 0.9, "tags": ["billing", "urgent"] },
+    "actual": "Sure!\n```\n{\"label\":\"bug\",\"confidence\":0.9,\"tags\":[\"billing\",\"urgent\"]}\n```",
+    "verdict": "pass"
+  },
+  {
+    "name": "classification: a fenced block that holds no JSON, the JSON in the text after it",
+    "kind": "llm-variation",
+    "mode": "exact",
+    "expected": { "label": "bug", "confidence": 0.9, "tags": ["billing", "urgent"] },
+    "actual": "```\nlabel: bug\n```\nAs JSON: {\"label\":\"bug\",\"confidence\":0.9,\"tags\":[\"billing\",\"urgent\"]}",
+    "verdict": "pass"
+  },
+  {
+    "name": "classification: braces that are not JSON before the JSON",
+    "kind": "llm-variation",
+    "mode": "exact",
+    "expected": { "label": "bug", "confidence": 0.9, "tags": ["billing", "urgent"] },
+    "actual": "Classification {as requested}: {\"label\":\"bug\",\"confidence\":0.9,\"tags\":[\"billing\",\"urgent\"]}",
+    "verdict": "pass"
+  },
+  {
+    "name": "classification: a citation in brackets before the JSON is taken as the JSON",
+    "kind": "llm-variation",
+    "mode": "exact",
+    "expected": { "label": "bug", "confidence": 0.9, "tags": ["billing", "urgent"] },
+    "actual": "As noted in [1], the classification is {\"label\":\"bug\",\"confidence\":0.9,\"tags\":[\"billing\",\"urgent\"]}",
+    "verdict": "fail",
+    "mismatches": [{ "path": "$", "kind": "type differs: expected object, got array" }]
+  },
+  {
+    "name": "classification: prose around the JSON under extract strict",
+    "kind": "llm-variation",
+    "mode": "exact",
+    "extract": "strict",
+    "expected": { "label": "bug", "confidence": 0.9, "tags": ["billing", "urgent"] },
+    "actual": "Here is the classification you asked for: {\"label\":\"bug\",\"confidence\":0.9,\"tags\":[\"billing\",\"urgent\"]}",
+    "verdict": "fail",
+    "reason": "output is not valid JSON (extract mode: strict)"
+  },
+  {
+    "name": "classification: a refusal with no JSON",
+    "kind": "llm-variation",
+    "mode": "exact",
+    "expected": { "label": "bug", "confidence": 0.9, "tags": ["billing", "urgent"] },
+    "actual": "I cannot classify this message.",
+    "verdict": "fail",
+    "reason": "output is not valid JSON (extract mode: auto)"
+  },
+  {
+    "name": "classification: the number written with an exponent",
+    "kind": "llm-variation",
+    "mode": "exact",
+    "expected": { "label": "bug", "confidence": 0.9, "tags": ["billing", "urgent"] },
+    "actual": "{\"label\":\"bug\",\"confidence\":9.0e-1,\"tags\":[\"billing\",\"urgent\"]}",
+    "verdict": "pass"
+  },
+  {
+    "name": "classification: the number written as a string",
+    "kind": "llm-variation",
+    "mode": "exact",
+    "expected": { "label": "bug", "confidence": 0.9, "tags": ["billing", "urgent"] },
+    "actual": "{\"label\":\"bug\",\"confidence\":\"0.9\",\"tags\":[\"billing\",\"urgent\"]}",
+    "verdict": "fail",
+    "mismatches": [{ "path": "$.confidence", "kind": "type differs: expected number, got string" }]
+  },
+  {
+    "name": "classification: the list in another order, exact",
+    "kind": "llm-variation",
+    "mode": "exact",
+    "expected": { "label": "bug", "confidence": 0.9, "tags": ["billing", "urgent"] },
+    "actual": "{\"label\":\"bug\",\"confidence\":0.9,\"tags\":[\"urgent\",\"billing\"]}",
+    "verdict": "fail",
+    "mismatches": [
+      { "path": "$.tags[0]", "kind": "value differs" },
+      { "path": "$.tags[1]", "kind": "value differs" }
+    ]
+  },
+  {
+    "name": "classification: the list in another order, unordered",
+    "kind": "llm-variation",
+    "mode": "unordered",
+    "expected": { "label": "bug", "confidence": 0.9, "tags": ["billing", "urgent"] },
+    "actual": "{\"label\":\"bug\",\"confidence\":0.9,\"tags\":[\"urgent\",\"billing\"]}",
+    "verdict": "pass"
+  },
+  {
+    "name": "classification: one more key, exact",
+    "kind": "llm-variation",
+    "mode": "exact",
+    "expected": { "label": "bug", "confidence": 0.9, "tags": ["billing", "urgent"] },
+    "actual": "{\"label\":\"bug\",\"confidence\":0.9,\"tags\":[\"billing\",\"urgent\"],\"explanation\":\"The user reports a crash.\"}",
+    "verdict": "fail",
+    "mismatches": [{ "path": "$.explanation", "kind": "extra key" }]
+  },
+  {
+    "name": "classification: one more key, contains",
+    "kind": "llm-variation",
+    "mode": "contains",
+    "expected": { "label": "bug", "confidence": 0.9, "tags": ["billing", "urgent"] },
+    "actual": "{\"label\":\"bug\",\"confidence\":0.9,\"tags\":[\"billing\",\"urgent\"],\"explanation\":\"The user reports a crash.\"}",
+    "verdict": "pass"
+  },
+  {
+    "name": "classification: one more element in the list, unordered",
+    "kind": "llm-variation",
+    "mode": "unordered",
+    "expected": { "label": "bug", "confidence": 0.9, "tags": ["billing", "urgent"] },
+    "actual": "{\"label\":\"bug\",\"confidence\":0.9,\"tags\":[\"urgent\",\"billing\",\"crash\"]}",
+    "verdict": "fail",
+    "mismatches": [{ "path": "$.tags[2]", "kind": "extra element" }]
+  },
+  {
+    "name": "classification: one more element in the list, contains",
+    "kind": "llm-variation",
+    "mode": "contains",
+    "expected": { "label": "bug", "confidence": 0.9, "tags": ["billing", "urgent"] },
+    "actual": "{\"label\":\"bug\",\"confidence\":0.9,\"tags\":[\"urgent\",\"billing\",\"crash\"]}",
+    "verdict": "pass"
+  },
+  {
+    "name": "count: 1 and 1.0 are the same number",
+    "kind": "llm-variation",
+    "mode": "exact",
+    "expected": { "count": 1 },
+    "actual": "{\"count\": 1.0}",
+    "verdict": "pass"
+  },
+  {
+    "name": "profile: a null where a null is expected",
+    "kind": "llm-variation",
+    "mode": "exact",
+    "expected": { "name": "John Doe", "email": "user@plune.ai", "phone": null },
+    "actual": "{\"name\":\"John Doe\",\"email\":\"user@plune.ai\",\"phone\":null}",
+    "verdict": "pass"
+  },
+  {
+    "name": "profile: the key left out where a null is expected, exact",
+    "kind": "llm-variation",
+    "mode": "exact",
+    "expected": { "name": "John Doe", "email": "user@plune.ai", "phone": null },
+    "actual": "{\"name\":\"John Doe\",\"email\":\"user@plune.ai\"}",
+    "verdict": "fail",
+    "mismatches": [{ "path": "$.phone", "kind": "missing key" }]
+  },
+  {
+    "name": "profile: the key left out where a null is expected, contains",
+    "kind": "llm-variation",
+    "mode": "contains",
+    "expected": { "name": "John Doe", "email": "user@plune.ai", "phone": null },
+    "actual": "{\"name\":\"John Doe\",\"email\":\"user@plune.ai\"}",
+    "verdict": "fail",
+    "mismatches": [{ "path": "$.phone", "kind": "missing key" }]
+  },
+  {
+    "name": "profile: a null under a key that is not expected, exact",
+    "kind": "llm-variation",
+    "mode": "exact",
+    "expected": { "name": "John Doe", "email": "user@plune.ai" },
+    "actual": "{\"name\":\"John Doe\",\"email\":\"user@plune.ai\",\"phone\":null}",
+    "verdict": "fail",
+    "mismatches": [{ "path": "$.phone", "kind": "extra key" }]
+  },
+  {
+    "name": "profile: a null under a key that is not expected, contains",
+    "kind": "llm-variation",
+    "mode": "contains",
+    "expected": { "name": "John Doe", "email": "user@plune.ai" },
+    "actual": "{\"name\":\"John Doe\",\"email\":\"user@plune.ai\",\"phone\":null}",
+    "verdict": "pass"
+  },
+  {
+    "name": "profile: @isNotNull() on a value that is there",
+    "kind": "llm-variation",
+    "mode": "contains",
+    "expected": { "name": "John Doe", "phone": "@isNotNull()" },
+    "actual": "{\"name\":\"John Doe\",\"email\":\"user@plune.ai\",\"phone\":\"+1 555 0100\"}",
+    "verdict": "pass"
+  },
+  {
+    "name": "profile: @isNotNull() on a null",
+    "kind": "llm-variation",
+    "mode": "contains",
+    "expected": { "name": "John Doe", "phone": "@isNotNull()" },
+    "actual": "{\"name\":\"John Doe\",\"email\":\"user@plune.ai\",\"phone\":null}",
+    "verdict": "fail",
+    "mismatches": [{ "path": "$.phone", "kind": "function not satisfied: @isNotNull()" }]
+  },
+  {
+    "name": "profile: @isNotNull() on a key that is left out",
+    "kind": "llm-variation",
+    "mode": "contains",
+    "expected": { "name": "John Doe", "phone": "@isNotNull()" },
+    "actual": "{\"name\":\"John Doe\",\"email\":\"user@plune.ai\"}",
+    "verdict": "fail",
+    "mismatches": [{ "path": "$.phone", "kind": "missing key" }]
+  },
+  {
+    "name": "greeting: a letter written as a unicode escape",
+    "kind": "llm-variation",
+    "mode": "exact",
+    "expected": { "greeting": "café" },
+    "actual": "{\"greeting\":\"caf\\u00e9\"}",
+    "verdict": "pass"
+  },
+  {
+    "name": "greeting: the letter without its accent",
+    "kind": "llm-variation",
+    "mode": "exact",
+    "expected": { "greeting": "café" },
+    "actual": "{\"greeting\":\"cafe\"}",
+    "verdict": "fail",
+    "mismatches": [{ "path": "$.greeting", "kind": "value differs" }]
+  },
+  {
+    "name": "ticket: values that pass every check",
+    "kind": "llm-variation",
+    "mode": "exact",
+    "expected": {
+      "id": "@isString() @minLength(8)",
+      "status": "@oneOf(\"open\", \"closed\")",
+      "score": "@isNumber() @gt(0) @lt(1)",
+      "email": "@matchesRegex(\"^[^@ ]+@plune\\.ai$\")",
+      "tags": "@isArray() @minLength(1)"
+    },
+    "actual": "{\"id\":\"tkt-00017\",\"status\":\"open\",\"score\":0.42,\"email\":\"user@plune.ai\",\"tags\":[\"billing\"]}",
+    "verdict": "pass"
+  },
+  {
+    "name": "ticket: other values that pass every check",
+    "kind": "llm-variation",
+    "mode": "exact",
+    "expected": {
+      "id": "@isString() @minLength(8)",
+      "status": "@oneOf(\"open\", \"closed\")",
+      "score": "@isNumber() @gt(0) @lt(1)",
+      "email": "@matchesRegex(\"^[^@ ]+@plune\\.ai$\")",
+      "tags": "@isArray() @minLength(1)"
+    },
+    "actual": "{\"tags\":[\"refund\",\"urgent\",\"vip\"],\"email\":\"john.doe@plune.ai\",\"score\":9.7e-1,\"status\":\"closed\",\"id\":\"a81f3c9e-0b6d\"}",
+    "verdict": "pass"
+  },
+  {
+    "name": "ticket: a status that is not one of the listed",
+    "kind": "llm-variation",
+    "mode": "exact",
+    "expected": {
+      "id": "@isString() @minLength(8)",
+      "status": "@oneOf(\"open\", \"closed\")",
+      "score": "@isNumber() @gt(0) @lt(1)",
+      "email": "@matchesRegex(\"^[^@ ]+@plune\\.ai$\")",
+      "tags": "@isArray() @minLength(1)"
+    },
+    "actual": "{\"id\":\"tkt-00017\",\"status\":\"pending\",\"score\":0.42,\"email\":\"user@plune.ai\",\"tags\":[\"billing\"]}",
+    "verdict": "fail",
+    "mismatches": [
+      { "path": "$.status", "kind": "function not satisfied: @oneOf(\"open\", \"closed\")" }
+    ]
+  },
+  {
+    "name": "ticket: a score of 1 is not under 1",
+    "kind": "llm-variation",
+    "mode": "exact",
+    "expected": {
+      "id": "@isString() @minLength(8)",
+      "status": "@oneOf(\"open\", \"closed\")",
+      "score": "@isNumber() @gt(0) @lt(1)",
+      "email": "@matchesRegex(\"^[^@ ]+@plune\\.ai$\")",
+      "tags": "@isArray() @minLength(1)"
+    },
+    "actual": "{\"id\":\"tkt-00017\",\"status\":\"open\",\"score\":1,\"email\":\"user@plune.ai\",\"tags\":[\"billing\"]}",
+    "verdict": "fail",
+    "mismatches": [{ "path": "$.score", "kind": "function not satisfied: @lt(1)" }]
+  },
+  {
+    "name": "ticket: the score written as a string",
+    "kind": "llm-variation",
+    "mode": "exact",
+    "expected": {
+      "id": "@isString() @minLength(8)",
+      "status": "@oneOf(\"open\", \"closed\")",
+      "score": "@isNumber() @gt(0) @lt(1)",
+      "email": "@matchesRegex(\"^[^@ ]+@plune\\.ai$\")",
+      "tags": "@isArray() @minLength(1)"
+    },
+    "actual": "{\"id\":\"tkt-00017\",\"status\":\"open\",\"score\":\"0.42\",\"email\":\"user@plune.ai\",\"tags\":[\"billing\"]}",
+    "verdict": "fail",
+    "mismatches": [{ "path": "$.score", "kind": "function not satisfied: @isNumber()" }]
+  },
+  {
+    "name": "ticket: a short id and an address of another domain",
+    "kind": "llm-variation",
+    "mode": "exact",
+    "expected": {
+      "id": "@isString() @minLength(8)",
+      "status": "@oneOf(\"open\", \"closed\")",
+      "score": "@isNumber() @gt(0) @lt(1)",
+      "email": "@matchesRegex(\"^[^@ ]+@plune\\.ai$\")",
+      "tags": "@isArray() @minLength(1)"
+    },
+    "actual": "{\"id\":\"tkt-1\",\"status\":\"open\",\"score\":0.42,\"email\":\"user@example.com\",\"tags\":[\"billing\"]}",
+    "verdict": "fail",
+    "mismatches": [
+      { "path": "$.id", "kind": "function not satisfied: @minLength(8)" },
+      {
+        "path": "$.email",
+        "kind": "function not satisfied: @matchesRegex(\"^[^@ ]+@plune\\.ai$\")"
+      }
+    ]
+  },
+  {
+    "name": "ticket: an empty list where one element is the least",
+    "kind": "llm-variation",
+    "mode": "exact",
+    "expected": {
+      "id": "@isString() @minLength(8)",
+      "status": "@oneOf(\"open\", \"closed\")",
+      "score": "@isNumber() @gt(0) @lt(1)",
+      "email": "@matchesRegex(\"^[^@ ]+@plune\\.ai$\")",
+      "tags": "@isArray() @minLength(1)"
+    },
+    "actual": "{\"id\":\"tkt-00017\",\"status\":\"open\",\"score\":0.42,\"email\":\"user@plune.ai\",\"tags\":[]}",
+    "verdict": "fail",
+    "mismatches": [{ "path": "$.tags", "kind": "function not satisfied: @minLength(1)" }]
+  },
+  {
+    "name": "nested: a value three levels down differs",
+    "kind": "fixed",
+    "mode": "exact",
+    "expected": { "user": { "name": "John Doe", "address": { "city": "Kyiv" } } },
+    "actual": "{\"user\":{\"name\":\"John Doe\",\"address\":{\"city\":\"Lviv\"}}}",
+    "verdict": "fail",
+    "mismatches": [{ "path": "$.user.address.city", "kind": "value differs" }]
+  },
+  {
+    "name": "nested: a value inside the second element of a list differs",
+    "kind": "fixed",
+    "mode": "exact",
+    "expected": {
+      "items": [
+        { "sku": "A-100", "qty": 1 },
+        { "sku": "B-200", "qty": 2 }
+      ]
+    },
+    "actual": "{\"items\":[{\"sku\":\"A-100\",\"qty\":1},{\"sku\":\"B-200\",\"qty\":3}]}",
+    "verdict": "fail",
+    "mismatches": [{ "path": "$.items[1].qty", "kind": "value differs" }]
+  },
+  {
+    "name": "list: shorter than expected, exact",
+    "kind": "fixed",
+    "mode": "exact",
+    "expected": [1, 2, 3],
+    "actual": "[1, 2]",
+    "verdict": "fail",
+    "mismatches": [{ "path": "$[2]", "kind": "missing element" }]
+  },
+  {
+    "name": "list: contains, an expected text has no match",
+    "kind": "fixed",
+    "mode": "contains",
+    "expected": ["a", "b"],
+    "actual": "[\"b\", \"c\"]",
+    "verdict": "fail",
+    "mismatches": [{ "path": "$[0]", "kind": "no match for an array element" }]
+  },
+  {
+    "name": "order: contains, both items are there with a positive quantity",
+    "kind": "fixed",
+    "mode": "contains",
+    "expected": {
+      "items": [
+        { "sku": "A-100", "qty": "@gt(0)" },
+        { "sku": "B-200", "qty": "@gt(0)" }
+      ]
+    },
+    "actual": "{\"items\":[{\"sku\":\"B-200\",\"qty\":1},{\"sku\":\"C-300\",\"qty\":0},{\"sku\":\"A-100\",\"qty\":3,\"gift\":true}],\"total\":4}",
+    "verdict": "pass"
+  },
+  {
+    "name": "order: contains, one item has a quantity of zero",
+    "kind": "fixed",
+    "mode": "contains",
+    "expected": {
+      "items": [
+        { "sku": "A-100", "qty": "@gt(0)" },
+        { "sku": "B-200", "qty": "@gt(0)" }
+      ]
+    },
+    "actual": "{\"items\":[{\"sku\":\"B-200\",\"qty\":1},{\"sku\":\"A-100\",\"qty\":0}]}",
+    "verdict": "fail",
+    "mismatches": [{ "path": "$.items[0]", "kind": "no match for an array element" }]
+  },
+  {
+    "name": "order: contains, the smaller expected item does not take the only match of the larger",
+    "kind": "fixed",
+    "mode": "contains",
+    "expected": [{ "sku": "A" }, { "sku": "A", "qty": 2 }],
+    "actual": "[{\"sku\":\"A\",\"qty\":2},{\"sku\":\"A\",\"qty\":1}]",
+    "verdict": "pass"
+  },
+  {
+    "name": "marker: $mode unordered for one list inside an exact comparison",
+    "kind": "fixed",
+    "mode": "exact",
+    "expected": {
+      "label": "bug",
+      "tags": { "$mode": "unordered", "$value": ["billing", "urgent"] }
+    },
+    "actual": "{\"label\":\"bug\",\"tags\":[\"urgent\",\"billing\"]}",
+    "verdict": "pass"
+  },
+  {
+    "name": "marker: $mode unordered for one list does not free the keys around it",
+    "kind": "fixed",
+    "mode": "exact",
+    "expected": {
+      "label": "bug",
+      "tags": { "$mode": "unordered", "$value": ["billing", "urgent"] }
+    },
+    "actual": "{\"label\":\"bug\",\"tags\":[\"urgent\",\"billing\"],\"note\":\"extra\"}",
+    "verdict": "fail",
+    "mismatches": [{ "path": "$.note", "kind": "extra key" }]
+  },
+  {
+    "name": "marker: $mode contains for one object inside an exact comparison",
+    "kind": "fixed",
+    "mode": "exact",
+    "expected": { "status": "ok", "meta": { "$mode": "contains", "$value": { "version": 2 } } },
+    "actual": "{\"status\":\"ok\",\"meta\":{\"version\":2,\"region\":\"eu\"}}",
+    "verdict": "pass"
+  },
+  {
+    "name": "marker: $literal for data that has a key $mode",
+    "kind": "fixed",
+    "mode": "exact",
+    "expected": { "$literal": { "$mode": "dark" } },
+    "actual": "{\"$mode\":\"dark\"}",
+    "verdict": "pass"
+  },
+  {
+    "name": "text: @@ expects a text that looks like a check",
+    "kind": "fixed",
+    "mode": "exact",
+    "expected": { "note": "@@isString()" },
+    "actual": "{\"note\":\"@isString()\"}",
+    "verdict": "pass"
+  },
+  {
+    "name": "text: @@ is not a check, another text differs",
+    "kind": "fixed",
+    "mode": "exact",
+    "expected": { "note": "@@isString()" },
+    "actual": "{\"note\":\"any text\"}",
+    "verdict": "fail",
+    "mismatches": [{ "path": "$.note", "kind": "value differs" }]
+  },
+  {
+    "name": "strict: a bare number is the whole answer",
+    "kind": "fixed",
+    "mode": "exact",
+    "extract": "strict",
+    "expected": "@gt(40)",
+    "actual": " 42 ",
+    "verdict": "pass"
+  },
+  {
+    "name": "auto: a bare number is not found",
+    "kind": "fixed",
+    "mode": "exact",
+    "expected": "@gt(40)",
+    "actual": "42",
+    "verdict": "fail",
+    "reason": "output is not valid JSON (extract mode: auto)"
+  },
+  {
+    "name": "strict: null where null is expected",
+    "kind": "fixed",
+    "mode": "exact",
+    "extract": "strict",
+    "expected": null,
+    "actual": "null",
+    "verdict": "pass"
+  },
+  {
+    "name": "number: integers past 2^53 that differ in the last digit are equal",
+    "kind": "fixed",
+    "mode": "exact",
+    "expected": { "id": 9007199254740992 },
+    "actual": "{\"id\":9007199254740993}",
+    "verdict": "pass"
+  },
+  {
+    "name": "type: a boolean written as a string",
+    "kind": "fixed",
+    "mode": "exact",
+    "expected": { "active": true },
+    "actual": "{\"active\":\"true\"}",
+    "verdict": "fail",
+    "mismatches": [{ "path": "$.active", "kind": "type differs: expected boolean, got string" }]
+  },
+  {
+    "name": "check: @matchesRegex with the flag i",
+    "kind": "fixed",
+    "mode": "exact",
+    "expected": { "code": "@matchesRegex(\"^ok$\", \"i\")" },
+    "actual": "{\"code\":\"OK\"}",
+    "verdict": "pass"
+  },
+  {
+    "name": "check: @maxLength on a list that is too long",
+    "kind": "fixed",
+    "mode": "exact",
+    "expected": { "tags": "@maxLength(2)" },
+    "actual": "{\"tags\":[\"a\",\"b\",\"c\"]}",
+    "verdict": "fail",
+    "mismatches": [{ "path": "$.tags", "kind": "function not satisfied: @maxLength(2)" }]
+  }
+]
