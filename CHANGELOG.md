@@ -11,6 +11,8 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+## [0.39.16] - 2026-11-25
+
 ### Changed
 
 - **The experimental `jev` judge names the version that judged, takes a full version only, and checks its address.** `judge_model` is now `jev/<version>` with the version the server answered with, not the one in the config. `provider.model` must be a full version such as `jev-1.14.0`; an alias such as `jev-latest` is a config error. The address comes from `PLUNE_JEV_BASE_URL`, or else `TYPESAFE_BASE_URL`, and must be https under `typesafe.ai`: anything else ends `plune run` with exit `2` before a model is called and says how to set the address for plune alone, so that a local server of another model is never judged and reported as Jev. The price of `jev-1.14.0` is in the built-in table, a `pricing` entry overrides it, a version with no price is reported as unpriced, and `plune run --dry-run` now includes an estimate of this judge. See the [assertions guide](docs/guide/assertions.md#an-experimental-judge-jev).
