@@ -137,6 +137,93 @@ describe('readCairnRun — the trace link of a case', () => {
   });
 });
 
+/**
+ * fixtures/cairn/failure-variants is what `cairn propose-failures` wrote for one eval and a stub file recorded with
+ * `plune mock --record`: a `design` run whose cases are variants of the eval under a provider failure. Each case says
+ * why it exists in `rationale`, and the review queue shows that text when the proposal is opened.
+ */
+describe('readCairnRun — the reason a case gives for itself', () => {
+  it('CLI · ingest · design run · sends the rationale of a case, and the eval it is a variant of stays in the text', async () => {
+    const payload = await readCairnRun(fixture('failure-variants'));
+    expect(payload.run).toMatchObject({ mode: 'design', target: 'plune.yaml', cost: { tokens: 0, cases: 5 } });
+    expect(payload.cases).toHaveLength(5);
+    for (const c of payload.cases) {
+      expect(c.title).toContain('Eval "refund-answer"');
+      expect(c.rationale).toMatch(/^Variant of eval "refund-answer": /);
+      expect(c.technique).toBe('provider-failure');
+      expect(c.verdict).toBeUndefined();
+    }
+  });
+
+  it('CLI · ingest · a report without a rationale gives cases without the key', async () => {
+    for (const c of (await readCairnRun(fixture('design'))).cases) expect(c).not.toHaveProperty('rationale');
+  });
+
+  /** The failure-variants run with the rationale of its first cases replaced, in a folder of its own. */
+  const runWithRationale = async (...rationales: unknown[]): Promise<string> => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'plune-rationale-'));
+    const report = JSON.parse(await fs.readFile(path.join(fixture('failure-variants'), 'report.json'), 'utf8')) as {
+      testCases: Record<string, unknown>[];
+    };
+    rationales.forEach((r, i) => (report.testCases[i]!['rationale'] = r));
+    await fs.writeFile(path.join(dir, 'report.json'), JSON.stringify(report));
+    return dir;
+  };
+
+  it.each([
+    ['an empty text', '   '],
+    ['a value that is not a text', 7],
+  ])('CLI · ingest · %s as the rationale is left out, the case is still sent, and nothing is said', async (_name, rationale) => {
+    const dir = await runWithRationale(rationale);
+    const notes: string[] = [];
+    const payload = await readCairnRun(dir, { notes });
+    expect(payload.cases).toHaveLength(5);
+    expect(payload.cases[0]).not.toHaveProperty('rationale');
+    expect(notes).toEqual([]);
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  // The platform takes at most 400 characters and refuses the whole run for one more: a cut text serves the reviewer
+  // better than none, and the cut is said.
+  it('CLI · ingest · a rationale of 400 characters is sent whole, one of 401 is cut to 400, and the cut is said once', async () => {
+    const dir = await runWithRationale(`  ${'b'.repeat(400)}  `, 'c'.repeat(401), 'd'.repeat(2000));
+    const notes: string[] = [];
+    const payload = await readCairnRun(dir, { notes });
+    expect(payload.cases[0]!.rationale).toBe('b'.repeat(400));
+    expect(payload.cases[1]!.rationale).toBe('c'.repeat(400));
+    expect(payload.cases[2]!.rationale).toBe('d'.repeat(400));
+    expect(notes).toEqual(['plune: 2 case(s) carry an explanation over 400 characters — sent cut to 400.']);
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it('CLI · ingest · a rationale of 400 characters or fewer says nothing', async () => {
+    const notes: string[] = [];
+    await readCairnRun(fixture('failure-variants'), { notes });
+    expect(notes).toEqual([]);
+  });
+
+  it('CLI · ingest · the cut does not leave half of a character at the end', async () => {
+    const dir = await runWithRationale(`${'e'.repeat(399)}😀 and more`);
+    const payload = await readCairnRun(dir);
+    expect(payload.cases[0]!.rationale).toBe('e'.repeat(399));
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it('CLI · ingest · mcp run · a proposed agent scenario carries its rationale too', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'plune-rationale-'));
+    const report = JSON.parse(await fs.readFile(path.join(fixture('mcp'), 'scenarios', 'report.json'), 'utf8')) as {
+      testCases: Record<string, unknown>[];
+    };
+    report.testCases[0]!['rationale'] = 'The server has one search tool, so a search request should reach it.';
+    await fs.writeFile(path.join(dir, 'report.json'), JSON.stringify(report));
+    const payload = await readCairnRun(dir);
+    expect(payload.run.mode).toBe('mcp');
+    expect(payload.cases[0]!.rationale).toBe('The server has one search tool, so a search request should reach it.');
+    expect(payload.cases[1]).not.toHaveProperty('rationale');
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+});
+
 describe('readCairnRun — api runs', () => {
   it('reads the cases and attaches the verdict each one actually produced', async () => {
     const payload = await readCairnRun(fixture('api'));
