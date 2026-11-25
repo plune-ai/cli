@@ -217,6 +217,14 @@ describe('mock · record · where a request goes', () => {
     ['a Host with another port', (port: number) => [`host: 127.0.0.1:${port + 1}`]],
     ['an Origin of another site', () => ['origin: https://evil.example']],
     ['an opaque Origin', () => ['origin: null']],
+    [
+      'a request a browser marked as cross-site, with no Origin',
+      () => ['sec-fetch-site: cross-site'],
+    ],
+    [
+      'a request a browser marked as same-site, with no Origin',
+      () => ['sec-fetch-site: same-site'],
+    ],
   ])('refuses %s with a 403, forwards nothing and records nothing', async (_name, headers) => {
     const up = await upstream(json({ ok: true }));
     const r = await recorder(up.origin);
@@ -239,6 +247,14 @@ describe('mock · record · where a request goes', () => {
     ]);
     expect(text).toMatch(/^HTTP\/1\.1 200 /);
     expect(text.toLowerCase()).not.toContain('access-control');
+  });
+
+  it('serves a client that says nothing of where it came from, and a request a browser marked as its own', async () => {
+    const up = await upstream(json({ ok: true }));
+    const r = await recorder(up.origin);
+    for (const headers of [[], ['sec-fetch-site: same-origin'], ['sec-fetch-site: none']])
+      expect(await rawRequest(r.port, '/default/v1/chat', headers)).toMatch(/^HTTP\/1\.1 200 /);
+    expect(up.seen).toHaveLength(3);
   });
 
   it.each([
@@ -559,6 +575,60 @@ describe('mock · record · what is written', () => {
 });
 
 describe('mock · record · the file', () => {
+  it('indents every key of a stub alike, two spaces a level', async () => {
+    const up = await upstream(json({ ok: true }));
+    const r = await recorder(up.origin);
+    await (await post(`${r.url}/v1/chat`, { model: 'm' })).text();
+    await (await post(`${r.url}/v1/chat`, { model: 'm' })).text();
+    await r.close();
+    expect(fs.readFileSync(r.file, 'utf8').split('\n').slice(7).join('\n')).toBe(
+      [
+        '{',
+        '  "version": 1,',
+        '  "stubs": [',
+        '    {',
+        '      "method": "POST",',
+        '      "times": "once",',
+        '      "path": "/v1/chat",',
+        '      "body": {',
+        '        "model": "m"',
+        '      },',
+        '      "match": "exact",',
+        '      "response": {',
+        '        "status": 200,',
+        '        "headers": {',
+        '          "content-type": "application/json"',
+        '        },',
+        '        "json": {',
+        '          "ok": true',
+        '        }',
+        '      }',
+        '    },',
+        '    {',
+        '      "method": "POST",',
+        '      "times": "always",',
+        '      "path": "/v1/chat",',
+        '      "body": {',
+        '        "model": "m"',
+        '      },',
+        '      "match": "exact",',
+        '      "response": {',
+        '        "status": 200,',
+        '        "headers": {',
+        '          "content-type": "application/json"',
+        '        },',
+        '        "json": {',
+        '          "ok": true',
+        '        }',
+        '      }',
+        '    }',
+        '  ]',
+        '}',
+        '',
+      ].join('\n'),
+    );
+  });
+
   it('is a valid empty stub file from the start, and whole after every exchange with no temp file left', async () => {
     const up = await upstream(json({ ok: true }));
     const r = await recorder(up.origin);

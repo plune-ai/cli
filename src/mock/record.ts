@@ -7,8 +7,8 @@
 // segment. Nothing else takes part: not the `Host` header, not `X-Forwarded-*` or `Forwarded` (they are not
 // sent on), not an absolute-form request target (refused), not a redirect (an upstream 3xx is passed back
 // to the client as it is, never followed, and not recorded). Like the stub server, the recorder serves
-// only a request addressed to it by a loopback name and its own port, and none that a web page of another
-// origin sent.
+// only a request addressed to it by a loopback name and its own port, and none that a browser marks as
+// sent from another site (`Origin`, `Sec-Fetch-Site`): such a request is not forwarded and not recorded.
 //
 // What is written. For each exchange one stub with `match: exact`: the method, the path, the whole JSON
 // body of the request, the status, the `content-type` and `retry-after` response headers, and the response
@@ -488,7 +488,7 @@ interface Exchange {
 }
 
 const stubHead = (method: string, times: string): string =>
-  `    {\n      "method": ${JSON.stringify(method)},\n      "times": "${times}",\n`;
+  `    {\n      "method": ${JSON.stringify(method)},\n      "times": "${times}",\n    `;
 
 /**
  * The lines of one stub for the file, or why it cannot be written. Fail closed: the stub goes into the
@@ -505,7 +505,7 @@ function stubLines(exchange: Exchange, known: readonly Form[]): string | { skip:
       return { skip: 'a credential is split over the pieces of the answer' };
   }
   // `{` of the object is replaced by the head with the method and `times`, which change after this.
-  const body = `      ${JSON.stringify(rest, null, 2).split('\n').slice(1).join('\n      ').slice(0, -1)}    }`;
+  const body = JSON.stringify(rest, null, 2).split('\n').slice(1).join('\n    ');
   const text = stubHead(exchange.method, 'once') + body;
   const unsafe = { skip: 'it cannot be written safely' };
   try {

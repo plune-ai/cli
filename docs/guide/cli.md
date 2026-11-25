@@ -1685,16 +1685,21 @@ the query go to the target as they are. For a client library, the base URL is
 `127.0.0.1` only. Without `--record` the command makes no outbound request at all.
 
 **Who may call it.** In both modes the server answers only a request whose `Host` is `127.0.0.1`,
-`localhost` or `[::1]` with the server's port, and refuses with a `403` any request that carries an
-`Origin` other than those. It sends no CORS header. So a web page open in a browser on the same machine
-can neither drive the recorder nor read a replayed answer. A program that is not a browser sends no
-`Origin`, so a request from `curl` or a client library with a local `Host` is served: that is the case
-the command is for.
+`localhost` or `[::1]` with the server's port. It refuses with a `403` a request that carries an `Origin`
+other than those, and a request whose `Sec-Fetch-Site` is `cross-site` or `same-site`: a browser sets that
+header itself, also on a plain `GET` (an image, a link) to which it adds no `Origin`, and a page can
+neither set nor remove it. A refused request is not forwarded to the target and not recorded. The server
+sends no CORS header, so a page cannot read an answer either. A program that is not a browser sends
+neither header, so a request from `curl` or a client library with a local `Host` is served: that is the
+case the command is for. The check rests on what the browser sends: a plain `GET` from a browser that
+sends no `Sec-Fetch-Site` looks like one from a program and is served, and the page still cannot read
+the answer.
 
 **What a recording holds.** The file is a stub file of version 1 (JSON, which is also YAML, under seven
 comment lines: the date and the origin, a warning, and what the masking does and does not find). **The
 prompts and the answers are stored as they were sent and received and may hold personal or confidential
 text.** It is written inside the current folder only, never uploaded, and created for its owner only.
+The folder limit is for writing: without `--record` the command reads the file from any path you give.
 `--force` replaces a file only if it is a stub file or empty. Each exchange is one stub with `match: exact`:
 
 | Stored | Not stored |
@@ -1787,7 +1792,7 @@ one once they are a minute old.
 |------|---------|
 | `0` | Stopped with Ctrl+C. |
 | `1` | A recording stopped with exchanges it could not write to the file; the message says how many. |
-| `2` | A usage error: `--record` without `--target` or the reverse, a target that is not an http(s) origin, a path outside the current folder, a path that is a folder, a file that exists without `--force` or that `--force` may not replace, a file another recorder is writing, a stub file that is missing or invalid, a port that is taken. |
+| `2` | A usage error: `--record` without `--target` or the reverse, a target that is not an http(s) origin, with `--record` a path outside the current folder, a path that is a folder, a file that exists without `--force` or that `--force` may not replace, a file another recorder is writing, a stub file that is missing or invalid, a port that is taken. |
 
 ## Report formats of `plune mcp lint`, `check` and `diff`
 

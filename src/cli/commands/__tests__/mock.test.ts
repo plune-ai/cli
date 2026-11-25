@@ -203,7 +203,30 @@ describe('CLI · mock · record then replay', () => {
     // The only connections of the process were the client's own, to the stub server.
     expect(new Set(guard.seen)).toEqual(new Set([`127.0.0.1:${new URL(serving.url).port}`]));
     expect(serving.out.join('')).toBe(
-      `Serving 1 stubs at ${serving.url}, with no network. Ctrl+C stops.\nStopped. Stubs never called: 0.\n`,
+      `Serving 1 stub at ${serving.url}, with no network. Ctrl+C stops.\nStopped. Stubs never called: 0.\n`,
+    );
+  });
+
+  it('counts the stubs it serves in the plural, and serves a file outside the current folder', async () => {
+    // Serving only reads a file the user named; it is the recording that stays inside the folder.
+    const stub = (p: string): string => `  - path: ${p}\n    response:\n      json: {}\n`;
+    fs.writeFileSync(
+      path.join(dir, 'two.stubs.yaml'),
+      `version: 1\nstubs:\n${stub('/a')}${stub('/b')}`,
+    );
+    fs.mkdirSync(path.join(dir, 'sub'));
+    const out: string[] = [];
+    const stopper = new AbortController();
+    const done = handleMock(flags({ file: '../two.stubs.yaml' }), {
+      stdout: (t) => out.push(t),
+      stderr: (t) => out.push(t),
+      signal: stopper.signal,
+      cwd: path.join(dir, 'sub'),
+      onReady: () => stopper.abort(),
+    });
+    expect(await done).toBe(0);
+    expect(out.join('')).toMatch(
+      /^Serving 2 stubs at http:\/\/127\.0\.0\.1:\d+\/default, with no network\./,
     );
   });
 
@@ -322,6 +345,9 @@ describe('CLI · mock · help', () => {
       'A credential in a path segment, or under an ordinary header, query or body-field name, is not known to the recorder.',
     ]);
     expect(help).toMatch(/Redirects are passed back, not followed/);
+    // The folder limit is the recording's, and a browser's request from another site is named as refused.
+    expect(help).toContain('a recording is written inside the current folder only');
+    expect(help).toContain('none that a browser marks as sent from another site');
     expect(help).toMatch(/Timing is not recorded/);
   });
 });
