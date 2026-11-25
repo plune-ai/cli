@@ -101,13 +101,6 @@ describe('CLI · run · exit code of a finished run', () => {
     expect(stderr).toContain('No evals matched the selector.');
   });
 
-  // `run` has an action of its own, so a word after it that is no subcommand is not refused: the suite runs.
-  it('a word after run that is no subcommand → the suite runs, and the code is the run’s', async () => {
-    handleRunMock.mockResolvedValueOnce(resultOf([passed, failed]));
-    expect(await codeOf('improt', 'report.xml')).toBe(1);
-    expect(handleRunMock).toHaveBeenCalledTimes(1);
-  });
-
   it('a run with no evals → 0', async () => {
     expect(await codeOf()).toBe(0);
   });
@@ -183,6 +176,20 @@ describe('CLI · run · exit code when the run did not start', () => {
     expect(stderr).toContain('This one is on us.');
   });
 
+  // `run` has an action of its own, so the parser does not refuse a word after it that is no subcommand.
+  // The action does: a mistyped subcommand must not run the suite and call models.
+  it.each<[string, string[], string]>([
+    ['a mistyped subcommand and its file', ['improt', 'report.xml'], 'improt report.xml'],
+    ['one word', ['evals'], 'evals'],
+    ['a word after the options', ['--dry-run', 'evals'], 'evals'],
+    ['a word after --', ['--', 'evals'], 'evals'],
+  ])('an argument run does not take: %s → 2, and nothing runs', async (_name, flags, named) => {
+    expect(await codeOf(...flags)).toBe(2);
+    expect(stderr).toContain(`\`plune run\` takes no arguments, but got: ${named}\n`);
+    expect(stderr).toContain('start, finish, exec, delete, grep, report, import');
+    expect(handleRunMock).not.toHaveBeenCalled();
+  });
+
   // The option parser's own errors are usage errors: 2 with the parser's message, on every command.
   it.each<[string, string[]]>([
     ['an option the command does not have', ['--no-such-flag']],
@@ -218,4 +225,32 @@ describe('CLI · every command · exit code of the option parser', () => {
   ])('%s → 0', async (_name, argv) => {
     expect(await codeOfArgv(...argv)).toBe(0);
   });
+});
+
+describe('CLI · run · its subcommands are not taken for an argument', () => {
+  const run = () => createProgram().commands.find((c) => c.name() === 'run')!;
+
+  it('run has these subcommands and no argument of its own', () => {
+    expect(run().commands.map((c) => c.name())).toEqual(['start', 'finish', 'exec', 'delete', 'grep', 'report', 'import']);
+    expect(run().registeredArguments).toEqual([]);
+  });
+
+  it.each(['start', 'finish', 'exec', 'delete', 'grep', 'report', 'import'])(
+    'run %s reaches the subcommand, not the suite',
+    async (sub) => {
+      // The help ends the process: here the exit throws, so that nothing after it runs.
+      let stdout = '';
+      vi.mocked(process.stdout.write).mockImplementation((chunk) => {
+        stdout += String(chunk);
+        return true;
+      });
+      vi.mocked(process.exit).mockImplementation((code) => {
+        throw new Error(`exit ${String(code)}`);
+      });
+      await expect(createProgram().parseAsync(['node', 'plune', 'run', sub, '--help'])).rejects.toThrow('exit 0');
+      expect(stdout).toContain(`Usage: plune run ${sub}`);
+      expect(stderr).toBe('');
+      expect(handleRunMock).not.toHaveBeenCalled();
+    },
+  );
 });

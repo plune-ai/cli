@@ -28,6 +28,7 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 ### Fixed
 
 - **An option a command does not have, or an option without its value, now exits `2`, not `1`.** `plune run --no-such-flag` and `plune run --format` ended with exit code `1`, the code of a failed row, so a mistyped flag in CI read as a failed check. Everything the option parser refuses (an unknown option, an option given without its value, a missing argument) is now a usage error with exit `2` and the parser's own message, on every command: `1` stays the code of a failed row, a regression or a failed gate. A command group typed without a subcommand (`plune mcp`, `plune requirements`, `plune plan`, or `plune` alone) prints its help and exits `2` where it exited `1`. `--help` and `--version` still exit `0`. **A CI script that tests for exit `1` on these paths needs `2` now.**
+- **`plune run` refuses an argument it does not take: exit `2`, and nothing runs.** A word after `run` that is no subcommand was ignored, so a mistyped `plune run improt report.xml` ran the whole suite, called the models, and ended with the run's own code (`0`, `1` or `2`). It now stops before anything is loaded, with `` `plune run` takes no arguments, but got: improt report.xml `` and the names of the subcommands. `plune run start`, `finish`, `exec`, `delete`, `grep`, `report` and `import` work as before. **A script that passed a stray word to `plune run` gets exit `2` now.**
 
 ## [0.39.14] - 2026-11-24
 

@@ -218,6 +218,17 @@ export function createProgram(): Command {
           color?: boolean;
         };
         const configPath = globals.config;
+        // `run` has subcommands and an action of its own, so the parser hands a word that is no subcommand
+        // to this action instead of refusing it. A mistyped `plune run improt report.xml` would run the
+        // whole suite and call models: refuse it before anything is loaded.
+        if (command.args.length > 0) {
+          process.stderr.write(
+            `\`plune run\` takes no arguments, but got: ${command.args.join(' ')}\n` +
+              `Nothing was run. Its subcommands are: ${command.commands.map((c) => c.name()).join(', ')}.\n`,
+          );
+          process.exit(2);
+          return;
+        }
         // Lazy-load the heavy run pipeline only now that `run` is actually executing.
         const [
           { handleRun },
