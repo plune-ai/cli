@@ -1,10 +1,15 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { validateXML } from 'xmllint-wasm';
 import { readJUnit } from '../../importers/junit.js';
 import { parseXml, type XmlElement } from '../../importers/xml.js';
 import type { RowResult, RunResult } from '../../types/results.js';
 import { renderReport } from '../index.js';
 import { renderJunit } from '../junit.js';
 import { allPass, dryRun, mixed } from './fixtures.js';
+
+const XSD = readFileSync(fileURLToPath(new URL('./fixtures/junit-10.xsd', import.meta.url)), 'utf8');
 
 const pass = { type: 'contains', passed: true };
 
@@ -85,6 +90,15 @@ const root = (xml: string): XmlElement => parseXml(xml, 'report.xml').children.f
 const suitesOf = (xml: string): XmlElement[] => root(xml).children.filter((c) => c.name === 'testsuite');
 const casesOf = (suite: XmlElement): XmlElement[] => suite.children.filter((c) => c.name === 'testcase');
 const sum = (xs: XmlElement[], attr: string): number => xs.reduce((n, x) => n + Number(x.attrs[attr]), 0);
+
+/** What the JUnit schema says against a document: no line when it is valid. */
+async function schemaErrors(xml: string): Promise<string[]> {
+  const res = await validateXML({
+    xml: [{ fileName: 'report.xml', contents: xml }],
+    schema: [{ fileName: 'junit-10.xsd', contents: XSD }],
+  });
+  return res.errors.map((e) => e.message);
+}
 
 describe('CLI · run --format junit · the document', () => {
   it('is what the dispatcher gives for junit', () => {
@@ -242,6 +256,29 @@ describe('CLI · run --format junit · read back by run import', () => {
   });
 });
 
+describe('CLI · run --format junit · the schema', () => {
+  it.each([
+    ['every status', everyStatus],
+    ['failed and errored evals', mixed],
+    ['all passed', allPass],
+    ['a dry run', dryRun],
+    ['no evals', run([])],
+  ])('validates against the JUnit XSD: %s', async (_name, result) => {
+    expect(await schemaErrors(renderJunit(result))).toEqual([]);
+  });
+
+  // The check can fail: the schema requires a name on a suite and knows no <verdict> element.
+  it.each([
+    ['a suite without its name', (xml: string) => xml.replace(/<testsuite name="[^"]*"/, '<testsuite')],
+    ['an element JUnit does not have', (xml: string) => xml.replace('</testsuite>', '<verdict/></testsuite>')],
+  ])('the validator refuses a document that is not JUnit: %s', async (_name, breakIt) => {
+    const xml = renderJunit(allPass);
+    const broken = breakIt(xml);
+    expect(broken).not.toBe(xml);
+    expect(await schemaErrors(broken)).not.toEqual([]);
+  });
+});
+
 describe('CLI · run --format junit · text from a model', () => {
   // A control character, a lone surrogate, U+FFFF, the end of a CDATA section, markup and a quote.
   const nasty = 'a\u0000b\u0008c\ud800d￿ ]]> <b>&"\'\n::error::x ##[group]';
@@ -258,9 +295,10 @@ describe('CLI · run --format junit · text from a model', () => {
     { total: 2, failed: 1, errored: 1 },
   );
 
-  it('stays a document a parser reads', () => {
+  it('stays a document a parser reads and the schema accepts', async () => {
     const xml = renderJunit(hostile);
     expect(() => parseXml(xml, 'report.xml')).not.toThrow();
+    expect(await schemaErrors(xml)).toEqual([]);
     expect(xml).not.toContain(']]>');
     expect(xml).not.toMatch(/[\u0000-\u0008\ud800￿]/);
   });

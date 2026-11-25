@@ -8,6 +8,24 @@ const handleRunMock = vi.fn(async (..._args: unknown[]): Promise<RunResult> => r
 vi.mock('../commands/run.js', () => ({
   handleRun: (...args: unknown[]) => handleRunMock(...args),
 }));
+// No test in this file may reach a real handler: one of them sends a run to a server. Each is a spy, and the
+// cases that go past `run` also make the exit throw, as the real one ends the process.
+const realHandlers = {
+  handleRunImport: vi.fn(),
+  handleReport: vi.fn(),
+  diffFiles: vi.fn(),
+  handleMcpCheck: vi.fn(),
+};
+vi.mock('../commands/run-import.js', () => ({ handleRunImport: (...a: unknown[]) => realHandlers.handleRunImport(...a) }));
+vi.mock('../commands/report.js', () => ({
+  handleReport: (...a: unknown[]) => realHandlers.handleReport(...a),
+  ReportNotFoundError: class extends Error {},
+}));
+vi.mock('../commands/diff.js', () => ({
+  diffFiles: (...a: unknown[]) => realHandlers.diffFiles(...a),
+  DiffInputError: class extends Error {},
+}));
+vi.mock('../commands/mcp-check.js', () => ({ handleMcpCheck: (...a: unknown[]) => realHandlers.handleMcpCheck(...a) }));
 vi.mock('../../reporters/index.js', () => ({ renderReport: () => 'RENDERED' }));
 vi.mock('../env.js', () => ({ loadEnv: () => undefined }));
 
@@ -50,6 +68,7 @@ let stderr: string;
 let exits: unknown[];
 beforeEach(() => {
   handleRunMock.mockClear();
+  for (const handler of Object.values(realHandlers)) handler.mockClear();
   process.exitCode = undefined;
   stderr = '';
   exits = [];
@@ -99,13 +118,6 @@ describe('CLI · run · exit code of a finished run', () => {
   it('--only that matches no eval → 0, with a line on stderr', async () => {
     expect(await codeOf('--only', 'nothing')).toBe(0);
     expect(stderr).toContain('No evals matched the selector.');
-  });
-
-  // `run` has an action of its own, so a word after it that is no subcommand is not refused: the suite runs.
-  it('a word after run that is no subcommand → the suite runs, and the code is the run’s', async () => {
-    handleRunMock.mockResolvedValueOnce(resultOf([passed, failed]));
-    expect(await codeOf('improt', 'report.xml')).toBe(1);
-    expect(handleRunMock).toHaveBeenCalledTimes(1);
   });
 
   it('a run with no evals → 0', async () => {
@@ -183,12 +195,93 @@ describe('CLI · run · exit code when the run did not start', () => {
     expect(stderr).toContain('This one is on us.');
   });
 
-  // The option parser's own errors exit 1, not the 2 of the usage errors above.
+  // `run` has an action of its own, so the parser does not refuse a word after it that is no subcommand.
+  // The action does: a mistyped subcommand must not run the suite and call models.
+  it.each<[string, string[], string]>([
+    ['a mistyped subcommand and its file', ['improt', 'report.xml'], 'improt report.xml'],
+    ['one word', ['evals'], 'evals'],
+    ['a word after the options', ['--dry-run', 'evals'], 'evals'],
+    ['a word after --', ['--', 'evals'], 'evals'],
+  ])('an argument run does not take: %s → 2, and nothing runs', async (_name, flags, named) => {
+    expect(await codeOf(...flags)).toBe(2);
+    expect(stderr).toContain(`\`plune run\` takes no arguments, but got: ${named}\n`);
+    expect(stderr).toContain('start, finish, exec, delete, grep, report, import');
+    expect(handleRunMock).not.toHaveBeenCalled();
+  });
+
+  // The option parser's own errors are usage errors: 2 with the parser's message, on every command.
   it.each<[string, string[]]>([
     ['an option the command does not have', ['--no-such-flag']],
     ['an option with its value missing', ['--format']],
-  ])('%s → 1, from the option parser', async (_name, flags) => {
-    expect(await codeOf(...flags)).toBe(1);
+  ])('%s → 2, with the option parser’s message', async (_name, flags) => {
+    expect(await codeOf(...flags)).toBe(2);
     expect(stderr).toMatch(/^error: /);
   });
+});
+
+describe('CLI · every command · exit code of the option parser', () => {
+  // The exit throws here, as the real one ends the process: with an exit that returns, the command's action
+  // would run after the parser's error, on the real handler.
+  const codeOfArgv = async (...argv: string[]): Promise<unknown> => {
+    vi.mocked(process.exit).mockImplementation((code) => {
+      throw new Error(`exit ${String(code)}`);
+    });
+    const outcome = await createProgram()
+      .parseAsync(['node', 'plune', ...argv])
+      .then(() => 'no exit', (err: Error) => err.message);
+    for (const handler of [handleRunMock, ...Object.values(realHandlers)]) expect(handler).not.toHaveBeenCalled();
+    return outcome;
+  };
+
+  it.each<[string, string[], RegExp]>([
+    ['report · an unknown option', ['report', '--no-such-flag'], /^error: unknown option '--no-such-flag'/],
+    ['diff · a missing argument', ['diff', 'baseline.json'], /^error: missing required argument 'current'/],
+    ['run import · an unknown option', ['run', 'import', 'report.xml', '--no-such-flag'], /^error: unknown option/],
+    ['run import · an option value that is not a number', ['run', 'import', 'report.xml', '--timeout', 'abc'], /^error: option '--timeout <seconds>' argument 'abc' is invalid/],
+    ['run import · an option value out of range', ['run', 'import', 'report.xml', '--upload-concurrency', '99'], /^error: option '--upload-concurrency <n>' argument '99' is invalid/],
+    ['mcp check · an unknown option', ['mcp', 'check', '--no-such-flag'], /^error: unknown option/],
+    ['mcp · a subcommand the group does not have', ['mcp', 'bogus'], /^error: unknown command 'bogus'/],
+    ['plan · a subcommand the group does not have', ['plan', 'bogus'], /^error: unknown command 'bogus'/],
+    ['mcp · a command group without a subcommand prints its help', ['mcp'], /^Usage: plune mcp/],
+    ['no command at all prints the help', [], /^Usage: plune/],
+  ])('%s → 2', async (_name, argv, message) => {
+    expect(await codeOfArgv(...argv)).toBe('exit 2');
+    expect(stderr).toMatch(message);
+  });
+
+  it.each<[string, string[]]>([
+    ['--help', ['--help']],
+    ['run --help', ['run', '--help']],
+    ['--version', ['--version']],
+  ])('%s → 0', async (_name, argv) => {
+    expect(await codeOfArgv(...argv)).toBe('exit 0');
+  });
+});
+
+describe('CLI · run · its subcommands are not taken for an argument', () => {
+  const run = () => createProgram().commands.find((c) => c.name() === 'run')!;
+
+  it('run has these subcommands and no argument of its own', () => {
+    expect(run().commands.map((c) => c.name())).toEqual(['start', 'finish', 'exec', 'delete', 'grep', 'report', 'import']);
+    expect(run().registeredArguments).toEqual([]);
+  });
+
+  it.each(['start', 'finish', 'exec', 'delete', 'grep', 'report', 'import'])(
+    'run %s reaches the subcommand, not the suite',
+    async (sub) => {
+      // The help ends the process: here the exit throws, so that nothing after it runs.
+      let stdout = '';
+      vi.mocked(process.stdout.write).mockImplementation((chunk) => {
+        stdout += String(chunk);
+        return true;
+      });
+      vi.mocked(process.exit).mockImplementation((code) => {
+        throw new Error(`exit ${String(code)}`);
+      });
+      await expect(createProgram().parseAsync(['node', 'plune', 'run', sub, '--help'])).rejects.toThrow('exit 0');
+      expect(stdout).toContain(`Usage: plune run ${sub}`);
+      expect(stderr).toBe('');
+      expect(handleRunMock).not.toHaveBeenCalled();
+    },
+  );
 });
