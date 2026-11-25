@@ -85,11 +85,11 @@ describe('json-verify · format · the mismatch text', () => {
     expect(text('@matchesRegex("^a+$")', long).split('\n')[1]).toBe(
       '    $: function not satisfied: @matchesRegex("^a+$"): the value is 10001 characters long and a pattern is not run on more than 10000',
     );
-    const rows = Array.from({ length: 501 }, (_, id) => ({ id }));
-    expect(text(rows, rows, 'unordered')).toBe(
+    const rows = Array.from({ length: 2100 }, (_, id) => ({ id }));
+    expect(text(rows, [...rows].reverse(), 'unordered')).toBe(
       [
         '1 mismatch',
-        '    $: array too large to match in any order: 501 expected elements against 501 of the answer is over the limit of 250000 pairs',
+        '    $: too large: matching arrays in any order took more than 2000000 comparisons of elements',
       ].join('\n'),
     );
   });

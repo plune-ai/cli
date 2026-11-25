@@ -61,11 +61,13 @@ export class ExpectedJsonError extends Error {
 }
 
 /**
- * The most pairs (expected element, actual element) one array is matched over, counted after the plain
- * scalars are paired off. Matching is by augmenting paths: at most that many element comparisons, and in the
- * worst case that many steps again for each expected element. A larger array is reported as `too-large`.
+ * The work one comparison may spend on matching arrays in any order, over all its arrays and every depth: how
+ * many times an expected element is tried against an element of the answer. Plain scalars are paired through a
+ * map and cost nothing. Past the limit the whole comparison is one `too-large` mismatch.
  */
-export const MAX_MATCH_PAIRS = 250_000;
+export const MAX_MATCH_STEPS = 2_000_000;
+/** How many elements in a row may each give up their place for one new element; it is the depth of a recursion. */
+export const MAX_MATCH_DEPTH = 1000;
 
 type JsonObject = Record<string, unknown>;
 
@@ -123,14 +125,24 @@ export function validateExpected(expected: unknown): ExpectedIssue[] {
   return issues;
 }
 
+/** What one comparison shares between its walk and every probe inside it. */
+interface Budget {
+  steps: number;
+  /** Set once the matching went over a limit: every walk stops, and this is the comparison's only mismatch. */
+  spent?: Mismatch;
+}
+
 /** Collects mismatches up to a limit; a probe for "do these two match" stops at the first. */
 interface Sink {
   list: Mismatch[];
   limit: number;
+  budget: Budget;
 }
 
+const done = (sink: Sink): boolean => sink.list.length >= sink.limit || sink.budget.spent !== undefined;
+
 function walk(exp: unknown, act: unknown, mode: CompareMode, path: string, sink: Sink, literal: boolean): void {
-  if (sink.list.length >= sink.limit) return;
+  // Every caller has asked done(sink) already.
   if (!literal && isObject(exp)) {
     // Validated before the walk, so a marker here is never a broken one.
     const marker = readMarker(exp) as Marker | undefined;
@@ -175,6 +187,7 @@ function walkObject(
   literal: boolean,
 ): void {
   for (const key of Object.keys(exp)) {
+    if (done(sink)) return;
     const at = keyPath(path, key);
     if (own(act, key)) walk(exp[key], act[key], mode, at, sink, literal);
     else sink.list.push({ path: at, reason: 'missing-key', expected: exp[key] });
@@ -193,7 +206,7 @@ function walkInOrder(
   literal: boolean,
 ): void {
   const shared = Math.min(exp.length, act.length);
-  for (let i = 0; i < shared; i++) walk(exp[i], act[i], mode, `${path}[${i}]`, sink, literal);
+  for (let i = 0; i < shared && !done(sink); i++) walk(exp[i], act[i], mode, `${path}[${i}]`, sink, literal);
   for (let i = shared; i < exp.length; i++)
     sink.list.push({ path: `${path}[${i}]`, reason: 'missing-element', expected: exp[i] });
   for (let i = shared; i < act.length; i++)
@@ -227,6 +240,13 @@ function walkAnyOrder(
   sink: Sink,
   literal: boolean,
 ): void {
+  // A probe only asks whether the arrays match: it stops at the first sign that they do not.
+  const probing = sink.limit === 1;
+  if (probing && (mode === 'unordered' ? exp.length !== act.length : exp.length > act.length)) {
+    sink.list.push({ path, reason: 'no-match' });
+    return;
+  }
+  const { budget } = sink;
   const taken = new Uint8Array(act.length);
   const unmatched: number[] = [];
   const rest: number[] = [];
@@ -247,43 +267,63 @@ function walkAnyOrder(
     taken[j] = 1;
   });
 
-  if (rest.length > 0) {
+  if (rest.length > 0 && !(probing && unmatched.length > 0)) {
     const open: number[] = [];
     for (let j = 0; j < act.length; j++) if (taken[j] === 0) open.push(j);
-    if (rest.length * open.length > MAX_MATCH_PAIRS) {
-      sink.list.push({
-        path,
-        reason: 'too-large',
-        detail: `${rest.length} expected elements against ${open.length} of the answer is over the limit of ${MAX_MATCH_PAIRS} pairs`,
-      });
-      return;
-    }
-    // fits[e * open.length + c]: 0 not asked yet, 1 yes, 2 no.
-    const fits = new Uint8Array(rest.length * open.length);
+    // Asked pairs only: an array of 100,000 objects in order asks 100,000, not 10^10.
+    const fits = new Map<number, boolean>();
     const fit = (e: number, c: number): boolean => {
       const at = e * open.length + c;
-      if (fits[at] === 0) {
-        const probe: Sink = { list: [], limit: 1 };
+      let known = fits.get(at);
+      if (known === undefined) {
+        const probe: Sink = { list: [], limit: 1, budget };
         walk(exp[rest[e]!], act[open[c]!], mode, path, probe, literal);
-        fits[at] = probe.list.length === 0 ? 1 : 2;
+        known = probe.list.length === 0;
+        fits.set(at, known);
       }
-      return fits[at] === 1;
+      return known;
     };
     const holder = new Int32Array(open.length).fill(-1);
-    const place = (e: number, seen: Uint8Array): boolean => {
-      for (let c = 0; c < open.length; c++) {
-        if (seen[c] === 1 || !fit(e, c)) continue;
-        seen[c] = 1;
-        if (holder[c] === -1 || place(holder[c]!, seen)) {
+    // seen[c] === round: candidate c was already tried for the element of this round.
+    const seen = new Int32Array(open.length).fill(-1);
+    const place = (e: number, round: number, depth: number): boolean => {
+      if (depth > MAX_MATCH_DEPTH) {
+        budget.spent = {
+          path,
+          reason: 'too-large',
+          detail: `matching arrays in any order moved more than ${MAX_MATCH_DEPTH} elements for one`,
+        };
+        return false;
+      }
+      // From the element's own position on: arrays that are already in order match in one try each.
+      for (let n = 0; n < open.length; n++) {
+        const c = (e + n) % open.length;
+        if (seen[c] === round) continue;
+        if (--budget.steps < 0) {
+          budget.spent = {
+            path,
+            reason: 'too-large',
+            detail: `matching arrays in any order took more than ${MAX_MATCH_STEPS} comparisons of elements`,
+          };
+          return false;
+        }
+        if (!fit(e, c) || budget.spent !== undefined) continue;
+        seen[c] = round;
+        if (holder[c] === -1 || place(holder[c]!, round, depth + 1)) {
           holder[c] = e;
           return true;
         }
+        if (budget.spent !== undefined) return false;
       }
       return false;
     };
-    rest.forEach((i, e) => {
-      if (!place(e, new Uint8Array(open.length))) unmatched.push(i);
-    });
+    for (let e = 0; e < rest.length; e++) {
+      const placed = place(e, e, 0);
+      if (budget.spent !== undefined) return;
+      if (placed) continue;
+      unmatched.push(rest[e]!);
+      if (probing) break;
+    }
     holder.forEach((e, c) => {
       if (e !== -1) taken[open[c]!] = 1;
     });
@@ -310,7 +350,7 @@ export interface CompareOptions {
 export function compareJson(expected: unknown, actual: unknown, options: CompareOptions = {}): Mismatch[] {
   const issue = validateExpected(expected)[0];
   if (issue !== undefined) throw new ExpectedJsonError(issue.path, issue.message);
-  const sink: Sink = { list: [], limit: Infinity };
+  const sink: Sink = { list: [], limit: Infinity, budget: { steps: MAX_MATCH_STEPS } };
   walk(expected, actual, options.mode ?? 'exact', '$', sink, false);
-  return sink.list;
+  return sink.budget.spent === undefined ? sink.list : [sink.budget.spent];
 }

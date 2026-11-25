@@ -40,7 +40,7 @@ function reasonText(m: Mismatch): string {
     case 'no-match':
       return 'no match for an array element';
     case 'too-large':
-      return `array too large to match in any order: ${m.detail}`;
+      return `too large: ${m.detail}`;
   }
 }
 

@@ -191,8 +191,11 @@ reason, as in `json-schema`.
 **Arrays in any order.** In `unordered` and `contains`, each expected element needs an element of its own in
 the answer, and the pairing is the best there is: `{ sku: A }` does not take the only element that
 `{ sku: A, qty: 2 }` could match. Numbers, strings, booleans and `null` are paired at any size. Objects,
-arrays and checks are paired over at most 250,000 pairs (expected elements × elements of the answer left for
-them, so 500 × 500); past that the check fails and says the array is too large. `exact` has no such limit.
+arrays and checks are paired by trying an expected element against an element of the answer, and one check
+may make 2,000,000 such tries over all its arrays, nested ones included; arrays already in the expected order
+take one try per element. Past the limit, or when more than 1,000 elements in a row would each have to give
+up their place for one, the check fails with the single reason `too large`, and lists no other difference.
+`exact` has no such limit.
 
 ---
 

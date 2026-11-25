@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compareJson, ExpectedJsonError, validateExpected, MAX_MATCH_PAIRS } from '../compare.js';
+import { compareJson, ExpectedJsonError, validateExpected, MAX_MATCH_DEPTH, MAX_MATCH_STEPS } from '../compare.js';
 import type { CompareMode, Mismatch } from '../compare.js';
 
 const MODES: CompareMode[] = ['exact', 'unordered', 'contains'];
@@ -249,22 +249,75 @@ describe('json-verify · compare · matching of elements that fit more than one 
     expect(Date.now() - started).toBeLessThan(5000);
   });
 
-  it('objects past the pair limit are refused with a reason, not matched for minutes', () => {
-    const side = Math.ceil(Math.sqrt(MAX_MATCH_PAIRS)) + 1;
-    const rows = Array.from({ length: side }, (_, i) => ({ id: i }));
-    const got = compareJson({ rows }, { rows: [...rows].reverse() }, { mode: 'unordered' });
-    expect(got).toEqual([
-      {
-        path: '$.rows',
-        reason: 'too-large',
-        detail: `${side} expected elements against ${side} of the answer is over the limit of ${MAX_MATCH_PAIRS} pairs`,
-      },
-    ]);
-    // The same rows in order are an exact comparison, which has no such limit.
-    expect(compareJson({ rows }, { rows }, { mode: 'exact' })).toEqual([]);
+  it('arrays of arrays of objects, 100 by 100, are matched in well under two seconds', () => {
+    const grid = (shift: number): unknown[] =>
+      Array.from({ length: 100 }, (_, i) => Array.from({ length: 100 }, (_, j) => ({ id: i * 100 + ((j + shift) % 100) })));
+    for (const mode of ['unordered', 'contains'] as const) {
+      const started = Date.now();
+      expect(compareJson(grid(0), grid(0), { mode }), mode).toEqual([]);
+      expect(compareJson(grid(0), grid(1), { mode }), mode).toEqual([]);
+      expect(compareJson(grid(0), [...grid(7)].reverse(), { mode }), mode).toEqual([]);
+      expect(Date.now() - started, mode).toBeLessThan(2000);
+    }
   });
 
-  it('scalars do not count toward the pair limit', () => {
+  it('a probe stops at the first element with no match', () => {
+    // 300 rows of which none fits: without the stop each of the 300 x 300 pairs is compared for every row.
+    const rows = (tag: string): unknown[] => Array.from({ length: 300 }, (_, i) => [{ id: i, tag }, { n: i }]);
+    const started = Date.now();
+    const got = compareJson([rows('a'), 1], [rows('b'), 1], { mode: 'unordered' });
+    expect(summary(got)).toEqual(['$[0] no-match', '$[0] extra-element']);
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it('a probe gives up on arrays whose lengths cannot match', () => {
+    const big = Array.from({ length: 2000 }, (_, i) => ({ i }));
+    const started = Date.now();
+    // unordered: any other length; contains: a shorter answer.
+    expect(summary(compareJson([big], [big.slice(1)], { mode: 'unordered' }))).toEqual(['$[0] no-match', '$[0] extra-element']);
+    expect(summary(compareJson([big], [[...big, { i: -1 }]], { mode: 'unordered' }))).toEqual(['$[0] no-match', '$[0] extra-element']);
+    expect(summary(compareJson([big], [big.slice(1)], { mode: 'contains' }))).toEqual(['$[0] no-match']);
+    expect(compareJson([big.slice(1)], [big], { mode: 'contains' })).toEqual([]);
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it('the work of matching has one limit for the whole comparison, and past it the reason is too-large', () => {
+    // Every row fits its mirror only: each level alone is far under the limit, all of them together are over it.
+    const side = Math.ceil(Math.sqrt(MAX_MATCH_STEPS / 8));
+    const rows = (k: number): unknown[] => Array.from({ length: side }, (_, i) => ({ id: `${k}-${i}` }));
+    const expected = Array.from({ length: 16 }, (_, k) => rows(k));
+    const started = Date.now();
+    const got = compareJson({ data: expected }, { data: expected.map((r) => [...r].reverse()).reverse() }, { mode: 'unordered' });
+    expect(got).toEqual([
+      {
+        path: expect.stringMatching(/^\$\.data/) as string,
+        reason: 'too-large',
+        detail: `matching arrays in any order took more than ${MAX_MATCH_STEPS} comparisons of elements`,
+      },
+    ]);
+    expect(Date.now() - started).toBeLessThan(3000);
+    // One such array alone is within the limit, and the same data in order is an exact comparison with none.
+    expect(compareJson(rows(0), [...rows(0)].reverse(), { mode: 'unordered' })).toEqual([]);
+    expect(compareJson({ data: expected }, { data: expected }, { mode: 'exact' })).toEqual([]);
+  });
+
+  it('a long chain of elements that each must give up their place is refused, not run out of stack', () => {
+    // Row i fits answer i and answer i + 1; the last expected element fits answer 0 only, so every row moves up one.
+    const chain = (n: number): [unknown[], unknown[]] => [
+      [...Array.from({ length: n }, (_, i) => ({ [`k${i}`]: 1 })), { z: 1 }],
+      Array.from({ length: n + 1 }, (_, j) => ({ [`k${j}`]: 1, ...(j === 0 ? { z: 1 } : { [`k${j - 1}`]: 1 }) })),
+    ];
+    expect(compareJson(...chain(MAX_MATCH_DEPTH - 10), { mode: 'contains' })).toEqual([]);
+    expect(compareJson(...chain(MAX_MATCH_DEPTH * 3), { mode: 'contains' })).toEqual([
+      {
+        path: '$',
+        reason: 'too-large',
+        detail: `matching arrays in any order moved more than ${MAX_MATCH_DEPTH} elements for one`,
+      },
+    ]);
+  });
+
+  it('scalars do not count toward the limit', () => {
     const scalars = Array.from({ length: 50_000 }, (_, i) => i);
     expect(equal([{ id: 1 }, ...scalars], [...scalars, { id: 1, x: 2 }], 'contains')).toBe(true);
   });
