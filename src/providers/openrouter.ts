@@ -12,13 +12,14 @@ export function makeOpenRouterProvider(
   config: ProviderConfig,
   env: NodeJS.ProcessEnv,
   pricing?: PricingMap,
+  stubOrigin?: string,
 ): Provider {
   return makeOpenAiCompatibleProvider({
     config,
     env,
     pricing,
     apiKeyEnv: 'OPENROUTER_API_KEY',
-    baseURL: OPENROUTER_BASE_URL,
+    baseURL: stubOrigin !== undefined ? `${stubOrigin}/api/v1` : OPENROUTER_BASE_URL,
     reportsCost: true, // OpenRouter reports the call's actual cost via usage.cost (ADR-PRC02)
   });
 }

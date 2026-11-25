@@ -331,6 +331,8 @@ const evalConfigSchema = z
     assertions: z.array(assertionConfigSchema),
     ...evalRepeatsShape,
     mcp: evalMcpSchema.optional(),
+    // The path of a stub file; the file itself is read and checked when the run starts.
+    stubs: z.string().min(1).optional(),
   })
   .refine(
     (data) => !(data.prompt !== undefined && data.prompt_file !== undefined),
@@ -385,6 +387,12 @@ export const pluneConfigSchema = z
         });
     }
     config.evals.forEach((evalConfig, i) => {
+      if (evalConfig.stubs !== undefined && evalConfig.mcp !== undefined)
+        ctx.addIssue({
+          code: 'custom',
+          path: ['evals', i, 'stubs'],
+          message: `eval "${evalConfig.id}" has both stubs and mcp: stubs answer the model call of an eval without mcp`,
+        });
       const server = evalConfig.mcp?.server;
       if (server === undefined) {
         // Refused here, before any model call: without `mcp` a tool-call assertion has nothing to measure.
