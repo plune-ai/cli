@@ -108,6 +108,9 @@ function readMarker(exp: JsonObject): Marker | string | undefined {
  */
 export const MAX_EXPECTED_DEPTH = 100;
 
+/** `typeof` of what JSON has besides arrays and objects; `null` is an object. */
+const JSON_LEAF = new Set(['string', 'number', 'boolean', 'object']);
+
 /** Every error of an expected value, with the path of each. Empty means `compareJson` will not throw. */
 export function validateExpected(expected: unknown): ExpectedIssue[] {
   const issues: ExpectedIssue[] = [];
@@ -118,8 +121,15 @@ export function validateExpected(expected: unknown): ExpectedIssue[] {
     } else if (Array.isArray(exp)) {
       exp.forEach((item, i) => visit(item, `${path}[${i}]`, depth + 1, literal));
     } else if (isObject(exp)) {
+      const proto: unknown = Object.getPrototypeOf(exp);
       const marker = literal ? undefined : readMarker(exp);
-      if (typeof marker === 'string') issues.push({ path, message: marker });
+      if (proto !== Object.prototype && proto !== null)
+        issues.push({ path, message: 'an object that is not plain JSON data' });
+      // As a key it is easy to lose on the way (a copy by assignment sets the prototype instead), and the
+      // check would then pass on anything: refused rather than compared.
+      else if (own(exp, '__proto__'))
+        issues.push({ path: keyPath(path, '__proto__'), message: 'the key __proto__ is not supported in expected' });
+      else if (typeof marker === 'string') issues.push({ path, message: marker });
       else if (marker === undefined)
         for (const key of Object.keys(exp)) visit(exp[key], keyPath(path, key), depth + 1, literal);
       else visit(marker.value, path, depth + 1, marker.literal);
@@ -130,6 +140,9 @@ export function validateExpected(expected: unknown): ExpectedIssue[] {
         // The parser throws nothing but a CheckSyntaxError.
         issues.push({ path, message: (err as CheckSyntaxError).message });
       }
+    } else if (!JSON_LEAF.has(typeof exp) || (typeof exp === 'number' && !Number.isFinite(exp))) {
+      const what = typeof exp === 'number' || exp === undefined ? String(exp) : `a ${typeof exp}`;
+      issues.push({ path, message: `${what} is not a JSON value` });
     }
   };
   visit(expected, '$', 0, false);

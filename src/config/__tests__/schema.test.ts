@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { parse as parseYaml } from 'yaml';
 import { pluneConfigSchema } from '../schema.js';
 
 const validBase = {
@@ -207,6 +208,27 @@ describe('pluneConfigSchema', () => {
         'evals.0.assertions.0.expected: $.user.id: @gt takes one number; got @gt()',
         'evals.0.assertions.0.expected: $.user.tags[0]: $mode must be one of exact, unordered, contains; got "loose"',
         expect.stringMatching(/^evals\.0\.assertions\.0\.expected: \$\.name: @isStrin is not a check function \(known: /),
+      ]);
+    });
+
+    it('refuses the key __proto__ with its path, from YAML and from JSON, and does not drop it', () => {
+      const fromYaml = parseYaml('user:\n  __proto__:\n    admin: true\n') as unknown;
+      const fromJson = JSON.parse('{"user":{"__proto__":{"admin":true}}}') as unknown;
+      for (const expected of [fromYaml, fromJson])
+        expect(issuesOf({ type: 'json-verify', mode: 'contains', expected })).toEqual([
+          'evals.0.assertions.0.expected: $.user.__proto__: the key __proto__ is not supported in expected',
+        ]);
+      expect(issuesOf({ type: 'json-verify', expected: { $literal: fromJson } })).toHaveLength(1);
+    });
+
+    it('refuses a value JSON does not have', () => {
+      const fromYaml = parseYaml('limit: .inf\nratio: .nan\n') as unknown;
+      expect(issuesOf({ type: 'json-verify', expected: fromYaml })).toEqual([
+        'evals.0.assertions.0.expected: $.limit: Infinity is not a JSON value',
+        'evals.0.assertions.0.expected: $.ratio: NaN is not a JSON value',
+      ]);
+      expect(issuesOf({ type: 'json-verify', expected: undefined })).toEqual([
+        'evals.0.assertions.0.expected: expected is required (null is written as null)',
       ]);
     });
 

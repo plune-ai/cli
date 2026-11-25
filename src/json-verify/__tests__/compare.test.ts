@@ -417,6 +417,33 @@ describe('json-verify · compare · the mode marker and its escape', () => {
     expect(validateExpected(marked)).toEqual([{ path: '$', message: `expected is nested deeper than ${MAX_EXPECTED_DEPTH} levels` }]);
   });
 
+  it('a value that is not JSON is an error of the expected value, under $literal too', () => {
+    const messages = (expected: unknown): string[] => validateExpected(expected).map((i) => `${i.path}: ${i.message}`);
+    expect(messages({ a: undefined, b: [NaN, -Infinity], c: 10n, d: () => 1 })).toEqual([
+      '$.a: undefined is not a JSON value',
+      '$.b[0]: NaN is not a JSON value',
+      '$.b[1]: -Infinity is not a JSON value',
+      '$.c: a bigint is not a JSON value',
+      '$.d: a function is not a JSON value',
+    ]);
+    expect(messages({ when: new Date(0), list: new Map(), made: Object.create({ inherited: 1 }) as unknown })).toEqual([
+      '$.when: an object that is not plain JSON data',
+      '$.list: an object that is not plain JSON data',
+      '$.made: an object that is not plain JSON data',
+    ]);
+    expect(messages({ $literal: [NaN, new Date(0)] })).toEqual([
+      '$[0]: NaN is not a JSON value',
+      '$[1]: an object that is not plain JSON data',
+    ]);
+    expect(messages(JSON.parse('{"a":{"__proto__":1},"b":{"$literal":{"__proto__":{}}}}'))).toEqual([
+      '$.a.__proto__: the key __proto__ is not supported in expected',
+      '$.b.__proto__: the key __proto__ is not supported in expected',
+    ]);
+    const bare = Object.assign(Object.create(null) as Record<string, unknown>, { a: 1 });
+    expect(messages(bare)).toEqual([]);
+    expect(compareJson(bare, { a: 1 })).toEqual([]);
+  });
+
   it('validateExpected finds every error, and none inside $literal or in plain data', () => {
     const expected = {
       ok: { $mode: 'contains', $value: { deep: { $mode: 'nope', $value: 1 } } },

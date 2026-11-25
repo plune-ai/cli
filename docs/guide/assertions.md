@@ -170,7 +170,8 @@ in a JavaScript pattern without the `u` flag.
 **Another mode for one part.** `{ $mode: <mode>, $value: <value> }` in place of a value compares that value,
 and everything under it, in that mode. The keys `$mode` and `$literal` are reserved in `expected`: for data
 that really has one, or for a part where nothing should be read as a check or a marker, wrap it:
-`{ $literal: { $mode: dark } }` expects the object `{ "$mode": "dark" }`.
+`{ $literal: { $mode: dark } }` expects the object `{ "$mode": "dark" }`. A key named `__proto__` cannot be
+checked: it is a config error anywhere in `expected`, as is a value JSON does not have (`.inf`, `.nan`).
 
 **What a failure says.** The reason lists each difference with its JSON path, the expected and the actual
 fragment, in a fixed order, so the same answer gives the same text:

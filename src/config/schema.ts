@@ -92,15 +92,20 @@ const jsonSchemaAssertionSchema = z.object({
 });
 
 // A broken marker or check inside `expected` is refused here, with its JSON path: before any model call.
+// `expected` is taken as it was parsed and checked by `validateExpected`, not by `z.json()`: that one drops a
+// key `__proto__` without a word, and the check would then pass on an answer that has no such key.
 const jsonVerifyAssertionSchema = z
   .object({
     type: z.literal('json-verify'),
-    expected: z.json(),
+    expected: z.any(),
     mode: z.enum(COMPARE_MODES).optional(),
     extract: z.enum(['auto', 'strict']).optional(),
   })
   .superRefine((a, ctx) => {
-    for (const issue of validateExpected(a.expected))
+    if (a.expected === undefined)
+      ctx.addIssue({ code: 'custom', path: ['expected'], message: 'expected is required (null is written as null)' });
+    else
+      for (const issue of validateExpected(a.expected))
       ctx.addIssue({ code: 'custom', path: ['expected'], message: `${issue.path}: ${issue.message}` });
   });
 
