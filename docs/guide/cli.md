@@ -1691,7 +1691,7 @@ can neither drive the recorder nor read a replayed answer. A program that is not
 `Origin`, so a request from `curl` or a client library with a local `Host` is served: that is the case
 the command is for.
 
-**What a recording holds.** The file is a stub file of version 1 (JSON, which is also YAML, under six
+**What a recording holds.** The file is a stub file of version 1 (JSON, which is also YAML, under seven
 comment lines: the date and the origin, a warning, and what the masking does and does not find). **The
 prompts and the answers are stored as they were sent and received and may hold personal or confidential
 text.** It is written inside the current folder only, never uploaded, and created for its owner only.
@@ -1706,13 +1706,15 @@ text.** It is written inside the current folder only, never uploaded, and create
 
 **Credentials.** Two rules, and nothing beyond them.
 
-1. *By name.* A field of a JSON body, of the request or of the answer and at any depth, holds `[masked]`
-   in place of its value when its name, read without case and separators, ends with `apikey`,
+1. *By name.* A field of a JSON body, at any depth, holds `[masked]` in place of its value when its name,
+   read without case and separators, ends with `apikey`,
    `accesskey`, `secretkey`, `privatekey`, `secret`, `password`, `passwd`, `passphrase`, `pwd`, `token`,
    `authorization`, `credential`, `credentials`, `cookie`, `jwt`, `signature` or `sessionid`. So
    `api_key`, `clientSecret` and `access_token` are masked, and `key`, `auth` and `max_tokens` are not.
-   An API that streams its answer in fields with such a name (`token`, for one) is recorded with those
-   fields masked: such a recording is of no use for a replay.
+   In a request such a field is masked whatever it holds. In an answer it is masked only when it holds a
+   string of 16 characters or more with no whitespace that is not letters only: an answer names ordinary
+   things this way too (`token` for a piece of text with its probability, `next_page_token`), and those
+   stay as they came.
 2. *By value.* A credential value is also replaced wherever it is found, if it came in a header, the query
    or a cookie and has 8 characters or more, or in a body field and has 16 or more with no whitespace.
    A header, query parameter or cookie counts when its name looks like a credential's (`authorization`,
@@ -1722,8 +1724,9 @@ text.** It is written inside the current folder only, never uploaded, and create
    is, URL-encoded, JSON-escaped, in base64, base64url and hex. Keys of JSON objects are never changed: an
    exchange that would hold a searched value in a key is not recorded.
 
-Not searched for: a value of letters only, a value over 4096 characters, and a value in a form other
-than plain, URL-encoded, JSON-escaped, base64 or hex. A value learnt from a later request is also removed
+Not searched for: a value of letters only, and a value in a form other than plain, URL-encoded,
+JSON-escaped, base64 or hex; a value over 4096 characters is found by its first 4096, and the find masks
+the text up to the next whitespace. A value learnt from a later request is also removed
 from what is already in the file. An answer that comes in pieces (the events of a stream, lines of JSON) is
 also read joined, and when a searched value shows up only across pieces, the exchange is not recorded.
 
@@ -1731,7 +1734,10 @@ also read joined, and when a searched value shows up only across pieces, the exc
 characters and not under a secret's name, made of letters only, or with whitespace in a body field. A
 credential the request carried where no rule looks: a path segment, a header or a body field with an
 ordinary name. A secret in an answer under an ordinary name, or in text that is not JSON. A value inside
-a longer base64 text, compressed or hashed. And everything the prompts and the answers say. Read a
+a longer base64 text, compressed or hashed. A token an answer issues that is shorter than 16 characters.
+A value split over an answer in a shape the joined reading does not put together: across `id:` or
+`event:` lines and `data:` lines, between interleaved choices of one stream, or inside one JSON document.
+And everything the prompts and the answers say. Read a
 recording before you share it.
 
 **Replay.** A request is matched by its method, its path as written (`*` is a character there) and its
@@ -1760,7 +1766,8 @@ file open) it is tried again for about a second, and exchanges whose write faile
 out with the next write. If some are still unwritten when the recorder stops, it says how many and exits
 `1`. While it runs, the recorder keeps a lock file beside the recording (`<file>.lock`, with its process
 id): a second recorder on the same file is refused, also with `--force`, and the lock of a process that
-is gone is taken over with a warning. Temp files a killed recorder left behind are removed by the next
+is gone is taken over with a warning. If the refusal names a process that is no recorder (the id was
+reused), delete the lock file it names. Temp files a killed recorder left behind are removed by the next
 one once they are a minute old.
 
 ### Options

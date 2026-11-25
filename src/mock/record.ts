@@ -18,17 +18,18 @@
 //
 // Credentials, two rules and no more.
 //
-// 1. By name. A field of a JSON body, of the request or of the answer, whose name `isSecretBodyKey`
-//    accepts is written with the mask in place of its value, whatever the value is. In a request a replay
-//    reads that as "any value, but there".
+// 1. By name. A field of a JSON body whose name `isSecretBodyKey` accepts is written with the mask in
+//    place of its value: in a request whatever the value is, which a replay reads as "any value, but
+//    there"; in an answer only when the value is a string that rule 2 searches for from a body field.
 // 2. By value. A value is searched for in every string that is written, the path included, when it
 //    looks like a credential: it came in a header, a query parameter or a cookie with a secret-looking
 //    name, or as the password of Basic authorization, and has `MIN_SECRET_LENGTH` characters or more; or
 //    it came in a secret-named field of a JSON or form-encoded body, of the request or of the answer, and
 //    has `MIN_BODY_SECRET_LENGTH` or more with no whitespace. Either way it holds a character that is not
-//    a letter and is at most `MAX_SECRET_LENGTH` long. The search is a plain text search, with the case of
-//    Latin letters ignored, for the value as it is, URL-encoded, JSON-escaped, in base64, base64url and
-//    hex. Object keys are never rewritten: a stub that would hold a searched value in a key, or anywhere
+//    a letter. The search is a plain text search, with the case of Latin letters ignored, for the value
+//    as it is, URL-encoded, JSON-escaped, in base64, base64url and hex; of a value over
+//    `MAX_SECRET_LENGTH` its start of that length is searched for, and a find takes the text up to the
+//    next whitespace with it. Object keys are never rewritten: a stub that would hold a searched value in a key, or anywhere
 //    after the masking, is not written.
 //
 // An answer that comes in pieces (the events of a stream, lines of JSON, text with lines) is also read
@@ -76,7 +77,7 @@ import {
 export const MIN_SECRET_LENGTH = 8;
 /** A value from a body field is searched for from this length on, if it holds no whitespace. */
 export const MIN_BODY_SECRET_LENGTH = 16;
-/** A longer value is not searched for. */
+/** Of a longer value only its start of this length is searched for. */
 export const MAX_SECRET_LENGTH = 4096;
 /** A response body over this is passed through and not recorded. */
 export const RECORD_BODY_CAP = 8 * 1024 * 1024;
@@ -96,9 +97,10 @@ const STALE_TEMP_MS = 60_000;
 /** The comment lines every recording starts with, after the line with the date and the origin. */
 export const RECORDING_NOTES = [
   '# Prompts and answers are stored as they were sent and received: they may hold personal or confidential text.',
-  `# A field of a JSON body whose name is a secret's holds ${MASK} in place of its value.`,
+  `# A field with a secret's name holds ${MASK} in place of its value: in the JSON body of a request whatever the value is, in the JSON of an answer only a string of ${MIN_BODY_SECRET_LENGTH} characters or more with no whitespace that is not letters only.`,
   `# A credential value is also replaced wherever it is found, if it came in a header, the query or a cookie and has ${MIN_SECRET_LENGTH} characters or more, or in a body field and has ${MIN_BODY_SECRET_LENGTH} or more with no whitespace.`,
-  `# Not searched for: a value of letters only, a value over ${MAX_SECRET_LENGTH} characters, and a value in a form other than plain, URL-encoded, JSON-escaped, base64 or hex.`,
+  `# Not searched for: a value of letters only, and a value in a form other than plain, URL-encoded, JSON-escaped, base64 or hex; a value over ${MAX_SECRET_LENGTH} characters is found by its first ${MAX_SECRET_LENGTH}.`,
+  '# A credential in a path segment, or under an ordinary header, query or body-field name, is not known to the recorder.',
   '# Request headers, query strings and timing are not stored. Keep this file local.',
 ];
 
@@ -223,9 +225,9 @@ export function isSecretBodyKey(name: string): boolean {
   return SECRET_BODY_ENDINGS.some((e) => plain.endsWith(e));
 }
 
-/** Whether a value is searched for: long enough, not too long, and not a plain word. */
+/** Whether a value is searched for: long enough, and not a plain word. */
 const searched = (value: string, min: number): boolean =>
-  value.length >= min && value.length <= MAX_SECRET_LENGTH && /[^A-Za-z]/.test(value);
+  value.length >= min && /[^A-Za-z]/.test(value);
 
 /** The values of a secret-looking header, query parameter or cookie that are searched for. */
 function headerSecrets(value: string): string[] {
@@ -255,15 +257,18 @@ function strings(value: unknown, keys = false, into: string[] = []): string[] {
 }
 
 /**
- * A JSON body with the mask in place of the value of every field with a secret's name, at any depth.
- * The strings such fields held go to `held`.
+ * A JSON body with the mask in place of the value of the fields with a secret's name, at any depth. In a
+ * request every such field is masked, whatever it holds. In an answer (`answer`) only one that holds a
+ * string a body field is searched for by: an answer names ordinary things this way too (`token` for a
+ * piece of text, `next_page_token`), and those stay. The strings the masked fields held go to `held`.
  */
-function maskNamed(value: unknown, held: string[]): unknown {
-  if (Array.isArray(value)) return value.map((item) => maskNamed(item, held));
+function maskNamed(value: unknown, held: string[], answer = false): unknown {
+  if (Array.isArray(value)) return value.map((item) => maskNamed(item, held, answer));
   if (value === null || typeof value !== 'object') return value;
   return Object.fromEntries(
     Object.entries(value).map(([k, v]) => {
-      if (!isSecretBodyKey(k)) return [k, maskNamed(v, held)];
+      const secret = isSecretBodyKey(k) && (!answer || (typeof v === 'string' && bodySecret(v)));
+      if (!secret) return [k, maskNamed(v, held, answer)];
       held.push(MASK, ...strings(v));
       return [k, MASK];
     }),
@@ -276,35 +281,43 @@ function formSecrets(text: string): string[] {
 }
 
 // Only A-Z: the text keeps its length, so a place found in the lowered text is the same place in the text.
-const lower = (text: string): string => text.replace(/[A-Z]+/g, (run) => run.toLowerCase());
+const lower = (text: string): string =>
+  /[A-Z]/.test(text) ? text.replace(/[A-Z]+/g, (run) => run.toLowerCase()) : text;
 
 interface Form {
   /** Lowered. */
   text: string;
   /** A base64 form: `=` signs that follow a find go with it. */
   padded: boolean;
+  /** The start of a longer value: a find goes on to the next whitespace, so the rest goes with it. */
+  start: boolean;
 }
 
-/** The forms a value is searched in. */
+/** The forms a value is searched in. Of a value over `MAX_SECRET_LENGTH`, the forms of its start. */
 function formsOf(value: string): Form[] {
-  const bytes = Buffer.from(value);
-  const plain = [value, encodeURIComponent(value), JSON.stringify(value).slice(1, -1)];
+  const start = value.length > MAX_SECRET_LENGTH;
+  const head = start ? value.slice(0, MAX_SECRET_LENGTH) : value;
+  let bytes = Buffer.from(head);
+  const hex = bytes.toString('hex');
+  // Whole groups of three bytes only: what base64 makes of them does not depend on what follows.
+  if (start) bytes = bytes.subarray(0, bytes.length - (bytes.length % 3));
+  const plain = [head, encodeURIComponent(head), JSON.stringify(head).slice(1, -1)];
   const base64 = [bytes.toString('base64').replace(/=+$/, ''), bytes.toString('base64url')];
   return [
-    ...plain.map((text) => ({ text: lower(text), padded: false })),
-    { text: bytes.toString('hex'), padded: false },
-    ...base64.map((text) => ({ text: lower(text), padded: true })),
+    ...plain.map((text) => ({ text: lower(text), padded: false, start })),
+    { text: hex, padded: false, start },
+    ...base64.map((text) => ({ text: lower(text), padded: true, start })),
   ];
 }
 
 const holds = (lowered: string, forms: readonly Form[]): boolean =>
   forms.some((form) => lowered.includes(form.text));
 
-/** `text` with every find of every form replaced by the mask. */
+/** `text` with every find of every form replaced by the mask. The text is lowered once, and rewritten only on a find. */
 function maskText(text: string, forms: readonly Form[]): string {
   let out = text;
+  let lowered = lower(text);
   for (const form of forms) {
-    const lowered = lower(out);
     let at = lowered.indexOf(form.text);
     if (at === -1) continue;
     let built = '';
@@ -313,9 +326,11 @@ function maskText(text: string, forms: readonly Form[]): string {
       built += out.slice(from, at) + MASK;
       from = at + form.text.length;
       for (let pad = 0; form.padded && pad < 2 && out[from] === '='; pad += 1) from += 1;
+      while (form.start && from < out.length && !/\s/.test(out[from]!)) from += 1;
       at = lowered.indexOf(form.text, from);
     }
     out = built + out.slice(from);
+    lowered = lower(out);
   }
   return out;
 }
@@ -425,18 +440,18 @@ function bodyForm(body: Buffer, contentType: string): BodyForm | undefined {
  * held, and what a form-encoded answer holds under secret names, goes to `held`.
  */
 function namedMasked(body: BodyForm, contentType: string, held: string[]): BodyForm {
-  if ('json' in body) return { json: maskNamed(body.json, held) };
+  if ('json' in body) return { json: maskNamed(body.json, held, true) };
   if ('sse' in body)
     return {
       sse: body.sse.map((chunk) =>
-        typeof chunk === 'string' ? chunk : { ...chunk, data: maskNamed(chunk.data, held) },
+        typeof chunk === 'string' ? chunk : { ...chunk, data: maskNamed(chunk.data, held, true) },
       ),
     };
   if (/^application\/x-www-form-urlencoded/i.test(contentType))
     held.push(...formSecrets(body.text));
   try {
     const before = held.length;
-    const json = maskNamed(JSON.parse(body.text), held);
+    const json = maskNamed(JSON.parse(body.text), held, true);
     if (held.length > before) return { json };
   } catch {
     // Not one JSON document: its pieces below.
@@ -446,7 +461,7 @@ function namedMasked(body: BodyForm, contentType: string, held: string[]): BodyF
   for (const payload of payloads(body))
     if (typeof payload === 'string')
       try {
-        maskNamed(JSON.parse(payload), held);
+        maskNamed(JSON.parse(payload), held, true);
       } catch {
         // Not JSON.
       }
@@ -479,10 +494,16 @@ const stubHead = (method: string, times: string): string =>
  * The lines of one stub for the file, or why it cannot be written. Fail closed: the stub goes into the
  * file only if it reads back as what was meant and holds no searched value.
  */
-function stubLines(exchange: Exchange, forms: readonly Form[]): string | { skip: string } {
-  const rest = maskDeep(exchange.rest, forms) as Exchange['rest'];
-  if (joined(rest.response).some((text) => holds(lower(text), forms)))
-    return { skip: 'a credential is split over the pieces of the answer' };
+function stubLines(exchange: Exchange, known: readonly Form[]): string | { skip: string } {
+  // Only the forms that occur somewhere in the exchange are worked with; mostly that is none, and the
+  // exchange is then written as it came, with no string of it looked at again.
+  const forms = known.filter((form) => exchange.haystack.includes(form.text));
+  let rest = exchange.rest;
+  if (forms.length > 0) {
+    rest = maskDeep(exchange.rest, forms) as Exchange['rest'];
+    if (joined(rest.response).some((text) => holds(lower(text), forms)))
+      return { skip: 'a credential is split over the pieces of the answer' };
+  }
   // `{` of the object is replaced by the head with the method and `times`, which change after this.
   const body = `      ${JSON.stringify(rest, null, 2).split('\n').slice(1).join('\n      ').slice(0, -1)}    }`;
   const text = stubHead(exchange.method, 'once') + body;
@@ -490,13 +511,17 @@ function stubLines(exchange: Exchange, forms: readonly Form[]): string | { skip:
   try {
     const meant = stubSchema.safeParse({ method: exchange.method, times: 'once', ...rest });
     if (!meant.success) return unsafe;
-    const read = parseStubFile(`{"version":${STUB_FILE_VERSION},"stubs":[\n${text}\n]}`).stubs[0];
-    if (JSON.stringify(read) !== JSON.stringify(meant.data)) return unsafe;
+    // JSON in printable ASCII is read by a YAML reader as JSON reads it, so it needs no reading back.
+    // Anything else is read back with the reader of stub files, which is slow: seconds for megabytes.
+    if (!/^[\x20-\x7e\n]*$/.test(text) || text.includes('__proto__')) {
+      const read = parseStubFile(`{"version":${STUB_FILE_VERSION},"stubs":[\n${text}\n]}`).stubs[0];
+      if (JSON.stringify(read) !== JSON.stringify(meant.data)) return unsafe;
+    }
   } catch {
     return unsafe;
   }
   // A key holds one, or the masking made one: nothing a replacement can fix.
-  return holds(lower(text), forms) ? unsafe : body;
+  return forms.length > 0 && holds(lower(text), forms) ? unsafe : body;
 }
 
 // Hop-by-hop headers, and the ones this proxy sets itself or never passes on.
@@ -593,6 +618,8 @@ export async function startRecorder(options: RecordOptions): Promise<Recorder> {
   // The longest first: a whole header value before the key inside it.
   let forms: Form[] = [];
   const inFlight = new Set<http.ClientRequest>();
+  /** Answers handed to their clients whose exchange is not in memory yet. */
+  const settling = new Set<Promise<void>>();
   let closing: Promise<void> | undefined;
   let port = 0;
 
@@ -779,7 +806,8 @@ export async function startRecorder(options: RecordOptions): Promise<Recorder> {
     }
     // A credential seen for the first time here may sit in a stub written before, also when this
     // request ends up not recorded: that stub is written again now.
-    if (learn([...carried, ...inBody.filter(bodySecret)])) void flush();
+    // Not in the way of this request: the rewrite starts once it has been sent on.
+    if (learn([...carried, ...inBody.filter(bodySecret)])) setImmediate(() => void flush());
 
     headers['host'] = target.host;
     // The body is recorded as text, so the upstream is asked not to compress it.
@@ -865,7 +893,27 @@ export async function startRecorder(options: RecordOptions): Promise<Recorder> {
           fail(undefined);
           return;
         }
-        res.end();
+        // The client has its answer before anything is made of it for the file: reading the body,
+        // masking and writing start once the response has been handed over whole.
+        const settled = new Promise<void>((resolve) => {
+          res.once('close', () => {
+            if (!res.writableFinished) resolve();
+          });
+          res.end(() =>
+            setImmediate(() => {
+              try {
+                if (res.writableFinished) record();
+              } catch {
+                warn(`not recorded: ${method} ${status} (it cannot be written safely)`);
+              }
+              resolve();
+            }),
+          );
+        });
+        settling.add(settled);
+        void settled.then(() => settling.delete(settled));
+      });
+      const record = (): void => {
         const skip = (why: string): void => warn(`not recorded: ${method} ${status} (${why})`);
         if (status === 304) return skip('a 304 has no body to replay');
         if (status >= 300 && status < 400) return skip('a redirect is passed back, not followed');
@@ -898,7 +946,7 @@ export async function startRecorder(options: RecordOptions): Promise<Recorder> {
           onDisk: false,
         });
         void flush();
-      });
+      };
     });
     upstream.end(body);
   }
@@ -964,7 +1012,7 @@ export async function startRecorder(options: RecordOptions): Promise<Recorder> {
         const pid = Number(fs.readFileSync(lock, 'utf8').trim());
         if (Number.isInteger(pid) && pid > 0 && isRunning(pid))
           throw new RecordError(
-            `another recorder (process ${pid}) is writing this file: stop it first, or give another path`,
+            `another recorder (process ${pid}) is writing this file: stop it first, or give another path. Its lock is ${lock}: if no recorder is running, delete that file`,
           );
         fs.rmSync(lock, { force: true });
         warn('a lock of a recorder that is no longer running was found and taken over');
@@ -1024,6 +1072,7 @@ export async function startRecorder(options: RecordOptions): Promise<Recorder> {
         for (const upstream of inFlight) upstream.destroy();
         server.closeAllConnections();
         await closed;
+        await Promise.all(settling);
         await writing;
         // What a failed write left in memory gets one more write.
         if (exchanges.some((e) => !e.onDisk)) await flush();

@@ -546,12 +546,13 @@ describe('mock · record · what is written', () => {
     await post(`${r.url}/v1/chat?q=1`, {});
     await r.close();
     const lines = fs.readFileSync(r.file, 'utf8').split('\n');
-    expect(lines.slice(0, 6)).toEqual([
+    expect(lines.slice(0, 7)).toEqual([
       `# Recorded by \`plune mock --record\` on 2026-01-02 from ${up.origin}`,
       '# Prompts and answers are stored as they were sent and received: they may hold personal or confidential text.',
-      "# A field of a JSON body whose name is a secret's holds [masked] in place of its value.",
+      "# A field with a secret's name holds [masked] in place of its value: in the JSON body of a request whatever the value is, in the JSON of an answer only a string of 16 characters or more with no whitespace that is not letters only.",
       '# A credential value is also replaced wherever it is found, if it came in a header, the query or a cookie and has 8 characters or more, or in a body field and has 16 or more with no whitespace.',
-      '# Not searched for: a value of letters only, a value over 4096 characters, and a value in a form other than plain, URL-encoded, JSON-escaped, base64 or hex.',
+      '# Not searched for: a value of letters only, and a value in a form other than plain, URL-encoded, JSON-escaped, base64 or hex; a value over 4096 characters is found by its first 4096.',
+      '# A credential in a path segment, or under an ordinary header, query or body-field name, is not known to the recorder.',
       '# Request headers, query strings and timing are not stored. Keep this file local.',
     ]);
   });
@@ -1212,14 +1213,13 @@ describe('mock · record · credentials, second pass', () => {
     expect((await loadStubFile(r.file)).stubs[0]!.response?.json).toEqual({ leaked: '[masked]' });
   });
 
-  it('masks secret-named fields of a JSON answer by name, short ones too', async () => {
+  it('masks in an answer a secret-named field that holds a credential-like string, in JSON of every form', async () => {
+    const issued = `at-${'0123456789abcdef'.repeat(2)}-${KEY_CORE.slice(0, 4)}`;
+    expect(issued).toHaveLength(40);
     const answers: Record<string, [string, string]> = {
-      '/compact': [
-        'application/json',
-        '{"access_token":"short-tok","client_secret":{"value":"s3cr3t"},"expires_in":3600}',
-      ],
-      '/pretty': ['application/json', '{\n  "access_token": "short-tok",\n  "ok": true\n}\n'],
-      '/stream': ['text/event-stream', 'data: {"session":{"client_secret":"s3cr3t"},"n":1}\n\n'],
+      '/compact': ['application/json', `{"access_token":"${issued}","expires_in":3600}`],
+      '/pretty': ['application/json', `{\n  "access_token": "${issued}",\n  "ok": true\n}\n`],
+      '/stream': ['text/event-stream', `data: {"session":{"client_secret":"${issued}"},"n":1}\n\n`],
     };
     const up = await upstream((seen, res) => {
       const [type, body] = answers[seen.url]!;
@@ -1229,18 +1229,101 @@ describe('mock · record · credentials, second pass', () => {
     const r = await recorder(up.origin);
     for (const p of Object.keys(answers)) await (await post(`${r.url}${p}`, {})).text();
     await r.close();
-    const text = fs.readFileSync(r.file, 'utf8');
-    expect(text).not.toContain('short-tok');
-    expect(text).not.toContain('s3cr3t');
+    expect(fs.readFileSync(r.file, 'utf8')).not.toContain(issued.slice(3, 20));
     const responses = (await loadStubFile(r.file)).stubs.map((s) => s.response);
-    expect(responses[0]!.json).toEqual({
-      access_token: '[masked]',
-      client_secret: '[masked]',
-      expires_in: 3600,
-    });
+    expect(responses[0]!.json).toEqual({ access_token: '[masked]', expires_in: 3600 });
     expect(responses[1]!.json).toEqual({ access_token: '[masked]', ok: true });
     expect(responses[2]!.sse).toEqual([{ data: { session: { client_secret: '[masked]' }, n: 1 } }]);
   });
+
+  it('leaves in an answer a secret-named field that holds no credential: the answer replays byte for byte', async () => {
+    const answers: Record<string, string> = {
+      // Token probabilities: `token` is a piece of the answer, not a secret.
+      '/logprobs':
+        '{"choices":[{"logprobs":{"content":[{"token":"Hello","logprob":-0.1},{"token":" world","logprob":-0.25}]}}]}',
+      '/page':
+        '{"items":[1,2],"next_page_token":"p2","token":{"id":7,"text":"Hi"},"signature":null}',
+    };
+    const up = await upstream((seen, res) => json(answers[seen.url]!)(seen, res));
+    const r = await recorder(up.origin);
+    for (const p of Object.keys(answers)) await (await post(`${r.url}${p}`, {})).text();
+    const url = await replay(r);
+    expect(warnings).toEqual([]);
+    for (const [p, body] of Object.entries(answers))
+      expect(await (await post(`${url}${p}`, {})).text()).toBe(body);
+  });
+
+  it('never rewrites a key: an answer with a credential for a key is not recorded', async () => {
+    // A key rewritten to the mask would change what the client reads on replay, and in a request body
+    // which request the stub matches. So a key is left alone, and what cannot be written without the
+    // credential is not written at all.
+    const up = await upstream((seen, res) =>
+      json(seen.url === '/v1/keyed' ? { [KEY]: 'the value under it' } : { ok: true })(seen, res),
+    );
+    const r = await recorder(up.origin);
+    const headers = { authorization: `Bearer ${KEY}` };
+    await (await post(`${r.url}/v1/keyed`, {}, headers)).text();
+    await (await post(`${r.url}/v1/plain`, {}, headers)).text();
+    await r.close();
+    expect(warnings).toEqual(['not recorded: POST 200 (it cannot be written safely)']);
+    expect((await loadStubFile(r.file)).stubs.map((s) => s.path)).toEqual(['/v1/plain']);
+    expect(fs.readFileSync(r.file, 'utf8')).not.toContain(KEY_CORE);
+  });
+
+  it('finds a bearer token of 5,000 characters by its first 4,096, and masks all of it', async () => {
+    const long = `tk-${KEY_CORE}-${'0123456789abcdefghij'.repeat(250)}`.slice(0, 5000);
+    const up = await upstream(
+      json({ echoed: `Bearer ${long}`, note: `the token ${long} was sent`, hex: 'unrelated' }),
+    );
+    const r = await recorder(up.origin);
+    await (await post(`${r.url}/v1/chat`, {}, { authorization: `Bearer ${long}` })).text();
+    await r.close();
+    const text = fs.readFileSync(r.file, 'utf8');
+    expect(text).not.toContain(KEY_CORE);
+    // Nothing of the part after the first 4,096 characters is left either.
+    expect(text).not.toContain(long.slice(4096, 4116));
+    expect((await loadStubFile(r.file)).stubs[0]!.response?.json).toEqual({
+      echoed: '[masked]',
+      note: 'the token [masked] was sent',
+      hex: 'unrelated',
+    });
+  });
+
+  it('records a 2 MiB stream of 40,000 events about as fast with 50 credentials learnt as with none', async () => {
+    const event = (i: number): string =>
+      `data: {"id":"c1","choices":[{"index":0,"delta":{"content":"Word ${i} of the answer"}}]}\n\n`;
+    let stream = '';
+    for (let i = 0; i < 40_000; i += 1) stream += event(i);
+    expect(Buffer.byteLength(stream)).toBeGreaterThan(2 * 1024 * 1024);
+    const up = await upstream((seen, res) => {
+      const big = seen.url === '/v1/stream';
+      res.writeHead(200, { 'content-type': big ? 'text/event-stream' : 'text/plain' });
+      res.end(big ? stream : 'ok');
+    });
+    /** Milliseconds from the request to the stream being in the file, with so many credentials learnt first. */
+    const timed = async (credentials: number): Promise<number> => {
+      const r = await recorder(up.origin, { file: `with-${credentials}.yaml` });
+      for (let i = 0; i < credentials; i += 1)
+        await (await post(`${r.url}/v1/warm`, { i }, { 'x-api-key': `key-${i}-${KEY}` })).text();
+      await vi.waitFor(() => expect(r.recorded).toBe(credentials));
+      const started = performance.now();
+      expect(await (await post(`${r.url}/v1/stream`, {})).text()).toBe(stream);
+      await vi.waitFor(() => expect(r.recorded).toBe(credentials + 1), {
+        timeout: 60_000,
+        interval: 10,
+      });
+      const elapsed = performance.now() - started;
+      await r.close();
+      return elapsed;
+    };
+    const none = await timed(0);
+    const fifty = await timed(50);
+    // Learnt credentials cost little: strings are looked at again only on a find.
+    expect(fifty).toBeLessThan(2 * none + 500);
+    // And the stream itself is cheap: about half a second where this test was written, and over four
+    // when every stub was read back with the reader of stub files.
+    expect(fifty).toBeLessThan(3000);
+  }, 120_000);
 
   it('learns a credential from a form-encoded request body', async () => {
     const secret = `frm+Zx/${KEY_CORE}=F`;
@@ -1344,7 +1427,9 @@ describe('mock · record · housekeeping', () => {
     expect(fs.readdirSync(dir)).toEqual(['stubs.yaml', 'stubs.yaml.lock']);
     await expect(
       startRecorder({ target: up.origin, file: 'stubs.yaml', cwd: dir, force: true }),
-    ).rejects.toThrow(/another recorder \(process \d+\) is writing this file/);
+    ).rejects.toThrow(
+      `another recorder (process ${process.pid}) is writing this file: stop it first, or give another path. Its lock is ${first.file}.lock: if no recorder is running, delete that file`,
+    );
     await (await post(`${first.url}/v1/chat`, { n: 2 })).text();
     await first.close();
     expect((await loadStubFile(first.file)).stubs).toHaveLength(2);

@@ -13,8 +13,8 @@ import { guardNetwork, type NetGuard } from '../../../mock/__tests__/net-guard.j
 import { RECORDING_NOTES, type Outbound } from '../../../mock/record.js';
 import { handleMock, MockUsageError, type MockFlags } from '../mock.js';
 
-// The three lines about masking a recording starts with, as sentences.
-const MASKING_SENTENCES = RECORDING_NOTES.slice(1, 4).map((line) => line.slice(2));
+// The four lines about masking a recording starts with, as sentences.
+const MASKING_SENTENCES = RECORDING_NOTES.slice(1, 5).map((line) => line.slice(2));
 
 const KEY = 'sk-test-9f8e7d6c5b4a3210';
 // What is left of the key in any encoding of it.
@@ -316,9 +316,10 @@ describe('CLI · mock · help', () => {
     // What the masking does and where it stops, in the words the file itself starts with.
     for (const sentence of MASKING_SENTENCES) expect(help).toContain(sentence);
     expect(MASKING_SENTENCES).toEqual([
-      "A field of a JSON body whose name is a secret's holds [masked] in place of its value.",
+      "A field with a secret's name holds [masked] in place of its value: in the JSON body of a request whatever the value is, in the JSON of an answer only a string of 16 characters or more with no whitespace that is not letters only.",
       'A credential value is also replaced wherever it is found, if it came in a header, the query or a cookie and has 8 characters or more, or in a body field and has 16 or more with no whitespace.',
-      'Not searched for: a value of letters only, a value over 4096 characters, and a value in a form other than plain, URL-encoded, JSON-escaped, base64 or hex.',
+      'Not searched for: a value of letters only, and a value in a form other than plain, URL-encoded, JSON-escaped, base64 or hex; a value over 4096 characters is found by its first 4096.',
+      'A credential in a path segment, or under an ordinary header, query or body-field name, is not known to the recorder.',
     ]);
     expect(help).toMatch(/Redirects are passed back, not followed/);
     expect(help).toMatch(/Timing is not recorded/);

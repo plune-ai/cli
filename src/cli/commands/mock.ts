@@ -83,7 +83,7 @@ export async function handleMock(flags: MockFlags, io: MockIo): Promise<number> 
       `Recording at ${recorder.url}: point the base URL of the client there.\n` +
         'Prompts and answers are stored as they are and may hold personal or confidential text. The file stays on this machine.\n' +
         // What the masking does and where it stops, in the words the file starts with.
-        RECORDING_NOTES.slice(1, 4)
+        RECORDING_NOTES.slice(1, 5)
           .map((line) => `${line.slice(2)}\n`)
           .join('') +
         'Ctrl+C stops.\n',
