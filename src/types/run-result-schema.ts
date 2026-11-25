@@ -67,6 +67,8 @@ const rowResultSchema = z.object({
   vars: z.record(z.string(), z.unknown()),
   output: z.string().nullable(),
   cached: z.boolean(),
+  /** A row of an eval with `stubs`. Kept by the parser so that `plune sync` can see it and refuse the upload. */
+  stubbed: z.boolean().optional(),
   usage: usageSchema.optional(),
   latency_ms: z.number().optional(),
   error: runErrorSchema.optional(),
@@ -173,6 +175,7 @@ const summarySchema = z.object({
       from_model: z.number(),
       missed: z.number(),
       errored: z.number(),
+      stubbed: z.number().optional(),
       saved: z.object({ input_tokens: z.number(), output_tokens: z.number(), cost_usd: z.number() }),
     })
     .optional(),
@@ -195,6 +198,13 @@ const evalResultSchema = z.object({
     .optional(),
   /** The type and model of a cell of a multi-model run. Optional and additive. */
   provider: z.object({ type: z.string(), model: z.string() }).optional(),
+  /** The mark of an eval answered from stubs, kept for the same reason as a row's `stubbed`. */
+  stubs: z
+    .object({
+      never_called: z.array(z.number()),
+      unmatched: z.array(z.object({ scope: z.string(), method: z.string() })),
+    })
+    .optional(),
   /** The link to the eval's trace in your own observability (Langfuse, OTel). Optional and additive; `plune sync` drops one `traceUrlProblem` refuses. */
   traceUrl: z.string().optional(),
 });

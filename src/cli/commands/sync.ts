@@ -13,6 +13,7 @@ import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { parseRunResult, traceUrlProblem, type ParsedRunResult } from '../../types/run-result-schema.js';
+import { stubbedEvals } from '../../types/results.js';
 import { resolveApiUrl } from '../api-url.js';
 import { loadToken } from '../credentials.js';
 import { gateExit, type Verdict } from '../gate.js';
@@ -118,12 +119,21 @@ function readRun(cwd: string, file: string | undefined, warn: (line: string) => 
     throw new SyncFileError(`Run file is not valid JSON: ${target}`);
   }
   dropBadTraceLinks(json, warn);
+  let run: ParsedRunResult;
   try {
     // Same zod contract the server enforces — a bad file fails here, not as an opaque 400 mid-upload.
-    return parseRunResult(json);
+    run = parseRunResult(json);
   } catch {
     throw new SyncFileError(`Run file does not match the RunResult schema: ${target}`);
   }
+  // The platform has no place for the mark, and a stub's answer must not be shown there as what a model said.
+  const stubbed = stubbedEvals(run);
+  if (stubbed.length > 0)
+    throw new SyncFileError(
+      `This run is not uploaded: its evals ${stubbed.join(', ')} were answered from stubs, not by a model. ` +
+        'Run them without stubs, or sync a run of the other evals (plune run --only).',
+    );
+  return run;
 }
 
 /** A trace link the platform would refuse costs only that link, never the upload: it is dropped with a warning; a good one is trimmed. */

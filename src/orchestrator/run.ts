@@ -45,9 +45,9 @@ import type { Cache } from '../cache/cache.js';
 import { MAX_RUNS } from '../config/schema.js';
 import { mcpLimits } from '../config/mcp.js';
 import { runAgentRow, type AgentConnect, type AgentRowParams } from './agent.js';
-import { parseStubFile, type Stub } from '../mock/schema.js';
+import { parseStubFile, StubFileError, type Stub } from '../mock/schema.js';
 import type { MockServer } from '../mock/server.js';
-import { inStubScope, nothingSeen } from './stubs.js';
+import { inStubScope, nothingSeen, viaStubs } from './stubs.js';
 
 const DEFAULT_MAX_TOKENS = 1024;
 const PLUNE_VERSION = '0.1.0';
@@ -585,20 +585,42 @@ function resolveTemplate(ev: EvalConfig, baseDir: string): string {
   throw new RunConfigError(`Eval "${ev.id}" has neither prompt nor prompt_file`);
 }
 
+/** The most of a stub file that is read. */
+const MAX_STUB_FILE_BYTES = 1024 * 1024;
+
 /** The stubs of an eval's stub file, read and checked; a config error when the run cannot use them. */
 function resolveStubs(ev: EvalConfig, deps: RunDeps, cacheStrict: boolean): Stub[] | undefined {
   const file = ev.stubs;
   if (file === undefined) return undefined;
+  // Inside the folder of the config, as written: a config from somewhere else must not make the run read,
+  // and quote in an error, a file of the machine it runs on. A link inside the folder is not followed up.
+  const dir = path.resolve(deps.baseDir);
+  const full = path.resolve(dir, file);
+  const inside = path.relative(dir, full);
+  if (inside === '' || inside === '..' || inside.startsWith(`..${path.sep}`) || path.isAbsolute(inside))
+    throw new RunConfigError(`Eval "${ev.id}": stubs must name a file inside the folder of the config: ${file}`);
   let text: string;
   try {
-    text = fs.readFileSync(path.resolve(deps.baseDir, file), 'utf8');
-  } catch {
+    const stat = fs.statSync(full);
+    if (stat.isDirectory()) throw new RunConfigError(`Eval "${ev.id}": stubs is a folder, not a file: ${file}`);
+    // Checked before the read, so a huge file is never loaded.
+    if (stat.size > MAX_STUB_FILE_BYTES)
+      throw new RunConfigError(`Eval "${ev.id}": stubs file is over 1 MiB: ${file}`);
+    text = fs.readFileSync(full, 'utf8');
+  } catch (err) {
+    if (err instanceof RunConfigError) throw err;
     throw new RunConfigError(`Eval "${ev.id}": stubs file not found: ${file}`);
   }
   let stubs: Stub[];
   try {
     ({ stubs } = parseStubFile(text, file));
   } catch (err) {
+    // A file without the version is some other file: the parser would list its top-level keys as unknown,
+    // and they are not this run's to print.
+    if (err instanceof StubFileError && err.issues.some((issue) => issue.startsWith('version:')))
+      throw new RunConfigError(
+        `Eval "${ev.id}": ${file} is not a stub file: a stub file has version: 1 at its top`,
+      );
     // The parser's own text: the file, and the place of each wrong field.
     throw new RunConfigError(`Eval "${ev.id}": ${(err as Error).message}`);
   }
@@ -607,7 +629,10 @@ function resolveStubs(ev: EvalConfig, deps: RunDeps, cacheStrict: boolean): Stub
       `Eval "${ev.id}" has stubs: a stubbed answer is never cached, so --cache-strict cannot answer it`,
     );
   if (deps.stubServer === undefined)
-    throw new RunConfigError(`Eval "${ev.id}" has stubs, and this run cannot start a stub server`);
+    throw new RunConfigError(
+      `Eval "${ev.id}" has stubs, and this run cannot start a stub server` +
+        ' (PLUNE_MOCK_PROVIDER=1 answers every call itself and takes no stubs)',
+    );
   return stubs;
 }
 
@@ -634,6 +659,7 @@ export function summarize(evals: EvalResult[], durationMs: number): Summary {
     errored: 0,
     saved: { input_tokens: 0, output_tokens: 0, cost_usd: 0 },
   };
+  let stubbed = 0;
   for (const ev of evals) {
     for (const row of ev.rows) {
       summary.total += 1;
@@ -644,13 +670,15 @@ export function summarize(evals: EvalResult[], durationMs: number): Summary {
       cache.saved.input_tokens += row.cache_saved?.input_tokens ?? 0;
       cache.saved.output_tokens += row.cache_saved?.output_tokens ?? 0;
       cache.saved.cost_usd += row.cache_saved?.cost_usd ?? 0;
-      if (row.cached) cache.from_cache += 1;
+      // A stubbed row was answered by neither the store nor a model: it is counted apart.
+      if (row.stubbed === true) stubbed += 1;
+      else if (row.cached) cache.from_cache += 1;
       else if (row.error?.code === CACHE_MISS_CODE) cache.missed += 1;
       else if (row.output !== null) cache.from_model += 1;
       else if (row.error !== undefined) cache.errored += 1;
     }
   }
-  return { ...summary, cache };
+  return { ...summary, cache: stubbed > 0 ? { ...cache, stubbed } : cache };
 }
 
 /** The provider of an agentic eval, once the run is known to be able to measure it; a config error otherwise. */
@@ -716,6 +744,13 @@ export async function runOrchestration(
     // provider must take tools, and it never comes from the cache, so --cache-strict cannot hold for it.
     const cells = models.map((model) => {
       const providerConfig: ProviderConfig = { ...model, ...ev.provider };
+      // A `timeout` stub never answers: only the client's own timeout ends the call, on every attempt.
+      const hangs = stubs?.findIndex((stub) => stub.failure?.type === 'timeout') ?? -1;
+      if (hangs !== -1 && providerConfig.timeout === undefined)
+        throw new RunConfigError(
+          `Eval "${ev.id}": stubs.${hangs} of ${ev.stubs} is a timeout failure and the provider of the eval sets no timeout, ` +
+            'so each attempt would wait as long as the provider SDK does by default (minutes): set provider.timeout, in milliseconds, at the root or on the eval',
+        );
       const agentic =
         ev.mcp === undefined || dryRun
           ? undefined
@@ -783,15 +818,15 @@ export async function runOrchestration(
               `${ev.id}.row${rowIndex + 1}${p.attempt === undefined ? '' : `.run${p.attempt + 1}`}`,
               stubs,
               seen,
-              (origin) =>
+              (scope) =>
                 runRow({
                   ...p,
-                  provider: deps.resolveProvider(providerConfig, origin),
+                  provider: viaStubs(deps.resolveProvider(providerConfig, scope.url), scope),
                   judgeProvider: p.provider,
                   noCache: true,
                 }),
             ),
-          );
+          ).then((result) => ({ ...result, stubbed: true }));
         }
         if (ev.mcp === undefined) return runRepeats(params, runs, passThreshold);
         const agentParams: AgentRowParams = {

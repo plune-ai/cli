@@ -233,12 +233,14 @@ export async function handleRun(
       : undefined;
   const factory = depsFactory ?? ((c, d) => buildRealDeps(c, d, options.dryRun));
   const given = factory(config, baseDir);
-  // One stub server for the run, started when the first row of an eval with `stubs` asks for it.
+  // One stub server for the run, started when the first row of an eval with `stubs` asks for it. None under
+  // the mock provider, which answers every call itself: an eval with stubs is then a config error, not a
+  // run that reads as stubbed and was not.
   let stubServer: Promise<MockServer> | undefined;
-  const deps: RunDeps = {
-    ...given,
-    stubServer: () => (stubServer ??= (given.stubServer ?? startStubServer)()),
-  };
+  const deps: RunDeps =
+    depsFactory === undefined && isMockMode(process.env)
+      ? given
+      : { ...given, stubServer: () => (stubServer ??= (given.stubServer ?? startStubServer)()) };
   try {
     // Once per run, on stderr so a --format json report on stdout stays clean.
     const stale = deps.cache.staleEntries ?? 0;

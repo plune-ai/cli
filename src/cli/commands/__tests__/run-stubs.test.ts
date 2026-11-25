@@ -9,6 +9,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { handleRun } from '../run.js';
+import { run as publicRun } from '../../../index.js';
 import { exitCodeFor, loadDataset, RunConfigError, type RunDeps } from '../../../orchestrator/index.js';
 import { getProvider } from '../../../providers/index.js';
 import { start, type MockScope, type MockServer } from '../../../mock/server.js';
@@ -383,6 +384,164 @@ describe('CLI · run · stubs · what the run reports', () => {
       'warning: eval "refund": stubs.0 of refund.stubs.json was never called',
       'warning: eval "refund": 2 requests matched no stub: POST in refund.row1, POST in refund.row2',
     ]);
-    expect(warnings().join('\n') +JSON.stringify(result.evals[0]!.stubs)).not.toContain('/v1/messages');
+    expect(warnings().join('\n') + JSON.stringify(result.evals[0]!.stubs)).not.toContain('/v1/messages');
+  });
+});
+
+describe('CLI · run · stubs · an answer that is not the stub server own', () => {
+  it('through the public run(): a resolver that ignores the stub address errors the row, keeps no output and asks no judge', async () => {
+    const configPath = write([
+      {
+        id: 'refund',
+        stubs: [answers('Refund approved')],
+        assertions: [{ type: 'llm-judge', criteria: 'The answer approves the refund.' }],
+      },
+    ]);
+    const ignores = deps({
+      stubServer,
+      resolveProvider: () => ({ complete: live, estimateCost: () => ({ cost_usd: 0.5 }) }),
+    });
+    const result = await publicRun({ dryRun: false, configPath }, ignores);
+    const row = result.evals[0]!.rows[0]!;
+    expect(row.output).toBeNull();
+    expect(row.assertions).toEqual([]);
+    expect(row.error).toEqual({
+      code: 'STUB_NOT_CALLED',
+      message:
+        'the answer did not come from the stub server: the provider of this run was not pointed at it, so the answer is dropped',
+    });
+    expect(row.usage).toBeUndefined();
+    expect(result.summary).toMatchObject({ total: 1, errored: 1, cost_usd: 0 });
+    expect(exitCodeFor(result)).toBe(2);
+    // The one call is the answer that was dropped; the judge was not asked about it.
+    expect(live).toHaveBeenCalledTimes(1);
+    expect(journalOf('refund.row1')).toHaveLength(0);
+  });
+
+  it('under the mock provider an eval with stubs is a config error before any call', async () => {
+    const configPath = write([{ id: 'plain' }, { id: 'refund', stubs: [answers('Refund approved')] }]);
+    const saved = process.env['PLUNE_MOCK_PROVIDER'];
+    process.env['PLUNE_MOCK_PROVIDER'] = '1';
+    try {
+      const err = await rejection(handleRun({ dryRun: false, configPath, noCache: true }));
+      expect(err).toBeInstanceOf(RunConfigError);
+      expect((err as Error).message).toBe(
+        'Eval "refund" has stubs, and this run cannot start a stub server (PLUNE_MOCK_PROVIDER=1 answers every call itself and takes no stubs)',
+      );
+      expect(fs.existsSync(path.join(tmpDir, '.plune', 'last-run.json'))).toBe(false);
+      // Without that eval the mock provider runs as before.
+      const result = await handleRun({ dryRun: false, configPath, noCache: true, only: ['plain'] });
+      expect(result.summary.total).toBe(1);
+    } finally {
+      if (saved === undefined) delete process.env['PLUNE_MOCK_PROVIDER'];
+      else process.env['PLUNE_MOCK_PROVIDER'] = saved;
+    }
+  });
+});
+
+describe('CLI · run · stubs · a stubbed row is marked and costs nothing', () => {
+  const paid = { ...message('Refund approved'), usage: { input_tokens: 1000, output_tokens: 1000 } };
+  const stub = { path: '/v1/messages', response: { json: paid } };
+  // A model with a price in the built-in table, so the same usage from the provider would cost money.
+  const priced = { model: 'claude-sonnet-5-5' };
+
+  it('the usage a stub returns is kept and priced 0; the row and the summary say it was stubbed', async () => {
+    const result = await run(write([{ id: 'refund', stubs: [stub] }, { id: 'plain', contains: 'live provider' }], priced));
+    const [stubbed, plain] = result.evals.map((ev) => ev.rows[0]!);
+    expect(stubbed).toMatchObject({
+      stubbed: true,
+      cached: false,
+      usage: { input_tokens: 1000, output_tokens: 1000, cost_usd: 0, priced: true },
+    });
+    expect(plain!.stubbed).toBeUndefined();
+    expect(result.summary.cost_usd).toBe(0);
+    expect(result.summary.cache).toMatchObject({ from_cache: 0, from_model: 1, missed: 0, errored: 0, stubbed: 1 });
+  });
+
+  it('a run with no stubs has no stubbed count', async () => {
+    const result = await run(write([{ id: 'plain', contains: 'live provider' }]));
+    expect(result.summary.cache).not.toHaveProperty('stubbed');
+  });
+
+  it('the judge call of a stubbed row is a real call and keeps its price', async () => {
+    const judged = { assertions: [{ type: 'llm-judge', criteria: 'The answer approves the refund.' }] };
+    const factory = deps({
+      stubServer,
+      resolveProvider: (cfg, stubOrigin) =>
+        stubOrigin === undefined
+          ? { complete: live, estimateCost: () => ({ cost_usd: 0.5, priced: true }) }
+          : getProvider(cfg, { ANTHROPIC_API_KEY: KEY }, undefined, stubOrigin),
+    });
+    const result = await run(write([{ id: 'refund', stubs: [stub], runs: 2, ...judged }], priced), {}, factory);
+    expect(result.summary).toMatchObject({ total: 1, passed: 1, cost_usd: 1 });
+    expect(result.evals[0]!.rows[0]).toMatchObject({ stubbed: true, usage: { cost_usd: 1 } });
+    expect(result.summary.cache).toMatchObject({ from_model: 0, stubbed: 1 });
+  });
+});
+
+describe('CLI · run · stubs · a timeout stub needs a provider timeout', () => {
+  const hangs = [{ path: '/v1/messages', failure: { type: 'timeout' } }];
+
+  it('without provider.timeout the run stops as a config error that names both and the fix', async () => {
+    const err = await rejection(run(write([{ id: 'plain' }, { id: 'refund', stubs: hangs }])));
+    expect(err).toBeInstanceOf(RunConfigError);
+    expect((err as Error).message).toBe(
+      'Eval "refund": stubs.0 of refund.stubs.json is a timeout failure and the provider of the eval sets no timeout, ' +
+        'so each attempt would wait as long as the provider SDK does by default (minutes): set provider.timeout, in milliseconds, at the root or on the eval',
+    );
+    expect([servers, live.mock.calls.length]).toEqual([0, 0]);
+  });
+
+  it('with a timeout on the eval the call gives up and the row is errored', async () => {
+    const configPath = write([{ id: 'refund', stubs: hangs, provider: { timeout: 200, max_retries: 0 } }]);
+    const result = await run(configPath);
+    expect(result.summary).toMatchObject({ total: 1, errored: 1 });
+    expect(journalOf('refund.row1')).toHaveLength(1);
+  });
+});
+
+describe('CLI · run · stubs · where the stub file may be and what it may be', () => {
+  const refused = async (stubs: string): Promise<string> => {
+    const err = await rejection(run(write([{ id: 'refund', stubs }])));
+    expect(err).toBeInstanceOf(RunConfigError);
+    expect([servers, live.mock.calls.length]).toEqual([0, 0]);
+    return (err as Error).message;
+  };
+
+  it('a path that leaves the folder of the config is refused, relative or absolute, and the file is not read', async () => {
+    const outside = path.join(path.dirname(tmpDir), `${path.basename(tmpDir)}-outside.stubs.json`);
+    fs.writeFileSync(outside, JSON.stringify({ version: 1, stubs: [answers('Refund approved')] }));
+    try {
+      for (const stubs of [`../${path.basename(outside)}`, `sub/../../${path.basename(outside)}`, outside, '.'])
+        expect(await refused(stubs)).toBe(
+          `Eval "refund": stubs must name a file inside the folder of the config: ${stubs}`,
+        );
+    } finally {
+      fs.rmSync(outside);
+    }
+  });
+
+  it('a path with ".." that stays inside the folder is taken', async () => {
+    fs.mkdirSync(path.join(tmpDir, 'sub'));
+    fs.writeFileSync(path.join(tmpDir, 'ok.stubs.json'), JSON.stringify({ version: 1, stubs: [answers('Refund approved')] }));
+    const result = await run(write([{ id: 'refund', stubs: 'sub/../ok.stubs.json' }]));
+    expect(result.summary).toMatchObject({ total: 1, passed: 1 });
+  });
+
+  it('a folder has a message of its own', async () => {
+    fs.mkdirSync(path.join(tmpDir, 'stubs'));
+    expect(await refused('stubs')).toBe('Eval "refund": stubs is a folder, not a file: stubs');
+  });
+
+  it('a file over 1 MiB is refused before it is read', async () => {
+    fs.writeFileSync(path.join(tmpDir, 'big.stubs.yaml'), `version: 1\nstubs: []\n#${'x'.repeat(1024 * 1024)}`);
+    expect(await refused('big.stubs.yaml')).toBe('Eval "refund": stubs file is over 1 MiB: big.stubs.yaml');
+  });
+
+  it('a YAML file of another kind is called not a stub file, and none of its keys is printed', async () => {
+    fs.writeFileSync(path.join(tmpDir, 'other.yaml'), 'deploy_token: s3cr3t-john-doe\nservices:\n  db: {}\n');
+    const message = await refused('other.yaml');
+    expect(message).toBe('Eval "refund": other.yaml is not a stub file: a stub file has version: 1 at its top');
+    for (const leaked of ['deploy_token', 's3cr3t', 'services']) expect(message).not.toContain(leaked);
   });
 });

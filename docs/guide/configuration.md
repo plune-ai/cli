@@ -375,7 +375,7 @@ the run would have without it.
 A product built on a model provider breaks on more than a wrong answer: a server error, a rate limit, a
 connection that drops, a body cut in the middle. An eval with `stubs` names a **stub file**, and during
 `plune run` a local server answers that eval's model calls from the file in place of the provider. The
-provider is not called for them, so the case costs nothing and gives the same result every time.
+provider is not called for them, so the model call costs nothing and gives the same result every time.
 
 ```yaml
 # plune.yaml
@@ -450,15 +450,32 @@ What a run does with an eval that has `stubs`:
 - **Every run of every row gets the stubs fresh.** `times` and `failure.first` count from zero for each
   row, and for each repeat of a row under `runs`, so rows that run in parallel do not share them.
 - **The file is checked before any model call.** A file that is missing, does not parse or has a wrong
-  field ends the run with exit `2` and the place of the field, such as `stubs.0.failure.type`.
+  field ends the run with exit `2` and the place of the field, such as `stubs.0.failure.type`. The path
+  has to stay inside the folder of `plune.yaml` (a path that leaves it, with `..` or as an absolute path,
+  is refused), the file is at most 1 MiB, and a file without `version: 1` is reported as not a stub file,
+  with none of its keys printed.
 - **Retries are the provider client's own**: a `429`, a `5xx` and a dropped connection are tried again up
-  to `provider.max_retries` times (default `2`), with a pause that grows from half a second. For `timeout`
-  set `provider.timeout`, or the call waits as long as the provider's SDK does by default.
+  to `provider.max_retries` times (default `2`), with a pause that grows from half a second.
+- **A `timeout` stub needs `provider.timeout`.** Only the client's own timeout ends such a call, so a stub
+  file with a `timeout` failure on an eval whose provider sets none is a configuration error (exit `2`):
+  set `provider.timeout`, in milliseconds, at the root or on the eval.
 - **Only the eval's own model call is stubbed.** The judge of `llm-judge`, `faithfulness`,
   `answer-relevance` and `context-precision` still asks the real provider, also when it is the eval's
   own model.
 - **The completion cache is not used**: a stubbed answer is neither stored nor read, and
   `--cache-strict` with such an eval is a configuration error (exit `2`).
+- **A stubbed call is not spend.** The row keeps the token counts the stub returned, at a cost of `0`;
+  the judge calls of the row are real and keep their price. Each such row has `"stubbed": true` in the
+  JSON report, and the rows are counted apart in `summary.cache.stubbed`, in none of `from_cache`,
+  `from_model`, `missed` and `errored`.
+- **An answer that did not come from the stub server is dropped.** When a row's answer comes back and
+  the stub server received no request for it, the row is errored with `STUB_NOT_CALLED` and no check or
+  judge sees the answer. Under `PLUNE_MOCK_PROVIDER=1`, which answers every call itself, an eval with
+  `stubs` is a configuration error (exit `2`).
+- **A run with a stubbed eval is not uploaded.** `plune report` and `plune diff` name the evals answered
+  from stubs in a `note:` line on stderr, and `plune sync` refuses such a run with exit `2` and their
+  names. The refusal is the safe default until the platform has a place for the mark: a stub's answer
+  must not appear there as what a model said. Sync a run of the other evals (`plune run --only`).
 - **The key variable must still be set** (`ANTHROPIC_API_KEY` and the like). The stub server does not
   check it, and keeps header values that look like a credential out of its record of requests.
 - **What did not happen is said.** A stub no request of the eval reached, and a request no stub answered,

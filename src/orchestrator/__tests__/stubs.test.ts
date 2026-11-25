@@ -29,13 +29,13 @@ describe('CLI · run · stubs · places of the stubs never called', () => {
       const seen = nothingSeen(stubs);
       expect(seen).toEqual({ never_called: [0, 1, 2], unmatched: [] });
 
-      await inStubScope(server, 'a.row1', stubs, seen, async (origin) => void (await post(origin)));
+      await inStubScope(server, 'a.row1', stubs, seen, async ({ url }) => void (await post(url)));
       expect(seen).toEqual({ never_called: [1, 2], unmatched: [] });
 
-      const thrown = await inStubScope(server, 'a.row2', stubs, seen, async (origin) => {
-        await post(origin);
-        await post(origin);
-        await post(origin, '/v1/secret-path');
+      const thrown = await inStubScope(server, 'a.row2', stubs, seen, async ({ url }) => {
+        await post(url);
+        await post(url);
+        await post(url, '/v1/secret-path');
         throw new Error('the row threw');
       }).catch((e: unknown) => e);
       expect((thrown as Error).message).toBe('the row threw');

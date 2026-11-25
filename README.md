@@ -148,8 +148,10 @@ stubs:
 ```
 
 The call fails twice, is retried, and the row passes on the third answer. The server lives for the run
-only, every row gets the stubs fresh, the completion cache is not used, and judge calls still go to the
-real provider. A bad stub file is exit `2` before any model call. See the
+only, every row gets the stubs fresh, the completion cache is not used, a stubbed call costs `0`, and
+judge calls still go to the real provider at their price. A bad stub file is exit `2` before any model
+call, and so is a `timeout` stub without `provider.timeout`. A run that holds a stubbed eval is marked,
+`plune report` and `plune diff` say so, and `plune sync` refuses to upload it (exit `2`). See the
 [configuration guide](docs/guide/configuration.md#stubs-a-provider-that-fails-on-purpose-stubs).
 
 ## Commands
@@ -211,7 +213,7 @@ Global flags: `-c, --config <path>` · `-v, --verbose` · `--no-color`.
 - **Policy version.** `CACHE_POLICY_VERSION` is part of the key. When it is raised, older entries stop answering, are dropped, and the run says `cache policy changed, N entries are stale` once on stderr.
 - **`--cache-strict`.** Every row must be in the cache; the model is not called for completions (judge assertions such as `llm-judge` still call it). A miss ends the run with exit code `5` and lists the rows with no entry. Not combinable with `--no-cache` (exit `2`), and neither is `--cache-max-age`. An entry with the wrong format is left in place in this mode (there is no retry).
 - **`--cache-max-age <duration>`.** `90s`, `15m`, `12h`, `7d` or milliseconds. An older entry is a miss; a fresh one is a hit.
-- **Summary.** The console report and the JSON (`summary.cache`) show rows `from_cache`, `from_model`, `missed` and `errored` (the provider failed; the four add up to the rows run), and the tokens and cost the cache saved (`saved`, the sum of each row's `cache_saved`).
+- **Summary.** The console report and the JSON (`summary.cache`) show rows `from_cache`, `from_model`, `missed` and `errored` (the provider failed; the four add up to the rows run, rows of an eval with `stubs` aside: those are counted in `stubbed`), and the tokens and cost the cache saved (`saved`, the sum of each row's `cache_saved`).
 
 Design: `docs/features/C7-completion-cache/adr/0001-completion-cache-hardening.md`.
 

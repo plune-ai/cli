@@ -628,9 +628,10 @@ export function createProgram(): Command {
       };
       const format = formatOrExit(options.format, RUN_FORMATS);
       if (format === undefined) return;
-      const [{ handleReport, ReportNotFoundError }, { renderReport }] = await Promise.all([
+      const [{ handleReport, ReportNotFoundError }, { renderReport }, { stubbedNote }] = await Promise.all([
         import('./cli/commands/report.js'),
         import('./reporters/index.js'),
+        import('./types/results.js'),
       ]);
       // A global -c points report at the run saved beside that config (its .plune/), not cwd.
       const cwd = globals.config !== undefined ? dirname(resolve(globals.config)) : process.cwd();
@@ -640,6 +641,9 @@ export function createProgram(): Command {
           color: globals.color !== false && shouldColor(options.output),
         });
         writeReport(text, options.output);
+        // On stderr, so the report itself stays what its format says.
+        const note = stubbedNote(result);
+        if (note !== undefined) process.stderr.write(`${note}\n`);
       } catch (err) {
         if (err instanceof ReportNotFoundError) {
           process.stderr.write(err.message + '\n');
@@ -686,14 +690,17 @@ export function createProgram(): Command {
         const verbose = (command.optsWithGlobals() as { verbose?: boolean }).verbose === true;
         const format = formatOrExit(options.format, DIFF_FORMATS);
         if (format === undefined) return;
-        const [{ diffFiles, DiffInputError }, { renderDiff }] = await Promise.all([
+        const [{ diffFiles, DiffInputError }, { renderDiff }, { stubbedNote }] = await Promise.all([
           import('./cli/commands/diff.js'),
           import('./reporters/diff.js'),
+          import('./types/results.js'),
         ]);
         try {
           const { format: _format, output: _output, ...gateFlags } = options;
-          const { diff, current: run } = diffFiles({ baselinePath: baseline, currentPath: current, ...gateFlags });
+          const { diff, current: run, baseline: base } = diffFiles({ baselinePath: baseline, currentPath: current, ...gateFlags });
           writeReport(renderDiff(diff, format, run), options.output);
+          for (const note of [stubbedNote(base, 'baseline'), stubbedNote(run, 'current')])
+            if (note !== undefined) process.stderr.write(`${note}\n`);
           // Gating is opt-in (AC-4): the diff is always reported, and without --fail-on-regression or a gate
           // limit the exit is 0. With them: 1 for a measured failure (a regression first of all), 3 when
           // something was not measured, so there is no verdict and the run is not green either.

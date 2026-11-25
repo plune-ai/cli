@@ -127,6 +127,7 @@ interface GoldenSummary {
     from_model: number;
     missed: number;
     errored: number;
+    stubbed?: number;
     saved: { input_tokens: number; output_tokens: number; cost_usd: number };
   };
 }
@@ -152,6 +153,7 @@ interface GoldenRowResult {
   vars: Record<string, unknown>;
   output: string | null;
   cached: boolean;
+  stubbed?: boolean;
   usage?: GoldenUsage;
   latency_ms?: number;
   error?: GoldenRunError;
