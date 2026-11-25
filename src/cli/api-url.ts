@@ -30,10 +30,28 @@ const DASHBOARDS = new Map([
   [BETA_API_URL, 'https://beta.plune.ai'],
 ]);
 
-/** The api base, with any trailing slash trimmed so `${base}/v1/runs` never doubles up. */
+/**
+ * The api base, with any trailing slash trimmed so `${base}/v1/runs` never doubles up.
+ *
+ * `||`, not `??`: a variable that is set but empty (a CI secret that is not there) is not an address.
+ */
 export function resolveApiUrl(explicit?: string): string {
-  const raw = explicit ?? process.env['PLUNE_API_URL'] ?? DEFAULT_API_URL;
+  const raw = explicit?.trim() || process.env['PLUNE_API_URL']?.trim() || DEFAULT_API_URL;
   return raw.replace(/\/+$/, '');
+}
+
+/**
+ * Production, the beta, or neither. By origin, so that `https://API.plune.ai`, `:443` and a path after the
+ * host are the deployment they reach. An address that cannot be read is neither, and never a throw: this
+ * runs while an error is being written.
+ */
+function knownApi(apiUrl: string): string | undefined {
+  try {
+    const origin = new URL(apiUrl.trim()).origin;
+    return DASHBOARDS.has(origin) ? origin : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -45,7 +63,8 @@ export function resolveApiUrl(explicit?: string): string {
  * something wrong: the message that uses this falls back to naming the api instead.
  */
 export function dashboardUrl(apiUrl: string = resolveApiUrl()): string | undefined {
-  return DASHBOARDS.get(apiUrl);
+  const known = knownApi(apiUrl);
+  return known === undefined ? undefined : DASHBOARDS.get(known);
 }
 
 /**
@@ -58,11 +77,19 @@ export function dashboardUrl(apiUrl: string = resolveApiUrl()): string | undefin
  */
 export function tokenRefusedBy(apiUrl: string = resolveApiUrl()): string {
   const named = `The address that refused it is ${apiUrl}.`;
-  if (apiUrl !== PRODUCTION_API_URL) return named;
+  if (knownApi(apiUrl) !== PRODUCTION_API_URL) return named;
   return (
     `${named} A token from a beta account works only on the beta: run "plune login" with a token from ` +
     `${DASHBOARDS.get(PRODUCTION_API_URL)}, or set PLUNE_API_URL=${BETA_API_URL} to keep using the beta account.`
   );
+}
+
+/**
+ * The same text as the end of a message about a refused request: a space and the sentences for a 401,
+ * nothing for any other status. A 403 is a right the token lacks, and another address would not grant it.
+ */
+export function ifTokenRefused(status: number | null, apiUrl: string): string {
+  return status === 401 ? ` ${tokenRefusedBy(apiUrl)}` : '';
 }
 
 /** One sentence about where a token comes from — used by three different messages. */

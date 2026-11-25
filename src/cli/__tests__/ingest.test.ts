@@ -76,6 +76,7 @@ describe('handleIngest', () => {
     await expect(handleIngest(deps({ fetchImpl: okFetch({ error: 'nope' }, 401) }))).rejects.toThrow(
       IngestTokenRejectedError,
     );
+    await expect(handleIngest(deps({ fetchImpl: okFetch({ error: 'nope' }, 401) }))).rejects.toThrow('The address that refused it is https://api.test.');
   });
 
   it('reports an unreachable API without leaking the transport error', async () => {

@@ -3114,3 +3114,35 @@ describe('one value in two kinds — the kind is part of the key (cli#156)', () 
     expect(caseOf(seen)).toEqual({ 'pw-9#0': 'tc-new-pw-9' });
   });
 });
+
+describe('a token refused by production', () => {
+  const HINT =
+    'The address that refused it is https://api.plune.ai. A token from a beta account works only on the beta: ' +
+    'run "plune login" with a token from https://app.plune.ai, or set PLUNE_API_URL=https://beta-api.plune.ai ' +
+    'to keep using the beta account.';
+
+  it('at the start of the run: the line names the address and the two ways on', async () => {
+    // The start is the first request, so a token of a beta account is refused here and not at the results.
+    const { fetchImpl } = platform({ startStatus: 401 });
+    const cfg = config(fetchImpl, { apiUrl: 'https://api.plune.ai' });
+    await startRun(cfg);
+    const line = logOf(cfg).find((l) => l.includes('could not start the run'));
+    expect(line).toContain(`Results will be written to ${cfg.fallbackPath}. ${HINT}`);
+  });
+
+  it('a 403 at the start or at the results is not a wrong address: no address, no beta', async () => {
+    const start = config(platform({ startStatus: 403 }).fetchImpl, { apiUrl: 'https://api.plune.ai' });
+    await startRun(start);
+    const results = config(platform({ known: { a: 'tc' }, resultsFailure: { status: 403, error: 'forbidden' } }).fetchImpl, {
+      apiUrl: 'https://api.plune.ai',
+    });
+    const run = await startRun(results);
+    await run.add(result('a'));
+    await run.finish();
+    expect(logOf(results).some((l) => l.includes('the API token was refused'))).toBe(true);
+    for (const l of [...logOf(start), ...logOf(results)]) {
+      expect(l).not.toContain('The address that refused it');
+      expect(l).not.toContain('beta');
+    }
+  });
+});

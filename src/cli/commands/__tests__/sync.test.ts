@@ -110,6 +110,10 @@ describe('handleSync', () => {
     await expect(
       handleSync({ cwd: tmp, apiUrl: 'https://api.test', loadToken: () => TOKEN, fetchImpl: fn }),
     ).rejects.toBeInstanceOf(TokenRejectedError);
+    // The address the request went to, not the default one.
+    await expect(
+      handleSync({ cwd: tmp, apiUrl: 'https://api.test', loadToken: () => TOKEN, fetchImpl: fn }),
+    ).rejects.toThrow('The address that refused it is https://api.test.');
   });
 
   it('drains the response body on a non-2xx (so no half-open socket blocks process exit)', async () => {

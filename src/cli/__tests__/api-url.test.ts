@@ -78,3 +78,33 @@ describe('a token refused after the default moved to production', () => {
     expect(new TokenRejectedError(OWN).message).not.toContain('beta');
   });
 });
+
+describe('an address written another way', () => {
+  it('reads PLUNE_API_URL that is set but empty or blank as not set', () => {
+    for (const blank of ['', '   ']) {
+      vi.stubEnv('PLUNE_API_URL', blank);
+      expect(resolveApiUrl()).toBe(PRODUCTION);
+      expect(resolveApiUrl(blank)).toBe(PRODUCTION);
+    }
+  });
+
+  it.each([
+    'https://API.plune.ai',
+    'https://api.plune.ai:443',
+    'https://api.plune.ai/v1',
+    ' https://api.plune.ai',
+  ])(
+    'knows production written as "%s": the dashboard and the two ways on are still named',
+    (written) => {
+      expect(dashboardUrl(written)).toBe('https://app.plune.ai');
+      expect(tokenRefusedBy(written)).toContain('or set PLUNE_API_URL=https://beta-api.plune.ai');
+    },
+  );
+
+  it('names no dashboard for an address that cannot be read, and does not throw', () => {
+    for (const bad of ['', 'not an address', 'api.plune.ai', 'http://']) {
+      expect(dashboardUrl(bad)).toBeUndefined();
+      expect(tokenRefusedBy(bad)).toBe(`The address that refused it is ${bad}.`);
+    }
+  });
+});

@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { promises as disk } from 'node:fs';
 import { basename, extname } from 'node:path';
 import { TextDecoder } from 'node:util';
-import { resolveApiUrl, tokenRefusedBy } from '../cli/api-url.js';
+import { ifTokenRefused, resolveApiUrl } from '../cli/api-url.js';
 import { loadToken } from '../cli/credentials.js';
 import { createClient, type ClientOutcome, type PlatformClient } from './client.js';
 import { defaultRunTitle, readEnv, UPLOAD_CONCURRENCY, UPLOAD_RETRIES } from './env.js';
@@ -1166,7 +1166,8 @@ export async function startRun(
       warnIfDropped(described, start.body.run, log);
     } else {
       const why = start.ok ? 'the answer had no run' : start.detail || start.kind;
-      log(`plune: could not start the run (${why}). Results will be written to ${fallbackPath}.`);
+      // The start is a run's first request, so this is where a token of another deployment is refused.
+      log(`plune: could not start the run (${why}). Results will be written to ${fallbackPath}.${start.ok ? '' : ifTokenRefused(start.status, apiUrl)}`);
     }
   }
 
@@ -1484,7 +1485,7 @@ export async function startRun(
       if (out.ok) {
         log('plune: could not send results (the answer carried no counts).');
       } else if (out.kind === 'auth') {
-        log(`plune: the API token was refused — run "plune login" with a fresh one. ${tokenRefusedBy(apiUrl)}`);
+        log(`plune: the API token was refused — run "plune login" with a fresh one.${ifTokenRefused(out.status, apiUrl)}`);
         offline = true;
       } else if (out.kind === 'conflict') {
         // Two processes closed one run. Retrying would not help and hiding it would leave someone
