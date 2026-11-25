@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { compareJson, ExpectedJsonError, validateExpected, MAX_MATCH_DEPTH, MAX_MATCH_STEPS } from '../compare.js';
+import {
+  compareJson,
+  ExpectedJsonError,
+  validateExpected,
+  MAX_EXPECTED_DEPTH,
+  MAX_MATCH_DEPTH,
+  MAX_MATCH_STEPS,
+} from '../compare.js';
 import type { CompareMode, Mismatch } from '../compare.js';
 
 const MODES: CompareMode[] = ['exact', 'unordered', 'contains'];
@@ -388,6 +395,26 @@ describe('json-verify · compare · the mode marker and its escape', () => {
     expect(validateExpected({ $literal: 1, a: 2 })[0]!.message).toBe(
       'an object with $literal must have no other key; data with a key $literal goes inside {"$literal": ...}',
     );
+  });
+
+  it('an expected value nested too deep is an error of the expected value, under $literal too', () => {
+    const nested = (depth: number): unknown => {
+      let v: unknown = 1;
+      for (let n = 0; n < depth; n++) v = n % 2 === 0 ? [v] : { a: v };
+      return v;
+    };
+    expect(validateExpected(nested(MAX_EXPECTED_DEPTH))).toEqual([]);
+    expect(compareJson(nested(MAX_EXPECTED_DEPTH), nested(MAX_EXPECTED_DEPTH), { mode: 'unordered' })).toEqual([]);
+    for (const expected of [nested(MAX_EXPECTED_DEPTH + 1), { $literal: nested(MAX_EXPECTED_DEPTH) }, nested(50_000)]) {
+      const issues = validateExpected(expected);
+      expect(issues).toHaveLength(1);
+      expect(issues[0]!.message).toBe(`expected is nested deeper than ${MAX_EXPECTED_DEPTH} levels`);
+      expect(() => compareJson(expected, 1)).toThrow(ExpectedJsonError);
+    }
+    // Markers count as levels: a chain of them cannot go deeper than data can.
+    let marked: unknown = 1;
+    for (let n = 0; n <= MAX_EXPECTED_DEPTH; n++) marked = { $mode: 'contains', $value: marked };
+    expect(validateExpected(marked)).toEqual([{ path: '$', message: `expected is nested deeper than ${MAX_EXPECTED_DEPTH} levels` }]);
   });
 
   it('validateExpected finds every error, and none inside $literal or in plain data', () => {

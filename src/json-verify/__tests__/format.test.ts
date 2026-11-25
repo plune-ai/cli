@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { compareJson } from '../compare.js';
-import { formatMismatches, MAX_FRAGMENT, MAX_LISTED } from '../format.js';
+import { formatMismatches, MAX_FRAGMENT, MAX_FRAGMENT_DEPTH, MAX_LISTED } from '../format.js';
 
 const text = (expected: unknown, actual: unknown, mode: 'exact' | 'unordered' | 'contains' = 'exact'): string =>
   formatMismatches(compareJson(expected, actual, { mode }));
@@ -94,11 +94,11 @@ describe('json-verify · format · the mismatch text', () => {
     );
   });
 
-  it(`a fragment is cut at ${MAX_FRAGMENT} characters, with its full length`, () => {
+  it(`a fragment is cut at ${MAX_FRAGMENT} characters`, () => {
     const long = 'x'.repeat(300);
     const lines = text({ a: long }, { a: [long] }).split('\n');
-    expect(lines[2]).toBe(`      expected: "${'x'.repeat(MAX_FRAGMENT - 1)}... (302 characters)`);
-    expect(lines[3]).toBe(`      actual:   ["${'x'.repeat(MAX_FRAGMENT - 2)}... (304 characters)`);
+    expect(lines[2]).toBe(`      expected: "${'x'.repeat(MAX_FRAGMENT - 1)}...`);
+    expect(lines[3]).toBe(`      actual:   ["${'x'.repeat(MAX_FRAGMENT - 2)}...`);
     const fits = 'y'.repeat(MAX_FRAGMENT - 2);
     expect(text(fits, '').split('\n')[2]).toBe(`      expected: "${fits}"`);
   });
@@ -107,7 +107,42 @@ describe('json-verify · format · the mismatch text', () => {
     const emoji = '\u{1F600}';
     // The quote takes one unit, so the 60th emoji would be cut in half at 120.
     const lines = text(emoji.repeat(100), '').split('\n');
-    expect(lines[2]).toBe(`      expected: "${emoji.repeat(59)}... (202 characters)`);
+    expect(lines[2]).toBe(`      expected: "${emoji.repeat(59)}...`);
+  });
+
+  it('a fragment is written out as JSON while it is short and shallow', () => {
+    const value = { a: [1, 'two', null, true, { b: [] }], 'c d': {}, e: -0.5 };
+    expect(text(0, value).split('\n')[3]).toBe(`      actual:   ${JSON.stringify(value)}`);
+  });
+
+  it(`below ${MAX_FRAGMENT_DEPTH} levels a fragment is cut to "..."`, () => {
+    expect(text(0, { a: [[[[[[[1]]]]]]], b: [[[[[[]]]]]], c: 2 }).split('\n')[3]).toBe(
+      '      actual:   {"a":[[[[[...]]]]],"b":[[[[[...]]]]],"c":2}',
+    );
+  });
+
+  it.each([5000, 50_000])('an answer nested %i deep is reported, whatever the reason, and nothing throws', (depth) => {
+    let deep: unknown = [];
+    for (let n = 0; n < depth; n++) deep = [deep];
+    const shown = `${'['.repeat(MAX_FRAGMENT_DEPTH)}...${']'.repeat(MAX_FRAGMENT_DEPTH)}`;
+    expect(text({ a: 1 }, deep)).toBe(
+      ['1 mismatch', '    $: type differs: expected object, got array', '      expected: {"a":1}', `      actual:   ${shown}`].join('\n'),
+    );
+    expect(text({ a: 1 }, { a: 1, b: deep }).split('\n').slice(1)).toEqual(['    $.b: extra key', `      actual:   ${shown}`]);
+    expect(text({ a: '@isString()' }, { a: deep }).split('\n')[1]).toBe('    $.a: function not satisfied: @isString()');
+    expect(text({ a: [[1]] }, { a: deep }).split('\n')[1]).toBe('    $.a[0][0]: type differs: expected number, got array');
+    expect(text([1, [2]], [deep, 1], 'unordered').split('\n')[1]).toBe('    $[1]: no match for an array element');
+    // Where the expected value does not look, the depth of the answer does not matter at all.
+    expect(text({ a: 1 }, { a: 1, b: deep }, 'contains')).toBe('');
+    expect(text({ b: '@isArray() @minLength(1)' }, { b: deep })).toBe('');
+  });
+
+  it('a very large fragment is not written out before it is cut', () => {
+    const rows = Array.from({ length: 300_000 }, (_, i) => ({ id: i, name: 'John Doe' }));
+    const started = Date.now();
+    expect(text(1, rows).split('\n')[3]).toMatch(/^ {6}actual: {3}\[\{"id":0,"name":"John Doe"\},.{60,}\.\.\.$/);
+    expect(text(1, 'x'.repeat(5_000_000)).split('\n')[3]).toBe(`      actual:   "${'x'.repeat(MAX_FRAGMENT - 1)}...`);
+    expect(Date.now() - started).toBeLessThan(250);
   });
 
   it('a line break or a control character of the answer stays on its line', () => {

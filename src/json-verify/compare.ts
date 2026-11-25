@@ -102,17 +102,28 @@ function readMarker(exp: JsonObject): Marker | string | undefined {
   return { value: exp.$value, mode, literal: false };
 }
 
+/**
+ * How deep an expected value may be nested, markers counted. The comparison goes only as deep as the expected
+ * value does, so this bounds its recursion whatever the depth of the answer.
+ */
+export const MAX_EXPECTED_DEPTH = 100;
+
 /** Every error of an expected value, with the path of each. Empty means `compareJson` will not throw. */
 export function validateExpected(expected: unknown): ExpectedIssue[] {
   const issues: ExpectedIssue[] = [];
-  const visit = (exp: unknown, path: string): void => {
-    if (Array.isArray(exp)) exp.forEach((item, i) => visit(item, `${path}[${i}]`));
-    else if (isObject(exp)) {
-      const marker = readMarker(exp);
+  // Under `$literal` only the depth is checked: nothing there is a marker or a check.
+  const visit = (exp: unknown, path: string, depth: number, literal: boolean): void => {
+    if (depth > MAX_EXPECTED_DEPTH) {
+      issues.push({ path, message: `expected is nested deeper than ${MAX_EXPECTED_DEPTH} levels` });
+    } else if (Array.isArray(exp)) {
+      exp.forEach((item, i) => visit(item, `${path}[${i}]`, depth + 1, literal));
+    } else if (isObject(exp)) {
+      const marker = literal ? undefined : readMarker(exp);
       if (typeof marker === 'string') issues.push({ path, message: marker });
-      else if (marker === undefined) for (const key of Object.keys(exp)) visit(exp[key], keyPath(path, key));
-      else if (!marker.literal) visit(marker.value, path);
-    } else if (typeof exp === 'string') {
+      else if (marker === undefined)
+        for (const key of Object.keys(exp)) visit(exp[key], keyPath(path, key), depth + 1, literal);
+      else visit(marker.value, path, depth + 1, marker.literal);
+    } else if (!literal && typeof exp === 'string') {
       try {
         parseExpectedString(exp);
       } catch (err) {
@@ -121,7 +132,7 @@ export function validateExpected(expected: unknown): ExpectedIssue[] {
       }
     }
   };
-  visit(expected, '$');
+  visit(expected, '$', 0, false);
   return issues;
 }
 

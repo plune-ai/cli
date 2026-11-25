@@ -75,6 +75,15 @@ describe('CLI · run · json-verify', () => {
     expect((await jsonVerify.run(ctx('null', '@isNotNull()', { extract: 'strict' }))).passed).toBe(false);
   });
 
+  it.each([5000, 50_000])('an answer nested %i deep is a failed check with a reason, not an error', async (depth) => {
+    const output = `${'['.repeat(depth)}${']'.repeat(depth)}`;
+    for (const extract of ['auto', 'strict'] as const) {
+      const result = await jsonVerify.run(ctx(output, { a: 1 }, { extract }));
+      expect(result.passed).toBe(false);
+      expect(result.reason).toMatch(/^(1 mismatch\n {4}\$: type differs: expected object, got array\n|output is not valid JSON)/);
+    }
+  });
+
   it('is registered under its type', () => {
     expect(getAssertion('json-verify')).toBe(jsonVerify);
   });

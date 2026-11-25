@@ -4,21 +4,47 @@
 
 import type { Mismatch } from './compare.js';
 
-/** A fragment longer than this, as compact JSON, is cut and its full length is given. */
+/** A fragment longer than this, as compact JSON, is cut. */
 export const MAX_FRAGMENT = 120;
+/** A fragment is written this many levels deep; what lies deeper is `...`. */
+export const MAX_FRAGMENT_DEPTH = 6;
 /** How many mismatches are written out; the rest are counted in a last line. */
 export const MAX_LISTED = 10;
 
 const typeOf = (v: unknown): string => (v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v);
 
-/** Compact JSON on one line: `JSON.stringify` escapes every line break and control character. */
+/**
+ * Compact JSON on one line: `JSON.stringify` escapes every line break and control character of a string.
+ * The value is a model's answer, of any size and depth, so it is not handed to `JSON.stringify` whole: that
+ * recurses as deep as the value and throws on a few thousand levels. It is written here, down to a fixed depth
+ * and only until the fragment is long enough to cut.
+ */
 function fragment(value: unknown): string {
-  const json = JSON.stringify(value);
-  if (json.length <= MAX_FRAGMENT) return json;
+  let out = '';
+  const write = (v: unknown, depth: number): void => {
+    if (typeof v !== 'object' || v === null) {
+      out += JSON.stringify(typeof v === 'string' ? v.slice(0, MAX_FRAGMENT) : v);
+    } else if (depth === MAX_FRAGMENT_DEPTH) {
+      out += '...';
+    } else {
+      const list = Array.isArray(v);
+      out += list ? '[' : '{';
+      let n = 0;
+      for (const [key, item] of list ? v.entries() : Object.entries(v)) {
+        if (out.length > MAX_FRAGMENT) return;
+        if (n++ > 0) out += ',';
+        if (!list) out += `${JSON.stringify(key)}:`;
+        write(item, depth + 1);
+      }
+      out += list ? ']' : '}';
+    }
+  };
+  write(value, 0);
+  if (out.length <= MAX_FRAGMENT) return out;
   // Not through the middle of a surrogate pair: half of one is not a character.
-  const last = json.charCodeAt(MAX_FRAGMENT - 1);
+  const last = out.charCodeAt(MAX_FRAGMENT - 1);
   const end = last >= 0xd800 && last <= 0xdbff ? MAX_FRAGMENT - 1 : MAX_FRAGMENT;
-  return `${json.slice(0, end)}... (${json.length} characters)`;
+  return `${out.slice(0, end)}...`;
 }
 
 function reasonText(m: Mismatch): string {

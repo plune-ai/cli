@@ -184,7 +184,9 @@ fragment, in a fixed order, so the same answer gives the same text:
       expected: "admin"
 ```
 
-A fragment is cut at 120 characters, and after ten differences the rest are counted (`and 7 more`). For an
+A fragment is cut at 120 characters and at six levels of nesting (`...`), and after ten differences the rest
+are counted (`and 7 more`). An answer may be nested as deep as it likes: the comparison goes only as deep as
+`expected` does, and `expected` itself may be nested at most 100 levels (deeper is a config error). For an
 element with no match, the index is its place in `expected`. An output with no JSON in it **fails** with a
 reason, as in `json-schema`.
 
