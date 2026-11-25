@@ -11,6 +11,10 @@ tag (see 0.2.2), so the tag is the authority for what shipped, not the committed
 
 ## [Unreleased]
 
+### Changed
+
+- **The experimental `jev` judge names the version that judged, takes a full version only, and checks its address.** `judge_model` is now `jev/<version>` with the version the server answered with, not the one in the config. `provider.model` must be a full version such as `jev-1.14.0`; an alias such as `jev-latest` is a config error. The address comes from `PLUNE_JEV_BASE_URL`, or else `TYPESAFE_BASE_URL`, and must be https under `typesafe.ai`: anything else ends `plune run` with exit `2` before a model is called and says how to set the address for plune alone, so that a local server of another model is never judged and reported as Jev. The price of `jev-1.14.0` is in the built-in table, a `pricing` entry overrides it, a version with no price is reported as unpriced, and `plune run --dry-run` now includes an estimate of this judge. See the [assertions guide](docs/guide/assertions.md#an-experimental-judge-jev).
+
 ### Fixed
 
 - **An option a command does not have, or an option without its value, now exits `2`, not `1`.** `plune run --no-such-flag` and `plune run --format` ended with exit code `1`, the code of a failed row, so a mistyped flag in CI read as a failed check. The same holds for everything the option parser refuses: an unknown option, an option given without its value, an option value the command does not accept (`plune run import r.xml --timeout abc`, `--upload-concurrency 99`), a missing required argument (`plune diff baseline.json`), and a subcommand a group does not have (`plune mcp bogus`, `plune plan bogus`). Each is a usage error with exit `2` and the parser's own message, on every command: `1` stays the code of a failed row, a regression or a failed gate. A command group typed without a subcommand (`plune mcp`, `plune requirements`, `plune plan`, or `plune` alone) prints its help and exits `2` where it exited `1`. `--help` and `--version` still exit `0`. **A CI script that tests for exit `1` on these paths needs `2` now.**

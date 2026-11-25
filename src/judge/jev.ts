@@ -4,15 +4,17 @@
 // orchestrator builds this judge for the check alone. One request per check, to one fixed address.
 
 import type { JevJudgeConfig } from '../types/config.js';
-import type { DecisionQuestion, Judge } from '../types/judge.js';
+import type { PricingMap } from '../types/config.js';
+import type { DecisionAnswer, DecisionQuestion, Judge } from '../types/judge.js';
 import { AuthError, ProviderError } from '../providers/errors.js';
+import { resolveCostEntry, type CostEntry } from '../providers/cost.js';
 
 export const JEV_BASE_URL = 'https://api.typesafe.ai';
 export const JEV_KEY_ENV = 'TYPESAFE_API_KEY';
 /** The longest state Jev takes, in characters. A longer one is refused here, before anything is sent, and never cut. */
 export const JEV_MAX_STATE_CHARS = 16_000;
-/** USD per million input tokens; Jev's output is not billed. Indicative, read on 2026-11-24. */
-export const JEV_USD_PER_1M_INPUT_TOKENS = 0.042;
+/** The address for the CLI alone; it wins over `TYPESAFE_BASE_URL`, which other tools may point at a local server. */
+export const JEV_BASE_URL_ENV = 'PLUNE_JEV_BASE_URL';
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 const INSTRUCTIONS = 'Does the answer meet the criterion?';
@@ -25,11 +27,45 @@ export function jevState(q: DecisionQuestion): string {
   return `${request}Answer:\n${q.output}\n\nCriterion:\n${q.criteria}`;
 }
 
+/**
+ * The address Jev is asked at: `PLUNE_JEV_BASE_URL`, else `TYPESAFE_BASE_URL`, else the default. Only https under
+ * typesafe.ai is taken. Anything else throws before a request: a `TYPESAFE_BASE_URL` set for a local server of a
+ * model with the same API would have that model judged and reported as Jev.
+ */
+export function jevBaseUrl(env: NodeJS.ProcessEnv): string {
+  const own = env[JEV_BASE_URL_ENV];
+  const [name, value] = own !== undefined && own !== '' ? [JEV_BASE_URL_ENV, own] : ['TYPESAFE_BASE_URL', env['TYPESAFE_BASE_URL']];
+  if (value === undefined || value === '') return JEV_BASE_URL;
+  let url: URL | undefined;
+  try {
+    url = new URL(value);
+  } catch {
+    url = undefined;
+  }
+  const ok = url !== undefined && url.protocol === 'https:' && (url.hostname === 'typesafe.ai' || url.hostname.endsWith('.typesafe.ai'));
+  if (!ok)
+    throw new Error(
+      `${name} is ${value}: the jev judge asks only an https address under typesafe.ai, so that another model is not judged and reported as Jev. ` +
+        (name === JEV_BASE_URL_ENV ? `Unset it or set it to ${JEV_BASE_URL}` : `Set ${JEV_BASE_URL_ENV}=${JEV_BASE_URL} for plune and keep TYPESAFE_BASE_URL for your other tools`),
+    );
+  return value.replace(/\/+$/, '');
+}
+
+/** What a Jev request costs: input tokens only, by the config's `pricing` or the built-in table. */
+export function jevCost(model: string, inputTokens: number, pricing?: PricingMap): CostEntry {
+  return resolveCostEntry({ input_tokens: inputTokens, output_tokens: 0 }, model, undefined, pricing);
+}
+
+/** An upper estimate of a state's tokens: three characters a token is below what English text takes. */
+export const jevTokenEstimate = (chars: number): number => Math.ceil(chars / 3);
+
 export interface JevJudgeDeps {
   env: NodeJS.ProcessEnv;
   fetchFn: typeof fetch;
+  /** The config's `pricing`: an entry for the model wins over the built-in price. */
+  pricing?: PricingMap;
   /** Called once per answered request with what it cost, so the row is charged for its own judge calls. */
-  onCost: (usd: number) => void;
+  onCost: (cost: CostEntry) => void;
 }
 
 function probability(json: unknown): number {
@@ -44,7 +80,8 @@ export function makeJevJudge(cfg: JevJudgeConfig, deps: JevJudgeDeps): Judge {
   return {
     ask: () =>
       Promise.reject(new Error('a jev judge answers a yes-or-no question only: it cannot judge this kind of check')),
-    async decide(q: DecisionQuestion): Promise<number> {
+    async decide(q: DecisionQuestion): Promise<DecisionAnswer> {
+      const base = jevBaseUrl(deps.env);
       const key = deps.env[JEV_KEY_ENV];
       if (key === undefined || key === '')
         throw new AuthError(`${JEV_KEY_ENV} is not set: the jev judge of an llm-judge check needs it`, JEV_KEY_ENV);
@@ -61,7 +98,7 @@ export function makeJevJudge(cfg: JevJudgeConfig, deps: JevJudgeDeps): Judge {
       });
       const send = async (): Promise<Response> => {
         try {
-          return await deps.fetchFn(`${JEV_BASE_URL}/v1/systemone`, {
+          return await deps.fetchFn(`${base}/v1/systemone`, {
             method: 'POST',
             headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
             body,
@@ -81,10 +118,13 @@ export function makeJevJudge(cfg: JevJudgeConfig, deps: JevJudgeDeps): Judge {
       const json: unknown = await res.json();
       const p = probability(json);
       const tokens = (json as { usage?: { input_tokens?: unknown } }).usage?.input_tokens;
-      // No usage in the answer: three characters a token, an upper estimate for English text.
-      const billed = typeof tokens === 'number' && tokens >= 0 ? tokens : Math.ceil(state.length / 3);
-      deps.onCost((billed / 1_000_000) * JEV_USD_PER_1M_INPUT_TOKENS);
-      return p;
+      // No usage in the answer: an upper estimate from the text sent.
+      const billed = typeof tokens === 'number' && tokens >= 0 ? tokens : jevTokenEstimate(state.length);
+      // The version the server answered with is what judged, whatever the config asked for.
+      const answered = (json as { model?: unknown }).model;
+      const model = typeof answered === 'string' && answered !== '' ? answered : cfg.model;
+      deps.onCost(jevCost(model, billed, deps.pricing));
+      return { probability: p, model };
     },
   };
 }

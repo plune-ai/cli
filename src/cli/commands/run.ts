@@ -21,7 +21,7 @@ import {
 } from '../../orchestrator/index.js';
 import type { Cache } from '../../cache/index.js';
 import type { Config, JevJudgeConfig } from '../../types/config.js';
-import { makeJevJudge, warnJevExperimental } from '../../judge/jev.js';
+import { jevBaseUrl, jevCost, makeJevJudge, warnJevExperimental } from '../../judge/jev.js';
 import type { AgentRecord, RunResult } from '../../types/results.js';
 
 // Used for --dry-run so the run never opens/creates the cache file (FR-8).
@@ -158,10 +158,16 @@ function buildRealDeps(config: Config, baseDir: string, dryRun: boolean): RunDep
     ...(isMockMode(process.env)
       ? {}
       : {
-          jevJudge: (cfg: JevJudgeConfig, onCost: (usd: number) => void) => {
+          jevJudge: (cfg: JevJudgeConfig, onCost: (cost: { cost_usd: number; priced?: boolean }) => void) => {
             warnJevExperimental();
-            return makeJevJudge(cfg, { env: process.env, fetchFn: fetch, onCost });
+            return makeJevJudge(cfg, {
+              env: process.env,
+              fetchFn: fetch,
+              onCost,
+              ...(config.pricing !== undefined ? { pricing: config.pricing } : {}),
+            });
           },
+          jevCost: (model: string, inputTokens: number) => jevCost(model, inputTokens, config.pricing),
         }),
   };
 }
@@ -170,6 +176,17 @@ function persist(result: RunResult, baseDir: string): void {
   const dir = path.join(baseDir, '.plune');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'last-run.json'), JSON.stringify(result, null, 2));
+}
+
+/** Throws a config error when the config has a `jev` judge and the environment points it outside typesafe.ai. */
+export function jevAddressCheck(config: Config, env: NodeJS.ProcessEnv): void {
+  const checks = [...(config.defaults?.assertions ?? []), ...config.evals.flatMap((ev) => ev.assertions)];
+  if (!checks.some((a) => a.type === 'llm-judge' && a.provider?.type === 'jev')) return;
+  try {
+    jevBaseUrl(env);
+  } catch (err) {
+    throw new RunConfigError((err as Error).message);
+  }
 }
 
 export async function handleRun(
@@ -183,6 +200,8 @@ export async function handleRun(
     options.configPath !== undefined
       ? path.dirname(path.resolve(options.configPath))
       : process.cwd();
+  // A jev judge with an address outside typesafe.ai stops the run here, before any model is called.
+  jevAddressCheck(config, process.env);
   // Advice, never a gate: it does not change the exit code.
   for (const warning of [...mcpSecretWarnings(config), ...selfJudgeWarnings(config)])
     process.stderr.write(`warning: ${warning}\n`);
